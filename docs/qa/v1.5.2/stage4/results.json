@@ -1,0 +1,50 @@
+{
+  "generatedAt": "2026-10-12T16:00:00.911Z",
+  "baselineSha": "f07fbe1345b4c86ced4bfe22b7043bd20fb07055",
+  "testedCodeSha": "91973d5a473ce2eab0eee41d5220e3d8e9bcc411",
+  "runtime": "Electron Node 20.18.0 / ABI 130",
+  "commitReadiness": "PASS for scoped source and test changes",
+  "releaseDecision": "NO-GO",
+  "backend": {
+    "files": 21,
+    "passedFiles": 21,
+    "failedFiles": 0,
+    "tests": 193,
+    "passed": 193,
+    "failed": 0,
+    "skipped": 0,
+    "runner": "backend/scripts/run-tests-serial.mjs runTestFile; tests/setup-db-isolation.ts"
+  },
+  "dcc": {
+    "invariants": 12,
+    "distinctCaseReferences": 117,
+    "backendFiles": 10,
+    "frontendFiles": 22,
+    "mappingOnly": true
+  },
+  "acceptedEvidence": {
+    "baselineContract": "isolated-baseline-deletion-contract.log",
+    "beforeFix": "isolated-document-move-before-fix.log",
+    "baselinePersonalEntities": "isolated-baseline-personal-entities.log",
+    "finalBackend": "isolated-backend-results.json"
+  },
+  "excludedEvidence": "Earlier direct runs without setup-db-isolation.ts are preserved but excluded from commit validation.",
+  "executionIncident": {
+    "path": "data/nowen-note.db",
+    "issue": "First direct run omitted the database isolation preload.",
+    "userConfirmation": "User explicitly confirmed this is a test database with no data requiring preservation.",
+    "snapshots": "C:/Users/cropf/.codex/merge-backups/nowen-note-release-152-0ad119e22aba/remaining-code-review/"
+  },
+  "limitations": [
+    "No full backend/frontend rerun on this new source SHA",
+    "No new candidate build or installed-package validation",
+    "No Android full GUI or WAN acceptance",
+    "BUG-11 Sync V2 independent permanent deletion remains open"
+  ],
+  "historicalEmulatorReport": {
+    "path": "../../../test-results/sync-v2-native-folder-trash-2026-10-11.json",
+    "sourceCommit": "bf1052992d5b2a8f11cfe4ad82bd054bf72e7b6e",
+    "device": "emulator-5580",
+    "currentFixAcceptance": false
+  }
+}

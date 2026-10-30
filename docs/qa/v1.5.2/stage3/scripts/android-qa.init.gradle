@@ -1,0 +1,9 @@
+// Isolated debug package; never updates the production app or reads its data.
+allprojects {
+    afterEvaluate { p ->
+        if (p.name == 'app') {
+            p.android.defaultConfig.applicationId = 'com.nowen.note.qa152'
+            p.android.defaultConfig.versionName = '1.5.2-qa.98d1ddf5'
+        }
+    }
+}

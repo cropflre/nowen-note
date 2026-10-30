@@ -1,0 +1,9 @@
+{
+  "base": "http://127.0.0.1:8682",
+  "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+  "kind": "Built hardened backend on loopback with isolated fixture DB; no installer or UI proof",
+  "harnessError": {
+    "message": "Built server did not become ready",
+    "stack": "AssertionError [ERR_ASSERTION]: Built server did not become ready\n    at <anonymous> (C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\scripts\\http-bundle-proof.mjs:32:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"
+  }
+}

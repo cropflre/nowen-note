@@ -1,7 +1,7 @@
 import type { Migration } from "./migrations.impl.js";
 
 export const excelDocumentsMigration: Migration = {
-  version: 124, // 官方 v1.5.1 的 encrypted-content-v2-storage 占用了 123，避让改号
+  version: 136, // 官方 v1.5.1 占用 123、v1.5.3 占用 124-135（taskLifecycle 为 124），避让改号
   name: "excel-univer-documents",
   up: (db) => {
     db.exec(`

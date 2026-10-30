@@ -1,5 +1,6 @@
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
+import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
 import { EmojiSuggestionList } from "./EmojiSuggestionList";
 import RichTextBlockControls from "./RichTextBlockControls";
 import { getSlashEditorId } from "./extensions/SlashCommandExtension";
@@ -8,6 +9,7 @@ import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativ
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
+import { preparePastedImages, rescuePastedImages, type RescueStats } from "@/lib/pastedImages";
 import { createPortal } from "react-dom";
 import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
@@ -29,6 +31,7 @@ import Image from "@tiptap/extension-image";
 import { createResizableImageNodeView } from "./ResizableImageView";
 import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
 import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
+import { EditorImageTransformControls, updateImageAttributesAt } from "./EditorImageTransformBridge";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
@@ -169,7 +172,7 @@ import {
   HIGHLIGHT_PRESETS,
 } from "@/components/FontSizeExtension";
 import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeightExtension";
-import CodeBlockView from "@/components/CodeBlockView";
+import { createCodeBlockNodeView } from "@/components/CodeBlockView";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
 import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
@@ -325,193 +328,6 @@ if (!(ProseMirrorNode.prototype as any)[RESOLVE_PATCHED]) {
 // 这里在粘贴进入 PM DOMParser 之前，把顶层的 <br> 拆成段落边界、把 <div>
 // 统一升级为 <p>，让 PM 看到的是真正的多段落结构。
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// rescuePastedImages：从论坛 / 懒加载页面复制 HTML 时，<img src> 经常是
-// 1×1 占位图（如 Discuz 的 static/image/common/none.gif），真正的图片地址
-// 藏在 file / zoomfile / data-src / data-original / data-lazy-src 等自定义
-// 属性里。这里把这些属性值"救"回到 src，并尝试把相对路径补成绝对 URL，
-// 避免粘贴后图片完全消失或显示成 1×1 透明块。
-//
-// 选择第一个非空的"看起来像真正图片地址"的属性值；若 src 已经是绝对的
-// http(s)/data:/blob: URL 则保留不动（不覆盖用户原本就正常的图）。
-//
-// 返回值：{ total, rescued, failed }
-//   total   - 处理到的 <img> 总数
-//   rescued - 从 data-src / file / srcset 等候选属性救回真实地址的 <img> 数
-//   failed  - 仍然没有可用 src 的 <img>（通常是原网页图片还没加载完就被复制）
-// ---------------------------------------------------------------------------
-type RescueStats = { total: number; rescued: number; failed: number };
-function rescuePastedImages(root: Element): RescueStats {
-  const stats: RescueStats = { total: 0, rescued: 0, failed: 0 };
-  // 1) 先扫一遍找出本片段内"任意一个绝对 URL 的 origin"，作为相对路径的 base。
-  //    优先用 <a href>/<link href>/已经是绝对地址的 <img src>，因为 Discuz
-  //    复制过来的 HTML 往往带有指向源站的链接（如附件下载链接）。
-  let pasteBaseOrigin: string | null = null;
-  const pickOrigin = (raw: string | null) => {
-    if (pasteBaseOrigin || !raw) return;
-    if (!/^https?:\/\//i.test(raw)) return;
-    try {
-      pasteBaseOrigin = new URL(raw).origin;
-    } catch {
-      /* ignore malformed */
-    }
-  };
-  root.querySelectorAll("a[href]").forEach((a) => pickOrigin(a.getAttribute("href")));
-  root.querySelectorAll("img").forEach((img) => {
-    pickOrigin(img.getAttribute("src"));
-    pickOrigin(img.getAttribute("file"));
-    pickOrigin(img.getAttribute("zoomfile"));
-    pickOrigin(img.getAttribute("data-src"));
-    pickOrigin(img.getAttribute("data-original"));
-  });
-
-  // 2) 占位图特征：Discuz/typecho/常见 lazyload 库都用极小的 gif/png 占位，
-  //    或干脆 src 为空、为 about:blank。命中即视为"需要救援"。
-  const isPlaceholderSrc = (src: string | null): boolean => {
-    if (!src) return true;
-    const s = src.trim();
-    if (!s || s === "about:blank") return true;
-    // data:image/gif;base64,R0lGODlh...（1×1 透明 gif/png 占位）
-    if (/^data:image\/(gif|png);base64,/i.test(s) && s.length < 200) return true;
-    // Discuz 标准占位
-    if (/\/none\.gif(\?|$)/i.test(s)) return true;
-    if (/\/(blank|placeholder|spacer|grey|loading)\.(gif|png|svg)(\?|$)/i.test(s)) return true;
-    return false;
-  };
-
-  // 3) 把相对/协议相对路径补成绝对 URL（找不到 base 则保持原样，让浏览器自行决定）
-  const toAbsolute = (url: string): string => {
-    const u = url.trim();
-    if (!u) return u;
-    if (/^(https?:|data:|blob:)/i.test(u)) return u;
-    if (u.startsWith("//")) return `https:${u}`;
-    if (!pasteBaseOrigin) return u;
-    if (u.startsWith("/")) return `${pasteBaseOrigin}${u}`;
-    return `${pasteBaseOrigin}/${u.replace(/^\.?\//, "")}`;
-  };
-
-  // 从 srcset 字符串中挑一个 URL（优先最高分辨率）。
-  //   "url1 1x, url2 2x"  → url2
-  //   "url1 320w, url2 1280w" → url2
-  //   "url1"              → url1
-  const pickFromSrcset = (raw: string | null): string | null => {
-    if (!raw) return null;
-    const entries = raw
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((e) => {
-        // 允许 URL 内含空格（罕见）；取最后一段做 descriptor
-        const m = e.match(/^(\S+)(?:\s+(\S+))?$/);
-        if (!m) return null;
-        const url = m[1];
-        const desc = (m[2] || "").toLowerCase();
-        let weight = 0;
-        if (desc.endsWith("w")) weight = parseFloat(desc);
-        else if (desc.endsWith("x")) weight = parseFloat(desc) * 1000; // 粗略统一量纲
-        else weight = 0;
-        return { url, weight };
-      })
-      .filter((x): x is { url: string; weight: number } => !!x);
-    if (entries.length === 0) return null;
-    entries.sort((a, b) => b.weight - a.weight);
-    return entries[0].url;
-  };
-
-  // 4) 救援每一个 <img>：按优先级挑一个有效的真实地址覆盖到 src
-  root.querySelectorAll("img").forEach((img) => {
-    stats.total += 1;
-    const currentSrc = img.getAttribute("src");
-    // src 已经是合法且非占位的远端/data URL → 不动
-    //   注意：file:// 不算合法（浏览器出于安全限制不会加载），
-    //   Word 复制过来的 <img src="file:///C:/Users/.../clip_image001.png"> 必须走救援流程。
-    if (currentSrc && /^(https?:|data:|blob:)/i.test(currentSrc) && !isPlaceholderSrc(currentSrc)) {
-      return;
-    }
-    // 候选属性顺序：Discuz 的 zoomfile（点击放大原图）> file > 通用 lazyload 属性
-    // 覆盖主流懒加载库与站点：lazysizes、lozad、jQuery.lazyload、微信公众号、
-    // CSDN、简书、掘金、知乎、博客园、Medium 等
-    const candidates = [
-      "zoomfile",
-      "file",
-      "data-src",
-      "data-original",
-      "data-lazy-src",
-      "data-actualsrc",
-      "data-echo",
-      "data-raw-src",
-      "data-original-src",
-      "data-src-large",
-      "data-src-hd",
-      "data-hires",
-      "data-full",
-      "data-url",
-      "data-href",
-    ];
-    let picked: string | null = null;
-    for (const attr of candidates) {
-      const v = img.getAttribute(attr);
-      if (v && v.trim()) {
-        picked = v.trim();
-        break;
-      }
-    }
-    // 从 data-srcset / srcset 挑最大尺寸
-    if (!picked) {
-      picked = pickFromSrcset(img.getAttribute("data-srcset"))
-        || pickFromSrcset(img.getAttribute("srcset"));
-    }
-    // 从父层 <picture> 的 <source srcset> 挑最大尺寸
-    if (!picked) {
-      const picture = img.closest("picture");
-      if (picture) {
-        const sources = Array.from(picture.querySelectorAll("source"));
-        for (const s of sources) {
-          const url = pickFromSrcset(s.getAttribute("srcset"))
-            || pickFromSrcset(s.getAttribute("data-srcset"));
-          if (url) {
-            picked = url;
-            break;
-          }
-        }
-      }
-    }
-    // 候选都没有，但当前 src 是相对路径（非占位）→ 也尝试补全
-    if (!picked && currentSrc && !isPlaceholderSrc(currentSrc)) {
-      picked = currentSrc;
-    }
-    if (!picked) {
-      // 救不回来，记一笔（常见来源：
-      //   a) 懒加载网页图片未加载完；
-      //   b) Word/WPS 复制而来 —— HTML 里 <img src="file:///..."> 浏览器无法加载）
-      // 从片段中移除该 <img>，避免最终笔记里出现破图图标。
-      stats.failed += 1;
-      img.remove();
-      return;
-    }
-    const abs = toAbsolute(picked);
-    if (abs && /^(https?:|data:|blob:)/i.test(abs)) {
-      img.setAttribute("src", abs);
-      // 顺手清掉 file:// 的 data-* 与 srcset，避免干扰下游
-      img.removeAttribute("srcset");
-      stats.rescued += 1;
-    } else {
-      stats.failed += 1;
-      img.remove();
-    }
-  });
-
-  // 5) Discuz 把 <img> 包在 <ignore_js_op> 里（一个 Discuz 自造标签，
-  //    PM schema 认不出会被丢，连带 <img> 一起丢）。这里把它替换为 <span>。
-  root.querySelectorAll("ignore_js_op").forEach((el) => {
-    const span = el.ownerDocument.createElement("span");
-    while (el.firstChild) span.appendChild(el.firstChild);
-    el.replaceWith(span);
-  });
-
-  return stats;
-}
 
 // ---------------------------------------------------------------------------
 // isWordLikeHtml：判断剪贴板 HTML 是否来自 Microsoft Word / WPS / Outlook
@@ -1550,6 +1366,8 @@ type EditorImageTarget = {
 };
 
 type ImageViewerState = {
+  noteId: string;
+  document: ProseMirrorNode;
   images: FullscreenImageItem[];
   targets: Array<EditorImageTarget | null>;
   initialIndex: number;
@@ -2069,7 +1887,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           ];
         },
         addNodeView() {
-          return ReactNodeViewRenderer(CodeBlockView);
+          return createCodeBlockNodeView();
         },
       }).configure({ lowlight, defaultLanguage: null }),
       Underline,
@@ -2422,7 +2240,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           // 先把旧式 <font color> 转为 span style，再进入统一 XSS 清洗，
           // 保留原始视觉颜色并由 TextStyleKit 承载。
           const rawHtml = event.clipboardData?.getData("text/html") || "";
-          const html = sanitizeForPaste(normalizeLegacyFontColors(rawHtml));
+          const rawRtf = event.clipboardData?.getData("text/rtf") || "";
+          const pastedHtmlIsWordSource = isWordLikeHtml(rawHtml);
+          const pastedImages = preparePastedImages(normalizeLegacyFontColors(rawHtml));
+          const html = pastedImages.html;
           const prepareRemoteImages = async (content: string, format: "html" | "markdown", scope: { id: string; revision: number }): Promise<string | null> => {
             const images = format === "html" ? extractRemoteImageUrls(content) : extractRemoteImageUrlsFromMarkdown(content);
             const mode = remoteImagePasteModeRef.current;
@@ -2512,7 +2333,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           //   b) 若 html 为空：用 text/plain 按行拼成简化 HTML，再把 RTF 图片全部
           //                    追加到正文末尾；至少保证"文字 + 图片都不丢"。
           {
-            const rtfForImg = event.clipboardData?.getData("text/rtf") || "";
+            const rtfForImg = rawRtf;
             // 先做廉价探测：只数 \pngblip / \jpegblip 的出现次数，不做解码。
             // 这样能在阻塞主线程做重活之前，立刻决定是否需要弹 loading。
             const blipMatches = rtfForImg.length > 0
@@ -2753,7 +2574,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             console.log("[paste-diag] PATH=html (normalize + parseSlice)");
             let htmlForParse = html;
             try {
-              const rtf = event.clipboardData?.getData("text/rtf") || "";
+              const rtf = rawRtf;
               if (rtf.length > 0 && /\\(pngblip|jpegblip)/.test(rtf)) {
                 const rtfImages = extractImagesFromRtf(rtf);
                 if (rtfImages.length > 0) {
@@ -2790,11 +2611,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                 console.log("[paste-diag] PM slice image nodes=", imgCountInSlice);
               } catch {}
               view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
-              if (normalized.imageStats.failed > 0) {
-                const msgKey = normalized.isWordSource
+              const failedImages = normalized.imageStats.failed;
+              if (failedImages > 0) {
+                const msgKey = pastedHtmlIsWordSource || normalized.isWordSource
                   ? "tiptap.wordImagesNotPastable"
                   : "tiptap.imagesNotLoaded";
-                showPasteToast("error", t(msgKey, { count: normalized.imageStats.failed }), 6000);
+                showPasteToast("error", t(msgKey, { count: failedImages }), 6000);
               }
             };
 
@@ -3433,6 +3255,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      applyCjkTypography: (action) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        return applyTiptapCjkTypography(editor, action);
+      },
       insertMarkdownAtCursor: (md: string) => {
         if (!editor || editor.isDestroyed) return false;
         try {
@@ -3599,7 +3425,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (titleRef.current && !isTitleComposingRef.current) {
       titleRef.current.value = note.title;
     }
-  }, [note.id, note.content]);
+  }, [editor, note.id, note.content]);
+  // editor 首次就绪时也要登记笔记身份，避免首个本地 ACK 被误判为切换笔记。
   //   ^^^^^^^^^^^^^^^^^^^^^^
   //   依赖含 content 的完整语义（更新版）：
   //
@@ -3696,11 +3523,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const sourceIndex = images.findIndex((item) => item.src === targetSrc || item.src === resolvedTarget);
     const initialIndex = Math.max(0, positionIndex >= 0 ? positionIndex : sourceIndex);
     setImageViewer({
+      noteId: note.id,
+      document: editor.state.doc,
       images: images.length ? images : [{ src: resolvedTarget, alt: targetAlt }],
       targets: images.length ? targets : [null],
       initialIndex,
     });
-  }, [editor]);
+  }, [editor, note.id]);
+
+  useEffect(() => { setImageViewer(null); }, [note.id]);
 
   // 编辑态单击只选中图片，双击直达 Viewer；只读态单击直接查看。
   // 四角 resize handle 会拦截事件，不会误触发预览。
@@ -4179,10 +4010,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       const { selection } = state;
       const { from, to, empty } = selection;
 
-      // 编辑器失焦 → 关闭所有气泡
+      // 编辑器失焦时关闭文本气泡；图片选区保留操作入口。
       if (!view.hasFocus()) {
         setBubble(b => b.open ? { ...b, open: false } : b);
-        setImageBubble(b => b.open ? { ...b, open: false } : b);
+        // The mobile image sheet deliberately blurs the editor to hide the keyboard.
+        // Attribute updates retain its image selection and must keep the sheet open.
+        if (!shouldKeepImageActionsOpenOnBlur(selection)) {
+          setImageBubble(b => b.open ? { ...b, open: false } : b);
+        }
         setLinkBubble(b => b.open ? { ...b, open: false } : b);
         setTableBubble(b => b.open ? { ...b, open: false } : b);
         return;
@@ -4756,7 +4591,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     });
   }, [editor, isGuest, captureEditorInsertAnchor, restoreEditorInsertAnchor, releaseEditorInsertAnchor]);
 
+  useEffect(() => { closeAttachmentLibrary(); }, [note.id, closeAttachmentLibrary]);
+
   const insertExistingAttachment = useCallback((item: FileItem) => {
+    if (!editor?.isEditable || noteRef.current.isTrashed) return;
     const anchor = attachmentLibraryAnchorRef.current;
     if (!editor || !restoreEditorInsertAnchor(anchor)) {
       closeAttachmentLibrary();
@@ -5156,11 +4994,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
     // 获取选区在屏幕上的位置
     const coords = editor.view.coordsAtPos(from);
-    const editorRect = editor.view.dom.getBoundingClientRect();
-    setAiPosition({
-      top: Math.min(coords.top + 28, window.innerHeight - 500),
-      left: Math.min(coords.left, window.innerWidth - 420),
-    });
+    // The shared assistant clamps the anchor to the visual viewport.
+    setAiPosition({ top: coords.top + 28, left: coords.left });
     setShowAI(true);
   }, [editor]);
 
@@ -6233,6 +6068,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
             <Download size={14} />
           </ToolbarButton>
+          <EditorImageTransformControls editor={editor} />
           <div className="relative">
             <ToolbarButton
               title={t("common.more", { defaultValue: "更多" })}
@@ -6345,6 +6181,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               {t("common.more", { defaultValue: "更多" })}
             </button>
           </div>
+          <EditorImageTransformControls editor={editor} mobile />
           {imageSizeMenuOpen && (
             <div className="mt-2 rounded-xl border border-app-border bg-app-hover/40 p-2">
               <div className="mb-1.5 text-[10px] font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
@@ -6367,7 +6204,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   {t("tiptap.imageSizeOriginal")}
                 </button>
               </div>
-              <div data-nowen-image-transform-slot="true" />
               <div className="mt-2 grid grid-cols-2 gap-1.5">
                 {selectedImageCanLocalize && (
                   <button
@@ -6763,6 +6599,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           所有格式化命令。 */}
       <div
         ref={setScrollContainerRef}
+        data-note-reading-scroll="richtext"
         className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
@@ -6900,6 +6737,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       />
 
       <AttachmentLibraryPicker
+        key={note.id}
+        noteId={note.id}
+        workspaceId={note.workspaceId}
         open={attachmentLibraryOpen}
         onClose={closeAttachmentLibrary}
         onSelect={insertExistingAttachment}
@@ -6933,7 +6773,27 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         open={!!imageViewer}
         images={imageViewer?.images}
         initialIndex={imageViewer?.initialIndex || 0}
-        canEdit={editable}
+        canEdit={editable && !isGuest && !note.isTrashed}
+        onRotate={(_, index, rotation) => {
+          const target = imageViewer?.targets[index];
+          if (!editor || editor.isDestroyed || !editor.isEditable || !editable || isGuest || note.isTrashed
+            || imageViewer?.noteId !== note.id || !target) return false;
+          const pos = imageViewer.document === editor.state.doc
+            ? resolveEditorImageTargetPosition(editor, target)
+            : null;
+          if (pos === null || !updateImageAttributesAt(editor, pos, { rotation })) {
+            toast.error(t("tiptap.imageTargetMissing", { defaultValue: "图片已变更，请关闭预览后重试" }));
+            return false;
+          }
+          const nextDocument = editor.state.doc;
+          setImageViewer((current) => current && ({
+            ...current,
+            document: nextDocument,
+            images: current.images.map((item, i) => i === index ? { ...item, rotation } : item),
+            targets: current.targets.map((item, i) => item && i === index ? { ...item, imagePos: pos, rotation } : item),
+          }));
+          return true;
+        }}
         onEdit={(_, index) => {
           const target = imageViewer?.targets[index];
           if (target) openImageEditorTarget(target);

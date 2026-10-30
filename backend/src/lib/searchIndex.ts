@@ -32,7 +32,7 @@ export type SearchContentRepairResult = SearchContentDiagnostics & {
 };
 
 function normalizeContentFormat(value: string | null | undefined): string {
-  if (value === "markdown" || value === "html" || value === "tiptap-json") return value;
+  if (value === "plaintext" || value === "markdown" || value === "html" || value === "tiptap-json") return value;
   return "tiptap-json";
 }
 

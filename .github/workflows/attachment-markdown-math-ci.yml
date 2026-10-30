@@ -11,6 +11,7 @@ on:
       - "frontend/src/components/MathView.tsx"
       - "frontend/src/lib/katexRenderer.ts"
       - "frontend/src/components/__tests__/AttachmentTextPreview.math.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.test.tsx"
       - ".github/workflows/attachment-markdown-math-ci.yml"
   pull_request:
     paths:
@@ -20,6 +21,7 @@ on:
       - "frontend/src/components/MathView.tsx"
       - "frontend/src/lib/katexRenderer.ts"
       - "frontend/src/components/__tests__/AttachmentTextPreview.math.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownPreview.test.tsx"
       - ".github/workflows/attachment-markdown-math-ci.yml"
 
 permissions:

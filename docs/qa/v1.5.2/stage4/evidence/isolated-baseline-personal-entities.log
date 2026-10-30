@@ -1,0 +1,248 @@
+TAP version 13
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: 四类个人实体已纳入同步实体范围
+ok 1 - 四类个人实体已纳入同步实体范围
+  ---
+  duration_ms: 0.3917
+  ...
+# Subtest: 首次同步可写入已删除根容器下的笔记和子目录
+ok 2 - 首次同步可写入已删除根容器下的笔记和子目录
+  ---
+  duration_ms: 305.1556
+  ...
+# Subtest: note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+ok 3 - note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+  ---
+  duration_ms: 9.7049
+  ...
+# Subtest: task 本地新增同时进入 Outbox 与 Change Feed
+ok 4 - task 本地新增同时进入 Outbox 与 Change Feed
+  ---
+  duration_ms: 3.6443
+  ...
+# Subtest: task payload 完整携带业务字段，不丢截止日期与优先级
+ok 5 - task payload 完整携带业务字段，不丢截止日期与优先级
+  ---
+  duration_ms: 3.302
+  ...
+# Subtest: task 删除进入 Outbox，删除操作能同步到其他设备
+ok 6 - task 删除进入 Outbox，删除操作能同步到其他设备
+  ---
+  duration_ms: 3.5855
+  ...
+# Subtest: task 服务端 apply 支持 upsert 与 delete
+ok 7 - task 服务端 apply 支持 upsert 与 delete
+  ---
+  duration_ms: 3.1069
+  ...
+# Subtest: task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+ok 8 - task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+  ---
+  duration_ms: 8.996
+  ...
+# Subtest: task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+ok 9 - task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+  ---
+  duration_ms: 4.3593
+  ...
+# Subtest: task 下行时孤儿引用置空而非拒绝写入
+ok 10 - task 下行时孤儿引用置空而非拒绝写入
+  ---
+  duration_ms: 2.9803
+  ...
+# Subtest: task_reminder 双向同步且不携带 lastNotifiedAt
+ok 11 - task_reminder 双向同步且不携带 lastNotifiedAt
+  ---
+  duration_ms: 3.0874
+  ...
+# Subtest: task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+ok 12 - task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+  ---
+  duration_ms: 2.5253
+  ...
+# Subtest: task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+ok 13 - task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+  ---
+  duration_ms: 2.2185
+  ...
+# Subtest: diary 双向同步且 images/media 保持合法 JSON
+ok 14 - diary 双向同步且 images/media 保持合法 JSON
+  ---
+  duration_ms: 2.5779
+  ...
+# Subtest: diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+ok 15 - diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+  ---
+  duration_ms: 2.6029
+  ...
+# Subtest: diary 同 ID 幂等 upsert，不产生冲突
+ok 16 - diary 同 ID 幂等 upsert，不产生冲突
+  ---
+  duration_ms: 2.63
+  ...
+# Subtest: mindmap 双向同步且携带完整 data
+ok 17 - mindmap 双向同步且携带完整 data
+  ---
+  duration_ms: 2.9116
+  ...
+# Subtest: mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+ok 18 - mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+  ---
+  duration_ms: 2.7473
+  ...
+# Subtest: mindmap base 匹配时正常写入
+ok 19 - mindmap base 匹配时正常写入
+  ---
+  duration_ms: 2.8738
+  ...
+# Subtest: mindmap 工作区导图进入独立 workspace Scope
+ok 20 - mindmap 工作区导图进入独立 workspace Scope
+  ---
+  duration_ms: 2.8619
+  ...
+# Subtest: 仅此设备（无 active profile）时四类实体都不产生 Outbox
+ok 21 - 仅此设备（无 active profile）时四类实体都不产生 Outbox
+  ---
+  duration_ms: 2.9609
+  ...
+# Subtest: Pull 应用远端变更不回流 Outbox，避免同步死循环
+ok 22 - Pull 应用远端变更不回流 Outbox，避免同步死循环
+  ---
+  duration_ms: 3.8807
+  ...
+# Subtest: Change Feed 的 sequence 单调递增，保证游标可靠
+ok 23 - Change Feed 的 sequence 单调递增，保证游标可靠
+  ---
+  duration_ms: 3.8319
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 700.722

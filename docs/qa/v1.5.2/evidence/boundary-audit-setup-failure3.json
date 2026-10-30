@@ -1,0 +1,63 @@
+{
+  "checkout": "C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note",
+  "temp": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-release152-audit-EBQhf2",
+  "node": "v20.18.0",
+  "abi": "130",
+  "authBoundary": "Router/service harness with synthetic X-User-Id; upstream JWT not exercised",
+  "delete": {
+    "gate": {
+      "enabled": 1
+    },
+    "before": {
+      "notes": 1,
+      "histories": 1,
+      "attachments": 1,
+      "tree": 1,
+      "physicalExists": true,
+      "outbox": []
+    },
+    "crossUser": {
+      "status": 403,
+      "body": {
+        "error": "仅笔记 owner 或工作区管理员可永久删除",
+        "code": "FORBIDDEN"
+      }
+    },
+    "locked": {
+      "status": 403,
+      "body": {
+        "error": "Note is locked",
+        "code": "NOTE_LOCKED"
+      }
+    },
+    "liveDelete": {
+      "status": 200,
+      "body": {
+        "success": true
+      }
+    },
+    "after": {
+      "notes": 0,
+      "histories": 0,
+      "attachments": 0,
+      "tree": 0,
+      "physicalExists": false,
+      "outbox": [
+        {
+          "entityType": "note",
+          "entityId": "qa-live-note",
+          "operation": "delete",
+          "baseVersion": 4,
+          "payload": null,
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "constraint": [],
+  "studio": {},
+  "harnessError": {
+    "message": "Unexpected non-whitespace character after JSON at position 4 (line 1 column 5)",
+    "stack": "SyntaxError: Unexpected non-whitespace character after JSON at position 4 (line 1 column 5)\n    at JSON.parse (<anonymous>)\n    at parseJSONFromBytes (node:internal/deps/undici/undici:5489:19)\n    at successSteps (node:internal/deps/undici/undici:5470:27)\n    at fullyReadBody (node:internal/deps/undici/undici:4381:9)\n    at async consumeBody (node:internal/deps/undici/undici:5479:7)\n    at async request (C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\scripts\\audit-boundaries.mjs:34:38)\n    at async <anonymous> (C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\scripts\\audit-boundaries.mjs:71:29)"
+  }
+}

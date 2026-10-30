@@ -66,6 +66,7 @@ jobs:
           src/lib/__tests__/noteContentPersistence.test.ts
           src/lib/__tests__/existingAttachmentInsert.test.ts
           src/lib/__tests__/mobileSyncUnknownEntity.test.ts
+          src/lib/__tests__/dateTime.test.ts
           --reporter=verbose
       - name: Production frontend build
         env:

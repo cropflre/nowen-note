@@ -6,6 +6,7 @@ export type DesktopUpdatePhase =
   | "downloaded"
   | "installing"
   | "up-to-date"
+  | "store-managed"
   | "error";
 
 export interface DesktopUpdateSnapshot {
@@ -89,6 +90,7 @@ export function resolveUpdatePhase(snapshot: DesktopUpdateSnapshot | null): Desk
     case "preparing-install":
     case "installing": return "installing";
     case "not-available": return "up-to-date";
+    case "store-managed": return "store-managed";
     case "error": return "error";
     default: return "idle";
   }
@@ -103,6 +105,7 @@ export function updateStatusText(snapshot: DesktopUpdateSnapshot | null): string
     case "downloaded": return snapshot?.installOnQuit ? "已下载，退出应用时安装" : "更新已下载完成";
     case "installing": return snapshot?.message || "正在准备安装…";
     case "up-to-date": return "当前已是最新版本";
+    case "store-managed": return "更新由 Microsoft Store 管理";
     case "error": return `更新失败：${snapshot?.message || "未知错误"}`;
     default: return "等待检查";
   }

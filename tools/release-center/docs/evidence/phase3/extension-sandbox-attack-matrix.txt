@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: sandbox prototype pollution cannot cross the QuickJS process boundary
+ok 1 - sandbox prototype pollution cannot cross the QuickJS process boundary
+  ---
+  duration_ms: 106.205208
+  ...
+# Subtest: sandbox rejects Host API arguments above 256KB before broker dispatch
+ok 2 - sandbox rejects Host API arguments above 256KB before broker dispatch
+  ---
+  duration_ms: 112.217792
+  ...
+# Subtest: sandbox rejects more than 32 concurrent pending Host API calls
+ok 3 - sandbox rejects more than 32 concurrent pending Host API calls
+  ---
+  duration_ms: 102.905166
+  ...
+# Subtest: sandbox rejects progress event floods above the protocol budget
+ok 4 - sandbox rejects progress event floods above the protocol budget
+  ---
+  duration_ms: 96.983833
+  ...
+# Subtest: sandbox fails closed when an execution result exceeds the IPC envelope
+ok 5 - sandbox fails closed when an execution result exceeds the IPC envelope
+  ---
+  duration_ms: 123.985083
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 838.70675

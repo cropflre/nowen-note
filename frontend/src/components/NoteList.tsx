@@ -1,3 +1,4 @@
+import { openAICollaboration } from "@/lib/aiCollaboration";
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,6 +16,8 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { useSidebarTextStyle, type SidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
+import { parseServerTime } from "@/lib/dateTime";
+import { noteLocalDayKey } from "@/lib/noteListTime";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -348,7 +351,8 @@ export function SortMenu({
 }
 
 function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
-  const d = new Date(dateStr + "Z");
+  const d = parseServerTime(dateStr);
+  if (!d) return "";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -849,6 +853,8 @@ function MiniCalendarFilter({
 
   return (
     <div className="px-3 py-2 select-none">
+      <p className="mb-1 text-xs font-medium text-tx-secondary">{t("noteList.calendarTitle")}</p>
+      <p className="mb-2 text-[10px] text-tx-tertiary">{t("noteList.calendarSubtitle")}</p>
       {/* 月份导航 */}
       <div className="flex items-center justify-between mb-2">
         <button onClick={prevMonth} className="p-1 rounded-md hover:bg-app-hover text-tx-tertiary">
@@ -879,6 +885,7 @@ function MiniCalendarFilter({
           return (
             <button
               key={idx}
+              aria-label={dateStr}
               onClick={() => {
                 if (isSelected) onClear();
                 else onSelect(dateStr);
@@ -1124,14 +1131,8 @@ export const NoteCard = React.memo(function NoteCard({
       transition={{ duration: 0.12, ease: "easeOut" }}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      draggable={draggable}
-      // framer-motion 的 motion.div 把 onDragStart/onDragEnd 覆写成 (event, PanInfo) => void，
-      // 与 HTML 原生 DragEvent 签名冲突。我们在这里确实需要 HTML 的 DragEvent（下游会读
-      // dataTransfer），所以用 any 断言绕过类型检查，运行时 React 仍按 HTML 事件派发。
-      onDragStart={onDragStart as any}
-      onDragOver={onDragOver}
-      onDragEnd={onDragEnd as any}
-      onDrop={onDrop}
+      // motion.div consumes onDragStart/onDragEnd as Framer Motion gesture
+      // props, so native HTML5 drag events must live on a plain DOM element.
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -1164,7 +1165,15 @@ export const NoteCard = React.memo(function NoteCard({
           : "bg-transparent group-hover:bg-app-border"
       )} />
 
-      <div className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0">
+      <div
+        className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0"
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDrop={onDrop}
+        data-note-native-drag-surface={draggable ? "enabled" : "disabled"}
+      >
         {/* 标题行 + 状态图标 */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           {draggable && <span
@@ -1564,7 +1573,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const createMenuAnchorMobileRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorFabRef = useRef<HTMLButtonElement>(null);
   // picker 模式下记住即将创建的笔记类型；用户选 notebook 后据此分支。
-  const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "word">("normal");
+  const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "plaintext" | "word">("normal");
   const [dateFilter, setDateFilter] = useState<string | null>(null); // YYYY-MM-DD
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -1675,11 +1684,9 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
           ...sortParams,
         };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "favorites") {
         const params: Record<string, string> = { isFavorite: "1", ...sortParams };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "search" && state.searchQuery) {
         const results = await api.search(state.searchQuery);
@@ -1705,7 +1712,6 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       } else if (state.viewMode === "tag" && state.selectedTagIds.length > 0) {
         // TAG-FILTER-MULTI-01: 多标签联合筛选
         const params: Record<string, string> = { ...sortParams };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         if (state.selectedTagIds.length === 1) {
           notes = await api.getNotesWithTag(state.selectedTagIds[0], params);
         } else {
@@ -1713,8 +1719,11 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         }
       } else {
         const params: Record<string, string> = { ...sortParams };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
+      }
+      // Use the badge's local-day rule; older servers filter dateFrom/dateTo as UTC days.
+      if (dateFilter && state.viewMode !== "search") {
+        notes = notes.filter(note => noteLocalDayKey(note.updatedAt) === dateFilter);
       }
       if (requestSeq !== notesFetchSeqRef.current) return;
       actions.setNotes(notes);
@@ -1819,17 +1828,14 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   ]);
 
   // 按本地日期聚合每日笔记数：YYYY-MM-DD → count。
-  // 取 updatedAt 与后端日期筛选保持一致（后端用 notes.updatedAt 比较 dateFrom/dateTo）。
+  // 使用与列表本地日期筛选一致的 updatedAt 日期。
   const dateCounts = useMemo(() => {
     const map: Record<string, number> = {};
     for (const n of calendarNotes) {
-      // updatedAt 形如 "2026-05-12 14:30:00" 或 ISO；统一按本地时区切到 YYYY-MM-DD
-      const raw = n.updatedAt;
-      if (!raw) continue;
-      // 直接取前 10 字符（YYYY-MM-DD）即可：后端存的就是本地时间字符串，
-      // 与 todayStr 的 getFullYear/getMonth/getDate 同基准。
-      const key = String(raw).slice(0, 10);
-      if (key.length !== 10) continue;
+      // SQLite 的无时区时间是 UTC，ISO 也可能带 Z/偏移量；
+      // 日期日历必须按用户设备的本地日历日聚合，不能直接截 UTC 日期。
+      const key = noteLocalDayKey(n.updatedAt);
+      if (!key) continue;
       map[key] = (map[key] || 0) + 1;
     }
     return map;
@@ -2087,7 +2093,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     });
   };
 
-  const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" = "normal") => {
+  const handleCreateNote = async (noteType: "normal" | "markdown" | "plaintext" | "word" | "journal" = "normal") => {
     haptic.light();
     // 今日日记：不需要选择笔记本，直接调用 API
     if (noteType === "journal") {
@@ -2169,7 +2175,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   // noteType="word" 时：弹文件选择器，走 importDocxAsNote（解析 .docx 为富文本笔记）。
   const createNoteInNotebook = async (
     notebookId: string,
-    noteType: "normal" | "markdown" | "word" | "journal" = "normal",
+    noteType: "normal" | "markdown" | "plaintext" | "word" | "journal" = "normal",
   ) => {
     try {
       let note: any;
@@ -2181,6 +2187,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         const result = await importDocxAsNote({ notebookId, file });
         note = result.note;
         toast.success("导入成功");
+      } else if (noteType === "plaintext") {
+        note = await api.createNote({ notebookId, title: t("common.untitledNote"), contentFormat: "plaintext", content: "", contentText: "" });
       } else if (noteType === "markdown") {
         // 新建原生 Markdown 笔记
         note = await api.createNote({
@@ -2580,7 +2588,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           id: "convert_format",
           label: targetNote.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
-          disabled: targetNote.isLocked === 1,
+          disabled: targetNote.isLocked === 1 || targetNote.contentFormat === "plaintext",
         },
         {
           id: "save_as_template",
@@ -3451,6 +3459,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         </button>
         <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
         <div className="flex shrink-0 items-center gap-1 relative">
+          <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
           {/* 移动端排序按钮（搜索/回收站不显示） */}
           {state.viewMode !== "search" && (
             <button
@@ -3472,6 +3481,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           {state.viewMode !== "search" && (
             <button
               onClick={() => setShowCalendar(!showCalendar)}
+              title={t("noteList.calendarTitle")}
+              aria-label={t("noteList.calendarTitle")}
               className={cn(
                 "p-1.5 rounded-md transition-colors relative",
                 showCalendar || dateFilter

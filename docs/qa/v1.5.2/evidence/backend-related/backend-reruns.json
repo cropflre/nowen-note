@@ -1,0 +1,32 @@
+[
+  {
+    "label": "trash-center",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "markdown-export-jobs",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "reliable-export-hardening",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  }
+]

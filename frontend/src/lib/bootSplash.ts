@@ -7,8 +7,18 @@ const BOOT_SPLASH_LEAVE_MS = 200;
 interface NowenBootWindow extends Window {
   __NOWEN_BOOT_TIMER__?: number;
   __NOWEN_BOOT_REVEAL_TIMER__?: number;
+  __NOWEN_BOOT_SLOW_TIMER__?: number;
   __NOWEN_BOOT_VISIBLE_AT__?: number;
   __NOWEN_MARK_BOOT_READY__?: () => void;
+  __NOWEN_REPORT_BOOT_STAGE__?: (stage: string) => void;
+}
+
+export function reportBootStage(stage: "runtime" | "rendering" | "authentication"): void {
+  try {
+    bootWindow().__NOWEN_REPORT_BOOT_STAGE__?.(stage);
+  } catch {
+    /* Diagnostics must not interrupt startup. */
+  }
 }
 
 let dismissed = false;
@@ -47,8 +57,10 @@ function clearBootTimers(): void {
   const target = bootWindow();
   if (target.__NOWEN_BOOT_TIMER__) window.clearTimeout(target.__NOWEN_BOOT_TIMER__);
   if (target.__NOWEN_BOOT_REVEAL_TIMER__) window.clearTimeout(target.__NOWEN_BOOT_REVEAL_TIMER__);
+  if (target.__NOWEN_BOOT_SLOW_TIMER__) window.clearTimeout(target.__NOWEN_BOOT_SLOW_TIMER__);
   target.__NOWEN_BOOT_TIMER__ = undefined;
   target.__NOWEN_BOOT_REVEAL_TIMER__ = undefined;
+  target.__NOWEN_BOOT_SLOW_TIMER__ = undefined;
 }
 
 function removeSplash(element: HTMLElement): void {

@@ -1,0 +1,1949 @@
+TAP version 13
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# Subtest: folder password can be removed only with the current password
+ok 1 - folder password can be removed only with the current password
+  ---
+  duration_ms: 722.5029
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# [knowledge-access] tree ownership mirror differs from canonical resource {
+#   nodeId: 'notebook:d72f61b9-b9c2-4a76-b9e1-7d3865e181e6',
+#   resourceType: 'notebook',
+#   resourceId: 'd72f61b9-b9c2-4a76-b9e1-7d3865e181e6',
+#   treeUserId: 'stale-tree-user',
+#   treeWorkspaceId: null,
+#   canonicalUserId: 'owner-invariant',
+#   canonicalWorkspaceId: null
+# }
+# [knowledge-access] tree ownership mirror differs from canonical resource {
+#   nodeId: 'note:ffa1977d-d24f-41e0-ac39-4269671f8f59',
+#   resourceType: 'note',
+#   resourceId: 'ffa1977d-d24f-41e0-ac39-4269671f8f59',
+#   treeUserId: 'stale-tree-user',
+#   treeWorkspaceId: null,
+#   canonicalUserId: 'owner-invariant',
+#   canonicalWorkspaceId: null
+# }
+# Subtest: personal owner keeps member-management access when the tree ownership mirror is stale
+ok 2 - personal owner keeps member-management access when the tree ownership mirror is stale
+  ---
+  duration_ms: 387.482
+  ...
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: moving folders and documents into root documents retains hidden containers and permission checks
+ok 3 - moving folders and documents into root documents retains hidden containers and permission checks
+  ---
+  duration_ms: 845.4634
+  ...
+# Subtest: knowledge tree creates rich-text and Markdown documents at root
+ok 4 - knowledge tree creates rich-text and Markdown documents at root
+  ---
+  duration_ms: 18.7566
+  ...
+# [knowledge-tree-test] bootstrap
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# [knowledge-tree-test] seed users and workspace
+# [knowledge-tree-test] create root folder
+# [knowledge-tree-test] create product document under folder
+# [knowledge-tree-test] create order folder under document
+# [knowledge-tree-test] create production document
+# [knowledge-tree-test] list mixed tree
+# [knowledge-tree-test] legacy sort and expand update
+# [knowledge-tree-test] grant editor role
+# [knowledge-tree-test] editor creates child document
+# [knowledge-tree-test] deny editor move
+# [knowledge-tree-test] grant maintainer role
+# [knowledge-tree-test] cycle guard
+# [knowledge-tree-test] create restore subtree
+# [knowledge-tree-test] delete restore subtree
+# [knowledge-tree-test] restore complete subtree
+# [knowledge-tree-test] delete parent and promote child
+# [knowledge-tree-test] clear direct role and use legacy viewer
+# Subtest: latest migration builds a mixed tree and enforces inherited capabilities
+ok 5 - latest migration builds a mixed tree and enforces inherited capabilities
+  ---
+  duration_ms: 413.6048
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: shared roots and descendants cannot cross server-side boundaries
+ok 6 - shared roots and descendants cannot cross server-side boundaries
+  ---
+  duration_ms: 396.6356
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: shared knowledge tree exposes only authorized mixed subtrees
+ok 7 - shared knowledge tree exposes only authorized mixed subtrees
+  ---
+  duration_ms: 401.0313
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# [sync-v2] conflict.resolved profileId=ede83e5c-0d8f-4e25-9b30-67a9ffb1474a entityType=knowledge_tree_node entityId=mindmap:map state=keep-remote
+# [sync-v2] conflict.resolved profileId=ede83e5c-0d8f-4e25-9b30-67a9ffb1474a entityType=knowledge_tree_node entityId=mindmap:map state=keep-local
+# Subtest: tree conflicts preserve both structures and reuse the normal conflict center
+ok 8 - tree conflicts preserve both structures and reuse the normal conflict center
+  ---
+  duration_ms: 536.2456
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: tree structure enters the server feed atomically while legacy clients skip it
+ok 9 - tree structure enters the server feed atomically while legacy clients skip it
+  ---
+  duration_ms: 446.0399
+  ...
+# Subtest: workspace tree events retain their scope and remain hidden from legacy subscriptions
+ok 10 - workspace tree events retain their scope and remain hidden from legacy subscriptions
+  ---
+  duration_ms: 2.6067
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: tree outbox capture remains gated until the full entity protocol is ready
+ok 11 - tree outbox capture remains gated until the full entity protocol is ready
+  ---
+  duration_ms: 461.8312
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: tree snapshot sends cross-type parents before children and keeps tombstones
+ok 12 - tree snapshot sends cross-type parents before children and keeps tombstones
+  ---
+  duration_ms: 378.0394
+  ...
+# Subtest: tree snapshot fails closed for orphaned file nodes and unauthorized workspace access
+ok 13 - tree snapshot fails closed for orphaned file nodes and unauthorized workspace access
+  ---
+  duration_ms: 1.8442
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [sync-v2] push.done deviceId=folder-trash pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash pushCount=4 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash pushCount=3 conflictCount=0
+# Subtest: offline folder trash and restore preserve bodies and replay their deletion cohort after restart
+ok 14 - offline folder trash and restore preserve bodies and replay their deletion cohort after restart
+  ---
+  duration_ms: 990.3734
+  ...
+# [sync-v2] push.done deviceId=document-move-body pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=document-move-body pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=document-move-body pushCount=0 conflictCount=1
+# Subtest: remote document moves reject stale body metadata without losing the offline edit
+ok 15 - remote document moves reject stale body metadata without losing the offline edit
+  ---
+  duration_ms: 297.1077
+  ...
+# [sync-v2] push.done deviceId=folder-trash-rollback pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-rollback pushCount=1 conflictCount=0
+# Subtest: folder lifecycle rolls back the entire local subtree when Outbox persistence fails
+ok 16 - folder lifecycle rolls back the entire local subtree when Outbox persistence fails
+  ---
+  duration_ms: 253.7618
+  ...
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost folder trash ACK and a restore queued during Push retain stable intentions and child bodies
+ok 17 - lost folder trash ACK and a restore queued during Push retain stable intentions and child bodies
+  ---
+  duration_ms: 302.244
+  ...
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=0 conflictCount=1
+# Subtest: concurrent child moves conflict with offline folder trash and both explicit choices retain bodies
+ok 18 - concurrent child moves conflict with offline folder trash and both explicit choices retain bodies
+  ---
+  duration_ms: 1280.2841
+  ...
+# [sync-v2] push.done deviceId=folder-trash-guards pushCount=5 conflictCount=0
+# Subtest: folder trash rejects missing server capability and protected ancestry without altering queues
+ok 19 - folder trash rejects missing server capability and protected ancestry without altering queues
+  ---
+  duration_ms: 221.6963
+  ...
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=1 conflictCount=0
+# Subtest: acknowledged folder trash restores its cohort and a reverse-ordered batch deletes each subtree once
+ok 20 - acknowledged folder trash restores its cohort and a reverse-ordered batch deletes each subtree once
+  ---
+  duration_ms: 325.3893
+  ...
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-reader pushCount=0 conflictCount=1
+# Subtest: a pre-trash edit from an old device cannot revive a document under a trashed folder
+ok 21 - a pre-trash edit from an old device cannot revive a document under a trashed folder
+  ---
+  duration_ms: 723.9496
+  ...
+# [sync-v2] push.done deviceId=folder-trash-password-race pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-password-race pushCount=0 conflictCount=0
+# Subtest: a password added after local trash was committed blocks server application and retains the intent
+ok 22 - a password added after local trash was committed blocks server application and retains the intent
+  ---
+  duration_ms: 224.7408
+  ...
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=1 conflictCount=0
+# Subtest: folder trash committed during the final Snapshot page retains its complete pending projection
+ok 23 - folder trash committed during the final Snapshot page retains its complete pending projection
+  ---
+  duration_ms: 319.4643
+  ...
+# [sync-v2] push.done deviceId=folder-create pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create pushCount=7 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create pushCount=1 conflictCount=0
+# Subtest: offline folder creation atomically persists nested resources and document parents across reopen and a second device
+ok 24 - offline folder creation atomically persists nested resources and document parents across reopen and a second device
+  ---
+  duration_ms: 468.004
+  ...
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=3 conflictCount=0
+# Subtest: lost creation ACK replays immutable mutations before later offline nested creation and moves
+ok 25 - lost creation ACK replays immutable mutations before later offline nested creation and moves
+  ---
+  duration_ms: 308.3686
+  ...
+# [sync-v2] push.done deviceId=folder-create-guards pushCount=5 conflictCount=0
+# Subtest: folder creation fails closed for unbound, missing, foreign and newly protected ancestor proofs
+ok 26 - folder creation fails closed for unbound, missing, foreign and newly protected ancestor proofs
+  ---
+  duration_ms: 247.3953
+  ...
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=0 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=2 conflictCount=0
+# Subtest: a lost structural creation ACK retains the local folder for further nested writes and snapshot recovery
+ok 27 - a lost structural creation ACK retains the local folder for further nested writes and snapshot recovery
+  ---
+  duration_ms: 325.5415
+  ...
+# [sync-v2] push.done deviceId=folder-create-page pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-page pushCount=100 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-page pushCount=2 conflictCount=0
+# Subtest: creation dependencies remain ordered when folder mutations span the 100-row Push boundary
+ok 28 - creation dependencies remain ordered when folder mutations span the 100-row Push boundary
+  ---
+  duration_ms: 708.9217
+  ...
+# [sync-v2] push.done deviceId=folder-create-during-snapshot pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-during-snapshot pushCount=5 conflictCount=0
+# Subtest: a folder created during the final Snapshot page remains a creation intent rather than a remote tombstone
+ok 29 - a folder created during the final Snapshot page remains a creation intent rather than a remote tombstone
+  ---
+  duration_ms: 331.9503
+  ...
+# [sync-v2] push.done deviceId=folder-create-rollback pushCount=5 conflictCount=0
+# Subtest: offline folder creation rolls back the business row, structure, origin and both queues on a structural enqueue failure
+ok 30 - offline folder creation rolls back the business row, structure, origin and both queues on a structural enqueue failure
+  ---
+  duration_ms: 230.8765
+  ...
+# [sync-v2] push.done deviceId=active-offline pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-offline pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=active-offline pushCount=1 conflictCount=0
+# Subtest: native personal moves and sorting are atomic, survive reopen and push only structural fields
+ok 31 - native personal moves and sorting are atomic, survive reopen and push only structural fields
+  ---
+  duration_ms: 298.0591
+  ...
+# [sync-v2] push.done deviceId=active-keep-local pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-keep-local pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-peer-keep-local pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=active-peer-keep-local pushCount=1 conflictCount=0
+# Subtest: concurrent native tree moves recover with keep-local and preserve latest local position
+ok 32 - concurrent native tree moves recover with keep-local and preserve latest local position
+  ---
+  duration_ms: 529.2465
+  ...
+# [sync-v2] push.done deviceId=active-keep-remote pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-keep-remote pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-peer-keep-remote pushCount=0 conflictCount=1
+# Subtest: concurrent native tree moves recover with keep-remote and preserve latest local position
+ok 33 - concurrent native tree moves recover with keep-remote and preserve latest local position
+  ---
+  duration_ms: 505.4526
+  ...
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost tree Push ACK and a newer move during Push retain stable mutation identities
+ok 34 - lost tree Push ACK and a newer move during Push retain stable mutation identities
+  ---
+  duration_ms: 279.224
+  ...
+# [sync-v2] push.done deviceId=active-guards pushCount=5 conflictCount=0
+# Subtest: native tree writes reject missing subscription, protected ancestry and cycles without partial commits
+ok 35 - native tree writes reject missing subscription, protected ancestry and cycles without partial commits
+  ---
+  duration_ms: 428.5257
+  ...
+# [sync-v2] push.done deviceId=active-write-failure pushCount=5 conflictCount=0
+# Subtest: a structural Outbox insert failure rolls back every move in the local batch
+ok 36 - a structural Outbox insert failure rolls back every move in the local batch
+  ---
+  duration_ms: 295.7981
+  ...
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=0 conflictCount=0
+# Subtest: full tree rebuild preserves newer pending moves and recognizes an intermediate lost ACK echo
+ok 37 - full tree rebuild preserves newer pending moves and recognizes an intermediate lost ACK echo
+  ---
+  duration_ms: 353.5229
+  ...
+# [sync-v2] push.done deviceId=active-delete-race pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-delete-race pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-delete-race pushCount=0 conflictCount=0
+# Subtest: a remote folder tombstone retains pending native structure and child bodies until an explicit remote choice
+ok 38 - a remote folder tombstone retains pending native structure and child bodies until an explicit remote choice
+  ---
+  duration_ms: 329.1401
+  ...
+# [sync-v2] push.done deviceId=tree-offline pushCount=3 conflictCount=0
+# Subtest: personal tree creates are readable offline, survive reopen and converge with stable root identities
+ok 39 - personal tree creates are readable offline, survive reopen and converge with stable root identities
+  ---
+  duration_ms: 375.6437
+  ...
+# [sync-v2] push.done deviceId=structure-writer pushCount=3 conflictCount=0
+# Subtest: negotiated native tree preserves folder-under-document links and remote moves across reopen
+ok 40 - negotiated native tree preserves folder-under-document links and remote moves across reopen
+  ---
+  duration_ms: 407.1285
+  ...
+# [sync-v2] push.done deviceId=structure-upgrade pushCount=3 conflictCount=0
+# Subtest: a new native tree subscription rebuilds an existing legacy cursor without discarding local edits
+ok 41 - a new native tree subscription rebuilds an existing legacy cursor without discarding local edits
+  ---
+  duration_ms: 200.8421
+  ...
+# [sync-v2] push.done deviceId=structure-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost initial tree ACK retains subscription intent and replays the complete baseline after reopen
+ok 42 - lost initial tree ACK retains subscription intent and replays the complete baseline after reopen
+  ---
+  duration_ms: 242.6626
+  ...
+# [sync-v2] push.done deviceId=structure-rest-notice pushCount=1 conflictCount=0
+# [sync-v2] realtime.notified pullSequence=563
+# Subtest: REST tree movement emits a committed metadata-only Sync V2 notice and wakes the negotiated receiver
+ok 43 - REST tree movement emits a committed metadata-only Sync V2 notice and wakes the negotiated receiver
+  ---
+  duration_ms: 210.1255
+  ...
+# [sync-v2] push.done deviceId=structure-invalid pushCount=2 conflictCount=0
+# Subtest: invalid remote tree rolls back incremental bodies and structure without acknowledging the cursor
+ok 44 - invalid remote tree rolls back incremental bodies and structure without acknowledging the cursor
+  ---
+  duration_ms: 231.3813
+  ...
+# Subtest: native structural Apply rejects foreign scopes, identities and missing dependencies without altering Outbox
+ok 45 - native structural Apply rejects foreign scopes, identities and missing dependencies without altering Outbox
+  ---
+  duration_ms: 129.1984
+  ...
+# Subtest: native file tree metadata requires its scoped attachment without claiming bytes or authorization
+ok 46 - native file tree metadata requires its scoped attachment without claiming bytes or authorization
+  ---
+  duration_ms: 124.2584
+  ...
+# Subtest: native structural Apply validates final ancestry and deletes parent/child in either order
+ok 47 - native structural Apply validates final ancestry and deletes parent/child in either order
+  ---
+  duration_ms: 136.1836
+  ...
+# [sync-v2] push.done deviceId=structure-prune pushCount=2 conflictCount=0
+# Subtest: native tree Snapshot reconciles stale metadata after remote permanent deletion
+ok 48 - native tree Snapshot reconciles stale metadata after remote permanent deletion
+  ---
+  duration_ms: 221.1914
+  ...
+# Subtest: tree create rolls back body, root container and provenance when Outbox insertion fails
+ok 49 - tree create rolls back body, root container and provenance when Outbox insertion fails
+  ---
+  duration_ms: 114.7883
+  ...
+# Subtest: authorized hydration persists a remote body without creation mutations and preserves newer local writes
+ok 50 - authorized hydration persists a remote body without creation mutations and preserves newer local writes
+  ---
+  duration_ms: 130.5007
+  ...
+# Subtest: workspace Snapshot pruning preserves pending descendants, unresolved conflicts and local attachment bytes
+ok 51 - workspace Snapshot pruning preserves pending descendants, unresolved conflicts and local attachment bytes
+  ---
+  duration_ms: 139.5482
+  ...
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# Subtest: create then permanent delete between Pulls advances the cursor without a missing Snapshot error
+ok 52 - create then permanent delete between Pulls advances the cursor without a missing Snapshot error
+  ---
+  duration_ms: 489.9801
+  ...
+# [sync-v2] push.done deviceId=a-markdown pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=a-markdown pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=b-markdown pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=a-tiptap-json pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=a-tiptap-json pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=b-tiptap-json pushCount=1 conflictCount=0
+# Subtest: three independent SQLite clients converge bidirectionally after consecutive Markdown and rich-text edits
+ok 53 - three independent SQLite clients converge bidirectionally after consecutive Markdown and rich-text edits
+  ---
+  duration_ms: 1620.4115
+  ...
+# [sync-v2] push.done deviceId=delete-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=delete-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=delete-a pushCount=1 conflictCount=0
+# Subtest: remote permanent deletion preserves offline body, pending mutation and recoverable conflict
+ok 54 - remote permanent deletion preserves offline body, pending mutation and recoverable conflict
+  ---
+  duration_ms: 467.946
+  ...
+# [sync-v2] push.done deviceId=restart-a pushCount=2 conflictCount=0
+# Subtest: offline create survives database close/reopen and immediate local read before uploading
+ok 55 - offline create survives database close/reopen and immediate local read before uploading
+  ---
+  duration_ms: 387.9379
+  ...
+# Subtest: missing or invalid successful ACK version cannot claim cloud confirmation
+ok 56 - missing or invalid successful ACK version cannot claim cloud confirmation
+  ---
+  duration_ms: 131.1089
+  ...
+# [sync-v2] push.done deviceId=resurrect-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=resurrect-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=resurrect-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=resurrect-b pushCount=0 conflictCount=1
+# Subtest: an old offline update cannot resurrect a permanently deleted server note
+ok 57 - an old offline update cannot resurrect a permanently deleted server note
+  ---
+  duration_ms: 483.4629
+  ...
+# [sync-v2] push.done deviceId=apply-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=apply-a pushCount=1 conflictCount=0
+# Subtest: apply failure rolls back the entire batch and leaves cursor and ACK unchanged
+ok 58 - apply failure rolls back the entire batch and leaves cursor and ACK unchanged
+  ---
+  duration_ms: 438.9867
+  ...
+# [sync-v2] push.done deviceId=ack-crash-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=ack-crash-a pushCount=0 conflictCount=0
+# Subtest: successful push replay after client ACK crash uses the same mutationId exactly once
+ok 59 - successful push replay after client ACK crash uses the same mutationId exactly once
+  ---
+  duration_ms: 134.9927
+  ...
+# [sync-v2] push.done deviceId=overlap-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=overlap-a pushCount=2 conflictCount=0
+# Subtest: overlapping native writes read the latest revision inside the write transaction
+ok 60 - overlapping native writes read the latest revision inside the write transaction
+  ---
+  duration_ms: 246.4087
+  ...
+# [sync-v2] push.done deviceId=conflict-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-b pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=conflict-b pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-b pushCount=1 conflictCount=0
+# Subtest: concurrent devices preserve both versions, and keep-local resolution establishes the remote base
+ok 61 - concurrent devices preserve both versions, and keep-local resolution establishes the remote base
+  ---
+  duration_ms: 657.1712
+  ...
+# [sync-v2] push.done deviceId=delayed-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=delayed-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=delayed-a pushCount=2 conflictCount=0
+# Subtest: two edits committed during a delayed ACK survive own echo and subsequent push
+ok 62 - two edits committed during a delayed ACK survive own echo and subsequent push
+  ---
+  duration_ms: 464.0724
+  ...
+# [sync-v2] push.done deviceId=invalid-ack-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=invalid-ack-a pushCount=0 conflictCount=0
+# Subtest: invalid note ACK leaves the durable mutation available for an idempotent retry
+ok 63 - invalid note ACK leaves the durable mutation available for an idempotent retry
+  ---
+  duration_ms: 204.6103
+  ...
+# Subtest: a failed Outbox insertion rolls back note creation in the same SQLite transaction
+ok 64 - a failed Outbox insertion rolls back note creation in the same SQLite transaction
+  ---
+  duration_ms: 120.9044
+  ...
+# Subtest: native tree subscription completes multiple Snapshot pages before binding and survives incremental deletion
+ok 65 - native tree subscription completes multiple Snapshot pages before binding and survives incremental deletion
+  ---
+  duration_ms: 266.0896
+  ...
+# Subtest: 四类个人实体已纳入同步实体范围
+ok 66 - 四类个人实体已纳入同步实体范围
+  ---
+  duration_ms: 0.356
+  ...
+# Subtest: 首次同步可写入已删除根容器下的笔记和子目录
+not ok 67 - 首次同步可写入已删除根容器下的笔记和子目录
+  ---
+  duration_ms: 235.2458
+  location: 'C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\tests\\sync-v2-personal-entities.test.ts:38:377'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "NOTEBOOK_PARENT_NOT_FOUND"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+    code: 'SQLITE_CONSTRAINT_TRIGGER'
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\backend\tests\sync-v2-personal-entities.test.ts:133:10)
+    Test.runInAsyncScope (node:async_hooks:206:9)
+    Test.run (node:internal/test_runner/test:796:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:527:18)
+    Test.postRun (node:internal/test_runner/test:889:19)
+    Test.run (node:internal/test_runner/test:835:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:527:7)
+  ...
+# Subtest: note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+ok 68 - note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+  ---
+  duration_ms: 10.6627
+  ...
+# Subtest: task 本地新增同时进入 Outbox 与 Change Feed
+ok 69 - task 本地新增同时进入 Outbox 与 Change Feed
+  ---
+  duration_ms: 4.0276
+  ...
+# Subtest: task payload 完整携带业务字段，不丢截止日期与优先级
+ok 70 - task payload 完整携带业务字段，不丢截止日期与优先级
+  ---
+  duration_ms: 3.3692
+  ...
+# Subtest: task 删除进入 Outbox，删除操作能同步到其他设备
+ok 71 - task 删除进入 Outbox，删除操作能同步到其他设备
+  ---
+  duration_ms: 3.3785
+  ...
+# Subtest: task 服务端 apply 支持 upsert 与 delete
+ok 72 - task 服务端 apply 支持 upsert 与 delete
+  ---
+  duration_ms: 3.182
+  ...
+# Subtest: task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+ok 73 - task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+  ---
+  duration_ms: 2.7894
+  ...
+# Subtest: task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+ok 74 - task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+  ---
+  duration_ms: 2.8167
+  ...
+# Subtest: task 下行时孤儿引用置空而非拒绝写入
+ok 75 - task 下行时孤儿引用置空而非拒绝写入
+  ---
+  duration_ms: 5.094
+  ...
+# Subtest: task_reminder 双向同步且不携带 lastNotifiedAt
+ok 76 - task_reminder 双向同步且不携带 lastNotifiedAt
+  ---
+  duration_ms: 3.1319
+  ...
+# Subtest: task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+ok 77 - task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+  ---
+  duration_ms: 2.7256
+  ...
+# Subtest: task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+ok 78 - task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+  ---
+  duration_ms: 10.3728
+  ...
+# Subtest: diary 双向同步且 images/media 保持合法 JSON
+ok 79 - diary 双向同步且 images/media 保持合法 JSON
+  ---
+  duration_ms: 2.9927
+  ...
+# Subtest: diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+ok 80 - diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+  ---
+  duration_ms: 2.8985
+  ...
+# Subtest: diary 同 ID 幂等 upsert，不产生冲突
+ok 81 - diary 同 ID 幂等 upsert，不产生冲突
+  ---
+  duration_ms: 2.6538
+  ...
+# Subtest: mindmap 双向同步且携带完整 data
+ok 82 - mindmap 双向同步且携带完整 data
+  ---
+  duration_ms: 2.7937
+  ...
+# Subtest: mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+ok 83 - mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+  ---
+  duration_ms: 3.2206
+  ...
+# Subtest: mindmap base 匹配时正常写入
+ok 84 - mindmap base 匹配时正常写入
+  ---
+  duration_ms: 2.7956
+  ...
+# Subtest: mindmap 工作区导图进入独立 workspace Scope
+ok 85 - mindmap 工作区导图进入独立 workspace Scope
+  ---
+  duration_ms: 2.8627
+  ...
+# Subtest: 仅此设备（无 active profile）时四类实体都不产生 Outbox
+ok 86 - 仅此设备（无 active profile）时四类实体都不产生 Outbox
+  ---
+  duration_ms: 3.0484
+  ...
+# Subtest: Pull 应用远端变更不回流 Outbox，避免同步死循环
+ok 87 - Pull 应用远端变更不回流 Outbox，避免同步死循环
+  ---
+  duration_ms: 3.8228
+  ...
+# Subtest: Change Feed 的 sequence 单调递增，保证游标可靠
+ok 88 - Change Feed 的 sequence 单调递增，保证游标可靠
+  ---
+  duration_ms: 3.9812
+  ...
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [realtime] broadcastNoteDeleted {
+#   noteId: '25174a38-2d27-4a35-9924-8a026063bb8a',
+#   actorUserId: 'trash-owner',
+#   trashed: false,
+#   actorConnectionId: undefined
+# }
+# [realtime] broadcastNoteDeleted {
+#   noteId: '56841bf7-93de-48f5-a4be-d6164d16c2b4',
+#   actorUserId: 'trash-owner',
+#   trashed: false,
+#   actorConnectionId: undefined
+# }
+# [realtime] broadcastNoteDeleted {
+#   noteId: '035ea0d2-4c29-46b6-9317-372ef9cc3faa',
+#   actorUserId: 'trash-owner',
+#   trashed: false,
+#   actorConnectionId: undefined
+# }
+# [realtime] broadcastNoteDeleted {
+#   noteId: '83af3f4d-f90b-4dd8-8449-6738ae4f7c03',
+#   actorUserId: 'trash-owner',
+#   trashed: false,
+#   actorConnectionId: undefined
+# }
+# [realtime] broadcastNoteDeleted {
+#   noteId: 'cd7c2e1e-2e3b-4b7e-a48d-c1c1601a9f7b',
+#   actorUserId: 'trash-owner',
+#   trashed: false,
+#   actorConnectionId: undefined
+# }
+# Subtest: unified trash lifecycle
+    # Subtest: unified listing uses deletion time, original paths and sheet resource type without exposing active resources
+    ok 1 - unified listing uses deletion time, original paths and sheet resource type without exposing active resources
+      ---
+      duration_ms: 26.9244
+      ...
+    # Subtest: restoring a child restores necessary ancestors and their cohort while retaining older deleted siblings and IDs
+    ok 2 - restoring a child restores necessary ancestors and their cohort while retaining older deleted siblings and IDs
+      ---
+      duration_ms: 10.4117
+      ...
+    # Subtest: permanent batch deletes mixed descendants before folders and preserves an active document
+    ok 3 - permanent batch deletes mixed descendants before folders and preserves an active document
+      ---
+      duration_ms: 63.072
+      ...
+    # Subtest: locked descendants survive empty trash and prevent notebook FK cascade deletion
+    ok 4 - locked descendants survive empty trash and prevent notebook FK cascade deletion
+      ---
+      duration_ms: 29.2711
+      ...
+    # Subtest: scope and tombstone ACL checks block cross-user, cross-workspace and explicit-deny mutations
+    ok 5 - scope and tombstone ACL checks block cross-user, cross-workspace and explicit-deny mutations
+      ---
+      duration_ms: 9.6754
+      ...
+    # Subtest: restricted parent restoration is denied and leaves the child unchanged
+    ok 6 - restricted parent restoration is denied and leaves the child unchanged
+      ---
+      duration_ms: 8.915
+      ...
+    # Subtest: API validates batch requests, requires identity and never permanently deletes an active resource
+    ok 7 - API validates batch requests, requires identity and never permanently deletes an active resource
+      ---
+      duration_ms: 16.7078
+      ...
+    # Subtest: folder deletion cannot cascade across a hidden descendant ACL
+    ok 8 - folder deletion cannot cascade across a hidden descendant ACL
+      ---
+      duration_ms: 8.2036
+      ...
+    # Subtest: failed descendant restore rolls back the entire ancestor restore transaction
+    ok 9 - failed descendant restore rolls back the entire ancestor restore transaction
+      ---
+      duration_ms: 8.309
+      ...
+    1..9
+ok 89 - unified trash lifecycle
+  ---
+  duration_ms: 690.1826
+  ...
+1..89
+# tests 98
+# suites 0
+# pass 97
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 29024.6301

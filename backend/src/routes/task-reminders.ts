@@ -258,11 +258,12 @@ taskReminders.post("/:taskId", async (c) => {
   const taskId = c.req.param("taskId");
   const body = await c.req.json();
 
-  const task = db.prepare("SELECT id, userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as any;
+  const task = db.prepare("SELECT id, userId, workspaceId, archivedAt FROM tasks WHERE id = ?").get(taskId) as any;
   if (!task) return c.json({ error: "Task not found" }, 404);
   if (!canReadReminderTask(task, userId)) {
     return c.json({ error: "无权为该任务创建提醒", code: "FORBIDDEN" }, 403);
   }
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const offsetMinutes = Number(body.offsetMinutes ?? 30);
   if (!Number.isInteger(offsetMinutes) || offsetMinutes < 0 || offsetMinutes > MAX_REMINDER_OFFSET_MINUTES) {
@@ -283,6 +284,8 @@ taskReminders.put("/:reminderId", async (c) => {
   const existing = taskRemindersRepository.getById(reminderId);
   if (!existing) return c.json({ error: "Reminder not found" }, 404);
   if (existing.userId !== userId) return c.json({ error: "无权修改", code: "FORBIDDEN" }, 403);
+  const task = getDb().prepare("SELECT archivedAt FROM tasks WHERE id = ?").get(existing.taskId) as { archivedAt: string | null } | undefined;
+  if (task?.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const body = await c.req.json();
   const offsetMinutes = Number(body.offsetMinutes ?? existing.offsetMinutes);
@@ -305,6 +308,8 @@ taskReminders.delete("/:reminderId", (c) => {
   const existing = taskRemindersRepository.getById(reminderId);
   if (!existing) return c.json({ error: "Reminder not found" }, 404);
   if (existing.userId !== userId) return c.json({ error: "无权删除", code: "FORBIDDEN" }, 403);
+  const task = getDb().prepare("SELECT archivedAt FROM tasks WHERE id = ?").get(existing.taskId) as { archivedAt: string | null } | undefined;
+  if (task?.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   taskRemindersRepository.delete(reminderId);
   return c.json({ success: true });

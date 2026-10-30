@@ -1,0 +1,32 @@
+[CORS] 生产模式：允许默认原生客户端来源: https://localhost, http://localhost, capacitor://localhost, ionic://localhost, null；如需网页跨域请配置 CORS_ORIGINS
+[Static] Serving frontend from: C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\frontend\dist
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+[calendar-export] scheduler started, interval=30 minutes
+🚀 nowen-note API running on http://localhost:1395
+📖 OpenAPI 文档: http://localhost:1395/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:1395/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:1395" port=1395
+[notes.get] unavailable {
+  noteId: 'onboarding-v1-qa-owner-zh-welcome',
+  reason: 'record-missing',
+  authenticated: true
+}
+{"timestamp":"2026-10-12T15:04:08.725Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"94d7c23e-7ef0-4a07-a0cc-dc0b84dfe688","method":"GET","route":"/api/notes/:id","httpStatus":404,"durationMs":2}
+{"timestamp":"2026-10-12T15:04:08.909Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"b2c2f34e-7df3-4cff-9b12-0d6a2633dce5","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}
+{"timestamp":"2026-10-12T15:04:09.049Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"62909ed6-54b0-40c6-94f2-b81a5cea3566","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":0}
+{"timestamp":"2026-10-12T15:04:09.057Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"6e745c94-4451-4e67-bd55-17f2bce58a55","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}
+{"timestamp":"2026-10-12T15:04:11.251Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"224f20f4-f968-4640-8cb8-38727faff26b","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":0}
+{"timestamp":"2026-10-12T15:04:11.289Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"6eaf2e22-63fc-45b4-8404-7abd5da55c0f","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":0}
+{"timestamp":"2026-10-12T15:04:11.303Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"8b37a9eb-85ab-4e2c-9171-fbf75c1697bf","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}
+[notes.get] skipped block authority read repair {
+  noteId: '7592f6c5-35ca-4c1b-b245-4869037b5ef8',
+  version: 1,
+  reason: 'invalid-doc'
+}
+{"timestamp":"2026-10-12T15:04:11.483Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"3816945d-4d7a-40c2-8b60-4c971a494284","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":0}
+{"timestamp":"2026-10-12T15:04:12.184Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"1558d7a5-c5d4-4112-8f45-c0e5cd2fa74f","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}
+{"timestamp":"2026-10-12T15:04:12.213Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"e697b98b-cc6a-4657-a0d9-06b9dc5a5689","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}
+{"timestamp":"2026-10-12T15:04:12.764Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"ab18acc9-a49e-42ac-a892-5bcb08b97a3f","method":"GET","route":"/api/sync/local/settings","httpStatus":404,"durationMs":1}

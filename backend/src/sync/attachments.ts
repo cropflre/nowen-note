@@ -151,12 +151,18 @@ export function listPendingUploads(
     return db.prepare(`SELECT s.* FROM attachment_sync_state s
       JOIN attachments a ON a.id=s.attachmentId JOIN notes n ON n.id=a.noteId
       WHERE s.status IN ('pending','failed') AND s.remoteOnly=0 AND n.workspaceId IS ?
+        AND NOT EXISTS (SELECT 1 FROM sync_outbox o
+          WHERE o.profileId=s.profileId AND o.entityType='attachment' AND o.entityId=s.attachmentId
+            AND o.status IN ('pending','inflight','failed'))
       ORDER BY s.retryCount ASC,s.updatedAt ASC LIMIT ?`).all(workspaceId,limit) as AttachmentSyncRow[];
   }
   return db.prepare(`
-    SELECT * FROM attachment_sync_state
-    WHERE status IN ('pending', 'failed') AND remoteOnly = 0
-    ORDER BY retryCount ASC, updatedAt ASC
+    SELECT s.* FROM attachment_sync_state s
+    WHERE s.status IN ('pending', 'failed') AND s.remoteOnly = 0
+      AND NOT EXISTS (SELECT 1 FROM sync_outbox o
+        WHERE o.profileId=s.profileId AND o.entityType='attachment' AND o.entityId=s.attachmentId
+          AND o.status IN ('pending','inflight','failed'))
+    ORDER BY s.retryCount ASC, s.updatedAt ASC
     LIMIT ?
   `).all(limit) as AttachmentSyncRow[];
 }

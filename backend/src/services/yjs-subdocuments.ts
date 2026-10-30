@@ -1,3 +1,4 @@
+import { syncReferences } from "../lib/attachmentRefs";
 import { assertEncryptedBlockCollaborationAllowed } from "../lib/encryptedBlockWrites.js";
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
@@ -524,6 +525,7 @@ export function applyYjsSubdocumentUpdate(
       WHERE id = ? AND version = ?`)
       .run(materialized, contentText, version, noteId, currentNote.version);
     if (updated.changes !== 1) throw new Error("SUBDOCUMENT_VERSION_CONFLICT");
+    syncReferences(db, noteId, materialized);
 
     const previousDoc = parseDocument(currentNote.content);
     const nonHeadingBoundarySizes = manifest.sections.slice(1).flatMap((section, index) => {

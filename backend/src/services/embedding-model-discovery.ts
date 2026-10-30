@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 import { getUserAISettings } from "./user-ai-settings";
 import {
   normalizeServiceUrl,
@@ -281,7 +282,7 @@ export async function discoverEmbeddingModels(
 
   for (const endpoint of Array.from(new Set(candidates))) {
     try {
-      const response = await fetch(endpoint, {
+      const response = await aiOutboundFetch(endpoint, {
         headers: requestHeaders(config),
         signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
       });
@@ -357,7 +358,7 @@ export async function testEmbeddingModel(
   const config = resolveEmbeddingProbeConfig(userId, input, true);
   const startedAt = performance.now();
   try {
-    const response = await fetch(`${config.url.replace(/\/+$/, "")}/embeddings`, {
+    const response = await aiOutboundFetch(`${config.url.replace(/\/+$/, "")}/embeddings`, {
       method: "POST",
       headers: {
         ...requestHeaders(config),

@@ -1,0 +1,8 @@
+backend/tests/backup-restore-corrupt-hotfix.test.ts
+backend/tests/backup-restore-integrity.test.ts
+backend/tests/knowledge-policy-initialization.test.ts
+backend/tests/note-delete-attachments.test.ts
+backend/tests/offline-workspace-sync.test.ts
+backend/tests/sync-v2-engine.test.ts
+backend/tests/sync-v2-identity-outbox.test.ts
+backend/tests/sync-v2-outbox-capture.test.ts

@@ -131,3 +131,18 @@ test("deleting a label removes task links and prunes saved view filters", async 
   assert.deepEqual(snapshot.json.assignments, {});
   assert.deepEqual(snapshot.json.views[0].filters.labelIds, []);
 });
+
+test("archived tasks retain labels and reject reassignment until restored", async () => {
+  const task = await requestJson("POST","/tasks",{title:"Archived with labels"});
+  const label = await requestJson("POST","/task-metadata/labels",{name:"Archived label"});
+  assert.equal(task.status,201); assert.equal(label.status,201);
+  const url = `/task-metadata/tasks/${task.json.id}/labels`;
+  assert.equal((await requestJson("PUT",url,{labelIds:[label.json.label.id]})).status,200);
+  assert.equal((await requestJson("PATCH",`/tasks/${task.json.id}/toggle`)).status,200);
+  assert.equal((await requestJson("PATCH",`/tasks/${task.json.id}/archive`,{archived:true})).status,200);
+  const denied = await requestJson("PUT",url,{labelIds:[]});
+  assert.equal(denied.status,409); assert.equal(denied.json.code,"TASK_ARCHIVED");
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS count FROM task_label_links WHERE taskId=?").get(task.json.id) as any).count,1);
+  assert.equal((await requestJson("PATCH",`/tasks/${task.json.id}/archive`,{archived:false})).status,200);
+  assert.equal((await requestJson("PUT",url,{labelIds:[]})).status,200);
+});

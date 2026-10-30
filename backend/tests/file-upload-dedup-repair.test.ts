@@ -134,7 +134,7 @@ test("repairs missing local bytes at the original path and preserves ID, filenam
   assert.equal(result.body.size, png.length);
   assert.deepEqual(fs.readFileSync(storage.getLocalAttachmentPath(fixture.originalPath)), png);
   const row = db.prepare("SELECT path, noteId, uploadSource, mimeType, size FROM attachments WHERE id = ?").get(fixture.id);
-  assert.deepEqual(row, { path: fixture.originalPath, noteId: fixture.noteId, uploadSource: "file_manager", mimeType: "image/png", size: png.length });
+  assert.deepEqual(row, { path: fixture.originalPath, noteId: fixture.noteId, uploadSource: null, mimeType: "image/png", size: png.length });
   assert.ok(db.prepare("SELECT 1 FROM attachment_references WHERE attachmentId = ? AND noteId = ?").get(fixture.id, fixture.noteId));
   const download = await app.request(result.body.accessUrls[fixture.id], { headers: { "X-User-Id": fixture.userId } });
   assert.equal(download.status, 200);

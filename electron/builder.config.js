@@ -6,12 +6,12 @@
  */
 const path = require("path");
 const base = require("./builder.base.config.js");
+const { Arch } = require("builder-util");
+const { verifySharpRuntime } = require("../scripts/lib/sharp-runtime.cjs");
 const {
   assertLinuxNativeBinaryCompatible,
   formatCompatibilityReport,
 } = require("../scripts/lib/linux-native-compat.cjs");
-
-const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
 
 function resolveTargetPlatform(context) {
   if (context?.electronPlatformName) return context.electronPlatformName;
@@ -50,6 +50,23 @@ async function beforeBuild(context) {
 module.exports = {
   ...base,
   beforeBuild,
+  async beforePack(context) {
+    if (typeof base.beforePack === "function") await base.beforePack(context);
+    verifySharpRuntime(path.resolve(__dirname, "../backend"), {
+      platform: context.electronPlatformName,
+      arch: Arch[context.arch],
+    });
+  },
+  async afterPack(context) {
+    if (typeof base.afterPack === "function") await base.afterPack(context);
+    const resources = context.electronPlatformName === "darwin"
+      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources")
+      : path.join(context.appOutDir, "resources");
+    verifySharpRuntime(path.join(resources, "backend"), {
+      platform: context.electronPlatformName,
+      arch: Arch[context.arch],
+    });
+  },
   files: [
     ...(Array.isArray(base.files) ? base.files : []),
     "!electron/builder.base.config.js",
@@ -57,7 +74,6 @@ module.exports = {
   ],
   win: {
     ...(base.win || {}),
-    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
   },
   nsis: {
     ...(base.nsis || {}),

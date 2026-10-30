@@ -50,7 +50,7 @@ async function readJsonResponse<T>(response: Response, fallback: string): Promis
         : typeof payload === "string" && payload.trim()
           ? payload.slice(0, 240)
           : `${fallback}（HTTP ${response.status}）`;
-    throw new Error(message);
+    throw Object.assign(new Error(message), { status: response.status });
   }
   return payload as T;
 }

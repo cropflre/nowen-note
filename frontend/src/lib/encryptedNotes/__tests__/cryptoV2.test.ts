@@ -3,7 +3,7 @@ import { beforeAll, expect, it } from "vitest";
 import fixture from "./fixtures/envelope-v2.json";
 import { fromBase64 } from "../envelope";
 import { validateEnvelopeV2 } from "../envelopeV2";
-import { changeContentV2Passphrase, createContentV2, decryptHistoryV2, encryptHistoryV2, unlockContentV2, updateContentV2, validateDocumentV2 } from "../cryptoV2";
+import { changeContentV2Passphrase, createContentV2, decryptHistoryV2, encryptHistoryV2, readContentV2, unlockContentV2, updateContentV2, validateDocumentV2 } from "../cryptoV2";
 import { decryptAttachment, encryptAttachment, ENCRYPTED_FILE_CHUNK_BYTES, fileChunkNonce, validateAttachmentManifest } from "../attachmentCodec";
 import { hasStrongNewPassphrase, validateNewPassphrase } from "../passphrasePolicy";
 
@@ -42,11 +42,17 @@ it("updates without a password, authenticates the pre-image and preserves attach
   await expect(updateContentV2(broken, key, envelope, document)).rejects.toMatchObject({ code: "unlock-failed" });
   await expect(updateContentV2(envelope, key, { ...envelope, objectId: crypto.randomUUID() }, document)).rejects.toMatchObject({ code: "unlock-failed" });
 });
+it("reads old snapshots without replacing the root and rejects another object's or tampered ciphertext", async () => {
+  expect(await readContentV2(envelope, key, envelope)).toEqual(fixture.document);
+  await expect(readContentV2(envelope, key, { ...envelope, objectId: crypto.randomUUID() })).rejects.toMatchObject({ code: "unlock-failed" });
+  const broken = structuredClone(envelope); broken.payload.ciphertext = "A" + broken.payload.ciphertext.slice(1);
+  await expect(readContentV2(broken, key, envelope)).rejects.toMatchObject({ code: "unlock-failed" });
+});
 
 it("rewraps the same root and files under a new strong password while preserving old history semantics", async () => {
-  const next = await changeContentV2Passphrase(envelope, fixture.passphrase, envelope, "long replacement passphrase");
+  const next = await changeContentV2Passphrase(envelope, fixture.passphrase, envelope, "654321");
   expect(next.payload).toEqual(envelope.payload); expect(next.keyEpoch).toBe(envelope.keyEpoch);
-  const changed = await unlockContentV2(next, "long replacement passphrase", envelope);
+  const changed = await unlockContentV2(next, "654321", envelope);
   expect(await decryptHistoryV2(changed.key, envelope, fixture.history)).toEqual(fixture.historyDocument);
   await expect(unlockContentV2(next, fixture.passphrase, envelope)).rejects.toMatchObject({ code: "unlock-failed" });
   expect((await unlockContentV2(envelope, fixture.passphrase, envelope)).document).toEqual(fixture.document);
@@ -59,6 +65,16 @@ it("binds encrypted history to history identity, source version, original format
   for (const patch of [{ historyId: crypto.randomUUID() }, { sourceVersion: 8 }, { originalFormat: "markdown" }]) await expect(decryptHistoryV2(key, envelope, { ...history, ...patch })).rejects.toMatchObject({ code: "unlock-failed" });
   await expect(decryptHistoryV2(key, { ...envelope, objectId: crypto.randomUUID() }, history)).rejects.toMatchObject({ code: "unlock-failed" });
   await expect(decryptHistoryV2(key, envelope, { ...history, extra: true })).rejects.toThrow();
+});
+
+it("preserves safety-snapshot hex IDs and authenticates them as history identity", async () => {
+  const context = { version: 1 as const, historyId: "0123456789abcdef0123456789abcdef", sourceVersion: 7, originalFormat: "markdown" as const };
+  const document = validateDocumentV2(fixture.document);
+  const history = await encryptHistoryV2(key, envelope, context, document, "Safety snapshot");
+  expect(history.historyId).toBe(context.historyId);
+  expect((await decryptHistoryV2(key, envelope, history)).document).toEqual(fixture.document);
+  await expect(decryptHistoryV2(key, envelope, { ...history, historyId: "1123456789abcdef0123456789abcdef" })).rejects.toMatchObject({ code: "unlock-failed" });
+  for (const historyId of ["", "not-a-history-id", "0".repeat(31), "g".repeat(32)]) await expect(encryptHistoryV2(key, envelope, { ...context, historyId }, document)).rejects.toThrow();
 });
 
 it("encrypts zero-byte and multi-chunk files with bounded sequential I/O and independently keyed uploads", async () => {
@@ -92,15 +108,15 @@ it("bounds chunk counters and aborts without publishing an incomplete manifest",
   expect(count).toBe(1);
 });
 
-it("requires 12 Unicode characters only for new passwords and creates fresh identities with independent roots", async () => {
-  expect(hasStrongNewPassphrase("🚀".repeat(6))).toBe(false); expect(hasStrongNewPassphrase("🚀".repeat(12))).toBe(true);
+it("requires 6 Unicode characters only for new passwords and creates fresh identities with independent roots", async () => {
+  expect(hasStrongNewPassphrase("🚀".repeat(5))).toBe(false); expect(hasStrongNewPassphrase("🚀".repeat(6))).toBe(true);
   expect(() => validateNewPassphrase("short")).toThrow();
   const document = { documentSchemaVersion: 1 as const, content: "new", attachments: [] };
   await expect(createContentV2({ document, passphrase: "short", identity: envelope })).rejects.toThrow();
   const identity = { ...envelope, objectId: crypto.randomUUID() };
-  await expect(createContentV2({ document: validateDocumentV2(fixture.document), passphrase: "twelve characters or more", identity })).rejects.toMatchObject({ code: "invalid" });
-  const created = await createContentV2({ document, passphrase: "twelve characters or more", identity });
-  expect((await unlockContentV2(created, "twelve characters or more", identity)).document).toEqual(document);
-  const createdKey = (await unlockContentV2(created, "twelve characters or more", identity)).key;
+  await expect(createContentV2({ document: validateDocumentV2(fixture.document), passphrase: "123456", identity })).rejects.toMatchObject({ code: "invalid" });
+  const created = await createContentV2({ document, passphrase: "123456", identity });
+  expect((await unlockContentV2(created, "123456", identity)).document).toEqual(document);
+  const createdKey = (await unlockContentV2(created, "123456", identity)).key;
   await expect(updateContentV2(created, createdKey, identity, validateDocumentV2(fixture.document))).rejects.toMatchObject({ code: "unlock-failed" });
 });

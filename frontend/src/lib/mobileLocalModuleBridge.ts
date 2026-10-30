@@ -1,3 +1,8 @@
+import { isTaskCompletedToday } from "@/components/tasks/taskLifecycle";
+import { getTaskComposerContext, isTaskComposerContextCurrent, registerTaskComposerCache, TaskComposerApiError, updateRepeatingTaskOnline } from "./taskComposerApi";
+import i18n from "@/i18n";
+import { cacheConfirmedNativeTasks } from "./nativeTaskComposerCache";
+import { NATIVE_TASK_REPEAT_FIELDS, nativeTaskRepeatValues } from "./nativeTaskFields";
 import type {
   Diary,
   DiaryStats,
@@ -14,6 +19,8 @@ import type {
   TaskStats,
 } from "@/types";
 import { api } from "./api";
+import { getCurrentWorkspace } from "./api.impl";
+import { assetFileKind } from "./fileExplorerModel";
 import { newLocalId } from "./localRepository";
 import { isMobileLocalMode } from "./mobileLocalMode";
 import { ensureMobileLocalMindMapTree } from "./mobileLocalMindMapTree";
@@ -46,6 +53,7 @@ export function installMobileLocalModuleBridge(
   db: NativeDatabase,
   userId: string,
 ): () => void {
+  const removeComposerCache = registerTaskComposerCache((tasks, projects) => cacheConfirmedNativeTasks(db, userId, tasks, projects));
   const target = api as unknown as Omit<typeof api, "updateTask" | "toggleTask" | "updateTaskReminder" | "dataFile"> & {
     updateTask: (id: string, patch: Partial<Task>) => Promise<{ task: Task }>;
     toggleTask: (id: string) => Promise<{ task: Task }>;
@@ -57,12 +65,15 @@ export function installMobileLocalModuleBridge(
   };
   const originals = {
     getTasks: target.getTasks,
+    archiveTask: target.archiveTask,
+    saveTaskAsNote: target.saveTaskAsNote,
     getTask: target.getTask,
     createTask: target.createTask,
     updateTask: target.updateTask,
     reorderTasks: target.reorderTasks,
     toggleTask: target.toggleTask,
     deleteTask: target.deleteTask,
+    stopTaskRecurrence: target.stopTaskRecurrence,
     batchTasks: target.batchTasks,
     getTaskStats: target.getTaskStats,
     getTaskProjects: target.getTaskProjects,
@@ -130,9 +141,13 @@ export function installMobileLocalModuleBridge(
     const today = dateKey(now());
     const weekEnd = new Date();
     weekEnd.setDate(weekEnd.getDate() + 7);
-    return rows.filter((task) => {
+    const parentTitles = new Map(rows.map((task) => [task.id,task.title]));
+    return rows.map((task) => ({...task,parentTitle:(task.parentId ? parentTitles.get(task.parentId) : null) || null})).filter((task) => {
       if (noteId && task.noteId !== noteId) return false;
       if (projectId && task.projectId !== projectId) return false;
+      if (filter === "archived") return !!task.archivedAt;
+      if (filter === "completed-today") return isTaskCompletedToday(task);
+      if (filter !== "history" && task.archivedAt) return false;
       if (filter === "completed") return task.isCompleted === 1;
       if (filter === "today") return !task.isCompleted && dateKey(task.dueAt || task.dueDate || "") === today;
       if (filter === "overdue") return !task.isCompleted && !!(task.dueAt || task.dueDate) && dateKey(task.dueAt || task.dueDate || "") < today;
@@ -143,41 +158,69 @@ export function installMobileLocalModuleBridge(
       return true;
     });
   };
+  target.archiveTask = (id, archived = true) => repository.archiveTaskTree(id,archived);
+  target.saveTaskAsNote = async (id, data) => repository.saveTaskNoteSnapshot(id,data);
   target.getTask = async (id: string) => {
     const task = await readTask(id);
     if (!task) throw new Error("任务不存在");
     return task;
   };
   target.createTask = async (data: Partial<Task>): Promise<Task> => {
+    if (data.parentId && (await readTask(data.parentId))?.archivedAt) throw new Error("请先恢复已归档任务");
     const createdAt = now();
+    const done = data.status === "done" || !!data.isCompleted;
     const task: Task = {
       id:newLocalId(),userId,workspaceId:null,title:data.title?.trim() || "新任务",
-      description:data.description || "",isCompleted:data.isCompleted ? 1 : 0,completedAt:data.completedAt || null,
+      description:data.description || "",isCompleted:done ? 1 : 0,
+      completedAt:done ? (Object.prototype.hasOwnProperty.call(data,"completedAt") ? data.completedAt || null : createdAt) : null,
       priority:data.priority || 2,dueDate:data.dueDate || null,dueAt:data.dueAt || null,startDate:data.startDate || null,
       noteId:data.noteId || null,parentId:data.parentId || null,sortOrder:data.sortOrder || 0,projectId:data.projectId || null,
-      status:data.status || (data.isCompleted ? "done" : "todo"),createdAt,updatedAt:createdAt,
+      status:data.status || (done ? "done" : "todo"),createdAt,updatedAt:createdAt,
+      ...Object.fromEntries(NATIVE_TASK_REPEAT_FIELDS.map((field, index) => [field, nativeTaskRepeatValues(data)[index]])),
     };
     await db.run(`INSERT INTO tasks (
       id,scopeKey,workspaceId,userId,title,description,isCompleted,completedAt,priority,dueDate,dueAt,startDate,
-      noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt
-    ) VALUES (?,'personal',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+      noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt,${NATIVE_TASK_REPEAT_FIELDS.join(",")}
+    ) VALUES (?,'personal',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,${NATIVE_TASK_REPEAT_FIELDS.map(() => "?").join(",")})`, [
       task.id,userId,task.title,task.description,task.isCompleted,task.completedAt,task.priority,task.dueDate,task.dueAt,
-      task.startDate,task.noteId,task.parentId,task.sortOrder,task.projectId,task.status,task.createdAt,task.updatedAt,
+      task.startDate,task.noteId,task.parentId,task.sortOrder,task.projectId,task.status,task.createdAt,task.updatedAt,...nativeTaskRepeatValues(task),
     ]);
     await enqueue("task",task.id,"upsert",task as unknown as Record<string, unknown>);
     return task;
   };
   target.updateTask = async (id: string, patch: Partial<Task>) => {
     const current = await target.getTask(id) as Task;
+    const recurrence = (await db.query<{ action: string }>("SELECT action FROM task_recurrence_state WHERE groupId=? AND scopeKey=?",[current.repeatGroupId || id,`personal:${userId}`]))[0];
+    if (recurrence && patch.repeatRule && patch.repeatRule !== "none") throw new Error(i18n.t("taskRemoval.stopped"));
+    if (current.archivedAt) throw new Error("请先恢复已归档任务");
+    if (patch.parentId && (await readTask(patch.parentId))?.archivedAt) throw new Error("不能移动到已归档任务");
+    if (current.repeatRule && current.repeatRule !== "none" && patch.isCompleted !== undefined) {
+      const context = getTaskComposerContext();
+      if (isMobileLocalMode() || navigator.onLine === false) throw new Error(i18n.t("taskComposer.repeatNeedsOnline"));
+      const pending = await db.query("SELECT id FROM sync_outbox WHERE entityType='task' AND entityId=? AND status IN ('pending','inflight','failed') LIMIT 1", [id]);
+      if (pending.length) throw new Error(i18n.t("taskComposer.repeatNeedsSync"));
+      const result = await updateRepeatingTaskOnline(id, patch);
+      let visibleTask = result.task;
+      await db.transaction(async tx => {
+        const concurrent = await tx.query("SELECT id FROM sync_outbox WHERE entityType='task' AND entityId=? AND status IN ('pending','inflight','failed') LIMIT 1", [id]);
+        if (!concurrent.length) await tx.run("UPDATE tasks SET isCompleted=?,status=?,completedAt=?,repeatNextGeneratedId=?,updatedAt=? WHERE scopeKey='personal' AND id=?", [result.task.isCompleted,result.task.status,result.task.completedAt || null,result.task.repeatNextGeneratedId || null,result.task.updatedAt,id]);
+        else visibleTask = (await tx.query<Task>("SELECT * FROM tasks WHERE scopeKey='personal' AND id=?", [id]))[0] || result.task;
+      });
+      if (result.generatedTask) await cacheConfirmedNativeTasks(db, userId, [result.generatedTask]);
+      if (!isTaskComposerContextCurrent(context)) throw new TaskComposerApiError("CONTEXT_CHANGED");
+      return { ...result, task: visibleTask };
+    }
     const updatedAt = now();
     const task = { ...current,...patch,id,userId,workspaceId:null,updatedAt };
     if (patch.isCompleted !== undefined && patch.status === undefined) task.status = patch.isCompleted ? "done" : "todo";
+    if (patch.status !== undefined && patch.isCompleted === undefined) task.isCompleted = patch.status === "done" ? 1 : 0;
+    if (patch.isCompleted !== undefined || patch.status !== undefined) task.completedAt = task.isCompleted ? (current.isCompleted ? current.completedAt || now() : now()) : null;
     await db.run(`UPDATE tasks SET title=?,description=?,isCompleted=?,completedAt=?,priority=?,dueDate=?,dueAt=?,startDate=?,
-      noteId=?,parentId=?,sortOrder=?,projectId=?,status=?,updatedAt=? WHERE scopeKey='personal' AND id=?`, [
+      noteId=?,parentId=?,sortOrder=?,projectId=?,status=?,updatedAt=?,${NATIVE_TASK_REPEAT_FIELDS.map(field => `${field}=?`).join(",")} WHERE scopeKey='personal' AND id=?`, [
       task.title,task.description,task.isCompleted,task.completedAt,task.priority,task.dueDate,task.dueAt,task.startDate,
-      task.noteId,task.parentId,task.sortOrder,task.projectId,task.status,updatedAt,id,
+      task.noteId,task.parentId,task.sortOrder,task.projectId,task.status,updatedAt,...nativeTaskRepeatValues(task),id,
     ]);
-    await enqueue("task",id,"upsert",task as unknown as Record<string, unknown>,current.updatedAt);
+    await enqueue("task",id,"upsert",{...task,recurrenceAction:recurrence?.action} as unknown as Record<string, unknown>,current.updatedAt);
     return { task };
   };
   target.toggleTask = async (id: string) => {
@@ -188,11 +231,8 @@ export function installMobileLocalModuleBridge(
       completedAt:current.isCompleted ? null : now(),
     });
   };
-  target.deleteTask = async (id: string) => {
-    await db.run("DELETE FROM tasks WHERE scopeKey='personal' AND (id=? OR parentId=?)",[id,id]);
-    await enqueue("task",id,"delete");
-    return { success:true };
-  };
+  target.deleteTask = (id: string, mode = "single") => repository.removeTaskOccurrences(id,mode);
+  target.stopTaskRecurrence = (id: string) => repository.removeTaskOccurrences(id,"stop");
   target.reorderTasks = async (items: Array<{ id: string; sortOrder: number }>) => {
     for (const item of items) await target.updateTask(item.id,{ sortOrder:item.sortOrder });
     return { success:true,affected:items.length };
@@ -205,9 +245,11 @@ export function installMobileLocalModuleBridge(
     return { success:true,affected:ids.length };
   };
   target.getTaskStats = async (): Promise<TaskStats> => {
-    const tasks = await target.getTasks("all") as Task[];
+    const history = await target.getTasks("history") as Task[];
+    const tasks = history.filter((task) => !task.archivedAt);
     const today = dateKey(now());
     return {
+      completedToday:history.filter((task) => isTaskCompletedToday(task)).length,archived:history.filter((task) => task.archivedAt).length,
       total:tasks.length,completed:tasks.filter((item) => item.isCompleted).length,
       pending:tasks.filter((item) => !item.isCompleted).length,
       today:tasks.filter((item) => !item.isCompleted && dateKey(item.dueAt || item.dueDate || "") === today).length,
@@ -336,27 +378,89 @@ export function installMobileLocalModuleBridge(
   target.deleteMindMapFolder = async (id:string)=>{await db.run("UPDATE mindmaps SET folderId=NULL WHERE folderId=?",[id]);await db.run("DELETE FROM mindmap_folders WHERE id=?",[id]);return {success:true};};
   target.moveMindMap = async (id:string,folderId:string|null)=>{await db.run("UPDATE mindmaps SET folderId=?,updatedAt=? WHERE id=?",[folderId,now(),id]);return readMindMap(id);};
 
-  const fileRows = async (): Promise<Array<Record<string, unknown>>> => db.query(`SELECT a.*,n.title AS noteTitle,n.notebookId,n.isTrashed,b.name AS notebookName,b.icon AS notebookIcon
+  const assertPersonalFileScope = () => {
+    if (getCurrentWorkspace() !== "personal") throw Object.assign(new Error("Native 文件中心暂不支持工作区文件，请切回个人空间或在网页端操作"), { code: "MOBILE_WORKSPACE_FILES_UNSUPPORTED" });
+  };
+  const fileRows = async (): Promise<Array<Record<string, unknown>>> => {
+    assertPersonalFileScope();
+    return db.query(`SELECT a.*,n.title AS noteTitle,n.notebookId,n.isTrashed,b.name AS notebookName,b.icon AS notebookIcon
     FROM attachments a LEFT JOIN notes n ON n.scopeKey=a.scopeKey AND n.id=a.noteId
     LEFT JOIN notebooks b ON b.scopeKey=n.scopeKey AND b.id=n.notebookId
-    WHERE a.scopeKey='personal' AND a.available=1`);
+    WHERE a.scopeKey='personal' AND a.available=1 AND a.assetTrashedAt IS NULL`);
+  };
   const toFileItem = async (row:Record<string,unknown>):Promise<FileItem> => ({
     id:String(row.id),filename:String(row.filename),mimeType:String(row.mimeType),size:Number(row.size)||0,createdAt:String(row.createdAt),
     category:String(row.mimeType).startsWith("image/")?"image":"file",url:await repository.attachments.resolveUrl(String(row.id)) || "about:blank",
     hash:typeof row.hash === "string"?row.hash:null,folderId:null,folderName:null,
     primaryNote:row.noteId?{id:String(row.noteId),title:String(row.noteTitle||""),notebookId:row.notebookId?String(row.notebookId):null,notebookName:row.notebookName?String(row.notebookName):null,notebookIcon:row.notebookIcon?String(row.notebookIcon):null,isTrashed:Number(row.isTrashed)||0}:null,
   });
+  const unsupportedOrganization = async () => { throw Object.assign(new Error("File tags and smart folders are not available in Native mode yet."), { code: "MOBILE_ASSET_ORGANIZATION_UNSUPPORTED" }); };
+  const unsupportedVisualTools = async () => {
+    assertPersonalFileScope();
+    throw Object.assign(new Error("Similar-image search and batch rename are unavailable in Native mode. Use the web or desktop file center."), { code: "MOBILE_ASSET_TOOLS_UNSUPPORTED" });
+  };
+  target.files.tools = { similar: unsupportedVisualTools, batchRename: unsupportedVisualTools };
+  target.files.organization = {
+    aiPreview: unsupportedOrganization, aiConfirm: unsupportedOrganization, aiSearch: unsupportedOrganization, description: unsupportedOrganization,
+    list: async () => ({ supported: false, canManageTags: false, tags: [], smartFolders: [] }),
+    get: unsupportedOrganization, createTag: unsupportedOrganization, renameTag: unsupportedOrganization,
+    deleteTag: unsupportedOrganization, tagFiles: unsupportedOrganization, saveSmartFolder: unsupportedOrganization, deleteSmartFolder: unsupportedOrganization,
+  };
+  const unsupportedTrash = async () => {
+    assertPersonalFileScope();
+    throw Object.assign(new Error("File recycle bin is unavailable in Native mode."), { code: "MOBILE_ASSET_TRASH_UNSUPPORTED" });
+  };
+  target.files.trash = { list: async () => ({ supported: false, entries: [], total: 0 }), restore: unsupportedTrash, purge: unsupportedTrash };
+  target.files.prepareInsert = async (id: string, noteId: string) => {
+    assertPersonalFileScope();
+    const note = await target.getNote(noteId);
+    const row = (await fileRows()).find((item) => item.id === id);
+    if (!row || row.userId !== userId || note.userId !== userId || note.workspaceId || note.isTrashed) {
+      throw Object.assign(new Error("文件与笔记不属于同一个可编辑空间"), { code: "FILE_SCOPE_MISMATCH" });
+    }
+    // Keep persisted content portable; the attachment bridge resolves this ID locally.
+    return { ...await toFileItem(row), url: `/api/attachments/${id}` };
+  };
   target.files.stats = async ():Promise<FileStats>=>{const rows=await fileRows();const images=rows.filter((row)=>String(row.mimeType).startsWith("image/"));const files=rows.filter((row)=>!String(row.mimeType).startsWith("image/"));const sum=(items:Array<Record<string,unknown>>)=>items.reduce((total,row)=>total+(Number(row.size)||0),0);const byMime=[...new Set(rows.map((row)=>String(row.mimeType)))].map((mime)=>{const items=rows.filter((row)=>row.mimeType===mime);return {mime,count:items.length,bytes:sum(items)};});return {total:rows.length,totalBytes:sum(rows),images:{count:images.length,bytes:sum(images)},files:{count:files.length,bytes:sum(files)},unreferenced:{count:0,bytes:0},myUploads:{total:rows.length,referenced:rows.length,unreferenced:0},storage:{mode:"local",driver:"local",source:"default"},byMime};};
-  target.files.list = async (params:Record<string,unknown>={}):Promise<FileListResponse>=>{let rows=await fileRows();if(params.category)rows=rows.filter((row)=>(String(row.mimeType).startsWith("image/")?"image":"file")===params.category);if(params.q)rows=rows.filter((row)=>String(row.filename).toLowerCase().includes(String(params.q).toLowerCase()));const items=await Promise.all(rows.map(toFileItem));const page=Number(params.page)||1,pageSize=Number(params.pageSize)||50,start=(page-1)*pageSize;return {items:items.slice(start,start+pageSize),total:items.length,page,pageSize};};
+  target.files.list = async (params:Record<string,unknown>={}):Promise<FileListResponse>=>{
+    if (["tagIds", "minSize", "maxSize", "createdBefore", "referenceState", "duplicateOnly"].some((key) => params[key] !== undefined)) await unsupportedOrganization();
+    let rows=await fileRows();
+    if(params.category)rows=rows.filter((row)=>(String(row.mimeType).startsWith("image/")?"image":"file")===params.category);
+    if(params.fileKind)rows=rows.filter((row)=>assetFileKind(String(row.mimeType))===params.fileKind);
+    if(params.q)rows=rows.filter((row)=>String(row.filename).toLowerCase().includes(String(params.q).toLowerCase()));
+    if(params.folderId)rows=rows.filter((row)=>params.folderId==="__unarchived"?!row.folderId:row.folderId===params.folderId);
+    if(params.createdAfter)rows=rows.filter((row)=>Date.parse(String(row.createdAt))>=Date.parse(String(params.createdAfter)));
+    if(params.recentDays)rows=rows.filter((row)=>Date.parse(String(row.createdAt))>=Date.now()-Number(params.recentDays)*86400000);
+    const sort=String(params.sort||"created_desc");
+    rows.sort((left,right)=>{
+      const compare=sort.startsWith("size")?Number(left.size)-Number(right.size)
+        :sort.startsWith("name")?String(left.filename).localeCompare(String(right.filename))
+        :String(left.createdAt).localeCompare(String(right.createdAt));
+      return sort.endsWith("_asc")?compare:-compare;
+    });
+    const page=Math.max(1,Number(params.page)||1),pageSize=Math.min(200,Math.max(1,Number(params.pageSize)||50)),start=(page-1)*pageSize;
+    // Resolve Native binary URLs only for this page, never for the complete library.
+    const items=await Promise.all(rows.slice(start,start+pageSize).map(toFileItem));
+    return {items,total:rows.length,page,pageSize};
+  };
   target.files.get = async (id:string):Promise<FileDetail>=>{const row=(await fileRows()).find((item)=>item.id===id);if(!row)throw new Error("文件不存在");const item=await toFileItem(row);return {...item,references:item.primaryNote?[{...item.primaryNote,updatedAt:String(row.updatedAt),isPrimary:true}]:[]};};
-  target.files.upload = async (file:File):Promise<FileItem>=>{const notebooks=await repository.notebooks.list();let notebook=notebooks[0];if(!notebook){const id=newLocalId();await repository.notebooks.create({id,name:"本地文件",icon:"📁"});notebook=(await repository.notebooks.get(id))!;}let holder=(await repository.notes.list({includeArchived:true,includeTrashed:true})).find((note)=>note.title==="本地文件");if(!holder){const id=newLocalId();await repository.notes.create({id,notebookId:notebook.id,title:"本地文件",isArchived:1});holder=(await repository.notes.get(id))!;}const id=newLocalId();await repository.attachments.save({id,noteId:holder.id,filename:file.name,mimeType:file.type||"application/octet-stream",blob:file});return target.files.get(id);};
-  target.files.remove = async (id:string)=>{await repository.attachments.remove(id);return {success:true};};
-  target.files.batchRemove = async (ids:string[])=>{const failed:Array<{id:string;reason:string}>=[];let deleted=0;for(const id of ids){try{await repository.attachments.remove(id);deleted+=1;}catch(error){failed.push({id,reason:error instanceof Error?error.message:"删除失败"});}}return {success:failed.length===0,deleted,failed};};
-  target.files.rename = async (id:string,filename:string)=>{await db.run("UPDATE attachments SET filename=?,updatedAt=? WHERE id=?",[filename,now(),id]);const row=(await db.query<Record<string,unknown>>("SELECT * FROM attachments WHERE id=?",[id]))[0];if(row)await enqueue("attachment",id,"upsert",row);return {success:true,filename};};
+  target.files.upload = async (file:File):Promise<FileItem>=>{assertPersonalFileScope();const notebooks=await repository.notebooks.list();let notebook=notebooks[0];if(!notebook){const id=newLocalId();await repository.notebooks.create({id,name:"本地文件",icon:"📁"});notebook=(await repository.notebooks.get(id))!;}let holder=(await repository.notes.list({includeArchived:true,includeTrashed:true})).find((note)=>note.title==="本地文件");if(!holder){const id=newLocalId();await repository.notes.create({id,notebookId:notebook.id,title:"本地文件",isArchived:1});holder=(await repository.notes.get(id))!;}const id=newLocalId();await repository.attachments.save({id,noteId:holder.id,filename:file.name,mimeType:file.type||"application/octet-stream",blob:file});return target.files.get(id);};
+  const assertSafeFileDeletion = async (id: string) => {
+    assertPersonalFileScope();
+    if (!isMobileLocalMode()) throw Object.assign(new Error("同步模式暂不支持文件永久删除，请在服务端文件中心检查引用后操作"), { code: "MOBILE_SYNC_FILE_DELETE_UNSUPPORTED" });
+    const references = await db.query("SELECT id FROM notes WHERE content LIKE ? LIMIT 1", [`%${id}%`]);
+    if (references.length) throw Object.assign(new Error("文件仍被笔记使用，请先移除引用（包括回收站中的笔记）"), { code: "FILE_IN_USE" });
+  };
+  target.files.remove = async (id:string)=>{await assertSafeFileDeletion(id);await repository.attachments.remove(id);return {success:true};};
+  target.files.batchRemove = async (ids:string[])=>{const failed:Array<{id:string;reason:string}>=[];let deleted=0;for(const id of ids){try{await target.files.remove(id);deleted+=1;}catch(error){failed.push({id,reason:error instanceof Error?error.message:"删除失败"});}}return {success:failed.length===0,deleted,failed};};
+  target.files.rename = async (id:string,filename:string)=>{assertPersonalFileScope();await db.run("UPDATE attachments SET filename=?,updatedAt=? WHERE id=?",[filename,now(),id]);const row=(await db.query<Record<string,unknown>>("SELECT * FROM attachments WHERE id=?",[id]))[0];if(row)await enqueue("attachment",id,"upsert",row);return {success:true,filename};};
+  target.files.remove = unsupportedTrash;
+  target.files.batchRemove = unsupportedTrash;
   target.attachmentFolders.list = async()=>({folders:[]});
   target.dataFile.cleanupOrphans = async()=>({totalRemovedItems:0,totalFreedBytes:0,removed:{databaseRows:0,contentReferences:0,diskFiles:0}});
 
   return () => {
+    removeComposerCache();
     Object.assign(target, originals);
     target.files = originals.files;
     target.attachmentFolders = originals.attachmentFolders;

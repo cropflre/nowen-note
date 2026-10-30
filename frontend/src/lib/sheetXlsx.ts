@@ -79,7 +79,7 @@ function boundedXmlReader(zip: JSZip): ReadXml {
 function escapeXml(value: string): string {
   return (value || "")
     // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
-    .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g, "")
+    .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -411,7 +411,14 @@ export async function createSheetXlsx(
   data: SheetDataModel,
   title = "Sheet1",
 ): Promise<ArrayBuffer> {
-  const normalized = normalizeSheetData(data);
+  return createTableXlsx(normalizeSheetData(data), title);
+}
+
+/** Export a prepared table without the editable sheet's row/cell truncation. */
+export async function createTableXlsx(
+  normalized: SheetDataModel,
+  title = "Sheet1",
+): Promise<ArrayBuffer> {
   const zip = new JSZip();
   const sheetName = safeSheetName(title);
 

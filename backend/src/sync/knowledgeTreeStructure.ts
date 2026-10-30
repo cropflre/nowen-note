@@ -2,6 +2,8 @@ import type Database from "better-sqlite3";
 import { hasKnowledgeCapability, resolveKnowledgeNodeAccess } from "../services/knowledgeCapabilities.js";
 import { SyncError } from "./errors.js";
 import { resolveAuthorizedScope } from "./scope.js";
+import { moveKnowledgeNode } from "../services/knowledgeTreeRootDocuments.js";
+import { applyKnowledgeTreeLifecycle } from "./knowledgeTreeLifecycle.js";
 
 interface TreeRow {
   id: string;
@@ -53,10 +55,11 @@ function parseStructure(payload: Record<string, unknown>, prefix: "" | "base"): 
     return null; // Initial projection; the business entity creates the same node first.
   }
   const parentId = payload[parentKey];
+  // Root-document placement can allocate negative sort positions. Keep signed safe integers.
   const sortOrder = payload[sortKey];
   const isDeleted = payload[deletedKey];
   if ((parentId !== null && (typeof parentId !== "string" || !parentId))
-    || !Number.isSafeInteger(sortOrder) || (sortOrder as number) < 0
+    || !Number.isSafeInteger(sortOrder)
     || (isDeleted !== 0 && isDeleted !== 1)) {
     throw new SyncError("INVALID_PAYLOAD", "知识树结构字段无效");
   }
@@ -106,6 +109,10 @@ export function applyKnowledgeTreeStructureMutation(
   if (payload.resourceType !== node.resourceType || payload.resourceId !== node.resourceId) {
     throw new SyncError("INVALID_PAYLOAD", "知识树资源身份不可变更");
   }
+  if (payload.lifecycle !== undefined) {
+    applyKnowledgeTreeLifecycle(db,input.userId,input.workspaceId,node.id,payload);
+    return;
+  }
   const desired = parseStructure(payload, "")!;
   if (payload.deletedAt !== null && payload.deletedAt !== undefined
     && typeof payload.deletedAt !== "string") {
@@ -146,6 +153,13 @@ export function applyKnowledgeTreeStructureMutation(
     throw new SyncError("INVALID_PAYLOAD", "知识树不能形成循环");
   }
 
+  if (node.resourceType === "notebook" && !node.isDeleted
+    && (desired.parentId !== current.parentId || desired.sortOrder !== current.sortOrder)) {
+    // Keep the legacy notebook container in the same server transaction. The
+    // existing move service also handles root-document hidden containers.
+    moveKnowledgeNode({db,actorUserId:input.userId,nodeId:node.id,parentId:desired.parentId,sortOrder:desired.sortOrder});
+    db.prepare("UPDATE notebooks SET sortOrder=? WHERE id=?").run(desired.sortOrder,node.resourceId);
+  }
   db.prepare(`
     UPDATE knowledge_tree_nodes
     SET parentId = ?, sortOrder = ?, isDeleted = ?, deletedAt = ?, updatedAt = datetime('now')

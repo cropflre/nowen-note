@@ -1,0 +1,160 @@
+{
+  "id": "3f8f6a0b-8073-4c5f-b25f-56cc925fce47",
+  "sourceTaskId": "119fdb1e-9a61-4146-8716-361ac5507559",
+  "runId": 38851856910,
+  "state": "succeeded",
+  "createdAt": "2026-10-16T05:14:55.678Z",
+  "updatedAt": "2026-10-16T05:19:37.138Z",
+  "deadline": "2026-10-16T06:44:55.678Z",
+  "version": "1.5.2",
+  "sha": "f1066e49386200780d85ee651775895b513f71ca",
+  "workflowSha": "f1066e49386200780d85ee651775895b513f71ca",
+  "verifications": [
+    {
+      "artifactId": 12025802798,
+      "platform": "linux",
+      "archiveDigest": "sha256:0d4679fc1ae525b5555d93b9d0e34ec7020d4b51e19338aec857e09706a1e497",
+      "verifiedAt": "2026-10-16T05:16:11.290Z",
+      "metadata": [
+        "latest-linux.yml"
+      ],
+      "files": [
+        {
+          "name": "Nowen-Note-1.5.2-amd64.deb",
+          "architecture": "x64",
+          "size": 110250552,
+          "sha256": "6293157370106bd5d8f28c8647cfba54b4e39df8c0b10b28531209e76b5954eb",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-x86_64.AppImage",
+          "architecture": "x64",
+          "size": 163934373,
+          "sha256": "9c4227582b1ba408abc3bc45a5a6608af9f5c6455fd1ab7c8919163784568b72",
+          "updaterMetadata": false
+        },
+        {
+          "name": "latest-linux.yml",
+          "architecture": "metadata",
+          "size": 543,
+          "sha256": "d6c30eb618341605f0173956d400e05d3acdd74ba43007c02b34c6c017e736d3",
+          "updaterMetadata": true
+        }
+      ]
+    },
+    {
+      "artifactId": 12025449070,
+      "platform": "macos",
+      "archiveDigest": "sha256:9c228f54e809d186abc42e3d2aa7f9e80729573d0a97cee26eaee344e4333b00",
+      "verifiedAt": "2026-10-16T05:18:44.275Z",
+      "metadata": [
+        "latest-mac.yml"
+      ],
+      "files": [
+        {
+          "name": "Nowen-Note-1.5.2-arm64.dmg",
+          "architecture": "arm64",
+          "size": 146433217,
+          "sha256": "74cd3f0abcdb8a817c36b060ed8f20a8904380cbb6e4c7872dbc48aa4d8c6fbf",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-arm64.dmg.blockmap",
+          "architecture": "arm64",
+          "size": 152097,
+          "sha256": "87e041b5186ed74fc027ef413fe0c65b7fe8e3227159832397c651cf6baa3fb3",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-arm64.zip",
+          "architecture": "arm64",
+          "size": 141447310,
+          "sha256": "bfced7623012e486b6a811f1d218b38e96c372d5917e1db440b65328e4822041",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-arm64.zip.blockmap",
+          "architecture": "arm64",
+          "size": 149202,
+          "sha256": "515c6ac69adc5349c51590882d2c76c906c2b08a81a975a9a3050e773b929a7a",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-x64.dmg",
+          "architecture": "x64",
+          "size": 146545631,
+          "sha256": "d8b49252aeb9330fef97d88690c998030ca6eb174a5911a231b836ba3768013f",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-x64.dmg.blockmap",
+          "architecture": "x64",
+          "size": 154393,
+          "sha256": "9aa26e7c5a9a534bd234a66e1618d66b6db5a2eed12f1d0f6f9055a65157ba49",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-x64.zip",
+          "architecture": "x64",
+          "size": 141811376,
+          "sha256": "ff771c34e40854813cbba954e2ab14e7d6ab3a80783b310034af87d42a49ec15",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-x64.zip.blockmap",
+          "architecture": "x64",
+          "size": 149376,
+          "sha256": "688ba9ba86e0156b526c01b9863af2a91c656dac919165754241f972175180a0",
+          "updaterMetadata": false
+        },
+        {
+          "name": "latest-mac.yml",
+          "architecture": "metadata",
+          "size": 506,
+          "sha256": "40599307ed74442e26408903babf7e618a1a64d9f2e02a7e40ebe4116bf34354",
+          "updaterMetadata": true
+        }
+      ]
+    },
+    {
+      "artifactId": 12025339687,
+      "platform": "windows",
+      "archiveDigest": "sha256:7bd7ea00247264696cf5133fe214889bea2d169eaf55e768ed5c2d8b389c8bdb",
+      "verifiedAt": "2026-10-16T05:19:37.133Z",
+      "metadata": [
+        "latest.yml"
+      ],
+      "files": [
+        {
+          "name": "Nowen-Note-1.5.2-portable.exe",
+          "architecture": "x64",
+          "size": 159206700,
+          "sha256": "0ec28ddb3e6ec34b686df5c6f8be2c8c374b954729d839a1c4c9a3bc165c9598",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-setup.exe",
+          "architecture": "x64",
+          "size": 116059087,
+          "sha256": "1aa7030bae4ba14e68c519b05e507f44f908d58d04b819a04bf8d3bd99764fea",
+          "updaterMetadata": false
+        },
+        {
+          "name": "Nowen-Note-1.5.2-setup.exe.blockmap",
+          "architecture": "x64",
+          "size": 121755,
+          "sha256": "92306d78e71d7012b7de5fe622ee64d1e32ec055952aed84d498337331102369",
+          "updaterMetadata": false
+        },
+        {
+          "name": "latest.yml",
+          "architecture": "metadata",
+          "size": 349,
+          "sha256": "dc74b96ccf9e615de47f0064c00839d1103ae7f19408b3e86898cc65d8d0ae6b",
+          "updaterMetadata": true
+        }
+      ]
+    }
+  ],
+  "acceptance": null
+}

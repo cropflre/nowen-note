@@ -57,6 +57,9 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
 
   // 按分类分组
   const categories = Array.from(new Set(filteredItems.map((i) => i.category)));
+  const groups = categories.map(category => ({ category, items: filteredItems.filter(item => item.category === category) }));
+  // 键盘索引与分类后的显示顺序保持一致。
+  const orderedItems = groups.flatMap(group => group.items);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -84,20 +87,20 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
       if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredItems.length > 0) {
-          setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+        if (orderedItems.length > 0) {
+          setSelectedIndex((prev) => (prev + 1) % orderedItems.length);
         }
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredItems.length > 0) {
-          setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+        if (orderedItems.length > 0) {
+          setSelectedIndex((prev) => (prev - 1 + orderedItems.length) % orderedItems.length);
         }
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredItems[selectedIndex]) {
-          onSelect(filteredItems[selectedIndex]);
+        if (orderedItems[selectedIndex]) {
+          onSelect(orderedItems[selectedIndex]);
         }
       } else if (e.key === "Escape") {
         e.preventDefault();
@@ -108,7 +111,7 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [editor, filteredItems, selectedIndex, onSelect, onClose]);
+  }, [editor, orderedItems, selectedIndex, onSelect, onClose]);
 
   // 点击外部关闭。使用 pointerdown capture，让鼠标、触控笔和触屏路径一致。
   useEffect(() => {
@@ -141,8 +144,7 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
       className="fixed z-[60] w-[280px] max-h-[320px] overflow-y-auto bg-app-elevated border border-app-border rounded-xl shadow-2xl py-1.5"
       style={{ top: position.top, left: position.left }}
     >
-      {categories.map((cat) => {
-        const catItems = filteredItems.filter((i) => i.category === cat);
+      {groups.map(({ category: cat, items: catItems }) => {
         return (
           <div key={cat}>
             <div className="px-3 pt-2 pb-1">

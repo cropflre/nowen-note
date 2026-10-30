@@ -1,0 +1,32 @@
+[
+  {
+    "label": "plugin-studio-projects",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "note-delete-attachments",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "attachment-modern-media",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  }
+]

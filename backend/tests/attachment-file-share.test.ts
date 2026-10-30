@@ -63,6 +63,7 @@ test.before(async () => {
 
   app = new Hono();
   app.get("/attachments/:id", attachmentsModule.handleDownloadAttachment);
+  app.get("/attachments/:id/:filename{image\\.[a-z]+}", attachmentsModule.handleNamedImageAttachment);
   app.route("/attachments", attachmentsModule.default);
 
   const database = db();
@@ -182,4 +183,76 @@ test("deleting the attachment invalidates its stable share", async () => {
   assert.equal(response.status, 404);
   const denied = await responseJson<{ code: string }>(response);
   assert.equal(denied.code, "FILE_SHARE_NOT_FOUND");
+});
+
+test("named image URLs retain bytes, MIME and ACL through upload, deduplication, sharing and revocation (DCC-006)", async () => {
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5e0AAAAASUVORK5CYII=", "base64");
+  const previousOrigin = process.env.FILE_PUBLIC_ORIGIN;
+  process.env.FILE_PUBLIC_ORIGIN = "https://files.example/nowen";
+  try {
+    const uploadImage = async () => {
+      const form = new FormData();
+      form.set("noteId", NOTE_ID);
+      // The extension must describe the stored MIME, even if the filename differs.
+      form.set("file", new File([bytes], "中文 screenshot.jpg", { type: "image/png" }));
+      const response = await app.request("/attachments", { method: "POST", headers: { "X-User-Id": OWNER_ID }, body: form });
+      assert.equal(response.status, 201);
+      return responseJson<{ id: string; url: string; imageUrl: string; deduplicated?: boolean; accessUrls: Record<string, string> }>(response);
+    };
+    const image = await uploadImage();
+    const namedPath = `/attachments/${image.id}/image.png`;
+    assert.equal(image.url, `/api/attachments/${image.id}`);
+    assert.equal(image.imageUrl, `https://files.example/nowen/api/attachments/${image.id}/image.png`);
+    // The public alias must not shadow authenticated /access/urls routing.
+    assert.equal((await app.request(`/attachments/access/urls?noteId=${NOTE_ID}`, { headers: { "X-User-Id": OWNER_ID } })).status, 200);
+    assert.equal((await app.request(namedPath)).status, 404);
+    assert.equal((await app.request(`/attachments/${image.id}/image.jpg`)).status, 404);
+    assert.equal((await app.request(`/attachments/${image.id}/unrelated.png`)).status, 404);
+
+    const signed = new URL(image.accessUrls[image.id], "http://localhost");
+    const verified = await app.request(`${namedPath}${signed.search}`);
+    assert.equal(verified.status, 200);
+    assert.equal(verified.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await verified.arrayBuffer()), bytes);
+    assert.equal((await app.request(publicRoute(image.accessUrls[image.id]))).status, 200);
+
+    const clone = await uploadImage();
+    assert.equal(clone.deduplicated, true);
+    assert.notEqual(clone.id, image.id);
+    assert.equal(clone.imageUrl, `https://files.example/nowen/api/attachments/${clone.id}/image.png`);
+
+    const createShare = () => app.request("/attachments/file-share", {
+      method: "POST", headers: { "X-User-Id": OWNER_ID, "Content-Type": "application/json" },
+      body: JSON.stringify({ attachmentId: image.id }),
+    });
+    const created = await createShare();
+    assert.equal(created.status, 200);
+    const share = await responseJson<{ url: string }>(created);
+    assert.ok(share.url.startsWith(`${image.imageUrl}?share=`));
+    const shareQuery = new URL(share.url).search;
+    const anonymous = await app.request(`${namedPath}${shareQuery}`);
+    assert.equal(anonymous.status, 200);
+    assert.deepEqual(Buffer.from(await anonymous.arrayBuffer()), bytes);
+    assert.equal((await app.request(`${namedPath}?share=invalid`)).status, 404);
+    assert.equal((await app.request(`/attachments/${clone.id}/image.png${shareQuery}`)).status, 404);
+    assert.equal((await app.request("/attachments/file-share", {
+      method: "POST", headers: { "X-User-Id": "other-user", "Content-Type": "application/json" },
+      body: JSON.stringify({ attachmentId: image.id }),
+    })).status, 403);
+
+    const { setAttachmentExternalAccessEnabled } = await import("../src/services/attachment-link-policy");
+    setAttachmentExternalAccessEnabled(image.id, false);
+    assert.equal((await app.request(`${namedPath}${shareQuery}`)).status, 403);
+    assert.equal((await createShare()).status, 403);
+    // Disabling public links must not remove the owner's signed access.
+    assert.equal((await app.request(`${namedPath}${signed.search}`)).status, 200);
+    setAttachmentExternalAccessEnabled(image.id, true);
+
+    const revoke = await app.request(`/attachments/file-share/${image.id}`, { method: "DELETE", headers: { "X-User-Id": OWNER_ID } });
+    assert.equal(revoke.status, 200);
+    assert.equal((await app.request(`${namedPath}${shareQuery}`)).status, 410);
+  } finally {
+    if (previousOrigin === undefined) delete process.env.FILE_PUBLIC_ORIGIN;
+    else process.env.FILE_PUBLIC_ORIGIN = previousOrigin;
+  }
 });

@@ -356,7 +356,8 @@ export default function AndroidShareImportCenter() {
           ...(createdNew && newTitle.trim() ? { title: newTitle.trim().slice(0, 255) } : {}),
         });
       } else if (createdNew) {
-        await api.deleteNote(note.id).catch(() => undefined);
+        const emptyNoteId = note.id;
+        await api.updateNote(emptyNoteId, { isTrashed: 1 }).then(() => api.deleteNote(emptyNoteId)).catch(() => undefined);
         note = null;
       }
 

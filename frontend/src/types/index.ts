@@ -309,6 +309,7 @@ export type FileSortKey =
  *   holder note（isArchived=1 的"未归档文件"占位笔记）。
  */
 export interface FileItem {
+  deduplicated?: boolean;
   id: string;
   filename: string;
   mimeType: string;
@@ -336,6 +337,9 @@ export interface FileItem {
   folderId: string | null;
   /** 附件文件夹名称。未归档时为 null。 */
   folderName: string | null;
+  /** Serving-instance policy; authenticated runtime URLs retain normal ACL checks. */
+  externalAccessEnabled?: boolean;
+  canManage?: boolean;
   primaryNote: {
     id: string;
     title: string;
@@ -372,6 +376,15 @@ export interface FileListResponse {
   pageSize: number;
 }
 
+export interface SimilarImageResult {
+  matches: Array<{ id: string; filename: string; size: number; distance: number }>;
+  examined: number;
+  skipped: number;
+  nextAfter: string | null;
+  accessUrls: Record<string, string>;
+}
+export interface FileRenameItem { id: string; filename: string; expectedFilename: string }
+
 export interface FileStats {
   total: number;
   totalBytes: number;
@@ -407,7 +420,7 @@ export interface FileStats {
 
 export type TaskPriority = 1 | 2 | 3; // 1=低, 2=中, 3=高
 
-export type TaskFilter = "all" | "today" | "week" | "overdue" | "completed";
+export type TaskFilter = "all" | "today" | "week" | "overdue" | "completed" | "completed-today" | "archived" | "history";
 
 export interface Task {
   id: string;
@@ -418,6 +431,7 @@ export interface Task {
   description: string;
   isCompleted: number;
   completedAt?: string | null;
+  archivedAt?: string | null;
   priority: TaskPriority;
   dueDate: string | null;
   /** Phase 2: 精确到分钟的截止时间，ISO 8601 格式（如 2026-06-12T18:00）。兼容旧 dueDate */
@@ -426,6 +440,7 @@ export interface Task {
   startDate?: string | null;
   noteId: string | null;
   parentId: string | null;
+  parentTitle?: string | null;
   sortOrder: number;
   projectId: string | null;
   status: TaskStatus;
@@ -449,6 +464,8 @@ export interface Task {
 }
 
 export interface TaskStats {
+  completedToday?: number;
+  archived?: number;
   total: number;
   completed: number;
   pending: number;
@@ -749,6 +766,8 @@ export interface Share {
   shareType: string;
   permission: SharePermission;
   hasPassword: boolean;
+  /** Server-side credential epoch; lets an in-memory copy secret detect a reset. */
+  credentialVersion?: number;
   expiresAt: string | null;
   maxViews: number | null;
   viewCount: number;
@@ -884,4 +903,21 @@ export interface ShareComment {
   isResolved: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** File organization is server-owned metadata; it does not alter attachment identity. */
+export interface AssetTag { id: string; name: string; color: string }
+export interface AssetFilters {
+  category?: FileCategory;
+  fileKind?: "document" | "video" | "audio" | "archive";
+  mime?: string; q?: string; folderId?: string;
+  createdAfter?: string; createdBefore?: string; recentDays?: number;
+  minSize?: number; maxSize?: number; tagIds?: string[];
+  referenceState?: "referenced" | "unreferenced" | "multiple";
+  duplicateOnly?: boolean;
+}
+export interface AssetSmartFolder { id: string; name: string; filters: AssetFilters }
+export interface AssetOrganization {
+  supported: boolean; canManageTags: boolean; tags: AssetTag[]; smartFolders: AssetSmartFolder[];
+  tagPage?: number; smartPage?: number; hasMoreTags?: boolean; hasMoreSmartFolders?: boolean;
 }

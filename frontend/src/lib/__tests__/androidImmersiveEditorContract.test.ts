@@ -100,7 +100,8 @@ describe("Android immersive editor contract", () => {
   it("removes nonessential metadata and floating actions from the keyboard viewport", () => {
     const source = read("src/components/TiptapEditor.tsx");
     expect(source).toContain('data-mobile-editor-metadata');
-    expect(source).toContain('!compactMobileEditing && (');
+    expect(source).toContain('compactMobileEditing && "hidden"');
+    expect(source).toContain('compactMobileEditing && "hidden focus-within:block"');
     expect(source).toContain('showBackToTop && !compactMobileEditing');
   });
 
@@ -116,7 +117,8 @@ describe("Android immersive editor contract", () => {
     expect(source).toContain('data-markdown-mobile-toolbar="compact"');
     expect(source).toContain('data-markdown-mobile-toolbar="expanded"');
     expect(source).toContain('data-markdown-mobile-status');
-    expect(source).toContain('!compactMobileEditing');
+    expect(source).toContain('compactMobileEditing ? "hidden" : "flex"');
+    expect(source).toContain('compactMobileEditing && "hidden focus-within:block"');
     expect(source).toContain('onMouseDown={(event) => event.preventDefault()}');
     expect(source).toContain('[keyboardVisible, note.id]');
     expect(compact).not.toContain("openMarkdownSearch");

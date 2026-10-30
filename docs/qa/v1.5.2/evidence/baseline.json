@@ -1,0 +1,597 @@
+{
+  "time": "2026-10-12T13:17:56.727Z",
+  "targetSha": "99dbdef9fa160ccce0f66aa0489dc964a28bc6cd",
+  "localSha": "bf1052992d5b2a8f11cfe4ad82bd054bf72e7b6e",
+  "initialLocalChanges": [
+    "backend/package-lock.json",
+    "backend/src/services/knowledgeTreeCore.ts",
+    "backend/tests/knowledge-tree-root-documents.test.ts",
+    "backend/tests/sync-v2-mobile-multidevice.test.ts",
+    "frontend/android/app/capacitor.build.gradle",
+    "frontend/android/capacitor.settings.gradle"
+  ],
+  "remote": "99dbdef9fa160ccce0f66aa0489dc964a28bc6cd\trefs/heads/release/v1.5.2",
+  "systemNode": "v20.20.2",
+  "systemAbi": "115",
+  "dependencyComparison": {
+    "backend": {
+      "mismatchCount": 50,
+      "mismatches": [
+        {
+          "package": "node_modules/@emnapi/runtime",
+          "expected": "1.10.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/aix-ppc64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-arm",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/darwin-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/darwin-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/freebsd-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/freebsd-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-arm",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-ia32",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-loong64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-mips64el",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-ppc64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-riscv64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-s390x",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/netbsd-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/netbsd-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/openbsd-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/openbsd-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/openharmony-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/sunos-x64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/win32-arm64",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/win32-ia32",
+          "expected": "0.27.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-darwin-arm64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-darwin-x64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-darwin-arm64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-darwin-x64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linux-arm",
+          "expected": "1.0.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linux-arm64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linux-s390x",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linux-x64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linuxmusl-arm64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-libvips-linuxmusl-x64",
+          "expected": "1.0.4",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linux-arm",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linux-arm64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linux-s390x",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linux-x64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linuxmusl-arm64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-linuxmusl-x64",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-wasm32",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@img/sharp-win32-ia32",
+          "expected": "0.33.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/fsevents",
+          "expected": "2.3.3",
+          "installed": null
+        },
+        {
+          "package": "node_modules/sqlite-vec-darwin-arm64",
+          "expected": "0.1.9",
+          "installed": null
+        },
+        {
+          "package": "node_modules/sqlite-vec-darwin-x64",
+          "expected": "0.1.9",
+          "installed": null
+        },
+        {
+          "package": "node_modules/sqlite-vec-linux-arm64",
+          "expected": "0.1.9",
+          "installed": null
+        },
+        {
+          "package": "node_modules/sqlite-vec-linux-x64",
+          "expected": "0.1.9",
+          "installed": null
+        },
+        {
+          "package": "node_modules/tslib",
+          "expected": "2.8.1",
+          "installed": null
+        }
+      ]
+    },
+    "frontend": {
+      "mismatchCount": 63,
+      "mismatches": [
+        {
+          "package": "node_modules/@esbuild/aix-ppc64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-arm",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-arm64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/android-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/darwin-arm64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/darwin-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/freebsd-arm64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/freebsd-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-arm",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-arm64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-ia32",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-loong64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-mips64el",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-ppc64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-riscv64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-s390x",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/linux-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/netbsd-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/openbsd-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/sunos-x64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/win32-arm64",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@esbuild/win32-ia32",
+          "expected": "0.21.5",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-android-arm64",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-darwin-arm64",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-darwin-x64",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-arm-gnueabihf",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-arm64-gnu",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-arm64-musl",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-riscv64-gnu",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-x64-gnu",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-linux-x64-musl",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@napi-rs/canvas-win32-arm64-msvc",
+          "expected": "0.1.100",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-android-arm-eabi",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-android-arm64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-darwin-arm64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-darwin-x64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-freebsd-arm64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-freebsd-x64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-arm-gnueabihf",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-arm-musleabihf",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-arm64-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-arm64-musl",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-loong64-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-loong64-musl",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-ppc64-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-ppc64-musl",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-riscv64-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-riscv64-musl",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-s390x-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-x64-gnu",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-linux-x64-musl",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-openbsd-x64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-openharmony-arm64",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-win32-arm64-msvc",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@rollup/rollup-win32-ia32-msvc",
+          "expected": "4.59.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-darwin-arm64",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-darwin-x64",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-linux-arm64-gnu",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-linux-arm64-musl",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-linux-x64-gnu",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-linux-x64-musl",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/@stencil/core/node_modules/@rollup/rollup-win32-arm64-msvc",
+          "expected": "4.44.0",
+          "installed": null
+        },
+        {
+          "package": "node_modules/fsevents",
+          "expected": "2.3.3",
+          "installed": null
+        }
+      ]
+    }
+  },
+  "ffmpeg": {
+    "exists": true,
+    "sha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "files": 21,
+  "passedFiles": 21,
+  "failedFiles": 0,
+  "tests": 193,
+  "passed": 193,
+  "failed": 0,
+  "skipped": 0,
+  "runner": "backend/scripts/run-tests-serial.mjs runTestFile; tests/setup-db-isolation.ts"
+}

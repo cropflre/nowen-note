@@ -1,0 +1,51 @@
+{
+  "device": "emulator-5580",
+  "package": "com.nowen.note.syncacceptance",
+  "offlineImmediateRead": true,
+  "forceStopRecovery": true,
+  "sourceCommit": "c3d9b9ffb130fb849088aeaf522c814e0d362981",
+  "nativeOfflineFolderCreate": true,
+  "nestedOfflineFolderCreate": true,
+  "offlineFolderUnderDocument": true,
+  "noteInsideOfflineFolder": true,
+  "folderCreationMutationIdentitySurvivesRestart": true,
+  "folderCreationOfflineListRecovery": true,
+  "automaticFolderCreationPush": true,
+  "nativeFolderCreationMs": 2002,
+  "knowledgeTreeRootCreate": true,
+  "readWriteThroughProductionApiBridge": true,
+  "negotiatedPersonalTreePull": true,
+  "remoteFolderUnderDocument": true,
+  "remoteTreeMove": true,
+  "structureForceStopRecovery": true,
+  "nativeSchemaVersion": 7,
+  "nativeOfflineTreeMoveAndSort": true,
+  "pendingTreeForceStopRecovery": true,
+  "automaticStructurePush": true,
+  "nativeConcurrentMoveKeepLocal": true,
+  "missingTreeNoticePoll": true,
+  "remoteFolderCreateMs": 66,
+  "remoteTreeMoveMs": 217,
+  "offlineNetworkIsolation": "adb reverse removed; HTTP server unreachable from Android",
+  "markdownAndRichText": true,
+  "missingNoticePoll": true,
+  "reconnect": true,
+  "httpPushToNativePull": {
+    "samples": 30,
+    "p50Ms": 350,
+    "p95Ms": 378,
+    "p99Ms": 1161
+  },
+  "nativeCommitToServerAndAck": {
+    "samples": 30,
+    "p50Ms": 339,
+    "p95Ms": 362,
+    "p99Ms": 369
+  },
+  "errors": [
+    {
+      "lastError": null
+    }
+  ],
+  "boundary": "Loopback adb reverse; actual Android Native SQLite, production API Bridge personal folder creation/nesting/document parents and note creation inside the new folder, tree move/sort, Outbox restart recovery, automatic Push and concurrent move keep-local via the Native conflict service. Full ConflictCenter GUI, EditorPane, protected/shared ACL, attachment bytes and full production JWT middleware are not accepted here."
+}

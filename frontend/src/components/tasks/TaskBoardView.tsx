@@ -139,6 +139,8 @@ export function TaskBoardView({
                 return (
                   <motion.div
                     key={task.id}
+                    data-task-context-id={task.id}
+                    tabIndex={0}
                     layout
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}

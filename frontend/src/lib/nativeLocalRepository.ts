@@ -1,4 +1,6 @@
-import type { Note, NoteListItem, Notebook, Tag, Workspace, WorkspaceRole } from "@/types";
+import { retainedNativeDeletionAttachments } from "./nativeNoteDeletionRecovery";
+import type { Note, NoteListItem, Notebook, Tag, Task, Workspace, WorkspaceRole } from "@/types";
+import { taskRemovalIds, type TaskRemovalMode } from "./taskRecurrenceRemoval";
 import {
   type LocalAttachmentRecord,
   type LocalRepository,
@@ -10,9 +12,13 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
+import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
 import { isEncryptedNoteFormat, validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
+import { ROOT_DOCUMENT_NOTEBOOK_PREFIX } from "./rootDocumentCreatePolicy";
+import { listNativePersonalTreeFolderDrafts, listNativePersonalTreeOverrides, writeNativePersonalTreeFolder, writeNativePersonalTreeMoves, type NativeTreeMove } from "./nativePersonalTreeWrites";
+import { nativeTreeLifecycleOverrides, writeNativePersonalTreeLifecycle } from "./nativePersonalTreeTrash";
 
-type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
+type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment" | "task";
 
 const NOTE_LIST_METADATA_COLUMNS = `n.id,n.userId,n.notebookId,n.workspaceId,n.title,n.contentFormat,n.colorMark,
   n.isPinned,n.isFavorite,n.isLocked,n.isArchived,n.isTrashed,n.version,n.sortOrder,n.createdAt,n.updatedAt`;
@@ -201,6 +207,164 @@ export class NativeLocalRepository implements LocalRepository {
     return (await this.getNote(copyId))!;
   }
 
+  async saveTaskNoteSnapshot(taskId: string, data: { requestId: string; notebookId: string; title: string; description: string }): Promise<Note> {
+    const fingerprintBytes = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([taskId,data.notebookId,data.title,data.description])));
+    const fingerprint = Array.from(new Uint8Array(fingerprintBytes),(byte) => byte.toString(16).padStart(2,"0")).join("");
+    const receiptKey = `taskNoteSnapshot:${data.requestId}`;
+    const readReceipt = async (tx: NativeDatabase) => {
+      const receipt = (await tx.query<{ value: string }>("SELECT value FROM native_runtime_meta WHERE key=?",[receiptKey]))[0];
+      if (!receipt) return null;
+      if (receipt.value !== fingerprint) throw new Error("保存请求已用于其他内容，请重新发起");
+      const note = await this.getNote(data.requestId,tx,"personal");
+      if (!note || note.isTrashed) throw new Error("之前生成的笔记已删除，请重新发起保存");
+      return note;
+    };
+    const validate = async (tx: NativeDatabase) => {
+      const task = (await tx.query<{ userId: string }>("SELECT userId FROM tasks WHERE scopeKey='personal' AND id=?",[taskId]))[0];
+      const notebook = (await tx.query<{ userId: string; isDeleted: number }>("SELECT userId,isDeleted FROM notebooks WHERE scopeKey='personal' AND id=?",[data.notebookId]))[0];
+      if (!task || task.userId !== this.userId || !notebook || notebook.userId !== this.userId || notebook.isDeleted) throw new Error("任务或保存位置不可访问");
+    };
+    await validate(this.db);
+    const existing = await readReceipt(this.db);
+    if (existing) return existing;
+    const copied: Array<{ id: string; sourceId: string; filename: string; mimeType: string; size: number; localPath: string; hash: string; task: boolean }> = [];
+    let content = data.description;
+    let committed = false;
+    try {
+      const taskIds = Array.from(content.matchAll(/\/api\/task-attachments\/([A-Za-z0-9_-]+)/g),(match) => match[1]);
+      const hasServerToken = typeof localStorage !== "undefined" && !!localStorage.getItem("nowen-token");
+      if (taskIds.length || hasServerToken) {
+        const { listTaskAttachments } = await import("./taskAttachmentClient");
+        const { fetchWithAuthRefresh, getAccessToken } = await import("./authSession");
+        const sources = await listTaskAttachments(taskId).catch((error) => {
+          if (!taskIds.length && error?.status === 404) return [];
+          throw error;
+        });
+        if (taskIds.some((id) => !sources.some((source) => source.id === id))) throw new Error("任务附件不存在或尚未同步");
+        for (const source of sources) {
+          const { getBaseUrl } = await import("./api.impl");
+          const response = await fetchWithAuthRefresh(source.url,{headers:{Authorization:`Bearer ${getAccessToken()}`}},getBaseUrl());
+          if (!response.ok) throw new Error("任务附件下载失败，请联网后重试");
+          const id = newLocalId();
+          const saved = await this.attachmentStore.save({attachmentId:id,data:await response.blob(),expectedSize:source.size});
+          copied.push({id,sourceId:source.id,filename:source.filename,mimeType:source.mimeType,size:saved.size,localPath:saved.path,hash:saved.sha256,task:true});
+        }
+      }
+      const noteIds = [...new Set(Array.from(content.matchAll(/\/api\/attachments\/([A-Za-z0-9_-]+)/g),(match) => match[1]))];
+      for (const sourceId of noteIds) {
+        const source = (await this.db.query<{ filename: string; mimeType: string; size: number; hash: string }>(
+          "SELECT filename,mimeType,size,hash FROM attachments WHERE scopeKey='personal' AND userId=? AND id=?",[this.userId,sourceId]))[0];
+        if (!source) throw new Error("正文附件未保存到本机，请同步后重试");
+        const id = newLocalId();
+        const saved = await this.attachmentStore.save({attachmentId:id,data:await this.attachmentStore.read(sourceId,source.mimeType),expectedSize:source.size,expectedHash:source.hash || undefined});
+        copied.push({id,sourceId,...source,size:saved.size,localPath:saved.path,hash:saved.sha256,task:false});
+      }
+      for (const attachment of copied) {
+        const prefix = attachment.task ? "task-attachments" : "attachments";
+        const pattern = new RegExp(`(?:https?:\\/\\/[^/\\s"'<>]+)?/api/${prefix}/${attachment.sourceId}(?:\\?[^\\s"'<>)]*)?`,"g");
+        const referenced = content.includes(`/api/${prefix}/${attachment.sourceId}`);
+        content = content.replace(pattern,`/api/attachments/${attachment.id}`);
+        if (!referenced) content += `\n\n[${attachment.filename.replace(/[\\[\]]/g,"\\$&")}](/api/attachments/${attachment.id})`;
+      }
+      let usedCopies = false;
+      const note = await this.db.transaction(async (tx) => {
+        await validate(tx);
+        const duplicate = await readReceipt(tx);
+        if (duplicate) return duplicate;
+        const saved = await this.insertNote(tx,{id:data.requestId,notebookId:data.notebookId,workspaceId:null,title:data.title,content,contentText:content,contentFormat:"markdown"},true);
+        await tx.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)",[receiptKey,fingerprint,saved.savedAt]);
+        await tx.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)",[`localTreeDraft:personal:${data.requestId}`,JSON.stringify(`notebook:${data.notebookId}`),saved.savedAt]);
+        for (const attachment of copied) {
+          const row = {id:attachment.id,scopeKey:"personal",workspaceId:null,noteId:data.requestId,userId:this.userId,
+            filename:attachment.filename,mimeType:attachment.mimeType,size:attachment.size,localPath:attachment.localPath,hash:attachment.hash,
+            available:1,transferStatus:"pending_upload" as const,createdAt:saved.savedAt,updatedAt:saved.savedAt};
+          await tx.run(`INSERT INTO attachments (id,scopeKey,workspaceId,noteId,userId,filename,mimeType,size,localPath,hash,available,transferStatus,createdAt,updatedAt)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,Object.values(row));
+          await this.enqueue(tx,"attachment",attachment.id,"upsert",row,undefined,"personal");
+        }
+        usedCopies = true;
+        return (await this.getNote(data.requestId,tx,"personal"))!;
+      });
+      committed = true;
+      if (!usedCopies) await Promise.all(copied.map((attachment) => this.attachmentStore.remove(attachment.id)));
+      notifyMobileSyncStatusChanged();
+      this.requestSyncCallback?.();
+      return note;
+    } catch (error) {
+      if (!committed) await Promise.allSettled(copied.map((attachment) => this.attachmentStore.remove(attachment.id)));
+      throw error;
+    }
+  }
+
+  async archiveTaskTree(id: string, archived = true): Promise<{ success: boolean; affected: number }> {
+    const affected = await this.db.transaction(async (tx) => {
+      const tasks = await tx.query<{ id: string; parentId: string | null; userId: string; isCompleted: number; archivedAt: string | null; updatedAt: string }>("SELECT * FROM tasks WHERE scopeKey='personal'");
+      const root = tasks.find((task) => task.id === id);
+      if (!root || root.userId !== this.userId || root.parentId) throw new Error("请从顶层任务归档或恢复");
+      const ids = new Set([id]);
+      const children = new Map<string,string[]>();
+      for (const task of tasks) if (task.parentId) {
+        const siblings = children.get(task.parentId) || [];siblings.push(task.id);children.set(task.parentId,siblings);
+      }
+      const pendingIds = [id];
+      while (pendingIds.length) {
+        for (const child of children.get(pendingIds.pop()!) || []) if (!ids.has(child)) { ids.add(child);pendingIds.push(child); }
+      }
+      const tree = tasks.filter((task) => ids.has(task.id));
+      if (tree.some((task) => task.userId !== this.userId)) throw new Error("任务树的账户归属不一致");
+      if (archived && tree.some((task) => !task.isCompleted)) throw new Error("仍有未完成任务，请完成整棵任务树后再归档");
+      const archivedAt = archived ? (root.archivedAt || now()) : null;
+      const sync = await this.syncContext(tx);
+      for (const task of tree) {
+        if ((task.archivedAt || null) === archivedAt) continue;
+        const updatedAt = now();
+        await tx.run("UPDATE tasks SET archivedAt=?,updatedAt=? WHERE scopeKey='personal' AND id=?",[archivedAt,updatedAt,task.id]);
+        const pending = sync ? await tx.query<{ id: string; payload: string }>(`SELECT id,payload FROM sync_outbox
+          WHERE profileId=? AND scopeKey='personal' AND entityType='task' AND entityId=? AND operation='upsert'
+            AND status='pending' AND retryCount=0 AND lastAttemptAt IS NULL ORDER BY createdAt,rowid`,[sync.profileId,task.id]) : [];
+        if (pending.length) {
+          const baseline = JSON.parse(pending[0].payload || "{}").baseUpdatedAt;
+          await tx.run("UPDATE sync_outbox SET payload=? WHERE id=?",[JSON.stringify({...task,archivedAt,updatedAt,baseUpdatedAt:baseline}),pending[0].id]);
+          for (const obsolete of pending.slice(1)) await tx.run("DELETE FROM sync_outbox WHERE id=?",[obsolete.id]);
+        } else await this.enqueue(tx,"task",task.id,"upsert",{...task,archivedAt,updatedAt,baseUpdatedAt:task.updatedAt},undefined,"personal");
+      }
+      return tree.length;
+    });
+    this.requestSyncCallback?.();
+    return {success:true,affected};
+  }
+
+  async removeTaskOccurrences(id: string, mode: TaskRemovalMode): Promise<{ success: boolean; affected: number }> {
+    const affected = await this.db.transaction(async tx => {
+      const tasks = await tx.query<Task>("SELECT * FROM tasks WHERE scopeKey='personal'");
+      const root = tasks.find(task => task.id === id);
+      if (!root || root.userId !== this.userId) throw new Error("任务不存在或无权操作");
+      const ids = taskRemovalIds(tasks,id,mode);
+      const rows = tasks.filter(task => ids.has(task.id));
+      if (rows.some(task => task.userId !== this.userId)) throw new Error("任务树的账户归属不一致");
+      const groupId = root.repeatGroupId || root.id;
+      if (mode !== "single") await tx.run(`INSERT INTO task_recurrence_state(groupId,scopeKey,action,updatedAt) VALUES(?,?,?,?)
+        ON CONFLICT(groupId,scopeKey) DO UPDATE SET action=CASE WHEN action='series' THEN action ELSE excluded.action END,updatedAt=excluded.updatedAt`,[groupId,`personal:${this.userId}`,mode,now()]);
+      if (mode === "stop") {
+        for (const task of rows) await tx.run("UPDATE tasks SET repeatRule='none',repeatEndDate=NULL,repeatEndCount=NULL,repeatRuleJson=NULL,repeatGroupId=?,updatedAt=? WHERE id=?",[groupId,now(),task.id]);
+        // A series command also stops occurrences created on another device while this one was offline.
+        await this.enqueue(tx,"task",id,"upsert",{recurrenceAction:"stop"},undefined,"personal",false);
+      } else {
+        const dependencies = await tx.query("SELECT name FROM sqlite_master WHERE type='table' AND name='mobile_local_task_dependencies'");
+        for (const task of rows) {
+          if (dependencies.length) await tx.run("DELETE FROM mobile_local_task_dependencies WHERE predecessorTaskId=? OR successorTaskId=?",[task.id,task.id]);
+          await tx.run("INSERT OR REPLACE INTO task_deletion_tombstones(id,userId,workspaceId,repeatGroupId,deletedAt) VALUES(?,?,?,?,?)",[task.id,task.userId,task.workspaceId,task.repeatGroupId || null,now()]);
+          await tx.run("DELETE FROM tasks WHERE id=?",[task.id]);
+          const inSeries = task.id === groupId || task.repeatGroupId === groupId;
+          await this.enqueue(tx,"task",task.id,"delete",{recurrenceAction:mode === "series" && inSeries ? "series" : "single",repeatGroupId:task.repeatGroupId || task.id},undefined,"personal",false);
+        }
+      }
+      return rows.length;
+    });
+    this.requestSyncCallback?.();
+    return {success:true,affected};
+  }
+
   async reorderNotes(items:Array<{id:string;sortOrder:number}>):Promise<void> {
     for(const item of items)await this.updateNote(item.id,{sortOrder:item.sortOrder});
   }
@@ -221,16 +385,21 @@ export class NativeLocalRepository implements LocalRepository {
     const notes=await this.db.query<{id:string;version:number}>("SELECT id,version FROM notes WHERE scopeKey=? AND isTrashed=1",[scopeKey]);
     const attachments=await this.db.query<{id:string}>(`SELECT a.id FROM attachments a JOIN notes n
       ON n.scopeKey=a.scopeKey AND n.id=a.noteId WHERE n.scopeKey=? AND n.isTrashed=1`,[scopeKey]);
+    let syncEnabled=false;
     await this.db.transaction(async(tx)=>{
+      syncEnabled=Boolean(await this.syncContext(tx));
       for(const note of notes){
-        await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?",[scopeKey,note.id]);
-        await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scopeKey, note.id)]);
-        await this.enqueue(tx,"note",note.id,"delete",undefined,note.version,scopeKey);
+        const latest=await this.getNote(note.id,tx,scopeKey);
+        if(latest) await this.deleteTrashedNote(tx,latest,scopeKey);
       }
     });
-    await Promise.all(attachments.map(({id})=>this.attachmentStore.remove(id).catch(()=>undefined)));
+    if (notes.length) notifyMobileSyncStatusChanged();
+    if(!syncEnabled) {
+      const retained=await retainedNativeDeletionAttachments(this.db);
+      await Promise.all(attachments.filter(({id})=>!retained.has(id)).map(({id})=>this.attachmentStore.remove(id).catch(()=>undefined)));
+    }
     for(const {id} of attachments)this.attachmentUrls.delete(id);
-    return {success:true,count:notes.length,skipped:0,noteIds:notes.map(({id})=>id),removedFiles:attachments.length};
+    return {success:true,count:notes.length,skipped:0,noteIds:notes.map(({id})=>id),removedFiles:syncEnabled?0:attachments.length};
   }
 
   private scope(): { scopeKey: string; workspaceId: string | null } {
@@ -242,9 +411,9 @@ export class NativeLocalRepository implements LocalRepository {
     return { scopeKey, workspaceId: workspaceIdFromScope(scopeKey) };
   }
 
-  private async assertWritable(scopeKey:string):Promise<void> {
+  private async assertWritable(scopeKey:string, db:NativeDatabase=this.db):Promise<void> {
     if(scopeKey === "personal") return;
-    const scope=(await this.db.query<{canWrite:number;accessStatus:string}>(
+    const scope=(await db.query<{canWrite:number;accessStatus:string}>(
       "SELECT canWrite,accessStatus FROM sync_workspace_scopes WHERE scopeKey=? LIMIT 1",[scopeKey],
     ))[0];
     if(!scope || scope.canWrite !== 1 || scope.accessStatus !== "active") {
@@ -270,6 +439,7 @@ export class NativeLocalRepository implements LocalRepository {
     payload?: Record<string, unknown>,
     baseVersion?: number | null,
     scopeKeyOverride?:string,
+    notify = true,
   ): Promise<void> {
     const sync = await this.syncContext(tx);
     if (!sync) return;
@@ -283,7 +453,71 @@ export class NativeLocalRepository implements LocalRepository {
       uuid(), uuid(), sync.profileId, sync.deviceId, scopeKey, entityType, entityId,
       operation, baseVersion ?? null, payload ? JSON.stringify(payload) : null, now(),
     ]);
+    if (notify) this.requestSyncCallback?.();
+  }
+
+  async movePersonalTreeNodes(items: NativeTreeMove[]) {
+    const nodes = await this.db.transaction(async (tx) => {
+      const sync = await this.syncContext(tx);
+      if (!sync) throw Object.assign(new Error("个人目录同步订阅尚未确认"), { code: "NATIVE_TREE_WRITE_UNAVAILABLE" });
+      return writeNativePersonalTreeMoves(tx,items,{ ...sync,userId:this.userId });
+    });
     this.requestSyncCallback?.();
+    notifyMobileSyncStatusChanged();
+    return nodes;
+  }
+
+  async listPersonalTreeOverrides(): Promise<Array<Record<string,unknown>>> {
+    const sync = await this.syncContext(this.db);
+    return sync ? [...await listNativePersonalTreeOverrides(this.db,sync.profileId),
+      ...(await nativeTreeLifecycleOverrides(this.db,sync.profileId)).map((node)=>({...node,localLifecycle:node.isDeleted===0?"restore":"trash"}))] : [];
+  }
+
+  private async changePersonalTreeTrash(ids:string[],restoring:boolean) {
+    const affected=await this.db.transaction(async(tx)=>{
+      const sync=await this.syncContext(tx);
+      if(!sync) throw Object.assign(new Error("个人目录同步订阅尚未确认"),{code:"NATIVE_TREE_WRITE_UNAVAILABLE"});
+      const result=new Set<string>();
+      const selected=new Set(ids),parents=new Map((await tx.query<{id:string;parentId:string|null}>("SELECT id,parentId FROM native_knowledge_tree_nodes WHERE scopeKey='personal'")).map((node)=>[node.id,node.parentId]));
+      const roots=[...selected].filter((id)=>{
+        const seen=new Set([id]);
+        for(let parent=parents.get(id);parent && !seen.has(parent);parent=parents.get(parent)) {
+          if(selected.has(parent)) return false;seen.add(parent);
+        }
+        return true;
+      });
+      for(const id of roots) {
+        if(result.has(id)) continue;
+        for(const nodeId of await writeNativePersonalTreeLifecycle(tx,id,restoring,{...sync,userId:this.userId})) result.add(nodeId);
+      }
+      return [...result];
+    });
+    this.requestSyncCallback?.(); notifyMobileSyncStatusChanged();
+    return affected;
+  }
+
+  async trashPersonalTreeFolders(ids:string[]) {
+    return {success:true as const,mode:"subtree" as const,affectedNodeIds:await this.changePersonalTreeTrash(ids,false),promotedNodeIds:[] as string[]};
+  }
+
+  async restorePersonalTreeFolder(id:string) {
+    return {success:true as const,restoredNodeIds:await this.changePersonalTreeTrash([id],true)};
+  }
+
+  async createPersonalTreeFolder(id: string, title: string, parentId: string | null) {
+    const node = await this.db.transaction(async (tx) => {
+      const sync = await this.syncContext(tx);
+      if (!sync) throw Object.assign(new Error("个人目录同步订阅尚未确认"), {code:"NATIVE_TREE_WRITE_UNAVAILABLE"});
+      return writeNativePersonalTreeFolder(tx,id,title,parentId,{...sync,userId:this.userId},
+        (row) => this.enqueue(tx,"notebook",id,"upsert",row,undefined,"personal"));
+    });
+    this.requestSyncCallback?.();
+    notifyMobileSyncStatusChanged();
+    return node;
+  }
+
+  async listPersonalTreeFolderDrafts(includeDeleted=false) {
+    return listNativePersonalTreeFolderDrafts(this.db,this.userId,includeDeleted);
   }
 
   async exportWorkspaceScope(scopeKey:string):Promise<Record<string,unknown>> {
@@ -376,13 +610,13 @@ export class NativeLocalRepository implements LocalRepository {
     `, values);
   }
 
-  private async getNote(id: string): Promise<Note | null> {
+  private async getNote(id: string, db: NativeDatabase = this.db, requiredScopeKey?: string): Promise<Note | null> {
     const currentScopeKey = this.scope().scopeKey;
-    const rows = await this.db.query<Note>(`SELECT * FROM notes WHERE id=?
-      ORDER BY CASE WHEN scopeKey=? THEN 0 ELSE 1 END LIMIT 1`, [id,currentScopeKey]);
+    const rows = await db.query<Note>(`SELECT * FROM notes WHERE id=? ${requiredScopeKey ? "AND scopeKey=?" : ""}
+      ORDER BY CASE WHEN scopeKey=? THEN 0 ELSE 1 END LIMIT 1`, [id,...(requiredScopeKey ? [requiredScopeKey] : []),currentScopeKey]);
     if (!rows[0]) return null;
     const scopeKey = this.scopeFromWorkspace(rows[0].workspaceId).scopeKey;
-    const tags = await this.db.query<Tag>(`
+    const tags = await db.query<Tag>(`
       SELECT t.* FROM tags t JOIN note_tags nt
         ON nt.scopeKey=t.scopeKey AND nt.tagId=t.id
       WHERE nt.scopeKey=? AND nt.noteId=? ORDER BY t.name
@@ -390,12 +624,12 @@ export class NativeLocalRepository implements LocalRepository {
     return { ...rows[0], tags };
   }
 
-  private async createNote(input: Partial<Note> & { id: string }): Promise<WriteResult> {
+  private async insertNote(tx: NativeDatabase, input: Partial<Note> & { id: string }, localCreation: boolean): Promise<WriteResult> {
     validateEncryptedNoteWrite(input as Record<string, unknown>);
     const scope = input.workspaceId !== undefined
       ? this.scopeFromWorkspace(input.workspaceId)
       : this.scope();
-    await this.assertWritable(scope.scopeKey);
+    if (localCreation) await this.assertWritable(scope.scopeKey, tx);
     const savedAt = now();
     const row = {
       id: input.id, scopeKey: scope.scopeKey, workspaceId: scope.workspaceId,
@@ -407,29 +641,106 @@ export class NativeLocalRepository implements LocalRepository {
       trashedAt: input.trashedAt ?? null, version: Math.max(1, input.version || 1),
       sortOrder: input.sortOrder || 0, createdAt: input.createdAt || savedAt, updatedAt: savedAt,
     };
-    await this.db.transaction(async (tx) => {
-      await tx.run(`INSERT INTO notes (
+    await tx.run(`INSERT INTO notes (
         id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,
         isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
+    if (localCreation) {
       await tx.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,'1',?)
         ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [unsentLocalNoteKey(scope.scopeKey, input.id), savedAt]);
-      await this.enqueue(tx, "note", input.id, "upsert", row);
-    });
+      await this.enqueue(tx, "note", input.id, "upsert", row, undefined, scope.scopeKey);
+    }
     return { id: input.id, savedAt };
   }
 
+  private async createNote(input: Partial<Note> & { id: string }): Promise<WriteResult> {
+    const result = await this.db.transaction((tx) => this.insertNote(tx, input, true));
+    // The receipt is invalidated only after the SQLite Outbox transaction commits.
+    notifyMobileSyncStatusChanged();
+    return result;
+  }
+
+  private async ensurePersonalRootNotebook(tx: NativeDatabase, enqueue: boolean): Promise<string> {
+    const id = `${ROOT_DOCUMENT_NOTEBOOK_PREFIX}personal:${this.userId}`;
+    const timestamp = now();
+    const row = { id, scopeKey: "personal", workspaceId: null, userId: this.userId, parentId: null,
+      name: "__NOWEN_ROOT_DOCUMENTS__", icon: "📄", sortOrder: -2147483648, isExpanded: 0,
+      isDeleted: 1, deletedAt: timestamp, createdAt: timestamp, updatedAt: timestamp };
+    const inserted = await tx.run(`INSERT OR IGNORE INTO notebooks
+      (id,scopeKey,workspaceId,userId,parentId,name,icon,sortOrder,isExpanded,isDeleted,deletedAt,createdAt,updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
+    if (inserted.changes && enqueue) await this.enqueue(tx, "notebook", id, "upsert", row, undefined, "personal");
+    return id;
+  }
+
+  /** Personal root/folder documents use the existing notebook/note Sync V2 entities. */
+  async createPersonalTreeNote(input: Partial<Note> & { id: string }, notebookId: string | null): Promise<WriteResult> {
+    const result = await this.db.transaction(async (tx) => {
+      if (input.workspaceId) throw new Error("本机知识树创建仅支持个人空间");
+      if (notebookId) {
+        const parent = (await tx.query<{ userId: string; isDeleted: number }>(
+          "SELECT userId,isDeleted FROM notebooks WHERE scopeKey='personal' AND id=?", [notebookId],
+        ))[0];
+        if (!parent || parent.userId !== this.userId || parent.isDeleted) throw new Error("本机父文件夹不存在或不可写");
+      }
+      const parent = notebookId || await this.ensurePersonalRootNotebook(tx, true);
+      const saved = await this.insertNote(tx, { ...input, workspaceId: null, notebookId: parent }, true);
+      // This records only locally created content, never inferred from a cached remote note.
+      await tx.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)",
+        [`localTreeDraft:personal:${input.id}`, JSON.stringify(notebookId ? `notebook:${notebookId}` : null), saved.savedAt]);
+      return saved;
+    });
+    notifyMobileSyncStatusChanged();
+    return result;
+  }
+
+  async listLocalTreeDrafts(): Promise<Array<NoteListItem & { treeParentId: string | null }>> {
+    const rows = await this.db.query<NoteListItem & { treeParent: string }>(`SELECT ${NOTE_LIST_METADATA_COLUMNS},'' AS contentText,m.value AS treeParent
+      FROM notes n JOIN native_runtime_meta m ON m.key='localTreeDraft:personal:' || n.id
+      WHERE n.scopeKey='personal' AND n.userId=? AND n.isTrashed=0`, [this.userId]);
+    return rows.map(({ treeParent, ...note }) => ({ ...note, treeParentId: JSON.parse(treeParent) as string | null }));
+  }
+
+  /** Only call after live remote authorization; never enqueue another creation. */
+  async hydrateAuthorizedNote(note: Note, notebook?: Notebook): Promise<Note> {
+    if (note.workspaceId || note.userId !== this.userId || !Number.isSafeInteger(note.version) || note.version < 1) {
+      throw new Error("远端笔记身份或空间校验失败");
+    }
+    return this.db.transaction(async (tx) => {
+      const current = await this.getNote(note.id, tx, "personal");
+      if (current) return current;
+      const blocked = (await tx.query(`SELECT entityId FROM sync_outbox WHERE scopeKey='personal' AND entityType='note' AND entityId=?
+        UNION ALL SELECT entityId FROM sync_conflicts WHERE scopeKey='personal' AND entityType='note' AND entityId=? AND status='unresolved' LIMIT 1`, [note.id, note.id])).length;
+      if (blocked) throw new Error("笔记在本机已删除或存在待处理修改，不能从远端重新创建");
+      const parent = (await tx.query("SELECT id FROM notebooks WHERE scopeKey='personal' AND id=?", [note.notebookId]))[0];
+      if (!parent) {
+        if (note.notebookId === `${ROOT_DOCUMENT_NOTEBOOK_PREFIX}personal:${this.userId}`) {
+          await this.ensurePersonalRootNotebook(tx, false);
+        } else {
+          if (!notebook || notebook.id !== note.notebookId || notebook.userId !== this.userId || notebook.workspaceId) {
+            throw new Error("远端笔记父文件夹身份校验失败");
+          }
+          await tx.run(`INSERT INTO notebooks (id,scopeKey,workspaceId,userId,name,description,icon,color,sortOrder,isExpanded,createdAt,updatedAt)
+            VALUES (?,'personal',NULL,?,?,?,?,?,?,?,?,?)`, [notebook.id,this.userId,notebook.name,notebook.description ?? null,
+            notebook.icon || "📒",notebook.color ?? null,notebook.sortOrder || 0,notebook.isExpanded ?? 1,notebook.createdAt || now(),notebook.updatedAt || now()]);
+        }
+      }
+      await this.insertNote(tx, { ...note, workspaceId: null }, false);
+      return (await this.getNote(note.id, tx, "personal"))!;
+    });
+  }
+
   private async updateNote(id: string, patch: Partial<Note>): Promise<WriteResult> {
-    const current = await this.getNote(id);
-    if (!current) throw new Error("笔记不存在");
-    validateEncryptedNoteWrite(patch as Record<string, unknown>, current as unknown as Record<string, unknown>);
-    if (isEncryptedNoteFormat(current.contentFormat) && patch.version !== undefined && patch.version !== current.version) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
-    const encrypted = isEncryptedNoteFormat(current.contentFormat);
-    if (encrypted && patch.content !== undefined && !Number.isSafeInteger(patch.version)) throw Object.assign(new Error("加密正文保存需要明确版本"), { status: 409, code: "VERSION_CONFLICT" });
-    const next = { ...current, ...patch, id, updatedAt: now(), version: current.version + 1 };
-    const scope = this.scopeFromWorkspace(current.workspaceId);
-    await this.assertWritable(scope.scopeKey);
-    await this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
+      const current = await this.getNote(id, tx);
+      if (!current) throw new Error("笔记不存在");
+      validateEncryptedNoteWrite(patch as Record<string, unknown>, current as unknown as Record<string, unknown>);
+      if (isEncryptedNoteFormat(current.contentFormat) && patch.version !== undefined && patch.version !== current.version) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
+      const encrypted = isEncryptedNoteFormat(current.contentFormat);
+      if (encrypted && patch.content !== undefined && !Number.isSafeInteger(patch.version)) throw Object.assign(new Error("加密正文保存需要明确版本"), { status: 409, code: "VERSION_CONFLICT" });
+      const next = { ...current, ...patch, id, updatedAt: now(), version: current.version + 1 };
+      const scope = this.scopeFromWorkspace(current.workspaceId);
+      await this.assertWritable(scope.scopeKey, tx);
       const changed = await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
         isPinned=?,isFavorite=?,isLocked=?,isArchived=?,isTrashed=?,trashedAt=?,version=?,sortOrder=?,updatedAt=?
         WHERE scopeKey=? AND id=?${encrypted ? " AND version=?" : ""}`, [
@@ -439,9 +750,24 @@ export class NativeLocalRepository implements LocalRepository {
         scope.scopeKey, id, ...(encrypted ? [current.version] : []),
       ]);
       if (encrypted && changed.changes !== 1) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
-      await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version);
+      await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version, scope.scopeKey);
+      return { id, savedAt: next.updatedAt };
     });
-    return { id, savedAt: next.updatedAt };
+    // Refresh per-note receipt from committed Outbox, even while a push is in flight.
+    notifyMobileSyncStatusChanged();
+    return result;
+  }
+
+  private async deleteTrashedNote(tx:NativeDatabase,note:Note,scopeKey:string):Promise<void> {
+    if(note.isLocked===1) throw Object.assign(new Error("Note is locked"),{code:"NOTE_LOCKED",status:403});
+    if(note.isTrashed!==1) throw Object.assign(new Error("请先将笔记移入回收站，再永久删除"),{code:"NOTE_NOT_TRASHED",status:409});
+    const attachments=await tx.query<Record<string,unknown>>("SELECT * FROM attachments WHERE scopeKey=? AND noteId=?",[scopeKey,note.id]);
+    const tree=await tx.query("SELECT * FROM native_knowledge_tree_nodes WHERE scopeKey=? AND resourceType='note' AND resourceId=?",[scopeKey,note.id]);
+    await this.enqueue(tx,"note",note.id,"delete",{...note,_deletionRecovery:{note,attachments,tree}},note.version,scopeKey);
+    await tx.run("UPDATE native_knowledge_tree_nodes SET parentId=NULL WHERE scopeKey=? AND parentId IN (SELECT id FROM native_knowledge_tree_nodes WHERE scopeKey=? AND resourceType='note' AND resourceId=?)",[scopeKey,scopeKey,note.id]);
+    await tx.run("DELETE FROM native_knowledge_tree_nodes WHERE scopeKey=? AND resourceType='note' AND resourceId=?",[scopeKey,note.id]);
+    await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?",[scopeKey,note.id]);
+    await tx.run("DELETE FROM native_runtime_meta WHERE key=?",[unsentLocalNoteKey(scopeKey,note.id)]);
   }
 
   private async removeNote(id: string): Promise<void> {
@@ -450,10 +776,11 @@ export class NativeLocalRepository implements LocalRepository {
     const scope = this.scopeFromWorkspace(current.workspaceId);
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
-      await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?", [scope.scopeKey, id]);
-      await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scope.scopeKey, id)]);
-      await this.enqueue(tx, "note", id, "delete", undefined, current?.version ?? null);
+      const latest = await this.getNote(id, tx, scope.scopeKey);
+      if (!latest) return;
+      await this.deleteTrashedNote(tx,latest,scope.scopeKey);
     });
+    notifyMobileSyncStatusChanged();
   }
 
   private async listNotebooks(requestedScopeKey?: string): Promise<Notebook[]> {

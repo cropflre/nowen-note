@@ -54,7 +54,7 @@ test(`full AppShell autosaves encrypted ${format}, persists on background and cl
   await editor.fill(`${forbidden[0]} unsaved draft`);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
   await expect(editor).toHaveCount(0);
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "加密笔记", exact: true }).getByRole("status")).toHaveCount(0);
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((entry: { webContents: { getURL(): string } }) => entry.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
   if (format === "markdown") {
     await page.getByRole("button", { name: "退出登录", exact: true }).click();

@@ -23,6 +23,19 @@ export interface PublishEventInput {
   occurredAt?: string;
 }
 
+/** Never execute a malformed persisted event as an empty/partially valid payload. */
+export function parseEventPayload(row: Record<string, unknown>): Record<string, unknown> {
+  try {
+    if (typeof row.payloadJson !== "string") throw new SyntaxError("invalid event payload");
+    const payload: unknown = JSON.parse(row.payloadJson);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new SyntaxError("invalid event payload shape");
+    return payload as Record<string, unknown>;
+  } catch {
+    // Do not put the stored payload (which may contain private note content) into logs/errors.
+    throw Object.assign(new Error("自动化事件内容已损坏"), { code: "AUTOMATION_EVENT_PAYLOAD_INVALID" });
+  }
+}
+
 export function rowToEvent(row: Record<string, unknown>): NowenEvent {
   const workspaceId = typeof row.workspaceId === "string" && row.workspaceId ? row.workspaceId : undefined;
   return {
@@ -33,7 +46,7 @@ export function rowToEvent(row: Record<string, unknown>): NowenEvent {
     actor: { userId: String(row.userId) },
     scope: workspaceId ? { type: "workspace", workspaceId } : { type: "personal" },
     resource: { type: String(row.resourceType), id: String(row.resourceId) },
-    data: JSON.parse(String(row.payloadJson || "{}")) as Record<string, unknown>,
+    data: parseEventPayload(row),
     metadata: {
       source: String(row.source) as AutomationSource,
       ...(row.sourceId ? { sourceId: String(row.sourceId) } : {}),
@@ -70,7 +83,7 @@ export class EventPublisher {
       type: String(row.type), userId: actorUserId, workspaceId: row.workspaceId as string | null,
       resourceType: String(row.resourceType), resourceId: String(row.resourceId), source: "system",
       sourceId: "event-replay", correlationId: crypto.randomUUID(), causationId: eventId,
-      replayedFrom: eventId, data: JSON.parse(String(row.payloadJson || "{}")),
+      replayedFrom: eventId, data: parseEventPayload(row),
     });
   }
 
@@ -78,7 +91,17 @@ export class EventPublisher {
     const rows = isAdmin
       ? getDb().prepare("SELECT * FROM automation_events ORDER BY occurredAt DESC LIMIT ?").all(Math.min(500, limit))
       : getDb().prepare("SELECT * FROM automation_events WHERE userId=? ORDER BY occurredAt DESC LIMIT ?").all(userId, Math.min(500, limit));
-    return (rows as Record<string, unknown>[]).map(rowToEvent);
+    const events: NowenEvent[] = [];
+    for (const row of rows as Record<string, unknown>[]) {
+      try {
+        events.push(rowToEvent(row));
+      } catch (error) {
+        if ((error as { code?: string })?.code !== "AUTOMATION_EVENT_PAYLOAD_INVALID") throw error;
+        // Keep the corrupt record in SQLite for inspection; never let it block other events.
+        console.error("[automation] skipping invalid event payload", { eventId: String(row.id), code: "AUTOMATION_EVENT_PAYLOAD_INVALID" });
+      }
+    }
+    return events;
   }
 
   cleanup(): { events: number; runs: number; idempotency: number } {

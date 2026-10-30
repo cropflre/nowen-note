@@ -1,0 +1,13 @@
+{
+  "authenticatedOwnerOnly": true,
+  "activeBefore": true,
+  "syncHttpStatus": 200,
+  "mutationResults": [
+    {
+      "mutationId": "85fb9dc2-1cb0-4e5b-8df8-57623a9c244c",
+      "status": "applied"
+    }
+  ],
+  "readAfterStatus": 404,
+  "boundary": "Audit of separate Sync V2 delete protocol, not a passing release safety test. No shared editor/anonymous exploit claimed."
+}

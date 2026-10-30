@@ -309,8 +309,8 @@ export function readLocalState(
 
     case "task":
       return (db.prepare(`
-        SELECT id, title, isCompleted, completedAt, priority, dueDate,
-               noteId, parentId, sortOrder, createdAt, updatedAt
+        SELECT id, title, isCompleted, completedAt, archivedAt, description, dueAt, startDate, projectId, status, priority, dueDate,
+               noteId, parentId, sortOrder, createdAt, updatedAt, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatNextGeneratedId, repeatEndCount, repeatSequenceIndex, repeatRuleJson
         FROM tasks WHERE userId = ? AND workspaceId IS NULL
         ORDER BY createdAt ASC
       `).all(userId) as Array<Record<string, unknown>>).map((r) => ({

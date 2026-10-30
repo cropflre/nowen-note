@@ -99,6 +99,10 @@ taskDependencies.post("/", async (c) => {
     }
   }
 
+  if (pred.archivedAt || succ.archivedAt) {
+    return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
+  }
+
   // Check for duplicate
   if (taskDependenciesRepository.exists(predecessorTaskId, successorTaskId, type)) {
     return c.json({ error: "Dependency already exists" }, 409);
@@ -137,6 +141,10 @@ taskDependencies.delete("/:id", (c) => {
     }
   }
 
+  const hasArchivedTask = getDb().prepare(
+    "SELECT 1 FROM tasks WHERE id IN (?, ?) AND archivedAt IS NOT NULL LIMIT 1",
+  ).get(dep.predecessorTaskId, dep.successorTaskId);
+  if (hasArchivedTask) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
   taskDependenciesRepository.delete(depId);
   return c.json({ success: true });
 });

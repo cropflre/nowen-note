@@ -70,15 +70,15 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - name: Restore integrity primitives
-        run: node --import tsx --test tests/backup-restore-integrity.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/backup-restore-integrity.test.ts
       - name: Large archive restore regression
-        run: node --import tsx --test tests/backup-restore-large-archive.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/backup-restore-large-archive.test.ts
       - name: Corrupt restore rollback regression
-        run: node --import tsx --test tests/backup-restore-corrupt-hotfix.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/backup-restore-corrupt-hotfix.test.ts
       - name: Attachment storage error contract
-        run: node --import tsx --test tests/attachment-storage-error-classification.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/attachment-storage-error-classification.test.ts
       - name: Full backup streaming regression
-        run: node --import tsx --test tests/full-backup-streaming.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/full-backup-streaming.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 

@@ -83,6 +83,7 @@ function seedAttachment(
 function resetData(): void {
   const database = db();
   database.exec(`
+    DELETE FROM sync_profiles;
     DELETE FROM attachments;
     DELETE FROM notes;
     DELETE FROM notebooks;
@@ -140,7 +141,7 @@ test.after(async () => {
 
 test("permanently deleting a note removes its image and file attachments", async () => {
   const noteId = "delete-note-with-files";
-  seedNote(noteId);
+  seedNote(noteId, { trashed: true });
   const imagePath = seedAttachment(
     noteId,
     "11111111-1111-4111-8111-111111111111",
@@ -155,7 +156,7 @@ test("permanently deleting a note removes its image and file attachments", async
     "application/pdf",
   );
 
-  const { response, json } = await requestJson("DELETE", `/notes/${noteId}`);
+  const { response, json } = await requestJson("DELETE", `/notes/${noteId}/permanent`);
 
   assert.equal(response.status, 200);
   assert.equal(json.success, true);
@@ -163,6 +164,78 @@ test("permanently deleting a note removes its image and file attachments", async
   assert.equal(db().prepare("SELECT COUNT(*) AS count FROM attachments WHERE noteId = ?").get(noteId).count, 0);
   assert.equal(fs.existsSync(imagePath), false);
   assert.equal(fs.existsSync(documentPath), false);
+});
+
+for (const suffix of ["", "/permanent"]) {
+  test(`permanent endpoint ${suffix || "legacy"} refuses an active note without deleting recoverable data`, async () => {
+    db().prepare(`INSERT OR IGNORE INTO sync_profiles (id, name, serverUrl, remoteUserId, enabled, bootstrapStatus)
+      VALUES ('delete-safety-profile', 'QA', 'http://127.0.0.1:1', ?, 1, 'ready')`).run(USER_ID);
+    db().prepare("INSERT OR IGNORE INTO sync_device_identity (singletonKey, deviceId) VALUES (1, 'delete-safety-device')").run();
+    assert.equal((db().prepare("SELECT enabled FROM sync_v2_should_enqueue").get() as any).enabled, 1);
+    const noteId = "active-note-protected";
+    seedNote(noteId);
+    const bytes = Buffer.from("keep attachment bytes");
+    const file = seedAttachment(noteId, "active-attachment", "active/fixture.txt", bytes, "text/plain");
+    db().prepare(`INSERT INTO note_versions (id, noteId, userId, content, version)
+      VALUES ('active-history', ?, ?, 'keep history', 1)`).run(noteId, USER_ID);
+    const deletesBefore = (db().prepare("SELECT count(*) AS n FROM sync_outbox WHERE entityId = ? AND operation = 'delete'").get(noteId) as any).n;
+
+    const { response, json } = await requestJson("DELETE", `/notes/${noteId}${suffix}`);
+    assert.equal(response.status, 409);
+    assert.equal(json.code, "NOTE_NOT_TRASHED");
+    assert.equal((db().prepare("SELECT isTrashed FROM notes WHERE id = ?").get(noteId) as any).isTrashed, 0);
+    assert.equal((db().prepare("SELECT count(*) AS n FROM note_versions WHERE noteId = ?").get(noteId) as any).n, 1);
+    assert.equal((db().prepare("SELECT count(*) AS n FROM attachments WHERE noteId = ?").get(noteId) as any).n, 1);
+    assert.equal((db().prepare("SELECT count(*) AS n FROM knowledge_tree_nodes WHERE resourceId = ?").get(noteId) as any).n, 1);
+    assert.deepEqual(fs.readFileSync(file), bytes);
+    assert.equal((db().prepare("SELECT count(*) AS n FROM sync_outbox WHERE entityId = ? AND operation = 'delete'").get(noteId) as any).n, deletesBefore);
+  });
+}
+
+test("legacy permanent delete remains available for an explicitly trashed note", async () => {
+  seedNote("legacy-trashed", { trashed: true });
+  const { response } = await requestJson("DELETE", "/notes/legacy-trashed");
+  assert.equal(response.status, 200);
+  assert.equal((db().prepare("SELECT count(*) AS n FROM notes WHERE id = 'legacy-trashed'").get() as any).n, 0);
+});
+
+test("permanent deletion rejects a different owner and a locked trashed note", async () => {
+  seedNote("owner-trashed", { trashed: true });
+  const denied = await app.request("/notes/owner-trashed/permanent", {
+    method: "DELETE", headers: { "X-User-Id": "another-user" },
+  });
+  assert.equal(denied.status, 403);
+  seedNote("locked-trashed", { trashed: true, locked: true });
+  const locked = await requestJson("DELETE", "/notes/locked-trashed/permanent");
+  assert.equal(locked.response.status, 403);
+  assert.equal(locked.json.code, "NOTE_LOCKED");
+});
+
+test("creating without a notebook is an input error while a duplicate note ID stays a conflict", async () => {
+  const id = "61234567-1234-4123-8123-123456789abc";
+  const missing = await requestJson("POST", "/notes", { id, title: "new" });
+  assert.equal(missing.response.status, 400);
+  assert.equal(missing.json.code, "NOTEBOOK_ID_REQUIRED");
+  const valid = await requestJson("POST", "/notes", { id, title: "new", notebookId: NOTEBOOK_ID });
+  assert.equal(valid.response.status, 201);
+  const duplicate = await requestJson("POST", "/notes", { id, title: "new", notebookId: NOTEBOOK_ID });
+  assert.equal(duplicate.response.status, 409);
+  assert.equal(duplicate.json.code, "NOTE_ID_CONFLICT");
+});
+
+test("a non-ID SQLite constraint is not reported as NOTE_ID_CONFLICT", async () => {
+  db().exec(`CREATE TRIGGER qa_note_constraint BEFORE INSERT ON notes
+    WHEN NEW.title = 'qa-blocked-title' BEGIN SELECT RAISE(ABORT, 'qa constraint'); END;`);
+  try {
+    const result = await requestJson("POST", "/notes", {
+      title: "qa-blocked-title", notebookId: NOTEBOOK_ID,
+    });
+    assert.equal(result.response.status, 400);
+    assert.equal(result.json.code, "NOTE_CONSTRAINT_VIOLATION");
+    assert.equal((db().prepare("SELECT count(*) AS n FROM notes WHERE title = 'qa-blocked-title'").get() as any).n, 0);
+  } finally {
+    db().exec("DROP TRIGGER qa_note_constraint");
+  }
 });
 
 test("moving a note to trash keeps attachments so the note remains recoverable", async () => {
@@ -182,6 +255,10 @@ test("moving a note to trash keeps attachments so the note remains recoverable",
   assert.equal(note.isTrashed, 1);
   assert.equal(db().prepare("SELECT COUNT(*) AS count FROM attachments WHERE noteId = ?").get(noteId).count, 1);
   assert.equal(fs.existsSync(imagePath), true);
+  const restored = await requestJson("PUT", `/notes/${noteId}`, { isTrashed: 0 });
+  assert.equal(restored.response.status, 200);
+  assert.equal(restored.json.isTrashed, 0);
+  assert.deepEqual(fs.readFileSync(imagePath), Buffer.from([3, 3, 3]));
 });
 
 test("emptying trash deletes attachments for unlocked notes but preserves locked notes", async () => {
@@ -281,8 +358,8 @@ test("deduplicated physical files are retained until the final note reference is
   const firstNoteId = "dedup-note-one";
   const secondNoteId = "dedup-note-two";
   const sharedPath = "2026/07/66666666-6666-4666-8666-666666666666.png";
-  seedNote(firstNoteId);
-  seedNote(secondNoteId);
+  seedNote(firstNoteId, { trashed: true });
+  seedNote(secondNoteId, { trashed: true });
 
   const absolutePath = seedAttachment(
     firstNoteId,

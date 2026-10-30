@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import i18n from "i18next";
 import { api, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
 import { setRuntimePublicWebOrigin } from "@/lib/publicWebOrigin";
+import type { ShareBannerConfig } from "@/lib/shareBanner";
+import { normalizeSharePageWidth, type SharePageWidth } from "@/lib/sharePageWidth";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 export interface SiteConfig {
@@ -9,6 +11,9 @@ export interface SiteConfig {
   favicon: string;
   /** 分享页底部标识文字；空串表示使用默认标识。 */
   shareFooterText: string;
+  sharePageWidth: SharePageWidth;
+  shareBannerEnabled: boolean;
+  shareBannerImage: string;
   /** ICP 备案号；由 Docker/运行时环境变量 NOWEN_ICP_BEIAN 提供。 */
   icpBeian: string;
   /** 公开分享最终使用的 Web 根地址；空串表示继续走构建变量/当前 origin 兜底。 */
@@ -26,6 +31,9 @@ const DEFAULT_CONFIG: SiteConfig = {
   title: "nowen-note",
   favicon: "",
   shareFooterText: "",
+  sharePageWidth: "standard",
+  shareBannerEnabled: false,
+  shareBannerImage: "",
   icpBeian: "",
   publicWebOrigin: "",
   publicWebOriginSource: "current",
@@ -50,7 +58,7 @@ export function getBuiltinFontName(font: typeof BUILTIN_FONTS[number]): string {
 
 interface SiteSettingsContextValue {
   siteConfig: SiteConfig;
-  updateSiteConfig: (title: string, favicon: string, shareFooterText?: string) => Promise<void>;
+  updateSiteConfig: (title: string, favicon: string, shareFooterText?: string, sharePageWidth?: SharePageWidth, shareBanner?: ShareBannerConfig) => Promise<void>;
   updatePublicWebOrigin: (origin: string) => Promise<void>;
   updateFilePublicOrigin: (origin: string) => Promise<void>;
   updateEditorFont: (fontId: string) => Promise<void>;
@@ -132,6 +140,9 @@ function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteCon
     title: data?.site_title || "nowen-note",
     favicon: data?.site_favicon || "",
     shareFooterText: data?.site_share_footer_text || "",
+    sharePageWidth: normalizeSharePageWidth(data?.site_share_page_width),
+    shareBannerEnabled: data?.site_share_banner_enabled === true || data?.site_share_banner_enabled === "true",
+    shareBannerImage: data?.site_share_banner_image || "",
     icpBeian: data?.site_icp_beian || previous.icpBeian || "",
     publicWebOrigin: data?.site_public_web_origin || "",
     publicWebOriginSource: data?.site_public_web_origin_source || "current",
@@ -153,6 +164,7 @@ function readMobileLocalConfig(): SiteConfig {
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
+      sharePageWidth: normalizeSharePageWidth(parsed.sharePageWidth),
       publicWebOrigin: "",
       publicWebOriginSource: "current",
       filePublicOrigin: "",
@@ -169,6 +181,9 @@ function writeMobileLocalConfig(config: SiteConfig): void {
       title: config.title,
       favicon: config.favicon,
       shareFooterText: config.shareFooterText,
+      sharePageWidth: config.sharePageWidth,
+      shareBannerEnabled: config.shareBannerEnabled,
+      shareBannerImage: config.shareBannerImage,
       editorFontFamily: config.editorFontFamily,
     }));
   } catch {
@@ -229,15 +244,15 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener(SERVER_URL_CHANGED_EVENT, handleServerUrlChanged);
   }, [loadSiteSettings]);
 
-  const updateSiteConfig = useCallback(async (title: string, favicon: string, shareFooterText?: string) => {
+  const updateSiteConfig = useCallback(async (title: string, favicon: string, shareFooterText?: string, sharePageWidth?: SharePageWidth, shareBanner?: ShareBannerConfig) => {
     if (isMobileLocalMode()) {
-      const config = { ...siteConfig, title: title || "nowen-note", favicon, shareFooterText: shareFooterText?.trim() ?? siteConfig.shareFooterText };
+      const config = { ...siteConfig, title: title || "nowen-note", favicon, shareFooterText: shareFooterText?.trim() ?? siteConfig.shareFooterText, sharePageWidth: sharePageWidth ?? siteConfig.sharePageWidth, shareBannerEnabled: shareBanner?.enabled ?? siteConfig.shareBannerEnabled, shareBannerImage: shareBanner?.image ?? siteConfig.shareBannerImage };
       setSiteConfig(config);
       writeMobileLocalConfig(config);
       applyToDOM(config.title, config.favicon);
       return;
     }
-    const data = await api.updateSiteSettings({ site_title: title, site_favicon: favicon, site_share_footer_text: shareFooterText });
+    const data = await api.updateSiteSettings({ site_title: title, site_favicon: favicon, site_share_footer_text: shareFooterText, site_share_page_width: sharePageWidth, site_share_banner_enabled: shareBanner?.enabled, site_share_banner_image: shareBanner?.image });
     const config = toSiteConfig(data, siteConfig);
     applyRuntimePublicOrigin(config);
     setSiteConfig(config);

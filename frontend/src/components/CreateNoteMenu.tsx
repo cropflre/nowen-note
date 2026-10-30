@@ -27,7 +27,7 @@ import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 
-export type NoteType = "normal" | "markdown" | "word";
+export type NoteType = "normal" | "markdown" | "plaintext" | "word";
 
 export interface CreateNoteMenuProps {
   open: boolean;
@@ -86,10 +86,10 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
 
   async function create(kind: KnowledgeTreeInlineCreateKind) {
     onClose();
-    const focusRequestId = kind === "note" || kind === "markdown" ? requestNewNoteTitleFocus() : null;
+    const focusRequestId = kind === "note" || kind === "markdown" || kind === "plaintext" ? requestNewNoteTitleFocus() : null;
     try {
-      if (isMobileLocalMode() && (kind === "note" || kind === "markdown")) {
-        await onPick(kind === "note" ? "normal" : "markdown");
+      if (isMobileLocalMode() && (kind === "note" || kind === "markdown" || kind === "plaintext")) {
+        await onPick(kind === "note" ? "normal" : kind);
         return;
       }
       const target = await resolveTarget();
@@ -100,7 +100,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
         title = entered.trim();
       }
       const targetParentId = target.parent?.id ?? null;
-      const node = await knowledgeTreeApi.create({ parentId: targetParentId, nodeType: kind, title });
+      const node = await knowledgeTreeApi.create({ parentId: targetParentId, nodeType: kind === "plaintext" ? "note" : kind, ...(kind === "plaintext" ? { contentFormat: "plaintext" as const } : {}), title });
       refresh(targetParentId, node.id);
       if (kind === "folder") toast.success("已创建文件夹");
       else if (kind === "mindmap") pushMindMapAppPath(node.resourceId);

@@ -127,10 +127,10 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.3.1",
-    "@capacitor/cli": "^8.3.1",
-    "@capacitor/core": "^8.3.1",
-    "@capacitor/ios": "^8.3.1",
+    "@capacitor/android": "8.4.3",
+    "@capacitor/cli": "8.4.3",
+    "@capacitor/core": "8.4.3",
+    "@capacitor/ios": "8.4.3",
     "@eslint/js": "^9.13.0",
     "@playwright/test": "1.63.0",
     "@radix-ui/react-scroll-area": "^1.2.10",

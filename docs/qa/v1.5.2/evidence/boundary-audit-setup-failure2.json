@@ -1,0 +1,18 @@
+{
+  "checkout": "C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note",
+  "temp": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-release152-audit-oyH4pn",
+  "node": "v20.18.0",
+  "abi": "130",
+  "authBoundary": "Router/service harness with synthetic X-User-Id; upstream JWT not exercised",
+  "delete": {
+    "gate": {
+      "enabled": 1
+    }
+  },
+  "constraint": [],
+  "studio": {},
+  "harnessError": {
+    "message": "no such table: knowledge_nodes",
+    "stack": "SqliteError: no such table: knowledge_nodes\n    at Database.prepare (C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\node_modules\\better-sqlite3\\lib\\methods\\wrappers.js:5:21)\n    at <anonymous> (C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\scripts\\audit-boundaries.mjs:57:21)"
+  }
+}

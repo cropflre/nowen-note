@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v5 as uuidv5 } from "uuid";
+import { synchronizeLegacyNotebookHierarchy, synchronizeLegacyNoteHierarchy } from "../services/legacyKnowledgeHierarchy";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -152,6 +153,100 @@ function resolveTargetNotebook(targetNotebookId: string, userId: string): { id: 
   return hasPermission(permission, "write") ? notebook : null;
 }
 
+const FOLDER_SYNC_NAMESPACE = "930dbde1-9d96-45e8-b959-c030ac108a13";
+
+class FolderSyncHierarchyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FolderSyncHierarchyError";
+  }
+}
+
+function validFolderSourceId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{6,80}$/.test(value);
+}
+
+/**
+ * An opt-in folder hierarchy uses deterministic, source-owned notebook IDs.
+ * Never reuse an unrelated user's same-name notebook, and never resurrect a
+ * manually deleted/reparented managed folder. Both could lose user data.
+ * Called inside the same transaction as the note mutation.
+ */
+function ensureFolderSyncNotebookHierarchy(args: {
+  userId: string;
+  targetNotebookId: string;
+  sourceFolderId: string;
+  relativePath: string;
+}): { id: string; workspaceId: string | null } {
+  const root = resolveTargetNotebook(args.targetNotebookId, args.userId);
+  if (!root) throw new FolderSyncHierarchyError("目标笔记本不存在或无写权限");
+  if (isUnsafePath(args.relativePath) || !validFolderSourceId(args.sourceFolderId)) {
+    throw new FolderSyncHierarchyError("文件夹同步来源标识或相对路径无效");
+  }
+  const parts = args.relativePath.replace(/\\/g, "/").split("/");
+  const folders = parts.slice(0, -1);
+  if (folders.length > 32 || folders.some((part) => !part || part === "." || part.length > 255)) {
+    throw new FolderSyncHierarchyError("文件夹层级无效（最多 32 层，单层不超过 255 字符）");
+  }
+  let parentId = root.id;
+  const prefix: string[] = [];
+  for (const name of folders) {
+    prefix.push(name);
+    const id = uuidv5(JSON.stringify([args.userId, root.id, args.sourceFolderId, prefix]), FOLDER_SYNC_NAMESPACE);
+    const existing = getDb().prepare(`
+      SELECT id, "parentId" AS parentId, "userId" AS userId,
+             "workspaceId" AS workspaceId, "isDeleted" AS isDeleted
+      FROM notebooks WHERE id = ?
+    `).get(id) as { id: string; parentId: string | null; userId: string; workspaceId: string | null; isDeleted: number } | undefined;
+    if (existing) {
+      if (existing.userId !== args.userId || existing.workspaceId !== root.workspaceId ||
+          existing.parentId !== parentId || existing.isDeleted === 1) {
+        throw new FolderSyncHierarchyError("已同步子文件夹曾被移动或删除，为避免覆盖用户操作，已暂停同步此路径");
+      }
+    } else {
+      getDb().prepare(`
+        INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, sortOrder)
+        VALUES (?, ?, ?, ?, ?, '📁', 0)
+      `).run(id, args.userId, root.workspaceId, parentId, name);
+      synchronizeLegacyNotebookHierarchy({
+        db: getDb(), notebookId: id, actorUserId: args.userId,
+        reason: "create", parentMode: "resource",
+      });
+    }
+    parentId = id;
+  }
+  return { id: parentId, workspaceId: root.workspaceId };
+}
+
+/**
+ * Never silently move a tracked note from a user-chosen unrelated notebook.
+ * Folder renames retain the previous source-relative path in folder_sync_files
+ * until the new mapping is committed, so they remain eligible.
+ */
+function verifyManagedSourceLocation(input: {
+  note: TrackedNote | undefined;
+  row: SyncRow | undefined;
+  userId: string;
+  targetNotebookId: string;
+  sourceFolderId: string;
+  workspaceId: string | null;
+}): void {
+  if (!input.note) return;
+  if (input.note.workspaceId !== input.workspaceId) {
+    throw new FolderSyncHierarchyError("同步目标已切换空间；为防止附件和权限错乱，请重新确认目标笔记本");
+  }
+  const previousParts = input.row?.relativePath.replace(/\\/g, "/").split("/").slice(0, -1) || [];
+  const previousFolderId = previousParts.length
+    ? uuidv5(JSON.stringify([
+        input.userId, input.targetNotebookId, input.sourceFolderId, previousParts,
+      ]), FOLDER_SYNC_NAMESPACE)
+    : input.targetNotebookId;
+  if (input.note.notebookId !== input.targetNotebookId &&
+      input.note.notebookId !== previousFolderId) {
+    throw new FolderSyncHierarchyError("笔记在 Nowen 中被手动移动过，已暂停整理以保留用户的目录选择");
+  }
+}
+
 function cloneIndependentNote(note: TrackedNote): string {
   const copyId = uuid();
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -216,6 +311,75 @@ function resolveNoteForImport(userId: string, existingNoteId: string | undefined
   return { note: undefined, syncRow: undefined };
 }
 
+/**
+ * Upgrade path for files already synchronized by flat-mode: relocate only the
+ * tracked note's notebook, never rewrite its content or reupload a PDF/DOCX.
+ * The source row proves ownership; a manually moved note stays untouched.
+ */
+app.post("/organize-file", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const rootId = typeof body.targetNotebookId === "string" ? body.targetNotebookId : "";
+  const relativePath = typeof body.relativePath === "string" ? body.relativePath : "";
+  const sourcePathHash = body.sourcePathHash;
+  if (!rootId || isUnsafePath(relativePath) || !isSha256(sourcePathHash) ||
+      !validFolderSourceId(body.sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33) {
+    return c.json({ error: "目录迁移参数无效", code: "INVALID_HIERARCHY" }, 400);
+  }
+  const targetRoot = resolveTargetNotebook(rootId, userId);
+  if (!targetRoot) {
+    return c.json({ error: "目标笔记本不存在或没有写权限", code: "FORBIDDEN" }, 403);
+  }
+  const row = getSyncRow(userId, sourcePathHash);
+  if (!row || row.relativePath !== relativePath) {
+    return c.json({ error: "来源文件记录不存在或已变更，请重新同步该文件", code: "SOURCE_MISMATCH" }, 409);
+  }
+  const note = getTrackedNote(row.noteId);
+  const owner = assertNoteOwner(note, userId);
+  if (!owner.ok) return c.json({ error: owner.error, code: owner.code }, owner.status);
+  if (!note) return c.json({ error: "同步笔记不存在", code: "NOTE_NOT_FOUND" }, 404);
+  if (note.workspaceId !== targetRoot.workspaceId) {
+    return c.json({ error: "不允许在整理目录时跨工作区移动笔记，请先确认目标", code: "LOCATION_CONFLICT" }, 409);
+  }
+
+  // Detect a user moving the tracked note to a separate location since the
+  // previous sync. Only the root and our own deterministic parent are managed.
+  const folders = relativePath.replace(/\\/g, "/").split("/").slice(0, -1);
+  const previousManagedId = folders.length
+    ? uuidv5(JSON.stringify([userId, rootId, body.sourceFolderId, folders]), FOLDER_SYNC_NAMESPACE)
+    : rootId;
+  if (note.notebookId !== rootId && note.notebookId !== previousManagedId) {
+    return c.json({ error: "该笔记在 Nowen 中被手动移动，已保留当前位置，请先确认", code: "LOCATION_CONFLICT" }, 409);
+  }
+
+  let destinationId = rootId;
+  try {
+    getDb().transaction(() => {
+      const target = ensureFolderSyncNotebookHierarchy({
+        userId, targetNotebookId: rootId,
+        sourceFolderId: body.sourceFolderId as string, relativePath,
+      });
+      destinationId = target.id;
+      if (note.notebookId !== destinationId) {
+        getDb().prepare(`
+          UPDATE notes SET "notebookId" = ?, "workspaceId" = ?,
+                 version = version + 1, "updatedAt" = datetime('now')
+          WHERE id = ? AND "userId" = ?
+        `).run(target.id, target.workspaceId, note.id, userId);
+        synchronizeLegacyNoteHierarchy({
+          db: getDb(), noteId: note.id, actorUserId: userId, reason: "move", parentMode: "resource",
+        });
+      }
+    })();
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "知识树目录迁移失败", code: "HIERARCHY_CONFLICT" }, 409);
+  }
+  if (destinationId !== note.notebookId) broadcastChanged(note.id, userId, note.title, note.contentText);
+  return c.json({ success: true, noteId: note.id, notebookId: destinationId, moved: destinationId !== note.notebookId });
+});
+
 app.post("/import-file", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
@@ -227,6 +391,13 @@ app.post("/import-file", async (c) => {
   const contentText = typeof body.contentText === "string" ? body.contentText : "";
   const existingNoteId = typeof body.existingNoteId === "string" ? body.existingNoteId : undefined;
   const conflictPolicy = normalizeConflictPolicy(body.conflictPolicy);
+  const preserveHierarchy = body.preserveHierarchy === true;
+  const sourceFolderId = body.sourceFolderId;
+  if (preserveHierarchy && (!validFolderSourceId(sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33)) {
+    return c.json({ error: "来源文件夹标识或目录层级无效", code: "INVALID_HIERARCHY" }, 400);
+  }
 
   if (!filename || filename.length > 255) return c.json({ error: "filename 无效", code: "INVALID_FILENAME" }, 400);
   if (isUnsafePath(relativePath)) return c.json({ error: "relativePath 不安全", code: "UNSAFE_PATH" }, 400);
@@ -258,7 +429,17 @@ app.post("/import-file", async (c) => {
   const noteId = note?.id || uuid();
   let conflictCopyNoteId: string | undefined;
 
-  getDb().transaction(() => {
+  try {
+    getDb().transaction(() => {
+    if (preserveHierarchy) verifyManagedSourceLocation({
+      note, row: syncRow, userId, targetNotebookId,
+      sourceFolderId: sourceFolderId as string, workspaceId: notebook.workspaceId,
+    });
+    const destination = preserveHierarchy
+      ? ensureFolderSyncNotebookHierarchy({
+          userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
+        })
+      : notebook;
     if (conflict && conflictPolicy === "copy" && note) conflictCopyNoteId = cloneIndependentNote(note);
     if (note) {
       getDb().prepare(`
@@ -267,18 +448,28 @@ app.post("/import-file", async (c) => {
                "workspaceId" = ?, "contentFormat" = ?, version = version + 1,
                "updatedAt" = datetime('now')
          WHERE id = ?
-      `).run(title, content, contentText, targetNotebookId, notebook.workspaceId, contentFormat, noteId);
+      `).run(title, content, contentText, destination.id, destination.workspaceId, contentFormat, noteId);
     } else {
       getDb().prepare(`
         INSERT INTO notes (
           id, "userId", "notebookId", "workspaceId", title, content,
           "contentText", "contentFormat"
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(noteId, userId, targetNotebookId, notebook.workspaceId, title, content, contentText, contentFormat);
+      `).run(noteId, userId, destination.id, destination.workspaceId, title, content, contentText, contentFormat);
     }
     if (syncRow) folderSyncFilesRepository.update(syncRow.id, { sha256: sourceSha, relativePath, filename, noteId });
     else folderSyncFilesRepository.create({ id: uuid(), userId, sourcePathHash, relativePath, filename, sha256: sourceSha, noteId });
-  })();
+    synchronizeLegacyNoteHierarchy({
+      db: getDb(), noteId, actorUserId: userId,
+      reason: note ? "move" : "create", parentMode: preserveHierarchy ? "resource" : "preserve",
+    });
+    })();
+  } catch (error) {
+    if (error instanceof FolderSyncHierarchyError) {
+      return c.json({ error: error.message, code: "HIERARCHY_CONFLICT" }, 409);
+    }
+    throw error;
+  }
 
   broadcastChanged(noteId, userId, title, contentText);
   return c.json({ success: true, created: !note, updated: !!note, skipped: false, noteId, sha256: sourceSha, conflictCopyNoteId });
@@ -295,7 +486,14 @@ app.post("/import-attachment", async (c) => {
   const targetNotebookId = typeof body.targetNotebookId === "string" ? body.targetNotebookId : "";
   const existingNoteId = typeof body.existingNoteId === "string" ? body.existingNoteId : undefined;
   const conflictPolicy = normalizeConflictPolicy(body.conflictPolicy);
+  const preserveHierarchy = body.preserveHierarchy === "1";
+  const sourceFolderId = body.sourceFolderId;
   const shouldExtractText = body.extractText !== "0";
+  if (preserveHierarchy && (!validFolderSourceId(sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33)) {
+    return c.json({ error: "来源文件夹标识或目录层级无效", code: "INVALID_HIERARCHY" }, 400);
+  }
 
   if (!(file instanceof File)) return c.json({ error: "未上传文件", code: "NO_FILE" }, 400);
   if (!filename || filename.length > 255 || isUnsafePath(relativePath)) return c.json({ error: "文件参数无效", code: "INVALID_PARAMS" }, 400);
@@ -356,6 +554,15 @@ app.post("/import-attachment", async (c) => {
 
   try {
     getDb().transaction(() => {
+      if (preserveHierarchy) verifyManagedSourceLocation({
+        note, row: syncRow, userId, targetNotebookId,
+        sourceFolderId: sourceFolderId as string, workspaceId: notebook.workspaceId,
+      });
+      const destination = preserveHierarchy
+        ? ensureFolderSyncNotebookHierarchy({
+            userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
+          })
+        : notebook;
       if (conflict && conflictPolicy === "copy" && note) conflictCopyNoteId = cloneIndependentNote(note);
       if (note) {
         getDb().prepare(`
@@ -364,21 +571,21 @@ app.post("/import-attachment", async (c) => {
                  "workspaceId" = ?, "contentFormat" = 'markdown',
                  version = version + 1, "updatedAt" = datetime('now')
            WHERE id = ?
-        `).run(title, content, baseContent, targetNotebookId, notebook.workspaceId, noteId);
+        `).run(title, content, baseContent, destination.id, destination.workspaceId, noteId);
       } else {
         getDb().prepare(`
           INSERT INTO notes (
             id, "userId", "notebookId", "workspaceId", title, content,
             "contentText", "contentFormat"
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'markdown')
-        `).run(noteId, userId, targetNotebookId, notebook.workspaceId, title, content, baseContent);
+        `).run(noteId, userId, destination.id, destination.workspaceId, title, content, baseContent);
       }
       getDb().prepare(`
         INSERT INTO attachments (
           id, "userId", "noteId", filename, "mimeType", size, path,
           "workspaceId", hash, "uploadSource"
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'folder_sync')
-      `).run(attachmentId, userId, noteId, filename, file.type || "application/octet-stream", fileBuffer.length, relativeAttachmentPath, notebook.workspaceId, actualSha);
+      `).run(attachmentId, userId, noteId, filename, file.type || "application/octet-stream", fileBuffer.length, relativeAttachmentPath, destination.workspaceId, actualSha);
       syncReferences(getDb(), noteId, content);
       if (oldAttachments.length) {
         const placeholders = oldAttachments.map(() => "?").join(",");
@@ -386,9 +593,16 @@ app.post("/import-attachment", async (c) => {
       }
       if (syncRow) folderSyncFilesRepository.update(syncRow.id, { sha256: sourceSha, relativePath, filename, noteId });
       else folderSyncFilesRepository.create({ id: uuid(), userId, sourcePathHash, relativePath, filename, sha256: sourceSha, noteId });
+      synchronizeLegacyNoteHierarchy({
+        db: getDb(), noteId, actorUserId: userId,
+        reason: note ? "move" : "create", parentMode: preserveHierarchy ? "resource" : "preserve",
+      });
     })();
   } catch (error) {
     try { fs.unlinkSync(fullPath); } catch { /* best effort */ }
+    if (error instanceof FolderSyncHierarchyError) {
+      return c.json({ error: error.message, code: "HIERARCHY_CONFLICT" }, 409);
+    }
     throw error;
   }
 

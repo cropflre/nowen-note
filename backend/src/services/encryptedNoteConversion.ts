@@ -27,18 +27,31 @@ export function encryptedHistorySourceDigest(source: { content: string; contentF
 }
 
 // Match the current text-only encrypted editor boundary before destroying its source.
-function isTextOnlySource(content: string, format: string): boolean {
-  if (format === "markdown") return !/!\[|<(?:img|audio|video|iframe|object|embed)\b|\/api\/attachments\/|data:(?:image|audio|video)\//i.test(content);
+export function isTextOnlySource(content: string, format: string): boolean {
+  if (format === "markdown") return !/!\[|<(?:img|audio|video|iframe|object|embed|picture|source|svg|canvas|link|style|script)\b|\/api\/attachments\/|data:(?:image|audio|video)\//i.test(content);
   if (format !== "tiptap-json") return false;
+  if (content === "") return true; // Legacy empty rich-text body; preserve its bytes.
   const nodes = new Set(["doc", "paragraph", "heading", "text", "bulletList", "orderedList", "listItem", "blockquote", "hardBreak", "codeBlock", "horizontalRule"]);
   const marks = new Set(["bold", "italic", "strike", "code"]);
+  const attrsSupported = (node: any): boolean => node.attrs === undefined || (node.attrs && typeof node.attrs === "object" && !Array.isArray(node.attrs)
+    && Object.entries(node.attrs).every(([key, value]) => value === null || (key === "blockId" && typeof value === "string")
+      || (key === "textAlign" && value === "left")
+      || (["indent", "firstLineIndent"].includes(key) && value === 0)
+      || (node.type === "heading" && key === "level" && Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 6)
+      || (node.type === "orderedList" && key === "start" && Number.isSafeInteger(value) && Number(value) >= 0)
+      || (node.type === "codeBlock" && key === "language" && typeof value === "string")));
   const supported = (node: any, depth: number): boolean => Boolean(node && typeof node === "object" && depth <= 100 && nodes.has(node.type)
+    && attrsSupported(node)
     && (node.marks === undefined || (Array.isArray(node.marks) && node.marks.every((mark: any) => marks.has(mark?.type))))
     && (node.content === undefined || (Array.isArray(node.content) && node.content.every((child: any) => supported(child, depth + 1)))));
-  try { const doc = JSON.parse(content); return doc?.type === "doc" && supported(doc, 0); } catch { return false; }
+  try {
+    const doc = JSON.parse(content);
+    return Boolean(doc && typeof doc === "object" && !Array.isArray(doc) && !Object.keys(doc).length)
+      || (doc?.type === "doc" && supported(doc, 0));
+  } catch { return false; }
 }
 
-/** Internal storage primitive only. No API/UI conversion is enabled by this function. */
+/** Atomic storage primitive. The owner API supplies verified sources and a complete ciphertext history. */
 export function convertEncryptedNoteStorage(db: Database.Database, input: EncryptedNoteConversionInput) {
   const preserveHistory = Array.isArray(input.encryptedHistory) && input.discardHistory === undefined;
   if (db.inTransaction || (!preserveHistory && (input.discardHistory !== true || input.encryptedHistory !== undefined)) || !Number.isSafeInteger(input.version)

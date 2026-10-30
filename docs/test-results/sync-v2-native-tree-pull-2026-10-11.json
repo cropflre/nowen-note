@@ -1,0 +1,44 @@
+{
+  "device": "emulator-5580",
+  "package": "com.nowen.note.syncacceptance",
+  "frontendSourceCommit": "0e5b2e713fd9e5a87c4d0827f55fac0d83fe0243",
+  "backendSourceCommit": "5428b6d7",
+  "apkSha256": "e63ff8d48d10e1489257fea167ef132620f441ec6b420103a5ccae82612fe0e3",
+  "androidApi": 35,
+  "webViewVersion": "124.0.6367.219",
+  "nativeCrashBufferLines": 0,
+  "offlineImmediateRead": true,
+  "forceStopRecovery": true,
+  "knowledgeTreeRootCreate": true,
+  "readWriteThroughProductionApiBridge": true,
+  "negotiatedPersonalTreePull": true,
+  "remoteFolderUnderDocument": true,
+  "remoteTreeMove": true,
+  "structureForceStopRecovery": true,
+  "nativeSchemaVersion": 6,
+  "missingTreeNoticePoll": true,
+  "remoteFolderCreateMs": 284,
+  "remoteTreeMoveMs": 262,
+  "offlineNetworkIsolation": "adb reverse removed; HTTP server unreachable from Android",
+  "markdownAndRichText": true,
+  "missingNoticePoll": true,
+  "reconnect": true,
+  "httpPushToNativePull": {
+    "samples": 30,
+    "p50Ms": 303,
+    "p95Ms": 394,
+    "p99Ms": 406
+  },
+  "nativeCommitToServerAndAck": {
+    "samples": 30,
+    "p50Ms": 449,
+    "p95Ms": 509,
+    "p99Ms": 540
+  },
+  "errors": [
+    {
+      "lastError": null
+    }
+  ],
+  "boundary": "Loopback adb reverse; real Android Native SQLite, personal tree create/read/update and negotiated structural Pull. Remote folder creation and movement use the production knowledge tree routes. Native structural writes/conflict UI, full EditorPane, protected/shared ACL, attachment bytes and full production JWT middleware are not accepted here."
+}

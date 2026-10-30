@@ -165,13 +165,13 @@ export function registerNotesCommands(program: Command) {
   notes
     .command("delete <id>")
     .description("删除笔记")
-    .option("--permanent", "永久删除（默认移入回收站）")
+    .option("--permanent", "永久删除已在回收站的笔记（默认移入回收站）")
     .action(async (id, opts) => {
       const spinner = ora("删除笔记...").start();
       try {
         const client = getClient();
         if (opts.permanent) {
-          await client.request(`/api/notes/${id}`, { method: "DELETE" });
+          await client.request(`/api/notes/${id}/permanent`, { method: "DELETE" });
           spinner.succeed(chalk.green("笔记已永久删除"));
         } else {
           await client.request(`/api/notes/${id}`, { method: "PUT", body: { isTrashed: 1 } });

@@ -154,11 +154,8 @@ export class PluginStudioProjectService {
 
   readFile(actor: PluginStudioActor, projectId: string, requestedPath: string): PluginStudioFileContent {
     this.getProject(actor, projectId);
-    const absolutePath = this.paths.resolveFile(projectId, requestedPath);
-    const stat = fs.statSync(absolutePath);
-    if (!stat.isFile()) throw new PluginStudioError("项目文件不存在", "PLUGIN_STUDIO_FILE_NOT_FOUND");
-    const description = this.paths.describeFile(requestedPath, stat.size);
-    const buffer = fs.readFileSync(absolutePath);
+    const buffer = this.paths.readFileBuffer(projectId, requestedPath);
+    const description = this.paths.describeFile(requestedPath, buffer.length);
     return {
       ...description,
       content: description.encoding === "base64" ? buffer.toString("base64") : buffer.toString("utf8"),
@@ -208,6 +205,7 @@ export class PluginStudioProjectService {
           WHERE id = ? AND revision = ?
         `).run(updatedAt, projectId, input.expectedRevision);
         if (result.changes !== 1) this.throwRevisionConflict();
+        this.paths.resolveFile(projectId, input.path, true);
         fs.renameSync(temporaryPath, targetPath);
       });
       commit();
@@ -236,8 +234,7 @@ export class PluginStudioProjectService {
       exportedAt: new Date().toISOString(),
     }, null, 2));
     for (const file of files) {
-      const absolutePath = this.paths.resolveFile(projectId, file.path);
-      zip.file(file.path, fs.readFileSync(absolutePath));
+      zip.file(file.path, this.paths.readFileBuffer(projectId, file.path));
     }
     return {
       project,

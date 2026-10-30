@@ -1,0 +1,75 @@
+TAP version 13
+# Subtest: MCP uploadAttachment sends multipart data without JSON content type
+ok 1 - MCP uploadAttachment sends multipart data without JSON content type
+  ---
+  duration_ms: 18.3233
+  ...
+# Subtest: MCP attachToNote appends markdown link with current note version
+ok 2 - MCP attachToNote appends markdown link with current note version
+  ---
+  duration_ms: 0.9522
+  ...
+# Subtest: MCP server registers attachment tools
+not ok 3 - MCP server registers attachment tools
+  ---
+  duration_ms: 0.7789
+  location: 'C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\packages\\nowen-mcp\\tests\\attachments.test.ts:1:2891'
+  failureType: 'testCodeFailure'
+  error: "ENOENT: no such file or directory, open 'C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\src\\index.ts'"
+  code: 'ENOENT'
+  stack: |-
+    async open (node:internal/fs/promises:637:25)
+    async readFile (node:internal/fs/promises:1249:14)
+    async TestContext.<anonymous> (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\packages\nowen-mcp\tests\attachments.test.ts:102:18)
+    async Test.run (node:internal/test_runner/test:797:9)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: MCP keeps soft delete separate and sends permanent deletion to its explicit endpoint
+ok 4 - MCP keeps soft delete separate and sends permanent deletion to its explicit endpoint
+  ---
+  duration_ms: 10.9382
+  ...
+# Subtest: MCP exposes NOTE_NOT_TRASHED and does not automatically trash an active note
+ok 5 - MCP exposes NOTE_NOT_TRASHED and does not automatically trash an active note
+  ---
+  duration_ms: 0.6399
+  ...
+# Subtest: MCP create note defaults to markdown source content
+ok 6 - MCP create note defaults to markdown source content
+  ---
+  duration_ms: 0.7549
+  ...
+# Subtest: MCP update note carries current version and synchronizes Markdown into Yjs
+ok 7 - MCP update note carries current version and synchronizes Markdown into Yjs
+  ---
+  duration_ms: 0.1148
+  ...
+# Subtest: MCP update does not route non-Markdown content through Markdown Yjs
+ok 8 - MCP update does not route non-Markdown content through Markdown Yjs
+  ---
+  duration_ms: 0.0712
+  ...
+# Subtest: MCP title-only update does not mutate an active Yjs document
+ok 9 - MCP title-only update does not mutate an active Yjs document
+  ---
+  duration_ms: 0.06
+  ...
+# Subtest: MCP update note reads current note version before building payload
+ok 10 - MCP update note reads current note version before building payload
+  ---
+  duration_ms: 0.8915
+  ...
+# Subtest: MCP read note result includes contentFormat
+ok 11 - MCP read note result includes contentFormat
+  ---
+  duration_ms: 0.1083
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 10
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 263.1308

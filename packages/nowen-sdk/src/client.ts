@@ -10,6 +10,8 @@
  * - 系统设置
  */
 
+import { NowenAuth } from "./auth.js";
+
 import type {
   NowenConfig, Notebook, CreateNotebookParams, UpdateNotebookParams,
   Note, NoteSummary, ListNotesParams, CreateNoteParams, UpdateNoteParams,
@@ -17,46 +19,40 @@ import type {
   Task, TaskStats, ListTasksParams, CreateTaskParams, UpdateTaskParams,
   MindMap, CreateMindMapParams, UpdateMindMapParams,
   AIChatParams, AIAskResult, AISettings, KnowledgeStats,
-  SearchResult, SystemSettings, ExportFormat,
+  SearchResult, SystemSettings, ExportFormat, DiaryTimeline, AuthUser, LoginResult,
 } from "./types.js";
 
 export class NowenClient {
   private baseUrl: string;
-  private username: string;
-  private password: string;
+  protected readonly auth: NowenAuth;
   private timeout: number;
-  private token: string | null = null;
   private _fetch: typeof fetch;
 
   constructor(config: NowenConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.username = config.username;
-    this.password = config.password;
+    this.auth = new NowenAuth(config);
     this.timeout = config.timeout || 30000;
-    this._fetch = config.fetch || globalThis.fetch;
+    this._fetch = config.fetch || globalThis.fetch.bind(globalThis);
   }
 
   // ==================== 内部方法 ====================
 
-  /** 登录获取 JWT Token */
-  private async login(): Promise<void> {
-    const res = await this._fetch(`${this.baseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: this.username, password: this.password }),
-      signal: AbortSignal.timeout(this.timeout),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`登录失败 (${res.status}): ${err}`);
-    }
-    const data = await res.json() as { token: string };
-    this.token = data.token;
+  /** 登录；两步验证账号需继续调用 verifyTwoFactor。 */
+  login(username?: string, password?: string): Promise<LoginResult> {
+    return this.auth.login(username, password);
   }
 
-  /** 确保已认证 */
-  private async ensureAuth(): Promise<void> {
-    if (!this.token) await this.login();
+  verifyTwoFactor(ticket: string, code: string): Promise<{ token: string }> {
+    return this.auth.verifyTwoFactor(ticket, code);
+  }
+
+  /** 设置或清除外部 Token，同时清除自动登录凭据。 */
+  setToken(token: string | null): void {
+    this.auth.setToken(token);
+  }
+
+  getToken(): string | null {
+    return this.auth.getToken();
   }
 
   /** 通用 API 请求方法 */
@@ -69,7 +65,7 @@ export class NowenClient {
       raw?: boolean;
     } = {}
   ): Promise<T> {
-    await this.ensureAuth();
+    const token = await this.auth.ensureToken();
 
     let url = `${this.baseUrl}${path}`;
     if (options.query) {
@@ -82,7 +78,7 @@ export class NowenClient {
     }
 
     const headers: Record<string, string> = {
-      "Authorization": `Bearer ${this.token}`,
+      "Authorization": `Bearer ${token}`,
     };
     if (options.body && !options.raw) {
       headers["Content-Type"] = "application/json";
@@ -98,13 +94,14 @@ export class NowenClient {
       fetchOpts.body = options.raw ? options.body : JSON.stringify(options.body);
     }
 
+    this.auth.assertToken(token);
     let res = await this._fetch(url, fetchOpts);
 
     // Token 过期自动重试
     if (res.status === 401) {
-      this.token = null;
-      await this.login();
-      (fetchOpts.headers as Record<string, string>)["Authorization"] = `Bearer ${this.token}`;
+      const retryToken = await this.auth.retryToken(token);
+      this.auth.assertToken(retryToken);
+      (fetchOpts.headers as Record<string, string>)["Authorization"] = `Bearer ${retryToken}`;
       res = await this._fetch(url, fetchOpts);
     }
 
@@ -118,13 +115,14 @@ export class NowenClient {
 
   /** 读取 SSE 流并收集为完整文本 */
   private async readSSEStream(path: string, body: any): Promise<{ text: string; metadata?: any }> {
-    await this.ensureAuth();
+    const token = await this.auth.ensureToken();
+    this.auth.assertToken(token);
 
     const res = await this._fetch(`${this.baseUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.token}`,
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(60000),
@@ -218,9 +216,14 @@ export class NowenClient {
     return this.request(`/api/notes/${id}`, { method: "PUT", body: params });
   }
 
-  /** 删除笔记（永久） */
+  /** @deprecated Use permanentlyDeleteNote after trashNote. Active notes return NOTE_NOT_TRASHED. */
   async deleteNote(id: string): Promise<void> {
-    return this.request(`/api/notes/${id}`, { method: "DELETE" });
+    return this.permanentlyDeleteNote(id);
+  }
+
+  /** 永久删除回收站中的笔记；不会自动将普通笔记移入回收站。 */
+  async permanentlyDeleteNote(id: string): Promise<void> {
+    return this.request(`/api/notes/${id}/permanent`, { method: "DELETE" });
   }
 
   /** 移入回收站（软删除） */
@@ -336,8 +339,10 @@ export class NowenClient {
   // ==================== 日记 ====================
 
   /** 获取日记列表 */
-  async listDiaries(params?: { month?: string }): Promise<DiaryEntry[]> {
-    return this.request("/api/diary", { query: params });
+  async listDiaries(params?: { cursor?: string; limit?: number }): Promise<DiaryTimeline> {
+    return this.request("/api/diary/timeline", {
+      query: { cursor: params?.cursor, limit: params?.limit?.toString() },
+    });
   }
 
   // ==================== 搜索 ====================
@@ -411,7 +416,7 @@ export class NowenClient {
   // ==================== 认证 ====================
 
   /** 验证 Token 有效性 */
-  async verifyToken(): Promise<{ valid: boolean; userId: string; username: string }> {
+  async verifyToken(): Promise<{ user: AuthUser }> {
     return this.request("/api/auth/verify");
   }
 

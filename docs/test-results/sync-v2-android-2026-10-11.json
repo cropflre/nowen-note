@@ -1,0 +1,28 @@
+{
+  "device": "emulator-5580",
+  "package": "com.nowen.note.syncacceptance",
+  "offlineImmediateRead": true,
+  "forceStopRecovery": true,
+  "offlineNetworkIsolation": "adb reverse removed; HTTP server unreachable from Android",
+  "markdownAndRichText": true,
+  "missingNoticePoll": true,
+  "reconnect": true,
+  "httpPushToNativePull": {
+    "samples": 30,
+    "p50Ms": 337,
+    "p95Ms": 348,
+    "p99Ms": 768
+  },
+  "nativeCommitToServerAndAck": {
+    "samples": 30,
+    "p50Ms": 375,
+    "p95Ms": 394,
+    "p99Ms": 429
+  },
+  "errors": [
+    {
+      "lastError": null
+    }
+  ],
+  "boundary": "Loopback adb reverse; real Android native SQLite and MobileSyncEngine. Does not test full EditorPane, knowledge tree creation, attachment bytes, or production JWT middleware."
+}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrainCircuit, Copy, FileArchive, FileCode, FileSpreadsheet, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import { duplicateKnowledgeTreeNoteAsChild, resolveDuplicableKnowledgeTreeNote } from "@/lib/knowledgeTreeDuplicateAsChild";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
@@ -13,6 +14,7 @@ const CREATE_MENU_WIDTH = 232;
 const CREATE_ITEMS = [
   { kind: "note", label: "富文本文档", icon: FileText },
   { kind: "markdown", label: "Markdown 文档", icon: FileCode },
+  { kind: "plaintext", label: "note.format.plainTextDocument", icon: FileText },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
   { kind: "sheet", label: "轻量表格", icon: Table2 },
   { kind: "excel", label: "Excel 表格", icon: FileSpreadsheet },
@@ -64,6 +66,7 @@ export function KnowledgeTreeCreateDropdown({
   onCreateEncrypted,
   onImport,
 }: KnowledgeTreeCreateDropdownProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<React.CSSProperties | null>(null);
   const [canDuplicateAsChild, setCanDuplicateAsChild] = useState(false);
@@ -162,7 +165,7 @@ export function KnowledgeTreeCreateDropdown({
               size={15}
               className={item.kind === "markdown" ? "text-emerald-500" : "text-accent-primary"}
             />
-            <span>{item.label}</span>
+            <span>{item.kind === "plaintext" ? t(item.label, { defaultValue: "纯文本文档（TXT）" }) : item.label}</span>
           </button>
         );
       })}

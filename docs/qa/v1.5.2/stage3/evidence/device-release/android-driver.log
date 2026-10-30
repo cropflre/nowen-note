@@ -1,0 +1,9 @@
+file:///C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note/scripts/.qa152-device-driver.mjs:35
+  throw new Error(message);
+        ^
+
+Error: offline edits not acknowledged
+    at wait (file:///C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note/scripts/.qa152-device-driver.mjs:35:9)
+    at async file:///C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note/scripts/.qa152-device-driver.mjs:75:3
+
+Node.js v20.20.2

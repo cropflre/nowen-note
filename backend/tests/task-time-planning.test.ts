@@ -229,3 +229,24 @@ test("lets workspace members plan the same shared task in private schedules", as
   );
   assert.equal(memberCannotEditOwner.status, 404);
 });
+
+test("archiving hides planned blocks, preserves them, and blocks mutations until restore", async () => {
+  const task = await requestJson(USER_A,"POST","/tasks",{title:"Archived plan"});
+  assert.equal(task.status,201);
+  const id = task.json.id;
+  const body = {taskId:id,startAt:"2026-08-03T01:00:00.000Z",endAt:"2026-08-03T02:00:00.000Z",timeZone:"Asia/Shanghai"};
+  const created = await requestJson(USER_A,"POST","/task-time-blocks",body);
+  assert.equal(created.status,201);
+  const blockId = created.json.block.id;
+  assert.equal((await requestJson(USER_A,"PATCH",`/tasks/${id}/toggle`)).status,200);
+  assert.equal((await requestJson(USER_A,"PATCH",`/tasks/${id}/archive`,{archived:true})).status,200);
+  const listed = await requestJson(USER_A,"GET","/task-time-blocks?workspaceId=personal&from=2026-08-03T00%3A00%3A00.000Z&to=2026-08-04T00%3A00%3A00.000Z");
+  assert.equal(listed.status,200); assert.equal(listed.json.blocks.length,0);
+  assert.equal((await requestJson(USER_A,"PUT",`/task-time-blocks/tasks/${id}/estimate`,{estimatedMinutes:45})).status,409);
+  assert.equal((await requestJson(USER_A,"POST","/task-time-blocks",body)).status,409);
+  assert.equal((await requestJson(USER_A,"PUT",`/task-time-blocks/${blockId}`,{endAt:"2026-08-03T03:00:00.000Z"})).status,409);
+  assert.equal((await requestJson(USER_A,"DELETE",`/task-time-blocks/${blockId}`)).status,409);
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS count FROM task_time_blocks WHERE id=?").get(blockId) as any).count,1);
+  assert.equal((await requestJson(USER_A,"PATCH",`/tasks/${id}/archive`,{archived:false})).status,200);
+  assert.equal((await requestJson(USER_A,"DELETE",`/task-time-blocks/${blockId}`)).status,200);
+});

@@ -9,6 +9,7 @@ import {
   claimLegacyUserPreferences,
   decodeUserIdFromToken,
   mergePendingPreferences,
+  normalizeUserPreferences,
   readAccountPreferenceCache,
   sanitizeUserPreferencePatch,
   writeAccountPreferenceCache,
@@ -165,7 +166,7 @@ describe("user preference account cache", () => {
   });
 
   it("normalizes account-scoped navigation visibility preferences", () => {
-    expect(DEFAULT_USER_PREFERENCES.hiddenNavigationModules).toEqual([]);
+    expect(DEFAULT_USER_PREFERENCES.hiddenNavigationModules).toEqual(["notifications"]);
     expect(DEFAULT_USER_PREFERENCES.hiddenTaskCenterModules).toEqual([]);
 
     const patch = sanitizeUserPreferencePatch({
@@ -175,6 +176,22 @@ describe("user preference account cache", () => {
 
     expect(patch.hiddenNavigationModules).toEqual(["tasks", "diary", "notifications"]);
     expect(patch.hiddenTaskCenterModules).toEqual(["habits", "stats"]);
+  });
+
+  it("defaults missing notification visibility to hidden and preserves saved choices", () => {
+    expect(normalizeUserPreferences({}).hiddenNavigationModules).toEqual(["notifications"]);
+    const storage = new MemoryStorage();
+    const savedChoices: Array<typeof DEFAULT_USER_PREFERENCES.hiddenNavigationModules> = [[], ["tasks"], ["notifications"]];
+    for (const hiddenNavigationModules of savedChoices) {
+      writeAccountPreferenceCache(storage, {
+        version: 2,
+        userId: "user-a",
+        prefs: { ...DEFAULT_USER_PREFERENCES, hiddenNavigationModules },
+        revision: 1,
+        pending: {},
+      });
+      expect(readAccountPreferenceCache(storage, "user-a")?.prefs.hiddenNavigationModules).toEqual(hiddenNavigationModules);
+    }
   });
 
 });

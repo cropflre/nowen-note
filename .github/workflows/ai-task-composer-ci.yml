@@ -1,0 +1,71 @@
+name: AI Task Composer CI
+
+on:
+  push:
+    branches: [release/v1.5.2]
+    paths:
+      - "backend/src/services/task-composer.ts"
+      - "backend/src/db/taskComposerMigration.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/task-composer*.test.ts"
+      - "frontend/src/components/tasks/TaskComposer.tsx"
+      - "frontend/src/lib/taskComposerApi.ts"
+      - "frontend/src/lib/nativeTaskFields.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/mobileLocalModuleBridge.ts"
+      - "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts"
+      - ".github/workflows/ai-task-composer-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/services/task-composer.ts"
+      - "backend/src/db/taskComposerMigration.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/task-composer*.test.ts"
+      - "frontend/src/components/tasks/TaskComposer.tsx"
+      - "frontend/src/lib/taskComposerApi.ts"
+      - "frontend/src/lib/nativeTaskFields.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/mobileLocalModuleBridge.ts"
+      - "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts"
+      - ".github/workflows/ai-task-composer-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend-composer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run build:tsc
+      - name: AI composer and task lifecycle regressions
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/task-composer.test.ts tests/task-composer-dates.test.ts tests/task-lifecycle.test.ts
+
+  frontend-composer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: AI composer and Native SQLite regressions
+        run: npx vitest run src/components/tasks/__tests__/TaskComposer.test.tsx src/lib/__tests__/taskComposerApi.test.ts src/lib/__tests__/nativeTreeSchemaMigration.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b

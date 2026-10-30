@@ -1,0 +1,6 @@
+TypeScript tsc --noEmit: PASS
+MJS syntax checks: PASS
+Git diff --check: PASS
+Relative documentation links: PASS
+Source/document whitespace: PASS
+Functional tests, browser checks, builds and provider integration: NOT RUN (deferred by user)

@@ -5,6 +5,7 @@ import { argon2id } from "hash-wasm";
 import fixture from "./fixtures/envelope-v1.json";
 import {
   createEncryptedContent, decryptEncryptedContent, updateEncryptedContent, changeEncryptedContentPassphrase,
+  readEncryptedContentWithKey, unlockEncryptedContentKey,
 } from "../crypto";
 import {
   contentAad, validateEnvelope, validatePassphrase, fromBase64, MAX_CONTENT_BYTES,
@@ -16,6 +17,13 @@ const identity: EncryptedContentIdentity = { objectId: original.objectId, kind: 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("encrypted content interoperability and lifecycle", () => {
+  it("reads old authenticated snapshots with the current session key after password rewrapping", async () => {
+    const opened = await unlockEncryptedContentKey(original, fixture.passphrase, identity);
+    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "different-history-password");
+    expect(await readEncryptedContentWithKey(original, opened.key, identity)).toBe(fixture.plaintext);
+    expect(await readEncryptedContentWithKey(changed, opened.key, identity)).toBe(fixture.plaintext);
+    await expect(readEncryptedContentWithKey({ ...original, objectId: "11111111-1111-4111-8111-111111111111" }, opened.key, identity)).rejects.toMatchObject({ code: "unlock-failed" });
+  });
   it("matches native Argon2id and fixed AAD vectors, then decrypts the independent OpenSSL envelope", async () => {
     const derived = await argon2id({ password: fixture.passphrase, salt: fromBase64(original.kdf.salt, 16),
       memorySize: 65536, iterations: 3, parallelism: 4, hashLength: 32, outputType: "hex" });
@@ -27,7 +35,7 @@ describe("encrypted content interoperability and lifecycle", () => {
 
   it.each(["note", "block"] as const)("creates fresh, non-plaintext %s envelopes and roundtrips UTF-8 content", async (kind) => {
     const source = "\ufeff私密内容 📝";
-    const passphrase = "123456789012";
+    const passphrase = "123456";
     const first = await createEncryptedContent({ plaintext: source, passphrase, kind, originalFormat: "tiptap-json" });
     const second = await createEncryptedContent({ plaintext: source, passphrase, kind, originalFormat: "tiptap-json" });
     expect(validateEnvelope(first)).toEqual(first);
@@ -53,17 +61,17 @@ describe("encrypted content interoperability and lifecycle", () => {
   });
 
   it("changes passphrase by rewrapping only, leaving old backups usable with their original passphrase", async () => {
-    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "123456789012");
+    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "123456");
     expect(changed.payload).toEqual(original.payload);
     expect(changed.kdf.salt).not.toBe(original.kdf.salt);
     expect(changed.wrappedKey).not.toEqual(original.wrappedKey);
-    expect(await decryptEncryptedContent(changed, "123456789012", identity)).toBe(fixture.plaintext);
+    expect(await decryptEncryptedContent(changed, "123456", identity)).toBe(fixture.plaintext);
     await expect(decryptEncryptedContent(changed, fixture.passphrase, identity)).rejects.toMatchObject({ code: "unlock-failed" });
     expect(await decryptEncryptedContent(original, fixture.passphrase, identity)).toBe(fixture.plaintext);
-    await expect(changeEncryptedContentPassphrase(original, "wrong", identity, "123456789012")).rejects.toMatchObject({ code: "unlock-failed" });
+    await expect(changeEncryptedContentPassphrase(original, "wrong", identity, "123456")).rejects.toMatchObject({ code: "unlock-failed" });
   });
-  it("reads a legacy six-character OpenSSL envelope but rejects new short-password creation or rotation", async () => {
-    const password = "123456";
+  it("reads a legacy password below six characters but rejects new short-password creation or rotation", async () => {
+    const password = "12345";
     const kek = await argon2id({ password, salt: fromBase64(original.kdf.salt, 16), memorySize: 65536, iterations: 3, parallelism: 4, hashLength: 32, outputType: "binary" });
     const raw = randomBytes(32);
     const nativeSeal = (bytes: Buffer, key: Uint8Array, purpose: "key" | "content") => {

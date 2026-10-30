@@ -40,10 +40,14 @@ export class NowenApiClient {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.username = config.username;
     this.password = config.password;
+    this.token = process.env.NOWEN_API_TOKEN?.trim() || null;
   }
 
   /** 登录获取 JWT Token */
   private async login(): Promise<void> {
+    if (!this.username || !this.password) {
+      throw new Error("请设置 NOWEN_API_TOKEN，或显式配置 NOWEN_USERNAME 和 NOWEN_PASSWORD；MCP 不再尝试默认管理员凭据");
+    }
     const res = await fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -92,6 +96,9 @@ export class NowenApiClient {
 
     // Token 过期，重新登录后重试
     if (res.status === 401) {
+      if (process.env.NOWEN_API_TOKEN?.trim()) {
+        throw new Error("NOWEN_API_TOKEN 无效、已过期或权限不足；不会自动回退到账号密码");
+      }
       this.token = null;
       await this.login();
       headers["Authorization"] = `Bearer ${this.token}`;
@@ -288,7 +295,47 @@ export class NowenApiClient {
 
   /** 删除笔记（永久） */
   async deleteNote(id: string): Promise<any> {
-    return this.request(`/api/notes/${id}`, { method: "DELETE" });
+    return this.request(`/api/notes/${id}/permanent`, { method: "DELETE" });
+  }
+
+  /** 从知识树服务读取统一目录；所有目录权限交由服务端与 scoped MCP 再校验。 */
+  async getKnowledgeTree(workspaceId?: string, includeDeleted = false): Promise<any> {
+    return this.request("/api/knowledge-tree/", {
+      query: { workspaceId: workspaceId || "personal", includeDeleted: includeDeleted ? "1" : undefined },
+    });
+  }
+
+  async createKnowledgeNode(params: {
+    parentId: string | null; title: string; nodeType: "folder" | "markdown";
+  }): Promise<any> {
+    return this.request("/api/knowledge-tree/nodes", {
+      method: "POST", query: { workspaceId: "personal" }, body: params,
+    });
+  }
+
+  /** 版本预条件由后端 PAT 中间件在业务写入前验证。 */
+  async renameKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
+      method: "PATCH", query: { workspaceId: "personal" }, body: payload,
+    });
+  }
+
+  async moveKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/move`, {
+      method: "PUT", query: { workspaceId: "personal" }, body: payload,
+    });
+  }
+
+  async trashKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
+      method: "DELETE", query: { workspaceId: "personal", mode: "subtree" }, body: payload,
+    });
+  }
+
+  async restoreKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/restore`, {
+      method: "POST", query: { workspaceId: "personal" }, body: payload,
+    });
   }
 
   // ==================== 通用块 / 双链 ====================
@@ -386,7 +433,7 @@ export class NowenApiClient {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}`);
   }
 
-  async createTask(params: { title: string; priority?: number; dueDate?: string; dueAt?: string; description?: string }): Promise<any> {
+  async createTask(params: { title: string; priority?: number; dueDate?: string; dueAt?: string; description?: string; parentId?: string; projectId?: string }): Promise<any> {
     return this.request("/api/tasks", { method: "POST", query: { workspaceId: "personal" }, body: params });
   }
 
@@ -396,6 +443,109 @@ export class NowenApiClient {
 
   async taskSummary(): Promise<any> {
     return this.request("/api/tasks/stats/summary", { query: { workspaceId: "personal" } });
+  }
+
+  async listTaskReminders(taskId: string): Promise<any[]> {
+    return this.request(`/api/task-reminders/${encodeURIComponent(taskId)}`);
+  }
+
+  async createTaskReminder(taskId: string, params: { offsetMinutes: number; timezoneOffsetMinutes: number }): Promise<any> {
+    return this.request(`/api/task-reminders/${encodeURIComponent(taskId)}`, { method: "POST", body: params });
+  }
+
+  /** 个人任务归档或恢复；后端会校验子任务全部完成。 */
+  async archiveTask(taskId: string, archived: boolean): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/archive`, {
+      method: "PATCH",
+      body: { archived },
+    });
+  }
+
+  /** MCP Token 的项目操作仅支持本人个人空间。 */
+  async listTaskProjects(): Promise<any[]> {
+    return this.request("/api/task-projects", { query: { workspaceId: "personal" } });
+  }
+
+  async createTaskProject(params: { name: string; icon?: string; color?: string }): Promise<any> {
+    return this.request("/api/task-projects", {
+      method: "POST",
+      query: { workspaceId: "personal" },
+      body: params,
+    });
+  }
+
+  async updateTaskProject(id: string, params: { name?: string; icon?: string; color?: string }): Promise<any> {
+    return this.request(`/api/task-projects/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      query: { workspaceId: "personal" },
+      body: params,
+    });
+  }
+
+  // ==================== P1: 个人网盘与任务转笔记 ====================
+
+  async listFileFolders(): Promise<any> {
+    return this.request("/api/attachment-folders/", { query: { workspaceId: "personal" } });
+  }
+
+  async createFileFolder(name: string, parentId: string | null): Promise<any> {
+    return this.request("/api/attachment-folders/", {
+      method: "POST", query: { workspaceId: "personal" }, body: { name, parentId },
+    });
+  }
+
+  async updateFileFolder(folderId: string, body: {
+    name?: string; parentId?: string | null; expectedName: string; expectedParentId: string | null;
+  }): Promise<any> {
+    return this.request(`/api/attachment-folders/${encodeURIComponent(folderId)}`, {
+      method: "PATCH", query: { workspaceId: "personal" }, body,
+    });
+  }
+
+  async listPersonalManagedFiles(query: { q?: string; folderId?: string; page?: number; pageSize?: number } = {}): Promise<any> {
+    return this.request("/api/files", {
+      query: {
+        filter: "myUploads",
+        q: query.q, folderId: query.folderId, page: query.page || 1,
+        pageSize: Math.min(100, query.pageSize || 50),
+      },
+    });
+  }
+
+  async personalFileDetail(fileId: string): Promise<any> {
+    return this.request(`/api/files/${encodeURIComponent(fileId)}`);
+  }
+
+  async renameManagedFile(fileId: string, filename: string, expectedFilename: string): Promise<any> {
+    return this.request(`/api/files/${encodeURIComponent(fileId)}`, {
+      method: "PATCH", body: { filename, expectedFilename },
+    });
+  }
+
+  async moveManagedFiles(ids: string[], folderId: string | null, expectedFolderIds: Record<string, string | null>): Promise<any> {
+    return this.request("/api/files/batch-move", {
+      method: "POST", body: { ids, folderId, expectedFolderIds },
+    });
+  }
+
+  async listPersonalFileTrash(page = 1): Promise<any> {
+    return this.request("/api/files/trash/", {
+      query: { workspaceId: "personal", page, pageSize: 100 },
+    });
+  }
+
+  async restorePersonalFiles(ids: string[], expectedTrashedAt: Record<string, string>): Promise<any> {
+    return this.request("/api/files/trash/restore", {
+      method: "POST", query: { workspaceId: "personal" }, body: { ids, expectedTrashedAt },
+    });
+  }
+
+  async saveTaskAsNote(taskId: string, body: {
+    requestId: string; notebookId: string; title: string; description: string; expectedTaskUpdatedAt: string; expectedTaskTitle: string; expectedTaskDescription: string;
+  }): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/note`, {
+      method: "POST", query: { workspaceId: "personal" }, body,
+    });
   }
 
   // ==================== 搜索 ====================
@@ -632,6 +782,32 @@ export class NowenApiClient {
   }
 
   // ==================== 自动化 ====================
+
+  async getWorkflow(workflowId: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}`);
+  }
+
+  async createWorkflow(body: Record<string, unknown>): Promise<any> {
+    return this.request("/api/automations", { method: "POST", body });
+  }
+
+  async updateWorkflow(workflowId: string, body: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}`, { method: "PUT", body });
+  }
+
+  async setWorkflowEnabled(workflowId: string, enabled: boolean, expectedRevision: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}/${enabled ? "enable" : "disable"}`,
+      { method: "POST", body: { expectedRevision } });
+  }
+
+  async deleteWorkflow(workflowId: string, expectedRevision: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}`,
+      { method: "DELETE", body: { expectedRevision, confirmation: "DELETE_WORKFLOW" } });
+  }
+
+  async listWorkflowRuns(workflowId: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}/runs`);
+  }
 
   async listWorkflows(): Promise<any[]> {
     return this.request("/api/automations");

@@ -1,4 +1,5 @@
 import { isProtectedNotePayload, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
+import { applyAssetMetadataLocal, readAssetMetadata } from "./assetOrganization";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { SYNC_TABLES } from "./constants";
@@ -170,6 +171,35 @@ export function applyConflictResolution(
         AND status IN ('pending','inflight','failed')`)
       .run(row.profileId,row.scopeKey,row.entityType,row.entityId);
 
+    const deletion=local?._deletionRecovery as {note:Record<string,unknown>}|undefined;
+    if(row.entityType === "note" && deletion && input.resolution === "keep-local") {
+      if(!remote) throw new SyncError("INVALID_PAYLOAD","缺少服务器版本，删除恢复副本已保留");
+      if(!remote.__delete) {
+        if(!Number.isSafeInteger(row.remoteVersion) || Number(row.remoteVersion)<1) throw new SyncError("INVALID_PAYLOAD","缺少服务器删除基线");
+        enqueueMutation(db,{profileId:row.profileId,deviceId:input.deviceId,scopeKey:row.scopeKey,
+          entityType:"note",entityId:row.entityId,operation:"upsert",baseVersion:row.remoteVersion,
+          payload:{...deletion.note,isTrashed:1,version:Number(row.remoteVersion)+1}});
+      }
+      enqueueMutation(db,{profileId:row.profileId,deviceId:input.deviceId,scopeKey:row.scopeKey,
+        entityType:"note",entityId:row.entityId,operation:"delete",baseVersion:remote.__delete?undefined:Number(row.remoteVersion)+1,payload:local});
+      resolveConflict(db,row.id);return;
+    }
+    if (row.entityType === "attachment_organization") {
+      if (workspaceId || input.resolution === "manual") throw new SyncError("INVALID_PAYLOAD", "附件目录冲突请选择本机或服务器位置");
+      const chosen = input.resolution === "keep-remote" ? remote : readAssetMetadata(db,row.entityId,input.userId) ?? local;
+      if (!chosen || !remote || remote.__delete || input.resolution !== "keep-remote" && remote.deleted === 1) {
+        throw new SyncError("INVALID_PAYLOAD", "缺少有效的附件目录基线或远端资源已删除");
+      }
+      const version = Number(remote.version) + (input.resolution === "keep-remote" ? 0 : 1);
+      const payload = {...chosen,version};
+      applyAssetMetadataLocal(db,[payload],input.userId);
+      if (input.resolution !== "keep-remote") enqueueMutation(db, {
+        profileId:row.profileId,deviceId:input.deviceId,scopeKey:row.scopeKey,entityType:row.entityType,
+        entityId:row.entityId,operation:"upsert",baseVersion:Number(remote.version),payload,
+      });
+      resolveConflict(db,row.id);
+      return;
+    }
     if (row.entityType === "knowledge_tree_node") {
       const chosen = input.resolution === "keep-remote"
         ? remote
@@ -235,6 +265,7 @@ export function applyConflictResolution(
         }],
         applyOptions,
       );
+      if(deletion) db.prepare("UPDATE sync_state SET lastSequence=0 WHERE profileId=? AND scopeKey=?").run(row.profileId,row.scopeKey);
       resolveConflict(db, row.id);
       return;
     }

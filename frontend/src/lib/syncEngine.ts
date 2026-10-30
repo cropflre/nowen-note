@@ -10,11 +10,6 @@ import {
   setMeta,
   getMeta,
   getAllNotes,
-  getAllNotebooks,
-  getAllTags,
-  deleteNote,
-  deleteNotebook,
-  deleteTag,
   isReady as localStoreReady,
 } from "@/lib/localStore";
 import {
@@ -110,9 +105,13 @@ async function resolveConfiguredVersionConflicts(): Promise<void> {
 
 export function findLocallyDeletedQueuedNoteIds(
   localNotes: ReadonlyArray<{ id: string; isTrashed: number }>,
-  queuedItems: ReadonlyArray<{ noteId: string }>,
+  queuedItems: ReadonlyArray<Pick<OfflineQueueItem, "noteId" | "type" | "conflict" | "errorCode">>,
 ): string[] {
-  const queuedIds = new Set(queuedItems.map((item) => item.noteId));
+  // Only discard obsolete UPDATE conflicts on locally trashed notes.
+  // Keep pending delete/create mutations and other unsent changes.
+  const queuedIds = new Set(queuedItems
+    .filter((item) => item.type === "updateNote" && (item.conflict || item.errorCode === "VERSION_CONFLICT"))
+    .map((item) => item.noteId));
   return localNotes
     .filter((note) => note.isTrashed === 1 && queuedIds.has(note.id))
     .map((note) => note.id);
@@ -136,8 +135,9 @@ export async function findServerDeletedQueuedNoteIds(
     try {
       const note = await fetchNote(noteId);
       if (note.isTrashed === 1) deleted.push(noteId);
-    } catch (error) {
-      if ((error as { status?: number })?.status === 404) deleted.push(noteId);
+    } catch {
+      // GET /notes/:id returns the same 404 for missing resources and ACL denial.
+      // Without an explicit tombstone, preserve the local version/conflict.
     }
   }
 
@@ -181,11 +181,8 @@ async function pullServerSnapshot(): Promise<void> {
   const pullErrors: string[] = [];
 
   if (notebooksResult.status === "fulfilled") {
-    const local = (await getAllNotebooks()).filter(isCurrentScope);
-    const remoteIds = new Set(notebooksResult.value.map((notebook) => notebook.id));
-    for (const notebook of local) {
-      if (!remoteIds.has(notebook.id)) await deleteNotebook(notebook.id);
-    }
+    // A scoped/filtered snapshot is not a deletion feed. Keep cached notebooks
+    // until the server provides an explicit, verified deletion/tombstone.
     await putNotebooks(notebooksResult.value);
   } else {
     console.warn("[syncEngine] pull notebooks failed:", notebooksResult.reason);
@@ -200,7 +197,7 @@ async function pullServerSnapshot(): Promise<void> {
     discardNoteQueueItems(locallyDeletedQueueIds);
     const remoteIds = new Set(notesResult.value.map((note) => note.id));
     // 历史版本可能在删除成功后仍留下冲突队列。对列表中缺失的冲突做轻量确认：
-    // 仅服务器明确返回 404 或回收站状态时清理，网络/权限异常继续保留本地内容。
+    // 只能根据明确的回收站状态清理；404 也可能是权限拒绝。
     const serverDeletedQueueIds = await findServerDeletedQueuedNoteIds(
       remoteIds,
       getOfflineQueue(),
@@ -208,8 +205,11 @@ async function pullServerSnapshot(): Promise<void> {
     );
     discardNoteQueueItems(serverDeletedQueueIds);
     const queuedIds = await getQueuedNoteIds();
-    for (const note of local) {
-      if (!remoteIds.has(note.id) && !queuedIds.has(note.id)) await deleteNote(note.id);
+    // A filtered remote list is not an authoritative deletion feed. Never silently
+    // erase the only surviving local copy just because its ID is missing here.
+    const missingLocalCount = local.filter((note) => !remoteIds.has(note.id) && !queuedIds.has(note.id)).length;
+    if (missingLocalCount > 0) {
+      console.warn("[syncEngine] retaining local notes absent from remote listing", { count: missingLocalCount });
     }
     await putNoteListItems(notesResult.value);
   } else {
@@ -218,11 +218,7 @@ async function pullServerSnapshot(): Promise<void> {
   }
 
   if (tagsResult.status === "fulfilled") {
-    const local = (await getAllTags()).filter(isCurrentScope);
-    const remoteIds = new Set(tagsResult.value.map((tag) => tag.id));
-    for (const tag of local) {
-      if (!remoteIds.has(tag.id)) await deleteTag(tag.id);
-    }
+    // Missing tags may be filtered or temporarily inaccessible, not deleted.
     await putTags(tagsResult.value);
   } else {
     console.warn("[syncEngine] pull tags failed:", tagsResult.reason);

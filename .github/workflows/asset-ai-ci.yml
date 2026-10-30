@@ -1,0 +1,101 @@
+name: Asset AI Organization CI
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/src/services/asset-ai.ts"
+      - "backend/src/services/embedding-client.ts"
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/routes/asset-ai.ts"
+      - "backend/src/routes/files.ts"
+      - "backend/src/middleware/knowledgeFilesCapabilityGuard.ts"
+      - "backend/src/services/fileAttachmentAccess.ts"
+      - "backend/src/lib/knowledgeTreePasswordAccess.ts"
+      - "backend/src/db/assetAIMigration.ts"
+      - "backend/tests/asset-ai.test.ts"
+      - "backend/tests/asset-ai-postgres.test.ts"
+      - "backend/src/db/postgres/migrations/0130-asset-ai-metadata.sql"
+      - "backend/scripts/files-assets*"
+      - "frontend/src/components/fileExplorer/**"
+      - "frontend/src/components/attachmentDetail/**"
+      - "frontend/src/lib/assetAI.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/mobileLocalModuleBridge.ts"
+      - "frontend/src/hooks/useFileToolDialog.ts"
+      - "frontend/playwright.files-assets.config.ts"
+      - "frontend/src/lib/__tests__/assetAITransport.test.ts"
+      - "frontend/src/i18n/assetAITranslations.ts"
+      - "frontend/e2e/files-assets-ai.spec.ts"
+      - ".github/workflows/asset-ai-ci.yml"
+permissions:
+  contents: read
+concurrency:
+  group: asset-ai-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test-only-fixture-password
+          POSTGRES_DB: asset_ai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --prefix backend
+      - run: node --import tsx --test tests/asset-ai-postgres.test.ts
+        working-directory: backend
+        env:
+          TEST_PG_DATABASE_URL: postgres://test:test-only-fixture-password@127.0.0.1:5432/asset_ai_test
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/asset-ai.test.ts tests/asset-organization.test.ts tests/asset-organization-sync.test.ts tests/embedding-profile-config.test.ts tests/knowledge-tree-migration-registry.test.ts
+      - run: npm run build:tsc
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm ci --prefix backend
+      - run: npm --prefix frontend run test:run -- src/components/fileExplorer/__tests__ src/lib/__tests__/assetAITransport.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
+      - run: npm --prefix frontend run lint:baseline
+      - run: npm --prefix frontend run build:web
+      - run: npm --prefix frontend run verify:bundle
+      - run: npm install --prefix frontend --no-save --no-package-lock @playwright/test@1.48.2
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - name: Real app AI organization and semantic metadata search
+        working-directory: frontend
+        env:
+          NOWEN_FILES_AI_QA: "1"
+        run: npx playwright test --config playwright.files-assets.config.ts e2e/files-assets-ai.spec.ts --reporter=line

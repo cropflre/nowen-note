@@ -1,0 +1,8 @@
+// Explicit debug acceptance build only. Never modifies the production package.
+allprojects {
+    afterEvaluate { p ->
+        if (p.name == 'app') {
+            p.android.defaultConfig.applicationId = 'com.nowen.note.syncacceptance'
+        }
+    }
+}

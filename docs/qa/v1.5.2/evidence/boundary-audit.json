@@ -1,0 +1,289 @@
+{
+  "checkout": "C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note",
+  "temp": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-release152-audit-9Mn96j",
+  "node": "v20.18.0",
+  "abi": "130",
+  "authBoundary": "Router/service harness with synthetic X-User-Id; upstream JWT not exercised",
+  "delete": {
+    "gate": {
+      "enabled": 1
+    },
+    "before": {
+      "notes": 1,
+      "histories": 1,
+      "attachments": 1,
+      "tree": 1,
+      "physicalExists": true,
+      "outbox": []
+    },
+    "crossUser": {
+      "status": 403,
+      "body": {
+        "error": "仅笔记 owner 或工作区管理员可永久删除",
+        "code": "FORBIDDEN"
+      }
+    },
+    "locked": {
+      "status": 403,
+      "body": {
+        "error": "Note is locked",
+        "code": "NOTE_LOCKED"
+      }
+    },
+    "liveDelete": {
+      "status": 200,
+      "body": {
+        "success": true
+      }
+    },
+    "after": {
+      "notes": 0,
+      "histories": 0,
+      "attachments": 0,
+      "tree": 0,
+      "physicalExists": false,
+      "outbox": [
+        {
+          "entityType": "note",
+          "entityId": "qa-live-note",
+          "operation": "delete",
+          "baseVersion": 4,
+          "payload": null,
+          "status": "pending"
+        }
+      ]
+    },
+    "trashList": {
+      "status": 200,
+      "body": {
+        "items": []
+      }
+    },
+    "restore": {
+      "status": 200,
+      "body": {
+        "succeededIds": [],
+        "noteIds": [],
+        "failures": [
+          {
+            "id": "note:qa-live-note",
+            "code": "TRASH_ITEM_NOT_FOUND",
+            "error": "内容不在当前回收站或无访问权限"
+          }
+        ]
+      }
+    },
+    "softDelete": {
+      "status": 200,
+      "body": {
+        "id": "qa-soft-note",
+        "userId": "qa-owner",
+        "notebookId": "qa-book",
+        "workspaceId": null,
+        "title": "qa-soft-note",
+        "content": "# audit body",
+        "contentText": "audit body",
+        "isPinned": 0,
+        "isFavorite": 0,
+        "isLocked": 0,
+        "isArchived": 0,
+        "isTrashed": 1,
+        "version": 5,
+        "sortOrder": 0,
+        "createdAt": "2026-10-12 13:11:49",
+        "updatedAt": "2026-10-12 13:11:49",
+        "trashedAt": "2026-10-12 13:11:49",
+        "contentFormat": "markdown",
+        "colorMark": null,
+        "tags": []
+      }
+    },
+    "softRestore": {
+      "status": 200,
+      "body": {
+        "id": "qa-soft-note",
+        "userId": "qa-owner",
+        "notebookId": "qa-book",
+        "workspaceId": null,
+        "title": "qa-soft-note",
+        "content": "# audit body",
+        "contentText": "audit body",
+        "isPinned": 0,
+        "isFavorite": 0,
+        "isLocked": 0,
+        "isArchived": 0,
+        "isTrashed": 0,
+        "version": 6,
+        "sortOrder": 0,
+        "createdAt": "2026-10-12 13:11:49",
+        "updatedAt": "2026-10-12 13:11:49",
+        "trashedAt": "2026-10-12 13:11:49",
+        "contentFormat": "markdown",
+        "colorMark": null,
+        "tags": []
+      }
+    },
+    "afterReopen": {
+      "noteRows": 0,
+      "historyRows": 0
+    }
+  },
+  "constraint": [
+    {
+      "name": "missing-notebook",
+      "response": {
+        "status": 409,
+        "body": {
+          "error": "笔记 ID 已存在",
+          "code": "NOTE_ID_CONFLICT"
+        }
+      },
+      "rawSqlite": [
+        {
+          "code": "SQLITE_CONSTRAINT_NOTNULL",
+          "message": "NOT NULL constraint failed: notes.notebookId"
+        }
+      ]
+    },
+    {
+      "name": "valid-create",
+      "response": {
+        "status": 201,
+        "body": {
+          "id": "9fa62171-1000-4000-8000-123456789abd",
+          "userId": "qa-owner",
+          "notebookId": "qa-book",
+          "workspaceId": null,
+          "title": "Valid",
+          "content": "body",
+          "contentText": "body",
+          "isPinned": 0,
+          "isFavorite": 0,
+          "isLocked": 0,
+          "isArchived": 0,
+          "isTrashed": 0,
+          "version": 1,
+          "sortOrder": 0,
+          "createdAt": "2026-10-12 13:11:49",
+          "updatedAt": "2026-10-12 13:11:49",
+          "trashedAt": null,
+          "contentFormat": "markdown",
+          "colorMark": null,
+          "tags": []
+        }
+      },
+      "rawSqlite": []
+    },
+    {
+      "name": "duplicate-id",
+      "response": {
+        "status": 409,
+        "body": {
+          "error": "笔记 ID 已存在",
+          "code": "NOTE_ID_CONFLICT"
+        }
+      },
+      "rawSqlite": [
+        {
+          "code": "SQLITE_CONSTRAINT_PRIMARYKEY",
+          "message": "UNIQUE constraint failed: notes.id"
+        }
+      ]
+    },
+    {
+      "name": "nonexistent-notebook",
+      "response": {
+        "status": 404,
+        "body": {
+          "error": "笔记本不存在"
+        }
+      },
+      "rawSqlite": []
+    }
+  ],
+  "studio": {
+    "defaultSymlink": {
+      "isSymbolicLink": true,
+      "nlink": 1,
+      "response": {
+        "status": 400,
+        "body": {
+          "success": false,
+          "error": "Studio 项目不允许符号链接",
+          "code": "PLUGIN_STUDIO_SYMLINK_REJECTED"
+        }
+      },
+      "externalRead": false
+    },
+    "explicitFileSymlink": {
+      "isSymbolicLink": true,
+      "nlink": 1,
+      "response": {
+        "status": 400,
+        "body": {
+          "success": false,
+          "error": "Studio 项目不允许符号链接",
+          "code": "PLUGIN_STUDIO_SYMLINK_REJECTED"
+        }
+      },
+      "externalRead": false
+    },
+    "junction": {
+      "status": 400,
+      "body": {
+        "success": false,
+        "error": "Studio 项目不允许符号链接",
+        "code": "PLUGIN_STUDIO_SYMLINK_REJECTED"
+      }
+    },
+    "hardlink": {
+      "nlink": 2,
+      "response": {
+        "status": 200,
+        "body": {
+          "path": "hard.json",
+          "size": 38,
+          "mimeType": "application/json",
+          "encoding": "utf8",
+          "content": "{\"fixtureSecret\":\"QA_EXTERNAL_CANARY\"}"
+        }
+      }
+    },
+    "crossUser": {
+      "status": 403,
+      "body": {
+        "success": false,
+        "error": "无权访问该 Studio 项目",
+        "code": "PLUGIN_STUDIO_FORBIDDEN"
+      }
+    },
+    "hardlinkExport": {
+      "status": 200,
+      "externalBytesIncluded": true
+    },
+    "traversal": {
+      "status": 400,
+      "body": {
+        "success": false,
+        "error": "项目文件路径不能离开项目目录",
+        "code": "PLUGIN_STUDIO_PATH_TRAVERSAL"
+      }
+    },
+    "disallowedType": {
+      "status": 400,
+      "body": {
+        "success": false,
+        "error": "该文件类型不允许写入 Studio 项目",
+        "code": "PLUGIN_STUDIO_FILE_TYPE_NOT_ALLOWED"
+      }
+    },
+    "zipLink": {
+      "isSymbolicLink": false,
+      "content": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-release152-audit-9Mn96j\\outside.json"
+    },
+    "forcedCheckOpenSwap": {
+      "kind": "local deterministic service interposition; no concurrent/remote exploit claim",
+      "content": "{\"fixtureSecret\":\"QA_EXTERNAL_CANARY\"}"
+    }
+  }
+}

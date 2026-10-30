@@ -290,7 +290,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       const latestPending = latestCache?.pending || pendingRef.current;
 
       if (remote.hasPreferences) {
-        const remotePrefs = normalizeUserPreferences(remote);
+        // A refresh started before a successful save may return afterwards.
+        // Keep the acknowledged newer choice, including an empty hidden list.
+        const remotePrefs = latestCache && (Number(remote.revision) || 0) < latestCache.revision
+          ? latestCache.prefs
+          : normalizeUserPreferences(remote);
         const merged = mergePendingPreferences(remotePrefs, latestPending);
         applyCache({
           version: 2,

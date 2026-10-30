@@ -1,0 +1,46 @@
+name: Automation Platform CI
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "backend/src/automation/**"
+      - "backend/tests/automation-platform.test.ts"
+      - ".github/workflows/automation-platform-ci.yml"
+  pull_request:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "backend/src/automation/**"
+      - "backend/tests/automation-platform.test.ts"
+      - ".github/workflows/automation-platform-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  automation-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Automation event, workflow, and malformed-payload regression
+        working-directory: backend
+        run: npx tsx --test tests/automation-platform.test.ts
+      - name: Typecheck backend
+        working-directory: backend
+        run: npm run build:tsc

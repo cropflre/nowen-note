@@ -26,6 +26,7 @@ export interface TaskBackupProject {
 }
 
 export interface TaskBackupTask {
+  archivedAt?: string | null;
   sourceId: string;
   title: string;
   description: string;
@@ -443,6 +444,7 @@ function sanitizeTask(input: unknown, index: number): TaskBackupTask {
     sourceId: normalizeText(row.sourceId ?? row.id, 200).trim() || `task-${index + 1}`,
     title,
     description: normalizeText(row.description, 50000),
+    archivedAt: typeof row.archivedAt === "string" && Number.isFinite(Date.parse(row.archivedAt)) ? new Date(row.archivedAt).toISOString() : null,
     isCompleted: status === "done" || normalizeBooleanNumber(row.isCompleted) ? 1 : 0,
     priority: normalizePriority(row.priority),
     dueDate: nullableText(row.dueDate),
@@ -574,7 +576,7 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker:
 export async function collectTaskBackup(onProgress?: TaskImportOptions["onProgress"]): Promise<TaskBackupPackage> {
   onProgress?.({ phase: "collect", current: 0, total: 3, message: "正在读取任务、项目与依赖…" });
   const [tasks, projects, dependencies] = await Promise.all([
-    api.getTasks("all"),
+    api.getTasks("history"),
     api.getTaskProjects(),
     api.getTaskDependencies(),
   ]);
@@ -604,6 +606,7 @@ export async function collectTaskBackup(onProgress?: TaskImportOptions["onProgre
         sourceId: task.id,
         title: task.title,
         description: task.description || "",
+        archivedAt: task.archivedAt || null,
         isCompleted: task.isCompleted ? 1 : 0,
         priority: normalizePriority(task.priority),
         dueDate: task.dueDate || null,
@@ -785,7 +788,7 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
 
   try {
     const [existingTasks, existingProjects, existingDependencies] = await Promise.all([
-      api.getTasks("all"),
+      api.getTasks("history"),
       api.getTaskProjects(),
       api.getTaskDependencies(),
     ]);
@@ -987,6 +990,11 @@ export async function importTaskBackup(rawPackage: TaskBackupPackage, options: T
     }
 
     result.warnings = [...new Set(warnings)].slice(0, 50);
+    for (const task of pkg.data.tasks) {
+      if (!task.archivedAt || task.parentSourceId) continue;
+      const id = sourceToTargetTaskId.get(task.sourceId);
+      if (id && createdTaskIds.has(id)) await api.archiveTask(id,true);
+    }
     options.onProgress?.({ phase: "done", current: 1, total: 1, message: "导入完成" });
     return result;
   } catch (error) {
@@ -1028,7 +1036,7 @@ export async function saveTaskTransferFile(content: string, filename: string, mi
   }
 }
 
-export function taskBackupFilename(extension: "json" | "csv", date = new Date()): string {
+export function taskBackupFilename(extension: "json" | "csv" | "xlsx" | "md", date = new Date()): string {
   const stamp = [
     date.getFullYear(),
     String(date.getMonth() + 1).padStart(2, "0"),

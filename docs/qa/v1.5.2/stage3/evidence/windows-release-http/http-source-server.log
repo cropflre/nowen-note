@@ -1,0 +1,64 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2327
+📖 OpenAPI 文档: http://localhost:2327/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2327/ws
+[discovery] mDNS publish failed (服务将继续，仅无法自动发现): Cannot find module 'fast-deep-equal/es6'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\lib\mdns-server.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\index.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\dist\index.js
+{"timestamp":"2026-10-12T15:09:58.791Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"79458a57-e137-43c0-b0af-b579c51ed97c","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":1}
+{"timestamp":"2026-10-12T15:09:58.795Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"a4dabb74-67b9-4691-9719-aae1e0e39b6d","method":"DELETE","route":"/api/notes/:id","httpStatus":403,"durationMs":3}
+{"timestamp":"2026-10-12T15:09:58.800Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"1b44824e-c83f-4455-ab1c-251bffdb33ae","method":"DELETE","route":"/api/notes/:id","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T15:09:58.804Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"781f619c-d743-4550-ba9d-ae3c6ef44214","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":0}
+{"timestamp":"2026-10-12T15:09:58.807Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"96165921-d56c-4c68-97ae-4356b13bfa09","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":403,"durationMs":2}
+{"timestamp":"2026-10-12T15:09:58.812Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"45614c80-39fd-4ba1-86b5-865d0b9260a5","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T15:09:58.814Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"ac207bb8-3563-4dff-b130-8abbac85578b","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":403,"durationMs":1}
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2327
+📖 OpenAPI 文档: http://localhost:2327/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2327/ws
+[discovery] mDNS publish failed (服务将继续，仅无法自动发现): Cannot find module 'fast-deep-equal/es6'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\lib\mdns-server.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\index.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\dist\index.js
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: true,
+  actorConnectionId: undefined
+}
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: true,
+  actorConnectionId: undefined
+}
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: false,
+  actorConnectionId: undefined
+}
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2327
+📖 OpenAPI 文档: http://localhost:2327/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2327/ws
+[discovery] mDNS publish failed (服务将继续，仅无法自动发现): Cannot find module 'fast-deep-equal/es6'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\lib\mdns-server.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\node_modules\bonjour-service\dist\index.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows-release\win-unpacked\resources\backend\dist\index.js

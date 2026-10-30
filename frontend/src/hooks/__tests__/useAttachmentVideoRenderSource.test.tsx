@@ -24,7 +24,8 @@ vi.mock("@capacitor/core", () => ({
   registerPlugin: () => ({ prepare: fixture.prepareNative }),
 }));
 
-vi.mock("@/lib/noteAttachmentAccessBridge", () => ({
+vi.mock("@/lib/noteAttachmentAccessBridge", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/noteAttachmentAccessBridge")>(),
   subscribeAttachmentAccess: (listener: () => void) => {
     fixture.listener = listener;
     return () => {
@@ -147,8 +148,9 @@ describe("useAttachmentVideoRenderSource", () => {
       root.render(<Probe />);
     });
 
-    expect(host.querySelector("video")?.getAttribute("src"))
-      .toBe(`https://note.example.com${PERSISTED_SRC}`);
+    expect(host.querySelector("video")?.getAttribute("src")).toBe("");
+    expect(host.querySelector("video")?.getAttribute("data-error")).toContain("未获取到附件授权");
+    expect(fixture.prepareNative).not.toHaveBeenCalled();
 
     fixture.signedUrl = `${PERSISTED_SRC}?exp=123&sig=signed&scope=user`;
     await act(async () => {

@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { getOfflineQueueStorageKey } from "../offlineScope";
 import {
   buildServerUrl,
   inferBrowserServerBaseUrl,
@@ -346,5 +347,18 @@ describe("IPv6 server URL support", () => {
     expect(isLanServerHostname("note.nowen.cn")).toBe(false);
     expect(isLanServerHostname("8.8.8.8")).toBe(false);
     expect(isLanServerHostname("240e:1234::1")).toBe(false);
+  });
+});
+
+
+describe("partial Native / SSR window bootstrap", () => {
+  it("does not misclassify missing window.location as a network failure", () => {
+    vi.stubGlobal("window", new EventTarget());
+    try {
+      expect(() => getOfflineQueueStorageKey()).not.toThrow();
+      expect(getOfflineQueueStorageKey()).toContain("same-origin");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

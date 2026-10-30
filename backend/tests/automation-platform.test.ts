@@ -96,3 +96,67 @@ test("signed webhook rejects invalid, accepts one request, and blocks replay", a
   assert.equal((getDb().prepare("SELECT COUNT(*) count FROM automation_workflow_runs WHERE workflowId=?").get(created.workflow.id) as any).count, 1);
   closeDb();
 });
+
+test("malformed stored event payloads are quarantined and do not crash automation", async () => {
+  const { getDb, closeDb } = await import("../src/db/schema");
+  const { eventPublisher, rowToEvent } = await import("../src/automation/eventPublisher");
+  const { WorkflowRepository } = await import("../src/automation/workflowRepository");
+  const { WorkflowRunner } = await import("../src/automation/workflowRunner");
+  const { automationRuntime } = await import("../src/automation/runtime");
+  const db = getDb();
+  const userId = `corrupt-${crypto.randomUUID()}`;
+  const invalid = eventPublisher.publish({ type: "note.created", userId, resourceType: "note", resourceId: "broken", data: { title: "original" } });
+  const healthy = eventPublisher.publish({ type: "note.created", userId, resourceType: "note", resourceId: "healthy", data: { title: "OK" } });
+  db.prepare("UPDATE automation_events SET payloadJson=? WHERE id=?").run('{"title":', invalid.id);
+  const stored = db.prepare("SELECT * FROM automation_events WHERE id=?").get(invalid.id) as Record<string, unknown>;
+
+  for (const payloadJson of ['{"title":', "", "null", "[]", '"text"', "42"]) {
+    assert.throws(() => rowToEvent({ ...stored, payloadJson }), (error: any) => error.code === "AUTOMATION_EVENT_PAYLOAD_INVALID");
+  }
+  assert.deepEqual(eventPublisher.list(userId, false).map((event) => event.id), [healthy.id]);
+  assert.ok(eventPublisher.list(userId, true).some((event) => event.id === healthy.id));
+  assert.ok(!eventPublisher.list(userId, true).some((event) => event.id === invalid.id));
+  assert.throws(() => eventPublisher.replay(invalid.id, userId), (error: any) => error.code === "AUTOMATION_EVENT_PAYLOAD_INVALID");
+  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM automation_events WHERE replayedFrom=?").get(invalid.id) as { count: number }).count, 0);
+
+  const repository = new WorkflowRepository();
+  const definition = validateWorkflowDefinition({
+    version: 1, trigger: { type: "event", event: "note.created" }, steps: [{ id: "done", type: "stop" }],
+  });
+  const workflow = repository.create(userId, { name: "Corrupt payload isolation", definition }).workflow;
+  repository.setEnabled(workflow.id, true);
+  // A queued run may predate corruption or have been enqueued on another instance.
+  const invalidRun = repository.createRun(workflow, invalid.id);
+  // One tick can claim only one run per workflow; a later tick must start
+  // the healthy run after the malformed run is marked failed.
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await automationRuntime.tick();
+    if (
+      repository.getRun(invalidRun.id)?.status === "failed"
+      && repository.listRuns(workflow.id).some((run) => run.eventId === healthy.id && run.status === "completed")
+      && automationRuntime.status().active === 0
+    ) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  const failed = repository.getRun(invalidRun.id)!;
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.errorCode, "AUTOMATION_EVENT_PAYLOAD_INVALID");
+  assert.equal(failed.requiresAttention, 1);
+  assert.equal((db.prepare("SELECT dispatchState FROM automation_events WHERE id=?").get(invalid.id) as { dispatchState: string }).dispatchState, "failed");
+  assert.equal((db.prepare("SELECT dispatchState FROM automation_events WHERE id=?").get(healthy.id) as { dispatchState: string }).dispatchState, "dispatched");
+  assert.ok(repository.listRuns(workflow.id).some((run) => run.eventId === healthy.id && run.status === "completed"));
+  assert.equal((db.prepare("SELECT payloadJson FROM automation_events WHERE id=?").get(invalid.id) as { payloadJson: string }).payloadJson, '{"title":');
+  assert.equal(automationRuntime.status().active, 0);
+
+  // A broken persisted workflow definition must also fail its run rather than
+  // escape before the runner's try/catch or leave a locked queued run.
+  db.prepare("UPDATE automation_workflows SET definitionJson=? WHERE id=?").run('{"steps":', workflow.id);
+  const badDefinitionRun = repository.createRun(workflow, null);
+  await new WorkflowRunner(repository).run(badDefinitionRun.id);
+  assert.equal(repository.getRun(badDefinitionRun.id)?.status, "failed");
+  assert.equal(repository.getRun(badDefinitionRun.id)?.requiresAttention, 1);
+
+  closeDb();
+  fs.rmSync(databaseDirectory, { recursive: true, force: true });
+});

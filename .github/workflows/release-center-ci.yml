@@ -1,0 +1,76 @@
+name: Release Center CI
+
+on:
+  pull_request:
+    paths:
+      - 'tools/release-center/**'
+      - 'scripts/release-center-assets.mjs'
+      - 'scripts/release-center-formal-assets.mjs'
+      - 'scripts/release-center-stage-candidate.mjs'
+      - 'scripts/lib/release-platform-assets.cjs'
+      - 'scripts/lib/update-metadata-validator.cjs'
+      - '.github/workflows/release-center-*.yml'
+  push:
+    branches: [main, 'release/**']
+    paths:
+      - 'tools/release-center/**'
+      - 'scripts/release-center-assets.mjs'
+      - 'scripts/release-center-formal-assets.mjs'
+      - 'scripts/release-center-stage-candidate.mjs'
+      - 'scripts/lib/release-platform-assets.cjs'
+      - 'scripts/lib/update-metadata-validator.cjs'
+      - '.github/workflows/release-center-*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  console-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/release-center
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/release-center/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Type-check and build the console
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser contracts (mock GitHub boundary, no dispatch)
+        run: npm run test:browser
+
+  formal-safety:
+    name: Formal release fail-closed contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: tools/release-center
+    env:
+      NOWEN_RELEASE_DRAFTS: '0'
+      NOWEN_RELEASE_PUBLISH: '0'
+      NOWEN_RELEASE_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/release-center/package-lock.json
+      - run: npm ci
+      - name: Verify formal import, reservation, approvals, cancellation, and uncertainty handling
+        run: npx tsx --test tests/publication.test.ts tests/publication-lifecycle.test.ts

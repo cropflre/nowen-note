@@ -9,6 +9,7 @@ const crypto = require("crypto");
 const { buildMenu, applyFormatState } = require("./menu");
 const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray");
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
+const { isMicrosoftStorePackage } = require("./storeChannel");
 const { initLogger, getLogDir } = require("./logger");
 const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./voice-permissions");
@@ -1944,6 +1945,7 @@ function registerAppIpc() {
     return {
       version: app.getVersion(),
       name: app.getName(),
+      distribution: isMicrosoftStorePackage({ packaged: app.isPackaged }) ? "microsoft-store" : "direct",
       platform: process.platform,
       arch: process.arch,
       mode: currentMode,

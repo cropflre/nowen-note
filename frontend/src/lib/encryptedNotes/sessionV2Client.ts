@@ -18,6 +18,9 @@ export class EncryptedContentV2Session {
   update(envelope: ContentEnvelopeV2, document: EncryptedDocumentV2, signal?: AbortSignal): Promise<ContentEnvelopeV2> {
     return this.transport.call({ operation: "update", input: { envelope, document } }, { signal }) as Promise<ContentEnvelopeV2>;
   }
+  readDocument(envelope: ContentEnvelopeV2, signal?: AbortSignal): Promise<EncryptedDocumentV2> {
+    return this.transport.call({ operation: "read-document", input: { envelope } }, { signal }) as Promise<EncryptedDocumentV2>;
+  }
   changePassphrase(envelope: ContentEnvelopeV2, passphrase: string, newPassphrase: string, signal?: AbortSignal): Promise<ContentEnvelopeV2> {
     return this.transport.call({ operation: "change-passphrase", input: { envelope, passphrase, newPassphrase } }, { signal, kdf: true }) as Promise<ContentEnvelopeV2>;
   }

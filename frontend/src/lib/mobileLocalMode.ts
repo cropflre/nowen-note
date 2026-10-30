@@ -14,7 +14,9 @@ export function isAndroidNativeRuntime(): boolean {
     const native = !!capacitor?.isNativePlatform?.()
       || (!!capacitor?.platform && capacitor.platform !== "web");
     const platform = capacitor?.getPlatform?.() || capacitor?.platform;
-    return native && platform === "android";
+    // Historical export name: callers use this as the native local-first capability
+    // gate. Harmony shares that repository; Capacitor still reports "harmony".
+    return native && (platform === "android" || platform === "harmony");
   } catch {
     return false;
   }
@@ -96,7 +98,7 @@ export class MobileLocalModeRemoteRequestError extends Error {
   readonly code = "MOBILE_LOCAL_ONLY";
 
   constructor(path: string) {
-    super(`Android 仅此设备模式不会访问服务器：${path}`);
+    super(`移动端仅此设备模式不会访问服务器：${path}`);
     this.name = "MobileLocalModeRemoteRequestError";
   }
 }

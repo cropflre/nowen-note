@@ -81,23 +81,18 @@ describe("knowledge tree sidebar contract", () => {
     expect(menu).toContain("onNotePatched(node.id, patch)");
   });
 
-  it("renders all notes as a three-column-only desktop navigation entry", () => {
+  it("keeps All Notes in primary navigation and tree creation actions in the toolbar", () => {
     const runtime = source("../../components/KnowledgeTreeCreateMenuRuntime.tsx");
+    const panel = source("../../components/KnowledgeTreePanel.tsx");
+    const rail = source("../../components/NavRail.tsx");
 
-    expect(runtime).toContain('data-knowledge-tree-all-notes=""');
-    expect(runtime).toContain('data-knowledge-tree-all-notes-count=""');
-    expect(runtime).toContain("panel.insertBefore(host, scroll)");
-    expect(runtime).toContain('actions.setViewMode("all")');
-    expect(runtime).toContain("actions.setSelectedNotebook(null)");
-    expect(runtime).toContain("actions.clearSelectedTags()");
-    expect(runtime).toContain('actions.setSearchQuery("")');
-    expect(runtime).toContain("notebook.noteCount");
-    expect(runtime).toContain("state.noteListCollapsed");
-    expect(runtime).toContain("actions.toggleNoteListCollapsed()");
-    expect(runtime).toContain('layoutMode === "three-column"');
-    expect(runtime).toContain('variant === "mobile"');
-    expect(runtime).toContain("for (const host of root.querySelectorAll<HTMLElement>");
-    expect(runtime).toContain('if (host.getAttribute(ALL_NOTES_HOST_ATTR) !== "mobile-toolbar") host.remove();');
+    expect(runtime).not.toContain("AllNotesEntry");
+    expect(runtime).not.toContain("ensureAllNotesHost");
+    expect(panel).not.toContain("data-knowledge-tree-all-notes-host");
+    expect(panel).toContain("{compactToolbar && compactActionButtons}");
+    expect(panel).toContain('title="新建根文件夹"');
+    expect(panel).toContain('aria-label="更多目录操作"');
+    expect(rail).toContain("{renderItem(ALL_NOTES_ITEM)}");
   });
 
   it("applies an unmistakably compact mobile density with a safe fallback", () => {

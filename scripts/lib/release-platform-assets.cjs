@@ -31,9 +31,28 @@ function isMacManualDownloadZip(name) {
   return /^Nowen-Note-\d+\.\d+\.\d+(?:-[A-Za-z0-9._-]+)?-(?:x64|arm64)\.zip$/i.test(String(name || ""));
 }
 
+function requiredDebugReleaseAssets(platform, version) {
+  const normalized = normalizeVersion(version);
+  if (!normalized) throw new Error("release version is required");
+  if (platform === "macos") return requiredMacReleaseAssets(normalized);
+  if (platform === "windows") return [
+    `Nowen-Note-${normalized}-setup.exe`,
+    `Nowen-Note-${normalized}-portable.exe`,
+    `Nowen-Note-${normalized}-setup.exe.blockmap`,
+    "latest.yml",
+  ];
+  if (platform === "linux") return [
+    `Nowen-Note-${normalized}-x86_64.AppImage`,
+    `Nowen-Note-${normalized}-amd64.deb`,
+    "latest-linux.yml",
+  ];
+  throw new Error("unsupported debug platform");
+}
+
 module.exports = {
   assertCompleteMacReleaseAssets,
   findMissingMacReleaseAssets,
   isMacManualDownloadZip,
   requiredMacReleaseAssets,
+  requiredDebugReleaseAssets,
 };

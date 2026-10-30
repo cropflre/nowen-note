@@ -1,0 +1,81 @@
+
+> nowen-note@1.5.1 test:update-release
+> node --test scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs
+
+✔ generator check accepts Windows CRLF but still rejects stale content and missing output (190.7385ms)
+✔ tag 构建工作流不让 electron-builder 直接发布 GitHub Release (16.935708ms)
+✔ Windows GitHub Direct EXE never requires third-party signer (0.802541ms)
+✔ Direct Windows release is gated on same-tag CI artifacts and remote metadata (0.843292ms)
+✔ 本地发布守卫在正式校验前汇总完整 CI macOS 产物 (0.516125ms)
+✔ 完整桌面 Release 会写明四个平台支持情况 (0.738333ms)
+✔ 完整桌面 Release 的远端校验会阻止 macOS 平台整体缺失 (0.485125ms)
+✔ macOS 发版资产必须同时包含 Intel、Apple Silicon 与更新元数据 (0.964375ms)
+✔ macOS 双架构 ZIP 按手动下载资产处理 (0.361375ms)
+✔ Windows Node ZIP 使用 PowerShell Expand-Archive 解压 (0.971708ms)
+✖ Android release sync preserves a higher code for the same version (23.214291ms)
+✖ Android next release increments a code above the semver formula (19.147375ms)
+✔ release dry-run leaves root, backend and Android versions unchanged (18.76575ms)
+✔ release entry sets a 4GB heap default while preserving explicit limits and other options (10.246041ms)
+✔ changelog uses the previous stable tag even after signing bootstrap and RC tags (92.41575ms)
+✔ full desktop updater uses stable no-space artifact names (1.244709ms)
+✔ lite updater stays on an isolated latest-lite channel (0.529417ms)
+✔ parses electron-builder files[] metadata (2.732625ms)
+✔ accepts a valid stable Windows updater asset (1.735583ms)
+✔ rejects metadata that references a missing installer (2.555042ms)
+✔ rejects unsafe names that GitHub may normalize (0.93925ms)
+✔ rejects a missing blockmap (1.612542ms)
+✔ accepts an AppImage with an embedded blockmap (1.541583ms)
+✔ rejects an AppImage without embedded blockmap metadata (0.641125ms)
+✔ rejects size and sha512 mismatches (0.801875ms)
+✔ keeps full and lite update channels isolated (0.756459ms)
+✔ Windows and macOS use manual browser download policy (0.862ms)
+✔ release URL targets the detected stable version (0.262083ms)
+✔ manual download notice is prepended exactly once (0.103167ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 27
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 233.247666
+
+✖ failing tests:
+
+test at scripts/tests/release-version-sync.test.mjs:35:1
+✖ Android release sync preserves a higher code for the same version (23.214291ms)
+  AssertionError [ERR_ASSERTION]: sed: first RE may not be empty
+
+
+  1 !== 0
+
+      at sync (file:///Users/cropflre/Documents/ugit/nowen-note/scripts/tests/release-version-sync.test.mjs:32:10)
+      at TestContext.<anonymous> (file:///Users/cropflre/Documents/ugit/nowen-note/scripts/tests/release-version-sync.test.mjs:37:3)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/tests/release-version-sync.test.mjs:41:1
+✖ Android next release increments a code above the semver formula (19.147375ms)
+  AssertionError [ERR_ASSERTION]: sed: first RE may not be empty
+
+
+  1 !== 0
+
+      at sync (file:///Users/cropflre/Documents/ugit/nowen-note/scripts/tests/release-version-sync.test.mjs:32:10)
+      at TestContext.<anonymous> (file:///Users/cropflre/Documents/ugit/nowen-note/scripts/tests/release-version-sync.test.mjs:43:3)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

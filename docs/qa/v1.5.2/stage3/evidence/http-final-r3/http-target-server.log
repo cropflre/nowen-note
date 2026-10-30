@@ -1,0 +1,18 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:3877
+📖 OpenAPI 文档: http://localhost:3877/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:3877/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:3877" port=3877
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:3877
+📖 OpenAPI 文档: http://localhost:3877/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:3877/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:3877" port=3877

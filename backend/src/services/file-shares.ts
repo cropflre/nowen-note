@@ -1,6 +1,12 @@
 import crypto from "crypto";
 import { getDb } from "../db/schema";
 import { resolveEffectiveNoteCapabilities } from "./share-capabilities";
+import { isAttachmentExternalAccessEnabled } from "./attachment-link-policy";
+import {
+  isManualFileManagerUpload,
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "./fileAttachmentAccess";
 
 export interface FileShareRecord {
   id: string;
@@ -94,18 +100,23 @@ function generateFileShareToken(): string {
   return crypto.randomBytes(24).toString("base64url");
 }
 
-function loadAttachmentForSharing(attachmentId: string): {
-  id: string;
-  noteId: string;
-} | null {
+function loadAttachmentForSharing(attachmentId: string): FileAttachmentAccessRow | null {
   const db = getDb();
   return db.prepare(`
-    SELECT a.id, a.noteId
+    SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource
     FROM attachments a
     INNER JOIN notes n ON n.id = a.noteId
     WHERE a.id = ?
       AND n.isTrashed = 0
-  `).get(attachmentId) as { id: string; noteId: string } | undefined || null;
+  `).get(attachmentId) as FileAttachmentAccessRow | undefined || null;
+}
+
+function sharingCapabilities(attachment: FileAttachmentAccessRow, userId: string) {
+  if (isManualFileManagerUpload(attachment)) {
+    const access = resolveFileAttachmentAccess(attachment, userId);
+    return { read: access.canView, reshare: access.canWrite, download: access.canDownload };
+  }
+  return resolveEffectiveNoteCapabilities(attachment.noteId, userId);
 }
 
 export function ensureStableFileShare(
@@ -124,9 +135,12 @@ export function ensureStableFileShare(
     throw new FileShareError("文件不存在", 404, "FILE_SHARE_ATTACHMENT_NOT_FOUND");
   }
 
-  const capabilities = resolveEffectiveNoteCapabilities(attachment.noteId, ownerId);
+  const capabilities = sharingCapabilities(attachment, ownerId);
   if (!capabilities.read || !capabilities.reshare) {
     throw new FileShareError("当前目录不允许分享此文件", 403, "FILE_SHARE_FORBIDDEN");
+  }
+  if (!isAttachmentExternalAccessEnabled(normalizedAttachmentId)) {
+    throw new FileShareError("此文件已关闭公开外链", 403, "FILE_EXTERNAL_ACCESS_DISABLED");
   }
 
   const db = getDb();
@@ -218,6 +232,9 @@ export function resolveStableFileShare(
   if (attachment.noteId !== share.noteId) {
     throw new FileShareError("文件分享已失效", 410, "FILE_SHARE_SCOPE_CHANGED");
   }
+  if (!isAttachmentExternalAccessEnabled(attachmentId)) {
+    throw new FileShareError("此文件已关闭公开外链", 403, "FILE_EXTERNAL_ACCESS_DISABLED");
+  }
 
   const owner = db
     .prepare("SELECT isDisabled FROM users WHERE id = ?")
@@ -227,7 +244,7 @@ export function resolveStableFileShare(
   }
 
   // 每次稳定链接访问都重新核验当前权限，避免文件移动、成员移除等场景留下永久能力。
-  const capabilities = resolveEffectiveNoteCapabilities(share.noteId, share.ownerId);
+  const capabilities = sharingCapabilities(attachment, share.ownerId);
   if (!capabilities.read || !capabilities.reshare) {
     throw new FileShareError("文件分享已失效", 410, "FILE_SHARE_ACCESS_REVOKED");
   }

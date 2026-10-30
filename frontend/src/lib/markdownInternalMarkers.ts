@@ -1,5 +1,7 @@
 import { Prec, RangeSetBuilder, StateField, Transaction, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
+import { copyText } from "@/lib/clipboard";
+import { toast } from "@/lib/toast";
 import {
   findInternalMarkdownMarkerRanges,
   projectMarkdownForUser,
@@ -50,7 +52,15 @@ const cleanClipboard = EditorView.domEventHandlers({
     const selected = view.state.selection.ranges
       .map((range) => view.state.doc.sliceString(range.from, range.to))
       .join("\n");
-    event.clipboardData.setData("text/plain", sanitizeMarkdownClipboardText(projectMarkdownForUser(selected)));
+    const text = sanitizeMarkdownClipboardText(projectMarkdownForUser(selected));
+    if (/\/api\/attachments\/[^/\s]+\/image\./i.test(text)) {
+      event.preventDefault();
+      void copyText(text).then((ok) => {
+        if (!ok) toast.error("复制图片外链失败，请检查网络和图片外链权限");
+      });
+      return true;
+    }
+    event.clipboardData.setData("text/plain", text);
     event.preventDefault();
     return true;
   },

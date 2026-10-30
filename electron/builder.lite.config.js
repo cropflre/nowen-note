@@ -6,11 +6,9 @@
  */
 const base = require("./builder.lite.base.config.js");
 
-const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
 const { artifactName: _legacyWindowsArtifactName, ...baseWin } = base.win || {};
 const win = {
   ...baseWin,
-  ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
 };
 
 module.exports = {

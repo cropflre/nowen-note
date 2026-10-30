@@ -1,3 +1,4 @@
+import { finishSyncNoteDeletions } from "../sync/noteDeletion";
 import { EncryptedNotePayloadError, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
 import type Database from "better-sqlite3";
 import { Hono } from "hono";
@@ -14,6 +15,7 @@ import {
   isSyncNegotiatedEntityType,
   isSyncOperation,
   SYNC_V2_LEGACY_ENTITY_TYPES,
+  SYNC_V2_ASSET_ENTITY_TYPES,
   SYNC_V2_NEGOTIATED_ENTITY_TYPES,
 } from "../sync/types";
 import type { SyncEntityType, SyncNegotiatedEntityType, SyncOperation } from "../sync/types";
@@ -33,7 +35,9 @@ import {
   resolveKnowledgeNodeAccess,
   resolveResourceKnowledgeAccess,
 } from "../services/knowledgeCapabilities";
+import { readAssetMetadata } from "../sync/assetOrganization";
 import { knowledgeTreeSnapshotPage } from "../sync/knowledgeTreeSnapshot";
+import { readKnowledgeTreeLifecycleSubtree } from "../sync/knowledgeTreeLifecycle";
 
 /**
  * Sync Protocol V2。
@@ -48,6 +52,7 @@ import { knowledgeTreeSnapshotPage } from "../sync/knowledgeTreeSnapshot";
  */
 const app = new Hono();
 const LEGACY_ENTITY_SET = SYNC_V2_LEGACY_ENTITY_TYPES.join(",");
+const ASSET_ENTITY_SET = SYNC_V2_ASSET_ENTITY_TYPES.join(",");
 const NEGOTIATED_ENTITY_SET = SYNC_V2_NEGOTIATED_ENTITY_TYPES.join(",");
 
 interface EntitySubscription {
@@ -76,6 +81,9 @@ function resolveEntitySubscription(c: any): EntitySubscription {
   }
   if (sameEntitySet(types, SYNC_V2_NEGOTIATED_ENTITY_TYPES)) {
     return { types: SYNC_V2_NEGOTIATED_ENTITY_TYPES, entitySet: NEGOTIATED_ENTITY_SET, explicit: true };
+  }
+  if (sameEntitySet(types, SYNC_V2_ASSET_ENTITY_TYPES)) {
+    return { types: SYNC_V2_ASSET_ENTITY_TYPES, entitySet: ASSET_ENTITY_SET, explicit: true };
   }
   throw new SyncError("INVALID_PAYLOAD", "当前同步协议不支持请求的实体集合");
 }
@@ -247,7 +255,7 @@ app.get("/scopes", (c) => {
   if (denied) return denied;
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
-  return c.json({ items: listAuthorizedScopes(db, userId) });
+  return c.json({ items: listAuthorizedScopes(db, userId).map(scope => ({...scope,noteDeletionLifecycle:"trash-before-delete-v1",taskRecurrenceLifecycle:"v1",assetOrganization:scope.workspaceId===null?"personal-v1":null})) });
 });
 
 // ---------------------------------------------------------------------------
@@ -284,6 +292,8 @@ app.get("/plan", (c) => {
     scopeKey: scope.scopeKey,
     accessFingerprint: scope.accessFingerprint,
     entityTypes: subscription.types,
+    assetOrganization: scope.workspaceId === null && subscription.types.includes("attachment_organization") ? "personal-v1" : null,
+    treeLifecycle: scope.workspaceId===null && subscription.types.includes("knowledge_tree_node") ? "personal-folder-v1" : null,
     serverSequence,
     minAvailableSequence: minSequence,
     resetRequired: needsReset(after, minSequence)
@@ -377,9 +387,9 @@ const LEGACY_SNAPSHOT_ORDER: SyncNegotiatedEntityType[] = [
 ];
 
 function snapshotOrder(subscription: EntitySubscription): SyncNegotiatedEntityType[] {
-  return subscription.entitySet === NEGOTIATED_ENTITY_SET
-    ? [...LEGACY_SNAPSHOT_ORDER, "knowledge_tree_node"]
-    : [...LEGACY_SNAPSHOT_ORDER];
+  return [...LEGACY_SNAPSHOT_ORDER,
+    ...(subscription.types.includes("attachment_organization") ? ["attachment_organization" as const] : []),
+    ...(subscription.types.includes("knowledge_tree_node") ? ["knowledge_tree_node" as const] : [])];
 }
 
 function parseCursor(
@@ -408,6 +418,11 @@ function snapshotPage(
     rows.map((row) => ({ id: String(row.id), payload: type === "note" ? withEncryptedBlocksSupport(row) : row }));
 
   switch (type) {
+    case "attachment_organization":
+      if (workspaceId !== null) return [];
+      return (db.prepare("SELECT id,payload,version FROM asset_sync_metadata WHERE userId=? AND id>? ORDER BY id LIMIT ?")
+        .all(userId,afterId,limit) as {id:string;payload:string;version:number}[])
+        .map(row => ({id:row.id,payload:{...JSON.parse(row.payload),version:row.version}}));
     case "notebook":
       return map(db.prepare(`
         SELECT id, userId, parentId, name, description, icon, color,
@@ -462,7 +477,9 @@ function snapshotPage(
 
     case "task":
       return map(db.prepare(`
-        SELECT * FROM tasks
+        SELECT tasks.*, (SELECT action FROM task_recurrence_state s
+          WHERE s.groupId=COALESCE(tasks.repeatGroupId,tasks.id)
+            AND s.scopeKey=CASE WHEN tasks.workspaceId IS NULL THEN 'personal:' || tasks.userId ELSE 'workspace:' || tasks.workspaceId END) AS recurrenceAction FROM tasks
         WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND id > ?
         ORDER BY id ASC LIMIT ?
       `).all(workspaceId, workspaceId, userId, afterId, limit) as Array<Record<string, unknown>>);
@@ -732,9 +749,9 @@ app.post("/push", async (c) => {
       });
       continue;
     }
-    if (parsed.entityType === "knowledge_tree_node"
+    if ((parsed.entityType === "knowledge_tree_node" || parsed.entityType === "attachment_organization")
       && (!subscription.explicit
-        || subscription.entitySet !== NEGOTIATED_ENTITY_SET
+        || !subscription.types.includes(parsed.entityType)
         || !hasBoundSubscription(db, userId, scope.scopeKey, deviceId, subscription.entitySet))) {
       results.push({
         mutationId: parsed.mutationId,
@@ -752,7 +769,7 @@ app.post("/push", async (c) => {
       if (payloadWorkspaceId !== null && payloadWorkspaceId !== scope.workspaceId) {
         throw new SyncError("SCOPE_FORBIDDEN", "payload 的 workspaceId 与 Scope 不一致");
       }
-      if (parsed.entityType !== "knowledge_tree_node") {
+      if (parsed.entityType !== "knowledge_tree_node" && parsed.entityType !== "attachment_organization") {
         assertSyncMutationAccess(db, userId, scope, parsed as {
           entityType: SyncEntityType;
           entityId: string;
@@ -787,7 +804,10 @@ app.post("/push", async (c) => {
         const table = parsed.entityType === "note" ? "notes"
           : parsed.entityType === "task" ? "tasks"
             : parsed.entityType === "mindmap" ? "mindmaps" : null;
-        if (parsed.entityType === "knowledge_tree_node") {
+        if (parsed.entityType === "attachment_organization") {
+          serverPayload = readAssetMetadata(db,parsed.entityId,userId) ?? { id: parsed.entityId, __delete: true, version: 0 };
+          serverVersion = Number(serverPayload.version);
+        } else if (parsed.entityType === "knowledge_tree_node") {
           serverPayload = db.prepare(`
             SELECT id, userId, workspaceId, parentId, nodeType, resourceType, resourceId,
                    sortOrder, isDeleted, deletedAt, createdAt, updatedAt
@@ -796,6 +816,18 @@ app.post("/push", async (c) => {
           `).get(parsed.entityId, scope.workspaceId, scope.workspaceId, userId) as
             | Record<string, unknown>
             | undefined;
+          if (serverPayload && parsed.payload?.lifecycle) {
+            const current=readKnowledgeTreeLifecycleSubtree(db,parsed.entityId);
+            // Include former descendants moved out by another device, so the
+            // explicit remote choice can undo their provisional trash flags.
+            for(const base of Array.isArray(parsed.payload.baseSubtree)?parsed.payload.baseSubtree:[]) {
+              if(!base || typeof base!=="object" || typeof base.id!=="string" || current.some((node)=>node.id===base.id)) continue;
+              const node=db.prepare(`SELECT id,userId,workspaceId,parentId,nodeType,resourceType,resourceId,sortOrder,
+                isDeleted,deletedAt,createdAt,updatedAt FROM knowledge_tree_nodes WHERE id=? AND userId=? AND workspaceId IS NULL`).get(base.id,userId) as Record<string,unknown>|undefined;
+              if(node) current.push(node);
+            }
+            serverPayload.lifecycleSubtree=current;
+          }
         } else if (table) {
           serverPayload = db.prepare(`SELECT * FROM ${table} WHERE id=? AND workspaceId IS ?
             AND (? IS NOT NULL OR userId=?)`).get(
@@ -804,6 +836,8 @@ app.post("/push", async (c) => {
           if (parsed.entityType === "note" && typeof serverPayload?.version === "number") {
             serverVersion=serverPayload.version;
             serverPayload = withEncryptedBlocksSupport(serverPayload);
+          } else if (parsed.entityType === "note" && !serverPayload) {
+            serverPayload = { id: parsed.entityId, __delete: true };
           }
         }
       }
@@ -828,6 +862,7 @@ app.post("/push", async (c) => {
   // Phase 6：通知同一用户的其他设备来拉。
   // 只在真的落库了变更时通知，避免空 push 造成无意义唤醒。
   // 通知内容只有 sequence，数据仍以 Change Feed 为唯一来源。
+  await finishSyncNoteDeletions(db);
   if (applied > 0) notifySyncChanged(db, userId, scope.scopeKey);
 
   return c.json({

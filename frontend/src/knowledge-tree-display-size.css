@@ -1,0 +1,38 @@
+/* 默认档沿用清晰版、经典版和移动端紧凑布局；放大只影响知识树条目。 */
+[data-knowledge-tree-size="large"] {
+  --knowledge-tree-font-size: 16px;
+  --knowledge-tree-icon-size: 20px;
+  --knowledge-tree-line-height: 24px;
+  --knowledge-tree-row-height: 40px;
+}
+
+[data-knowledge-tree-size="extra-large"] {
+  --knowledge-tree-font-size: 18px;
+  --knowledge-tree-icon-size: 22px;
+  --knowledge-tree-line-height: 28px;
+  --knowledge-tree-row-height: 44px;
+}
+
+[data-knowledge-tree-size]:not([data-knowledge-tree-size="default"]) {
+  --nowen-mobile-tree-root-folder-row-height: var(--knowledge-tree-row-height);
+  --nowen-mobile-tree-folder-row-height: var(--knowledge-tree-row-height);
+  --nowen-mobile-tree-note-row-height: var(--knowledge-tree-row-height);
+}
+
+[data-knowledge-tree-size]:not([data-knowledge-tree-size="default"]) [data-knowledge-tree-title] {
+  font-size: var(--knowledge-tree-font-size);
+  line-height: var(--knowledge-tree-line-height);
+}
+
+/* 显式大小覆盖紧凑布局的固定图标尺寸，保留选择框和状态标记原有大小。 */
+[data-knowledge-tree-size]:not([data-knowledge-tree-size="default"]) :is([data-knowledge-tree-node-id], [data-mobile-knowledge-tree-node-id]) > button[title] > [data-knowledge-tree-icon] {
+  width: var(--knowledge-tree-icon-size) !important;
+  min-width: var(--knowledge-tree-icon-size) !important;
+  height: var(--knowledge-tree-icon-size) !important;
+  font-size: var(--knowledge-tree-icon-size) !important;
+}
+
+[data-knowledge-tree-size]:not([data-knowledge-tree-size="default"]) :is([data-knowledge-tree-node-id], [data-mobile-knowledge-tree-node-id]) > button[title] {
+  min-height: var(--knowledge-tree-row-height) !important;
+  line-height: var(--knowledge-tree-line-height) !important;
+}

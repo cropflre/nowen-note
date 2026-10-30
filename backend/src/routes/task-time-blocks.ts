@@ -17,6 +17,7 @@ interface TaskRow {
   workspaceId: string | null;
   title: string;
   estimatedMinutes: number | null;
+  archivedAt: string | null;
 }
 
 interface TimeBlockRow {
@@ -107,7 +108,7 @@ function validateBlockRange(startAt: unknown, endAt: unknown):
 
 function getTask(taskId: string): TaskRow | undefined {
   return getDb().prepare(
-    "SELECT id, userId, workspaceId, title, estimatedMinutes FROM tasks WHERE id = ?",
+    "SELECT id, userId, workspaceId, title, estimatedMinutes, archivedAt FROM tasks WHERE id = ?",
   ).get(taskId) as TaskRow | undefined;
 }
 
@@ -146,7 +147,7 @@ taskTimeBlocks.get("/", (c) => {
            t.estimatedMinutes
     FROM task_time_blocks b
     INNER JOIN tasks t ON t.id = b.taskId
-    WHERE b.userId = ?
+    WHERE b.userId = ? AND t.archivedAt IS NULL
   `;
   if (scope.workspaceId) {
     sql += " AND b.workspaceId = ?";
@@ -183,6 +184,7 @@ taskTimeBlocks.put("/tasks/:taskId/estimate", async (c) => {
   if (!canManageResource(task.userId, task.workspaceId, userId)) {
     return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
   }
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   let estimatedMinutes: number | null;
@@ -215,6 +217,7 @@ taskTimeBlocks.post("/", async (c) => {
   if (!task || !canReadTask(task, userId)) {
     return c.json({ error: "Task not found", code: "TASK_NOT_FOUND" }, 404);
   }
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const range = validateBlockRange(body?.startAt, body?.endAt);
   if ("error" in range) return c.json({ error: range.error, code: range.code }, 400);
@@ -263,6 +266,7 @@ taskTimeBlocks.put("/:id", async (c) => {
   if (!task || !canReadTask(task, userId)) {
     return c.json({ error: "Time block not found", code: "TIME_BLOCK_NOT_FOUND" }, 404);
   }
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const range = validateBlockRange(
@@ -295,6 +299,12 @@ taskTimeBlocks.delete("/:id", (c) => {
   const userId = c.req.header("X-User-Id");
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
 
+  const archivedTask = getDb().prepare(`
+    SELECT t.archivedAt FROM task_time_blocks b
+    INNER JOIN tasks t ON t.id = b.taskId
+    WHERE b.id = ? AND b.userId = ?
+  `).get(c.req.param("id"), userId) as { archivedAt: string | null } | undefined;
+  if (archivedTask?.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
   const result = getDb().prepare(
     "DELETE FROM task_time_blocks WHERE id = ? AND userId = ?",
   ).run(c.req.param("id"), userId);

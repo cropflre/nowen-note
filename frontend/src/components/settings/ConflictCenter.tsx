@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
+import { useTranslation } from "react-i18next";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -22,6 +24,7 @@ import {
 } from "@/lib/syncLocalApi";
 import { buildAutomaticConflictMerge } from "@/lib/syncConflictAutoMerge";
 import { isProtectedNotePayload } from "@/lib/encryptedNotes/blockDocument";
+import { TREE_CONFLICT_FIELDS, canSafelyChooseTreeSide, isTreeConflict, treeConflictAvailability, treeConflictExplanation } from "@/lib/syncTreeConflictPresentation";
 
 const HISTORY_PAGE_SIZE = 20;
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -35,6 +38,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   task_reminder: "任务提醒",
   diary: "日记",
   mindmap: "思维导图",
+  knowledge_tree_node: "知识树节点",
 };
 
 /**
@@ -55,6 +59,7 @@ export function ConflictCenter({
   deviceId: string | null;
   onResolved?: () => void;
 }) {
+  const {t}=useTranslation();
   const [items, setItems] = useState<ConflictSummary[]>([]);
   const [historyItems, setHistoryItems] = useState<ResolvedConflictSummary[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -63,6 +68,9 @@ export function ConflictCenter({
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ConflictDetail | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<{ id: string; message: string } | null>(null);
+  const detailRequestRef = useRef(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,11 +105,20 @@ export function ConflictCenter({
   useEffect(() => { void reload(); }, [reload]);
 
   const openDetail = async (id: string) => {
+    const requestId = ++detailRequestRef.current;
     setError(null);
+    setDetailError(null);
+    setDetailLoadingId(id);
+    setSelected(null);
     try {
-      setSelected(await fetchConflictDetail(id));
+      const detail = await fetchConflictDetail(id);
+      if (requestId === detailRequestRef.current) setSelected(detail);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (requestId === detailRequestRef.current) {
+        setDetailError({ id, message: err instanceof Error ? err.message : String(err) });
+      }
+    } finally {
+      if (requestId === detailRequestRef.current) setDetailLoadingId(null);
     }
   };
 
@@ -114,12 +131,32 @@ export function ConflictCenter({
     setNotice(null);
     setWarning(null);
     try {
+      const target = items.find((item) => item.id === id);
+      if (target && isTreeConflict(target.entityType)) {
+        const detail = selected?.id === id ? selected : await fetchConflictDetail(id);
+        if (!canSafelyChooseTreeSide(detail)) {
+          setSelected(detail);
+          setDetailError({
+            id,
+            message: "只有单边知识树结构，无法安全采用版本。请先检查对应业务资源和同步诊断。",
+          });
+          return;
+        }
+      }
       await resolveConflict(id, { resolution, deviceId: deviceId ?? undefined });
       setSelected(null);
       await reload();
       onResolved?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      const target = items.find((item) => item.id === id);
+      if (target && isTreeConflict(target.entityType)) {
+        // A missing business resource may still reject a structurally valid
+        // choice. Explain that failure next to the entry being inspected.
+        setDetailError({ id, message: `操作未完成：${message}。请先检查知识树及业务资源同步情况。` });
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy(false);
     }
@@ -172,7 +209,13 @@ export function ConflictCenter({
   };
 
   const handleBulkResolve = async (resolution: "keep-local" | "keep-remote") => {
-    const targets = items.filter((item) => selectedIds.has(item.id));
+    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
+    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
+    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType) && item.entityType!=="attachment_organization");
+    if(selectedTargets.some(item=>item.entityType==="attachment_organization")) setWarning(t("assetOrganization.syncConflictBatchSkipped"));
+    if (excludedTree) {
+      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：须先核对节点及业务资源，不支持一键覆盖。");
+    }
     if (targets.length === 0) return;
 
     const sourceLabel = resolution === "keep-local" ? "本机" : "云端";
@@ -184,7 +227,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    setWarning(null);
+    if (!excludedTree) setWarning(null);
     const failed: string[] = [];
     let resolvedCount = 0;
 
@@ -217,7 +260,13 @@ export function ConflictCenter({
   };
 
   const handleAutomaticMerge = async () => {
-    const targets = items.filter((item) => selectedIds.has(item.id));
+    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
+    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
+    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType) && item.entityType!=="attachment_organization");
+    if(selectedTargets.some(item=>item.entityType==="attachment_organization")) setWarning(t("assetOrganization.syncConflictBatchSkipped"));
+    if (excludedTree) {
+      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：不能通过自动合并普通字段来重建目录结构。");
+    }
     if (targets.length === 0) return;
 
     const confirmed = window.confirm(
@@ -228,7 +277,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    setWarning(null);
+    if (!excludedTree) setWarning(null);
     const blocked: string[] = [];
     const failed: string[] = [];
     let mergedCount = 0;
@@ -270,7 +319,7 @@ export function ConflictCenter({
       if (blocked.length > 0) {
         const sample = blocked.slice(0, 3).join("；");
         const more = blocked.length > 3 ? `；另有 ${blocked.length - 3} 条` : "";
-        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}`);
+        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}${excludedTree ? `；另有 ${excludedTree} 条知识树结构冲突被安全跳过` : ""}`);
       } else if (failed.length === 0) {
         setNotice(`已智能合并 ${mergedCount} 条冲突。`);
       }
@@ -416,27 +465,28 @@ export function ConflictCenter({
                     {item.localTitle || item.remoteTitle || item.entityId}
                   </p>
                   <p className="mt-0.5 text-muted-foreground">
-                    {item.entityType} · 本机 v{item.localVersion ?? "?"} ·
-                    {" "}云端 v{item.remoteVersion ?? "?"}
-                    {item.diffFields.length > 0
-                      ? ` · 差异：${item.diffFields.slice(0, 4).join("、")}`
-                      : ""}
+                    {isTreeConflict(item.entityType)
+                      ? "知识树结构差异 · 不代表正文冲突 · 点击查看本机/云端状态"
+                      : <>{item.entityType==="attachment_organization"?t("assetOrganization.syncConflictLabel"):ENTITY_TYPE_LABELS[item.entityType] || item.entityType} · 本机 v{item.localVersion ?? "?"} · 云端 v{item.remoteVersion ?? "?"}{item.diffFields.length > 0 ? ` · 差异：${item.diffFields.slice(0, 4).join("、")}` : ""}</>}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => { void openDetail(item.id); }}
-                className="shrink-0 rounded border px-2 py-1 hover:bg-accent"
+                disabled={detailLoadingId === item.id}
+                aria-expanded={selected?.id === item.id}
+                className="shrink-0 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
-                查看
+                {detailLoadingId === item.id ? "加载中…" : selected?.id === item.id ? "已展开" : "查看"}
               </button>
             </div>
 
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
+                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-local"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
@@ -444,17 +494,20 @@ export function ConflictCenter({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
+                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-remote"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
                 保留云端版本
               </button>
-              <button type="button" disabled={busy}
-                onClick={() => { void openDetail(item.id); }}
-                className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
-                <Merge className="h-3.5 w-3.5" />手动合并
-              </button>
+              {!isTreeConflict(item.entityType) && item.entityType!=="attachment_organization" ? (
+                <button type="button" disabled={busy}
+                  onClick={() => { void openDetail(item.id); }}
+                  className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
+                  <Merge className="h-3.5 w-3.5" />手动合并
+                </button>
+              ) : null}
               {item.entityType === "note" ? (
                 <button
                   type="button"
@@ -467,6 +520,18 @@ export function ConflictCenter({
                 </button>
               ) : null}
             </div>
+            {detailLoadingId === item.id ? (
+              <p role="status" className="mt-3 text-muted-foreground">正在读取本机与云端详情…</p>
+            ) : null}
+            {detailError?.id === item.id ? (
+              <p role="alert" className="mt-3 rounded border border-amber-400/50 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">{detailError.message}</p>
+            ) : null}
+            {selected?.id === item.id && selected.status !== "resolved" ? (
+              <div className="mt-3" data-conflict-detail-id={item.id}>
+                <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
+                  onManual={(payload) => handleManualResolve(selected.id, payload)} />
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -510,7 +575,7 @@ export function ConflictCenter({
         />
       ) : null}
 
-      {selected ? (
+      {selected?.status === "resolved" ? (
         <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
           onManual={(payload) => handleManualResolve(selected.id,payload)} />
       ) : null}
@@ -543,6 +608,7 @@ function ResolvedConflictHistory({
   onView: (id: string) => void;
   onReopen: (item: ResolvedConflictSummary) => void;
 }) {
+  const {t}=useTranslation();
   const formatResolvedAt = (value: string) => {
     const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
@@ -575,7 +641,7 @@ function ResolvedConflictHistory({
             >
               <option value="">全部类型</option>
               {SYNC_CONFLICT_ENTITY_TYPES.map((value) => (
-                <option key={value} value={value}>{ENTITY_TYPE_LABELS[value] || value}</option>
+                <option key={value} value={value}>{value==="attachment_organization"?t("assetOrganization.syncConflictLabel"):ENTITY_TYPE_LABELS[value] || value}</option>
               ))}
             </select>
           </label>
@@ -641,6 +707,34 @@ function ResolvedConflictHistory({
  * 只对比字段级差异并展示两侧取值。正文这类大字段做截断预览——
  * 完整逐字符 diff 属于编辑器职责，在设置页里渲染大正文只会拖慢页面。
  */
+function AssetConflictFields({detail}:{detail:ConflictDetail}) {
+  const {t}=useTranslation();
+  const [names,setNames]=useState(new Map<string,string>());
+  useEffect(()=>{
+    let stale=false;
+    const scope=getOfflineQueueStorageKey();
+    void import("@/lib/api").then(async({api})=>{
+      if(stale || scope!==getOfflineQueueStorageKey()) return;
+      const {folders}=await api.attachmentFolders.list();
+      if(!stale && scope===getOfflineQueueStorageKey()) setNames(new Map(folders.map(folder=>[folder.id,folder.name])));
+    }).catch(()=>{ /* Unavailable folder names are shown explicitly. */ });
+    return ()=>{stale=true;};
+  },[detail.id]);
+  const fields=["name","parentId","folderId","deleted","trashedAt"].filter(field=>
+    detail.local && Object.hasOwn(detail.local,field) || detail.remote && Object.hasOwn(detail.remote,field));
+  const value=(payload:Record<string,unknown>|null,field:string)=>{
+    if(!payload || !Object.hasOwn(payload,field)) return "—";
+    const value=payload[field];
+    if(field==="parentId" || field==="folderId") return value ? names.get(String(value)) || t("assetOrganization.syncMissingFolder") : t(field==="parentId"?"assetOrganization.syncRoot":"fileExplorer.unarchived");
+    if(field==="deleted") return t(value?"assetOrganization.syncDeletedState":"assetOrganization.syncActiveState");
+    return value==null?"—":String(value);
+  };
+  return <table className="mt-2 w-full table-fixed border-collapse"><thead><tr className="text-left text-muted-foreground">
+    <th>{t("assetOrganization.syncField")}</th><th>{t("assetOrganization.syncLocal")}</th><th>{t("assetOrganization.syncRemote")}</th>
+  </tr></thead><tbody>{fields.map(field=><tr key={field} className="border-t align-top"><td className="py-1">{t(`assetOrganization.syncField_${field}`)}</td>
+    <td className="break-words py-1">{value(detail.local,field)}</td><td className="break-words py-1">{value(detail.remote,field)}</td></tr>)}</tbody></table>;
+}
+
 function ConflictDiff({
   detail,
   busy,
@@ -652,6 +746,7 @@ function ConflictDiff({
   onClose: () => void;
   onManual: (payload:Record<string,unknown>) => Promise<void>;
 }) {
+  const {t}=useTranslation();
   const [editing,setEditing] = useState(false);
   const [draft,setDraft] = useState("");
   const [draftError,setDraftError] = useState<string|null>(null);
@@ -690,7 +785,36 @@ function ConflictDiff({
         </button>
       </div>
 
-      {encrypted ? (
+      {isTreeConflict(detail.entityType) ? (
+        <div className="mt-3 space-y-2">
+          <p role="status" className="rounded border border-amber-400/40 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">
+            {treeConflictExplanation(detail)}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <p>本机结构：<strong>{detail.local ? "已存在" : "缺少/尚未同步"}</strong></p>
+            <p>云端结构：<strong>{detail.remote ? "已存在" : "缺少/尚未同步"}</strong></p>
+          </div>
+          <p className="text-muted-foreground">
+            {treeConflictAvailability(detail) === "both" ? "核对以下结构差异，再选择需要保留的版本。" : "一方缺少完整节点结构，不能将其误判为内容相同。"}
+          </p>
+          <table className="w-full table-fixed border-collapse">
+            <thead>
+              <tr className="text-left text-muted-foreground"><th className="w-1/4 py-1">结构字段</th><th className="w-[37.5%] py-1">本机</th><th className="w-[37.5%] py-1">云端</th></tr>
+            </thead>
+            <tbody>
+              {TREE_CONFLICT_FIELDS.map(([field, label]) => (
+                <tr key={field} className="border-t align-top">
+                  <td className="py-1">{label}</td>
+                  <td className="break-all py-1">{detail.local ? preview(detail.local[field]) : "尚未同步"}</td>
+                  <td className="break-all py-1">{detail.remote ? preview(detail.remote[field]) : "尚未同步"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : detail.entityType==="attachment_organization" ? (
+        <AssetConflictFields key={detail.id} detail={detail}/>
+      ) : encrypted ? (
         <div className="mt-2 grid grid-cols-2 gap-3">
           <div><p className="font-medium">本机版本</p><p className="mt-1">{String(detail.local?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
           <div><p className="font-medium">云端版本</p><p className="mt-1">{String(detail.remote?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
@@ -721,6 +845,14 @@ function ConflictDiff({
         <p className="mt-3 border-t pt-3 text-muted-foreground">
           这是已解决冲突的历史记录。如需重新选择版本，请先点击“撤销处理”。
         </p>
+      ) : isTreeConflict(detail.entityType) ? (
+        <p className="mt-3 border-t pt-3 text-muted-foreground">
+          知识树结构不等于笔记正文，因此不提供 JSON 拼接合并。{canSafelyChooseTreeSide(detail)
+            ? "核对父目录、排序和删除状态后，可通过上方按钮选择保留版本。"
+            : "请先检查同步状态，不要清空本机或云端数据。"}
+        </p>
+      ) : detail.entityType==="attachment_organization" ? (
+        <p className="mt-3 border-t pt-3 text-muted-foreground">{t("assetOrganization.syncConflictHint")}</p>
       ) : encrypted ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
           请选择保留本机版本或云端版本。另一个版本会保留在历史记录中。

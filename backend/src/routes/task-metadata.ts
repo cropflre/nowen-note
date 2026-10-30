@@ -472,13 +472,14 @@ taskMetadata.put("/tasks/:taskId/labels", async (c) => {
   const userId = c.req.header("X-User-Id");
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
   const taskId = c.req.param("taskId");
-  const task = getDb().prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?").get(taskId) as
-    | { userId: string; workspaceId: string | null }
+  const task = getDb().prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?").get(taskId) as
+    | { userId: string; workspaceId: string | null; archivedAt: string | null }
     | undefined;
   if (!task) return c.json({ error: "任务不存在", code: "TASK_NOT_FOUND" }, 404);
   if (!canManageResource(task.userId, task.workspaceId, userId)) {
     return c.json({ error: "无权修改该任务的标签", code: "FORBIDDEN" }, 403);
   }
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
 
   const body = await readBody(c);
   if (!Array.isArray(body.labelIds)) {

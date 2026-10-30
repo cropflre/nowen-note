@@ -24,7 +24,7 @@ import {
   registerLocalAttachment,
   registerRemoteAttachment,
 } from "../src/sync/attachments";
-import { countPendingMutations } from "../src/sync/outbox";
+import { countPendingMutations, enqueueMutation, markMutationSynced } from "../src/sync/outbox";
 import { SyncError } from "../src/sync/errors";
 import type { SyncEntityType } from "../src/sync/types";
 
@@ -498,6 +498,32 @@ test("上传失败不删除本地附件，只累加重试", async () => {
   assert.ok(state.retryCount >= 1);
   // 仍在待上传列表里，下轮会重试
   assert.equal(listPendingUploads(db(), 10).length, 1);
+});
+
+test("导入附件元数据仍在队列时不抢先上传，也不阻塞已确认附件", async () => {
+  resetAll();
+  const profile = (await import("../src/sync/profile")).createProfile(db(), {
+    name: "附件顺序测试", serverUrl: REMOTE,
+  });
+  const pending = seedLocalAttachment("元数据待确认");
+  const ready = seedLocalAttachment("元数据已确认");
+  registerLocalAttachment(db(), pending.id, profile.id);
+  registerLocalAttachment(db(), ready.id, profile.id);
+  const mutationId = enqueueMutation(db(), {
+    entityType: "attachment", entityId: pending.id, operation: "upsert",
+    profileId: profile.id, deviceId: "blob-order-device", payload: {},
+  })!;
+  const blob = new FakeBlobRemote();
+  const first = await pushAttachmentBlobs(db(), blob as never, { batchSize: 1 });
+  assert.equal(first.uploaded, 1);
+  assert.deepEqual(blob.uploadCalls, [ready.id]);
+  const state = db().prepare("SELECT status, retryCount FROM attachment_sync_state WHERE attachmentId=?")
+    .get(pending.id) as { status: string; retryCount: number };
+  assert.equal(state.status, "pending");
+  assert.equal(state.retryCount, 0, "等待元数据不应记录为上传失败");
+  markMutationSynced(db(), mutationId);
+  assert.equal((await pushAttachmentBlobs(db(), blob as never)).uploaded, 1);
+  assert.deepEqual(blob.uploadCalls, [ready.id, pending.id]);
 });
 
 test("服务端已有同一份内容时跳过上传，省掉重复传输", async () => {

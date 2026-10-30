@@ -1,0 +1,3 @@
+https://{$NOWEN_DOMAIN} {
+	reverse_proxy nowen-note:3001
+}

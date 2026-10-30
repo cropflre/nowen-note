@@ -1,0 +1,12 @@
+Invalid duration for option t: .2
+Error parsing options for output file pipe:1.
+Error opening output files: Invalid argument
+{
+  "phase": "create",
+  "node": "v20.20.2",
+  "checks": [
+    "production API create; JWT refusal; both active delete routes preserve the body"
+  ],
+  "result": "FAIL",
+  "error": "Command failed: /usr/bin/ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=64x48:rate=10 -t .2 -c:v libx264 -f mp4 -movflags frag_keyframe+empty_moov pipe:1\nInvalid duration for option t: .2\nError parsing options for output file pipe:1.\nError opening output files: Invalid argument\n"
+}

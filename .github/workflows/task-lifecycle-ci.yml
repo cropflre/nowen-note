@@ -1,0 +1,96 @@
+name: Task Lifecycle CI
+
+on:
+  push:
+    branches: [main, release/v1.5.2]
+    paths:
+      - "backend/src/routes/tasks.ts"
+      - "backend/src/routes/task-reminders.ts"
+      - "backend/src/routes/task-dependencies.ts"
+      - "backend/src/routes/task-metadata.ts"
+      - "backend/src/routes/task-time-blocks.ts"
+      - "backend/src/services/taskNoteSnapshot.ts"
+      - "backend/src/db/taskLifecycleMigration.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/task-lifecycle.test.ts"
+      - "backend/tests/task-metadata.test.ts"
+      - "backend/tests/task-time-planning.test.ts"
+      - "frontend/src/components/tasks/**"
+      - "frontend/src/components/TaskCenterImpl.tsx"
+      - "frontend/src/components/TaskDataTransferBridgeV2.tsx"
+      - "frontend/src/lib/taskReportExport.ts"
+      - "frontend/src/lib/sheetXlsx.ts"
+      - "frontend/src/lib/__tests__/taskReportExport.test.ts"
+      - "frontend/src/components/ContextMenu.tsx"
+      - "frontend/src/components/__tests__/TaskCenterQuickAddIntegration.test.tsx"
+      - "frontend/src/components/tasks/TaskSaveNoteDialog.tsx"
+      - "frontend/src/lib/taskOfflineRuntime.ts"
+      - "frontend/src/components/tasks/__tests__/TaskSaveNoteDialog.test.tsx"
+      - "frontend/src/lib/__tests__/taskOfflineApi.test.ts"
+      - ".github/workflows/task-lifecycle-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/tasks.ts"
+      - "backend/src/routes/task-reminders.ts"
+      - "backend/src/routes/task-dependencies.ts"
+      - "backend/src/routes/task-metadata.ts"
+      - "backend/src/routes/task-time-blocks.ts"
+      - "backend/src/services/taskNoteSnapshot.ts"
+      - "backend/src/db/taskLifecycleMigration.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/task-lifecycle.test.ts"
+      - "backend/tests/task-metadata.test.ts"
+      - "backend/tests/task-time-planning.test.ts"
+      - "frontend/src/components/tasks/**"
+      - "frontend/src/components/TaskCenterImpl.tsx"
+      - "frontend/src/components/TaskDataTransferBridgeV2.tsx"
+      - "frontend/src/lib/taskReportExport.ts"
+      - "frontend/src/lib/sheetXlsx.ts"
+      - "frontend/src/lib/__tests__/taskReportExport.test.ts"
+      - "frontend/src/components/ContextMenu.tsx"
+      - "frontend/src/components/__tests__/TaskCenterQuickAddIntegration.test.tsx"
+      - "frontend/src/components/tasks/TaskSaveNoteDialog.tsx"
+      - "frontend/src/lib/taskOfflineRuntime.ts"
+      - "frontend/src/components/tasks/__tests__/TaskSaveNoteDialog.test.tsx"
+      - "frontend/src/lib/__tests__/taskOfflineApi.test.ts"
+      - ".github/workflows/task-lifecycle-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend-task-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Backend typecheck
+        run: npm run build:tsc
+      - name: Task lifecycle API and regression tests
+        run: node --import tsx --test tests/task-lifecycle.test.ts tests/task-metadata.test.ts tests/task-time-planning.test.ts
+
+  frontend-task-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Task note and offline integration tests
+        run: npm run test:run -- src/components/tasks/__tests__/TaskSaveNoteDialog.test.tsx src/lib/__tests__/taskOfflineApi.test.ts src/components/tasks/__tests__/TaskContextMenu.test.tsx src/components/__tests__/TaskCenterQuickAddIntegration.test.tsx src/components/__tests__/ContextMenu.viewport.test.tsx src/lib/__tests__/taskReportExport.test.ts src/lib/__tests__/sheetXlsx.test.ts

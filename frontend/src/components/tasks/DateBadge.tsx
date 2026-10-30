@@ -1,4 +1,5 @@
-import { format, isToday, isPast, isTomorrow, isThisWeek, parseISO } from "date-fns";
+import { format, isToday, isPast, isTomorrow, isThisWeek } from "date-fns";
+import { parseTaskDate, getDueTimeValue } from "./taskDateUtils";
 import { zhCN, enUS } from "date-fns/locale";
 import { Calendar } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -9,12 +10,7 @@ import { cn } from "@/lib/utils";
  * 避免 parseISO 在不同时区下的偏移问题。
  */
 export function toLocalDate(dateStr: string): Date {
-  const d = parseISO(dateStr);
-  if (isNaN(d.getTime())) {
-    const parts = dateStr.split("-").map(Number);
-    return new Date(parts[0], parts[1] - 1, parts[2]);
-  }
-  return d;
+  return parseTaskDate(dateStr) || new Date(NaN);
 }
 
 /**
@@ -48,6 +44,9 @@ export function DateBadge({
   const dateLocale = i18n.language === "zh-CN" ? zhCN : enUS;
   if (!dateStr) return null;
   const d = toLocalDate(dateStr);
+  if (!Number.isFinite(d.getTime()) || (dueAt && !parseTaskDate(dueAt))) {
+    return <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-500" title={t("taskRemoval.invalidDate")}><Calendar size={10}/>{t("taskRemoval.invalidDate")}</span>;
+  }
   const formatted = format(d, "M/d", { locale: dateLocale });
 
   let label: string;
@@ -74,7 +73,7 @@ export function DateBadge({
   }
 
   // 如果有 dueAt，附加时间显示
-  const timeStr = dueAt ? (dueAt.split("T")[1] || "") : "";
+  const timeStr = getDueTimeValue(dueAt);
   const displayLabel = timeStr && !isToday(d) && !isTomorrow(d)
     ? label + " " + timeStr.slice(0, 5)
     : label;

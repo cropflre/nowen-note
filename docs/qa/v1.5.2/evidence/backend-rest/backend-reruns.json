@@ -1,0 +1,32 @@
+[
+  {
+    "label": "attachments-router-bootstrap",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "encrypted-notes-upgrade",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  },
+  {
+    "label": "automation-platform",
+    "status": "passed",
+    "code": 0,
+    "signal": null,
+    "firstError": null,
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  }
+]

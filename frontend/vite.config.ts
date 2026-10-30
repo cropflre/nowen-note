@@ -10,7 +10,7 @@ const rootPkg = JSON.parse(
 ) as { version?: string }
 const APP_VERSION = rootPkg.version || "0.0.0"
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // Electron 远端/API-only 模式会直接加载打包后的 frontend/dist/index.html。
   // 使用相对 base，确保 file:// 下 /assets 不会解析到磁盘根目录。
   base: "./",
@@ -22,6 +22,10 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      ...(mode === "harmony" ? [{
+        find: /^@aparajita\/capacitor-secure-storage$/,
+        replacement: path.resolve(__dirname, "./src/lib/harmonySecureStorage.ts"),
+      }] : []),
       // Issue #512：内容树快捷“+”统一选择富文本、Markdown 或文件夹。
       // Runtime 壳通过相对路径加载原面板，避免精确别名递归。
       {
@@ -166,6 +170,8 @@ export default defineConfig({
         // framer-motion 和 JSZip/Turndown，登录页只要使用动画就会把低频工具一起下载。
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
+          // Keep the full emoji catalog out of the application entry chunk.
+          'vendor-tiptap-emoji': ['@tiptap/extension-emoji'],
           'vendor-tiptap': [
             '@tiptap/react',
             '@tiptap/starter-kit',
@@ -219,4 +225,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

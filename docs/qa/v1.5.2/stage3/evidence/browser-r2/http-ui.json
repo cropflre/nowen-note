@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "ui",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-ui-NbEjRa",
+  "base": "http://127.0.0.1:13897",
+  "checks": [],
+  "result": "FAIL",
+  "error": {
+    "message": "locator.fill: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByPlaceholder('admin', { exact: true })\u001b[22m\n",
+    "stack": "locator.fill: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByPlaceholder('admin', { exact: true })\u001b[22m\n\n    at runBrowserAcceptance (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\browser-release-acceptance.mjs:18:59)\n    at async <anonymous> (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\http-release-acceptance.mjs:90:27)"
+  }
+}

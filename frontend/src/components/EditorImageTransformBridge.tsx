@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useCallback, useEffect, useState } from "react";
+import type { Editor } from "@tiptap/core";
+import { useTranslation } from "react-i18next";
 import { NodeSelection } from "@tiptap/pm/state";
 import { FlipHorizontal, RotateCcw, RotateCw, Scan } from "lucide-react";
 import {
@@ -18,16 +19,6 @@ interface TiptapEditorLike {
   off: (event: string, callback: () => void) => void;
 }
 
-interface ImageTarget {
-  editor: TiptapEditorLike;
-  pos: number;
-  wrapper: HTMLElement;
-  rotation: ImageRotation;
-  flipX: boolean;
-  desktopToolbar: HTMLElement | null;
-  mobileSheet: HTMLElement | null;
-}
-
 const MOBILE_BACKDROP_SELECTOR = [
   'button[aria-label="关闭图片操作"]',
   'button[aria-label="Close image actions"]',
@@ -35,41 +26,8 @@ const MOBILE_BACKDROP_SELECTOR = [
 const originalBackdropPointerEvents = new WeakMap<HTMLButtonElement, string>();
 const imageLoadListeners = new WeakSet<HTMLImageElement>();
 
-function isEnglishUi(): boolean {
-  return document.documentElement.lang?.toLowerCase().startsWith("en") ?? false;
-}
-
 function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches === true;
-}
-
-function findDesktopImageToolbar(): HTMLElement | null {
-  const expectedTitles = isEnglishUi()
-    ? ["View large image", "Download image"]
-    : ["查看大图", "下载图片"];
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>("div.fixed.z-50.flex.items-center"));
-  const toolbar = candidates.find((candidate) => {
-    const titles = Array.from(candidate.querySelectorAll<HTMLButtonElement>("button[title]"))
-      .map((button) => button.title.trim());
-    return expectedTitles.every((title) => titles.includes(title));
-  }) || null;
-
-  if (toolbar) {
-    // Portal 节点会追加在 React 原有子节点之后。把“更多”视觉顺序固定到最右侧，
-    // 让一级工具栏保持：查看 / 替换 / 编辑 / 下载 / 变换 / 更多。
-    const moreButton = Array.from(toolbar.querySelectorAll<HTMLButtonElement>("button[title]"))
-      .find((button) => button.title === "更多" || button.title === "More");
-    const moreContainer = moreButton?.parentElement;
-    if (moreContainer?.parentElement === toolbar && moreContainer.style.order !== "99") {
-      moreContainer.style.order = "99";
-    }
-  }
-
-  return toolbar;
-}
-
-function findCompactMobileSheet(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('[data-nowen-image-transform-slot="true"]');
 }
 
 export function findImageTransformWrapper(dom: HTMLElement | null): HTMLElement | null {
@@ -79,24 +37,13 @@ export function findImageTransformWrapper(dom: HTMLElement | null): HTMLElement 
     || dom.closest<HTMLElement>(".resizable-image-wrapper");
 }
 
-function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileSheet"> | null {
-  const editorDom = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"]');
-  const editor = (editorDom as (HTMLElement & { editor?: TiptapEditorLike }) | null)?.editor;
-  if (!editor?.state || !editor?.view) return null;
-  const selection = editor.state.selection;
-  if (selection?.node?.type?.name !== "image") return null;
-  const pos = Number(selection.from);
-  if (!Number.isFinite(pos)) return null;
-  const dom = editor.view.nodeDOM(pos) as HTMLElement | null;
-  const wrapper = findImageTransformWrapper(dom);
-  if (!wrapper) return null;
-  return {
-    editor,
-    pos,
-    wrapper,
-    rotation: normalizeImageRotation(selection.node.attrs?.rotation),
-    flipX: normalizeImageFlipX(selection.node.attrs?.flipX),
-  };
+function hasSelectedEditorImage(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('.ProseMirror[contenteditable="true"]')).some((editorDom) => {
+    const editor = (editorDom as HTMLElement & { editor?: TiptapEditorLike }).editor;
+    const selection = editor?.state?.selection;
+    if (!editor?.view || selection?.node?.type?.name !== "image") return false;
+    return !!findImageTransformWrapper(editor.view.nodeDOM(selection.from) as HTMLElement | null);
+  });
 }
 
 function positive(value: unknown): number | null {
@@ -316,37 +263,10 @@ function TransformButton({
 }
 
 export default function EditorImageTransformBridge() {
-  const [target, setTarget] = useState<ImageTarget | null>(null);
-  const targetRef = useRef<ImageTarget | null>(null);
-
   const reconcile = useCallback(() => {
     syncAllImageWrappers();
-    const selected = selectedImageTarget();
-    if (!selected) {
-      restoreMobileBackdropPointerCapture();
-      targetRef.current = null;
-      setTarget(null);
-      return;
-    }
-
-    allowImageResizeThroughMobileBackdrop();
-    const next: ImageTarget = {
-      ...selected,
-      desktopToolbar: findDesktopImageToolbar(),
-      mobileSheet: findCompactMobileSheet(),
-    };
-    applyImageTransformLayout(next.wrapper, next.rotation, next.flipX);
-    const previous = targetRef.current;
-    const changed = !previous
-      || previous.editor !== next.editor
-      || previous.pos !== next.pos
-      || previous.wrapper !== next.wrapper
-      || previous.rotation !== next.rotation
-      || previous.flipX !== next.flipX
-      || previous.desktopToolbar !== next.desktopToolbar
-      || previous.mobileSheet !== next.mobileSheet;
-    targetRef.current = next;
-    if (changed) setTarget(next);
+    if (hasSelectedEditorImage()) allowImageResizeThroughMobileBackdrop();
+    else restoreMobileBackdropPointerCapture();
   }, []);
 
   useEffect(() => {
@@ -445,51 +365,46 @@ export default function EditorImageTransformBridge() {
     };
   }, [reconcile]);
 
-  const update = useCallback((attrs: Record<string, unknown>) => {
-    const current = targetRef.current;
-    if (!current) return;
-    updateImageAttributesAt(current.editor, current.pos, attrs);
-    requestAnimationFrame(reconcile);
-  }, [reconcile]);
+  return null;
+}
 
-  const labels = useMemo(() => isEnglishUi()
+/** Render beside the image actions, using the owning editor rather than global DOM discovery. */
+export function EditorImageTransformControls({ editor, mobile = false }: { editor: Editor; mobile?: boolean }) {
+  const { i18n } = useTranslation();
+  const english = i18n.language?.toLowerCase().startsWith("en");
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    const update = () => refresh((value) => value + 1);
+    editor.on("transaction", update);
+    return () => { editor.off("transaction", update); };
+  }, [editor]);
+
+  const selection = editor.state.selection;
+  if (!editor.isEditable || !(selection instanceof NodeSelection) || selection.node.type.name !== "image") return null;
+  const labels = english
     ? { left: "Rotate left 90°", right: "Rotate right 90°", flip: "Flip horizontally", reset: "Reset transform", group: "Rotate and flip" }
-    : { left: "向左旋转 90°", right: "向右旋转 90°", flip: "水平翻转", reset: "复原变换", group: "旋转与翻转" }, []);
-
-  if (!target) return null;
-
-  const rotate = (delta: -90 | 90) => {
-    const current = targetRef.current?.editor.state.selection?.node?.attrs?.rotation;
-    update({ rotation: normalizeImageRotation(normalizeImageRotation(current) + delta) });
+    : { left: "向左旋转 90°", right: "向右旋转 90°", flip: "水平翻转", reset: "复原变换", group: "旋转与翻转" };
+  const flipX = normalizeImageFlipX(selection.node.attrs.flipX);
+  const update = (transform: (attrs: Record<string, unknown>) => Record<string, unknown>) => {
+    const current = editor.state.selection;
+    if (!editor.isEditable || !(current instanceof NodeSelection) || current.node.type.name !== "image") return;
+    updateImageAttributesAt(editor, current.from, transform(current.node.attrs));
   };
-  const flip = () => {
-    const current = targetRef.current?.editor.state.selection?.node?.attrs?.flipX;
-    update({ flipX: !normalizeImageFlipX(current) });
-  };
-  const reset = () => update({ rotation: 0, flipX: false });
-
-  const desktopPortal = target.desktopToolbar ? createPortal(
-    <>
-      <div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />
-      <TransformButton label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} /></TransformButton>
-      <TransformButton label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} /></TransformButton>
-      <TransformButton label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} /></TransformButton>
-      <TransformButton label={labels.reset} onClick={reset}><Scan size={14} /></TransformButton>
-    </>,
-    target.desktopToolbar,
-  ) : null;
-
-  const mobilePortal = target.mobileSheet ? createPortal(
-    <div className="mt-2" data-nowen-editor-image-transforms="true" role="group" aria-label={labels.group}>
-      <div className="grid grid-cols-4 gap-1.5">
-        <TransformButton mobile label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} />{isEnglishUi() ? "Left" : "左转"}</TransformButton>
-        <TransformButton mobile label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} />{isEnglishUi() ? "Right" : "右转"}</TransformButton>
-        <TransformButton mobile label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} />{isEnglishUi() ? "Flip" : "翻转"}</TransformButton>
-        <TransformButton mobile label={labels.reset} onClick={reset}><Scan size={14} />{isEnglishUi() ? "Reset" : "复原"}</TransformButton>
-      </div>
-    </div>,
-    target.mobileSheet,
-  ) : null;
-
-  return <>{desktopPortal}{mobilePortal}</>;
+  const buttons = <>
+    <TransformButton mobile={mobile} label={labels.left} onClick={() => update((attrs) => ({ rotation: normalizeImageRotation(normalizeImageRotation(attrs.rotation) - 90) }))}>
+      <RotateCcw size={14} />{mobile && (english ? "Left" : "左转")}
+    </TransformButton>
+    <TransformButton mobile={mobile} label={labels.right} onClick={() => update((attrs) => ({ rotation: normalizeImageRotation(normalizeImageRotation(attrs.rotation) + 90) }))}>
+      <RotateCw size={14} />{mobile && (english ? "Right" : "右转")}
+    </TransformButton>
+    <TransformButton mobile={mobile} label={labels.flip} active={flipX} onClick={() => update((attrs) => ({ flipX: !normalizeImageFlipX(attrs.flipX) }))}>
+      <FlipHorizontal size={14} />{mobile && (english ? "Flip" : "翻转")}
+    </TransformButton>
+    <TransformButton mobile={mobile} label={labels.reset} onClick={() => update(() => ({ rotation: 0, flipX: false }))}>
+      <Scan size={14} />{mobile && (english ? "Reset" : "复原")}
+    </TransformButton>
+  </>;
+  return mobile ? (
+    <div className="mt-2 grid grid-cols-4 gap-1.5" data-nowen-editor-image-transforms="true" role="group" aria-label={labels.group}>{buttons}</div>
+  ) : <><div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />{buttons}</>;
 }

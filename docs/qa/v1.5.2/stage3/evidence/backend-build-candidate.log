@@ -1,0 +1,6 @@
+
+  dist\index.js  6.8mb
+
+Done in 244ms
+[backend bundle] done in 259ms -> C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js (6.78 MB)
+[backend bundle] external: better-sqlite3, sqlite-vec, sqlite-vec-windows-x64, sqlite-vec-darwin-x64, sqlite-vec-darwin-arm64, sqlite-vec-linux-x64, bonjour-service, unpdf, libheif-js, ffmpeg-static, sharp, @aws-sdk/client-s3

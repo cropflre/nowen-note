@@ -155,3 +155,17 @@ test("keeps full and lite update channels isolated", () => {
     cleanup(fixture.directory);
   }
 });
+
+test("SHA-512 stays identical for empty files, full chunks and a final partial chunk", () => {
+  const crypto = require("node:crypto");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-sha512-stream-"));
+  try {
+    for (const length of [0, 1024 * 1024, 1024 * 1024 + 7]) {
+      const data = Buffer.alloc(length, 0x5a);
+      if (length) data[length - 1] = 0xa5;
+      const file = path.join(directory, `${length}.bin`);
+      fs.writeFileSync(file, data);
+      assert.equal(sha512File(file), crypto.createHash("sha512").update(data).digest("base64"));
+    }
+  } finally { cleanup(directory); }
+});

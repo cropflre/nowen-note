@@ -85,9 +85,49 @@ test.before(async () => {
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(owner, owner, "hash");
   db.prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)").run("photo-book", owner, "照片");
   for (const id of ["photo-note", "private-note"]) db.prepare("INSERT INTO notes (id, userId, notebookId, title, content) VALUES (?, ?, ?, ?, ?)").run(id, owner, "photo-book", id, "{}");
-  app = new Hono(); app.get("/api/attachments/:id", routes.handleDownloadAttachment); app.route("/api/attachments", routes.default);
+  app = new Hono(); app.route("/api/attachment-trash", (await import("../src/routes/attachment-trash")).default);
+  app.get("/api/attachments/:id", routes.handleDownloadAttachment); app.route("/api/attachments", routes.default);
 });
 test.after(() => { schema?.closeDb(); fs.rmSync(tmp, { recursive: true, force: true }); });
+
+test("Live Photo never pairs a trashed video, including a newly analyzed photo", async () => {
+  const db = schema.getDb(), noteId = "trash-new-pair";
+  db.prepare("INSERT INTO notes(id,userId,notebookId,title,content) VALUES(?,?,?,'Pair','{}')").run(noteId,owner,"photo-book");
+  const video = await upload(mov,"pair.mov",noteId);
+  assert.equal((await app.request(`/api/attachments/${video.id}`,{method:"DELETE",headers:{"X-User-Id":owner}})).status,200);
+  const photo = await upload(applePhoto(),"pair.jpg",noteId);
+  const info = await (await app.request(query(photo.url,{media:"info"}))).json();
+  assert.equal(info.motionStatus,"missing-companion");
+  assert.equal(db.prepare("SELECT 1 FROM attachment_media_variants WHERE sourceAttachmentId=? AND kind='original-motion'").get(photo.id),undefined);
+  assert.equal((await app.request(query(photo.url,{variant:"motion-original",download:"1"}))).status,404);
+});
+
+test("cached Live Photo media respects trash, authorization, restoration and confirmed purge", async () => {
+  const db = schema.getDb(), noteId = "trash-cached-pair";
+  db.prepare("INSERT INTO notes(id,userId,notebookId,title,content) VALUES(?,?,?,'Pair','{}')").run(noteId,owner,"photo-book");
+  const photo = await upload(applePhoto(),"pair.jpg",noteId), video = await upload(mov,"pair.mov",noteId);
+  assert.equal((await app.request(query(photo.url,{variant:"motion"}))).status,200);
+  const cache = db.prepare("SELECT storagePath FROM attachment_media_variants WHERE sourceAttachmentId=? AND kind='motion-mp4'").get(photo.id) as {storagePath:string};
+  const share = await app.request("/api/attachments/file-share",{method:"POST",headers:{"X-User-Id":owner,"Content-Type":"application/json"},body:JSON.stringify({attachmentId:photo.id,allowDownload:false})});
+  const shareUrl = (await share.json() as {url:string}).url;
+  assert.equal((await app.request(query(shareUrl,{variant:"motion-original",download:"1"}))).status,403);
+  assert.equal((await app.request(query(`/api/attachments/${photo.id}`,{variant:"motion-original",download:"1"}))).status,404);
+  assert.equal((await app.request(`/api/attachments/${video.id}`,{method:"DELETE",headers:{"X-User-Id":owner}})).status,200);
+  assert.ok(fs.existsSync(path.join(tmp,"attachments",cache.storagePath)),"trash retains bytes for restoration");
+  assert.equal((await (await app.request(query(photo.url,{media:"info"}))).json()).motionStatus,"missing-companion");
+  assert.equal((await app.request(query(photo.url,{variant:"motion"}))).status,404,"cached MP4 must not bypass trash");
+  assert.equal((await app.request(query(photo.url,{variant:"motion-original",download:"1"}))).status,404);
+  const action = (name:string) => app.request(`/api/attachment-trash/${name}`,{method:"POST",headers:{"X-User-Id":owner,"Content-Type":"application/json"},body:JSON.stringify({ids:[video.id],confirmation:"PERMANENTLY_DELETE"})});
+  assert.equal((await action("restore")).status,200);
+  assert.equal((await (await app.request(query(photo.url,{media:"info"}))).json()).motionStatus,"available");
+  assert.deepEqual(Buffer.from(await (await app.request(query(photo.url,{variant:"motion-original",download:"1"}))).arrayBuffer()),mov);
+  await app.request(`/api/attachments/${video.id}`,{method:"DELETE",headers:{"X-User-Id":owner}});
+  assert.equal((await action("purge")).status,200);
+  assert.equal(fs.existsSync(path.join(tmp,"attachments",cache.storagePath)),false,"purge clears dependent motion caches");
+  assert.equal(db.prepare("SELECT 1 FROM attachments WHERE id=?").get(video.id),undefined);
+  assert.equal((await (await app.request(query(photo.url,{media:"info"}))).json()).motionStatus,"missing-companion");
+  assert.equal((await app.request(query(photo.url,{variant:"motion-original",download:"1"}))).status,404);
+});
 
 test("按真实字节识别 JPEG、HEIF、MOV，Apple 原件的 UUID 对应而非文件名对应", () => {
   assert.equal(analyzeModernMedia(jpeg).mimeType, "image/jpeg");
@@ -152,6 +192,9 @@ test("动态照片存原件、懒转 H.264/AAC、缓存复用，Range、If-Range
   const cache = schema.getDb().prepare("SELECT storagePath FROM attachment_media_variants WHERE sourceAttachmentId = ? AND kind = 'motion-mp4'").get(item.id) as { storagePath: string };
   assert.ok(fs.existsSync(path.join(tmp, "attachments", cache.storagePath)));
   const removed = await app.request(`/api/attachments/${item.id}`, { method: "DELETE", headers: { "X-User-Id": owner } }); assert.equal(removed.status, 200);
+  assert.ok(fs.existsSync(path.join(tmp, "attachments", cache.storagePath)), "soft deletion retains recovery bytes");
+  const purged = await app.request("/api/attachment-trash/purge", { method: "POST", headers: { "X-User-Id": owner, "Content-Type": "application/json" }, body: JSON.stringify({ ids: [item.id], confirmation: "PERMANENTLY_DELETE" }) });
+  assert.equal(purged.status, 200);
   assert.equal(fs.existsSync(path.join(tmp, "attachments", cache.storagePath)), false);
   assert.equal(schema.getDb().prepare("SELECT 1 FROM attachment_media_variants WHERE sourceAttachmentId = ?").get(item.id), undefined);
 });

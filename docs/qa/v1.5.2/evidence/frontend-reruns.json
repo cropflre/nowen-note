@@ -1,0 +1,325 @@
+[
+  {
+    "file": "src/components/__tests__/SyncStatusBadge.mobile.test.tsx",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/SyncStatusBadge.mobile.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\SyncStatusBadge.mobile.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 9489,
+    "total": 4,
+    "passed": 2,
+    "failed": 2
+  },
+  {
+    "file": "src/components/settings/__tests__/ServerConnectionSettings.test.tsx",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/settings/__tests__/ServerConnectionSettings.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\ServerConnectionSettings.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1225,
+    "total": 3,
+    "passed": 2,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/removedConnectionFeatures.test.ts",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/removedConnectionFeatures.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\removedConnectionFeatures.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1222,
+    "total": 5,
+    "passed": 3,
+    "failed": 2
+  },
+  {
+    "file": "src/lib/__tests__/androidImmersiveEditorContract.test.ts",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/__tests__/androidImmersiveEditorContract.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\androidImmersiveEditorContract.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1213,
+    "total": 10,
+    "passed": 8,
+    "failed": 2
+  },
+  {
+    "file": "src/hooks/__tests__/useAttachmentVideoRenderSource.test.tsx",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/hooks/__tests__/useAttachmentVideoRenderSource.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\useAttachmentVideoRenderSource.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1350,
+    "total": 6,
+    "passed": 3,
+    "failed": 3
+  },
+  {
+    "file": "src/lib/__tests__/proxyCompatibility.test.ts",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/__tests__/proxyCompatibility.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\proxyCompatibility.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1195,
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/ShareModalClipboard.test.ts",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/ShareModalClipboard.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\ShareModalClipboard.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 1132,
+    "total": 2,
+    "passed": 1,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\LoginPageLocalDesktopLogin.test-r1.json"
+    ],
+    "code": 1,
+    "durationMs": 3188,
+    "total": 4,
+    "passed": 3,
+    "failed": 1
+  },
+  {
+    "file": "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+    "round": 1,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\cryptoV2.test-r1.json"
+    ],
+    "code": 0,
+    "durationMs": 5720,
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  {
+    "file": "src/lib/__tests__/proxyCompatibility.test.ts",
+    "round": 2,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/__tests__/proxyCompatibility.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\proxyCompatibility.test-r2.json"
+    ],
+    "code": 1,
+    "durationMs": 1166,
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/ShareModalClipboard.test.ts",
+    "round": 2,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/ShareModalClipboard.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\ShareModalClipboard.test-r2.json"
+    ],
+    "code": 1,
+    "durationMs": 1132,
+    "total": 2,
+    "passed": 1,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+    "round": 2,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\LoginPageLocalDesktopLogin.test-r2.json"
+    ],
+    "code": 1,
+    "durationMs": 3110,
+    "total": 4,
+    "passed": 3,
+    "failed": 1
+  },
+  {
+    "file": "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+    "round": 2,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\cryptoV2.test-r2.json"
+    ],
+    "code": 0,
+    "durationMs": 5879,
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  },
+  {
+    "file": "src/lib/__tests__/proxyCompatibility.test.ts",
+    "round": 3,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/__tests__/proxyCompatibility.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\proxyCompatibility.test-r3.json"
+    ],
+    "code": 1,
+    "durationMs": 1201,
+    "total": 10,
+    "passed": 9,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/ShareModalClipboard.test.ts",
+    "round": 3,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/ShareModalClipboard.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\ShareModalClipboard.test-r3.json"
+    ],
+    "code": 1,
+    "durationMs": 1131,
+    "total": 2,
+    "passed": 1,
+    "failed": 1
+  },
+  {
+    "file": "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+    "round": 3,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\LoginPageLocalDesktopLogin.test-r3.json"
+    ],
+    "code": 1,
+    "durationMs": 3158,
+    "total": 4,
+    "passed": 3,
+    "failed": 1
+  },
+  {
+    "file": "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+    "round": 3,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "src/lib/encryptedNotes/__tests__/cryptoV2.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--reporter=json",
+      "--outputFile=C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\docs\\qa\\v1.5.2\\evidence\\cryptoV2.test-r3.json"
+    ],
+    "code": 0,
+    "durationMs": 6046,
+    "total": 11,
+    "passed": 11,
+    "failed": 0
+  }
+]

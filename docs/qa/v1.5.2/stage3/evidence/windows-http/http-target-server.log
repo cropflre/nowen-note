@@ -1,0 +1,26 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2561
+📖 OpenAPI 文档: http://localhost:2561/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2561/ws
+[discovery] mDNS publish failed (服务将继续，仅无法自动发现): Cannot find module 'fast-deep-equal/es6'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\node_modules\bonjour-service\dist\lib\mdns-server.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\node_modules\bonjour-service\dist\index.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\dist\index.js
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2561
+📖 OpenAPI 文档: http://localhost:2561/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2561/ws
+[discovery] mDNS publish failed (服务将继续，仅无法自动发现): Cannot find module 'fast-deep-equal/es6'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\node_modules\bonjour-service\dist\lib\mdns-server.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\node_modules\bonjour-service\dist\index.js
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\backend\dist\index.js

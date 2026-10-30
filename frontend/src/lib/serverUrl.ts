@@ -210,8 +210,8 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
 export function isNativeClientRuntime(): boolean {
   if (typeof window === "undefined") return false;
   const runtime = window as Window & { nowenDesktop?: { isDesktop?: boolean }; Capacitor?: { isNativePlatform?: () => boolean; platform?: string } };
-  return window.location.protocol === "file:"
-    || window.location.protocol === "capacitor:"
+  return window.location?.protocol === "file:"
+    || window.location?.protocol === "capacitor:"
     || !!runtime.nowenDesktop?.isDesktop
     || !!runtime.Capacitor?.isNativePlatform?.()
     || (!!runtime.Capacitor?.platform && runtime.Capacitor.platform !== "web");

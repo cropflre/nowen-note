@@ -18,6 +18,7 @@ import {
   isDesktop,
   isPortableDesktop,
   onUpdaterStatus,
+  openMicrosoftStoreUpdates,
   quitAndInstall,
 } from "@/lib/desktopBridge";
 import {
@@ -117,6 +118,8 @@ function UpdateSettingsAddon({
   installOnQuit,
   lastCheck,
   snapshot,
+  storeManaged,
+  onOpenStoreUpdates,
   onAutoCheckChange,
   onInstallOnQuitChange,
 }: {
@@ -124,9 +127,27 @@ function UpdateSettingsAddon({
   installOnQuit: boolean;
   lastCheck: string;
   snapshot: DesktopUpdateSnapshot | null;
+  storeManaged: boolean;
+  onOpenStoreUpdates: () => void;
   onAutoCheckChange: (next: boolean) => void;
   onInstallOnQuitChange: (next: boolean) => void;
 }) {
+  if (storeManaged) return (
+    <div data-nowen-update-settings="true" data-update-provider="microsoft-store"
+      className="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+        <ShieldCheck size={13} /> Microsoft Store 自动更新
+      </div>
+      <p className="mt-1.5 text-[11px] leading-5 text-zinc-500 dark:text-zinc-400">
+        商店版由 Microsoft Store 管理安装和更新。这里无需启用 GitHub 安装包下载或退出安装。
+        可在微软商店的“库”中检查更新，更新时间以商店设置和发布状态为准。
+      </p>
+      <button type="button" onClick={onOpenStoreUpdates}
+        className="mt-2 h-9 rounded-lg border border-app-border px-3 text-xs font-medium text-tx-primary hover:bg-app-hover">
+        打开 Microsoft Store 更新
+      </button>
+    </div>
+  );
   return (
     <div
       data-nowen-update-settings="true"
@@ -200,6 +221,7 @@ export default function DesktopUpdateCenter() {
   const [snapshot, setSnapshot] = useState<DesktopUpdateSnapshot | null>(null);
   const snapshotRef = useRef<DesktopUpdateSnapshot | null>(null);
   const [currentVersion, setCurrentVersion] = useState("");
+  const [storeManaged, setStoreManaged] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
   const [progressMinimized, setProgressMinimized] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -217,6 +239,7 @@ export default function DesktopUpdateCenter() {
   const updateSnapshot = useCallback((next: DesktopUpdateSnapshot) => {
     snapshotRef.current = next;
     setSnapshot(next);
+    if (next.status === "store-managed") setStoreManaged(true);
     const phase = resolveUpdatePhase(next);
 
     if (phase === "checking" || phase === "up-to-date" || phase === "update-available" || phase === "error") {
@@ -263,6 +286,7 @@ export default function DesktopUpdateCenter() {
     let cancelled = false;
     void getAppInfo().then((info) => {
       if (!cancelled && info?.version) setCurrentVersion(info.version);
+      if (!cancelled && info?.distribution === "microsoft-store") setStoreManaged(true);
     });
     const off = onUpdaterStatus((payload) => updateSnapshot(payload as DesktopUpdateSnapshot));
     return () => {
@@ -272,7 +296,7 @@ export default function DesktopUpdateCenter() {
   }, [desktop, updateSnapshot]);
 
   useEffect(() => {
-    if (!desktop || portable || !autoCheck) return;
+    if (!desktop || portable || storeManaged || !autoCheck) return;
     const timer = window.setTimeout(() => {
       void checkForUpdates().then((result) => {
         const returnedState = (result as unknown as { state?: DesktopUpdateSnapshot }).state;
@@ -280,7 +304,7 @@ export default function DesktopUpdateCenter() {
       });
     }, 5500);
     return () => window.clearTimeout(timer);
-  }, [desktop, portable, autoCheck, updateSnapshot]);
+  }, [desktop, portable, storeManaged, autoCheck, updateSnapshot]);
 
   // 复用现有“设置 → 关于”版本卡，不修改大体量 SettingsModal：在该卡片尾部挂载偏好项。
   useEffect(() => {
@@ -383,6 +407,8 @@ export default function DesktopUpdateCenter() {
 
   const settingsPortal = settingsHost ? createPortal(
     <UpdateSettingsAddon
+      storeManaged={storeManaged}
+      onOpenStoreUpdates={() => { void openMicrosoftStoreUpdates(); }}
       autoCheck={autoCheck}
       installOnQuit={installOnQuit}
       lastCheck={lastCheck}

@@ -12,6 +12,17 @@
   max-width: 100%;
 }
 
+/* Make the entire visible date shortcut a native picker target as well. */
+[data-daily-records-date-picker] input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
 /*
  * Card actions are a core operation surface. Keep them reachable by default on
  * touch/coarse-pointer devices and narrow containers. Desktop mouse users still
@@ -60,8 +71,8 @@
     max-width: 100%;
   }
 
-  [data-daily-records-shortcuts] {
-    scroll-padding-inline: 1rem;
+  [data-daily-records-shortcut-scroll] {
+    scroll-padding-inline: 0.25rem;
     overscroll-behavior-inline: contain;
   }
 

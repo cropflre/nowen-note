@@ -1,14 +1,24 @@
 import type { Task } from "@/types";
+import { parseISO } from "date-fns";
+
+export function parseTaskDate(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(" ","T");
+  if (Number(normalized.slice(0,4)) < 1) return null;
+  if (!/^\d{4}-\d{2}-\d{2}(?:T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?)?$/.test(normalized)) return null;
+  const date = parseISO(normalized);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
 
 export function getDueTimeValue(dueAt: string | null | undefined): string {
-  if (!dueAt) return "";
-  const timePart = dueAt.replace(" ", "T").split("T")[1] || "";
+  if (!dueAt || !parseTaskDate(dueAt)) return "";
+  const timePart = dueAt.trim().replace(" ", "T").split("T")[1] || "";
   return timePart.slice(0, 5);
 }
 
 export function getDateValue(value: string | null | undefined): string {
-  if (!value) return "";
-  return value.replace(" ", "T").split("T")[0];
+  if (!value || !parseTaskDate(value)) return "";
+  return value.trim().replace(" ", "T").split("T")[0];
 }
 
 function hasExplicitTaskTime(value: string | null | undefined): boolean {
@@ -75,14 +85,13 @@ export function buildDueDatePatch(task: Task, nextDueDate: string): Partial<Task
   const patch: Partial<Task> = { dueDate: nextDueDate };
   const timeValue = getDueTimeValue(task.dueAt);
   if (timeValue) patch.dueAt = buildDueAtFromDateAndTime(nextDueDate, timeValue);
+  else if (task.dueAt && !parseTaskDate(task.dueAt)) patch.dueAt = null;
   return patch;
 }
 
 /** Get the effective date key for a task (dueAt > dueDate) */
 export function getTaskDateKey(task: Task): string | null {
-  if (task.dueAt) return task.dueAt.split("T")[0];
-  if (task.dueDate) return task.dueDate;
-  return null;
+  return getDateValue(task.dueAt) || getDateValue(task.dueDate) || null;
 }
 
 function getComparableDueTime(task: Task): number {
@@ -116,12 +125,13 @@ export function moveTaskToDate(task: Task, targetDateKey: string): Partial<Task>
   if (currentKey === targetDateKey) return null;
 
   const patch: Partial<Task> = {};
-  if (task.dueAt) {
-    const timePart = task.dueAt.split("T")[1] || "00:00:00";
+  if (task.dueAt && parseTaskDate(task.dueAt)) {
+    const timePart = task.dueAt.trim().replace(" ","T").split("T")[1] || "00:00:00";
     patch.dueAt = `${targetDateKey}T${timePart}`;
     patch.dueDate = targetDateKey;
   } else {
     patch.dueDate = targetDateKey;
+    if (task.dueAt) patch.dueAt = null;
   }
   return patch;
 }

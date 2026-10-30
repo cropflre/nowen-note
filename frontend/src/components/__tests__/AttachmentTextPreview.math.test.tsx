@@ -6,7 +6,10 @@ import AttachmentPreview from "@/components/attachmentPreview/AttachmentPreview"
 
 const katexMocks = vi.hoisted(() => ({ renderKatex: vi.fn() }));
 vi.mock("@/lib/katexRenderer", () => ({ renderKatex: katexMocks.renderKatex }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (value: string) => value }) }));
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...await importOriginal<typeof import("react-i18next")>(),
+  useTranslation: () => ({ t: (value: string) => value }),
+}));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

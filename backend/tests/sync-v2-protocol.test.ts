@@ -116,7 +116,7 @@ test("V2 使用独立的 feed 表，与 V1 互不写入", () => {
 // Change Feed 覆盖六类实体
 // ---------------------------------------------------------------------------
 
-test("六类实体的写入都进入 Change Feed", async () => {
+test("六类实体写入和附件整理元数据都进入 Change Feed", async () => {
   const db = getDb();
   clearFeed();
 
@@ -145,7 +145,7 @@ test("六类实体的写入都进入 Change Feed", async () => {
   ).all() as Array<{ entityType: string }>).map((r) => r.entityType);
 
   assert.deepEqual(types, [
-    "attachment", "favorite", "note", "note_tag", "notebook", "tag",
+    "attachment", "attachment_organization", "favorite", "note", "note_tag", "notebook", "tag",
   ]);
 });
 

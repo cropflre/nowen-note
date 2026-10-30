@@ -4,6 +4,9 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { Diary } from "@/types";
 import { getCurrentWorkspace } from "@/lib/api";
+import { formatServerTime } from "@/lib/dateTime";
+import type { HolidayDay } from "@/lib/holidayCalendar";
+import { HolidayDayLabel } from "@/components/calendar/HolidayDayLabel";
 
 function DiarySummaryRow({
   item,
@@ -24,7 +27,7 @@ function DiarySummaryRow({
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-tx-tertiary mt-0.5">
           {item.mood && <span>{item.mood}</span>}
-          <span>{item.createdAt?.slice(11, 16)}</span>
+          <span>{formatServerTime(item.createdAt, { hour: "2-digit", minute: "2-digit" }, "")}</span>
           {hasImages && <Image size={10} />}
           {hasVideo && <Video size={10} />}
           {(item.creatorName && getCurrentWorkspace() !== "personal") && (
@@ -43,11 +46,13 @@ function DiarySummaryRow({
 }
 
 export default function SayCalendarDayPanel({
+  holiday,
   dateKey,
   items,
   onWriteEntry,
   onLocateItem,
 }: {
+  holiday?: HolidayDay;
   dateKey: string;
   items: Diary[];
   onWriteEntry: () => void;
@@ -81,6 +86,8 @@ export default function SayCalendarDayPanel({
           {t("diary.calendarWriteEntry")}
         </button>
       </div>
+
+      <HolidayDayLabel day={holiday} />
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">

@@ -112,13 +112,37 @@ export class NotebookScopePolicy {
   }
 
   assertWritable(operation = "写入"): void {
-    if (!this.enabled || this.accessMode === "read-write") return;
+    if (this.accessMode === "read-write") return;
     throw new ScopeDeniedError(`当前 MCP_ACCESS_MODE=read-only，禁止${operation}`);
   }
 
   filterNotebooks<T extends NotebookLike>(items: T[]): T[] {
     if (!this.enabled) return items;
     return items.filter((item) => this.isNotebookAllowed(item.id));
+  }
+
+  /** Enforce nearest-notebook scope for mixed knowledge-tree nodes. */
+  filterKnowledgeTree<T extends { id: string; parentId?: string | null; resourceType: string; resourceId: string }>(
+    nodes: T[], includeDeletedDescendants = false,
+  ): T[] {
+    if (!this.enabled) return nodes;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const allowed = (node: T): boolean => {
+      let current: T | undefined = node;
+      const seen = new Set<string>();
+      while (current && !seen.has(current.id)) {
+        seen.add(current.id);
+        if (current.resourceType === "notebook") {
+          if (this.isNotebookAllowed(current.resourceId)) return true;
+          // Only recycle-bin operations may traverse a previously deleted
+          // descendant whose ID is absent from the live notebook catalog.
+          if (!includeDeletedDescendants || !this.includeDescendants) return false;
+        }
+        current = current.parentId ? byId.get(current.parentId) : undefined;
+      }
+      return false;
+    };
+    return nodes.filter(allowed);
   }
 
   filterNotes<T extends { notebookId?: string | null }>(items: T[]): T[] {

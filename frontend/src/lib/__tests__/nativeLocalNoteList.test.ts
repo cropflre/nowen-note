@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NativeLocalRepository } from "../nativeLocalRepository";
+import { MOBILE_SYNC_STATUS_CHANGED_EVENT } from "../mobileSyncStatus";
+import { readNativeNoteSyncReceipt, nativeReceiptKey } from "../mobileNoteSyncReceipt";
 import type { NativeDatabase } from "../nativeDatabase";
 
 interface SqliteDatabase {
@@ -53,6 +55,40 @@ async function insertNote(id: string, content = "full body", contentText = "prev
   await db.run(`INSERT INTO notes (id,userId,notebookId,title,content,contentText,contentFormat,colorMark,isPinned,isFavorite,version,sortOrder,createdAt,updatedAt)
     VALUES (?,'user','book',?,?,?,'markdown','blue',1,1,7,3,'created','updated')`, [id,title,content,contentText]);
 }
+
+describe("PR #821 native committed-write receipt notifications", () => {
+  it("refreshes both Markdown and rich-text notes only after new Outbox commits", async () => {
+    await db.run("INSERT INTO sync_profiles (id,name,serverUrl,remoteUserId,enabled,createdAt,updatedAt) VALUES ('profile','A','https://example.com','user',1,'now','now')");
+    await db.run("INSERT INTO sync_devices (profileId,deviceId,platform,createdAt) VALUES ('profile','device','android','now')");
+    for (const format of ["markdown", "tiptap-json"]) {
+    const noteId = "receipt-" + format;
+    await insertNote(noteId);
+    await db.run("UPDATE notes SET contentFormat=? WHERE id=?", [format, noteId]);
+    await db.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)", [
+      nativeReceiptKey("profile", noteId),
+      JSON.stringify({ mutationId:"previous-ack", serverVersion:7 }), "now",
+    ]);
+    expect((await readNativeNoteSyncReceipt(db, "profile", noteId)).phase).toBe("confirmed");
+    const observed: Array<Promise<string>> = [];
+    const onChanged = () => observed.push(
+      readNativeNoteSyncReceipt(db, "profile", noteId).then((result) => result.phase),
+    );
+    window.addEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onChanged);
+    try {
+      await repository.notes.update(noteId, { content:"new local text" });
+      expect(observed).toHaveLength(1);
+      expect(await observed[0]).toBe("pending");
+      const rows = await db.query<{mutationId:string}>(
+        "SELECT mutationId FROM sync_outbox WHERE entityType='note' AND entityId=?", [noteId],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].mutationId).not.toBe("previous-ack");
+    } finally {
+      window.removeEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onChanged);
+    }
+    }
+  });
+});
 
 describe("native note list bridge payloads", () => {
   it("bounds raw list results for many large notes while detail reads preserve the entire body", async () => {

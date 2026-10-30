@@ -1,6 +1,8 @@
+import { filterOrganizedAssets, parseAssetFilters } from "../services/asset-organization.js";
 import type { Context, Next } from "hono";
 
 import { getDb } from "../db/schema.js";
+import { fileExplorerFilters } from "../services/file-explorer-filters.js";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url.js";
 import {
   hasKnowledgeCapability,
@@ -139,13 +141,13 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
         SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size,
           EXISTS (SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id) AS isReferenced
         FROM attachments a
-        WHERE a.workspaceId = ?
+        WHERE a.trashedAt IS NULL AND a.workspaceId = ?
       `).all(workspaceId)
     : db.prepare(`
         SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size,
           EXISTS (SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id) AS isReferenced
         FROM attachments a
-        WHERE a.workspaceId IS NULL AND a.userId = ?
+        WHERE a.trashedAt IS NULL AND a.workspaceId IS NULL AND a.userId = ?
       `).all(userId);
 
   const byMime = new Map<string, { count: number; bytes: number }>();
@@ -243,13 +245,13 @@ function buildUnreferencedSet(scope: FileScope, userId: string): Set<string> {
         SELECT a.id, a.createdAt
         FROM attachments a
         INNER JOIN notes n ON n.id = a.noteId
-        WHERE a.workspaceId = ?
+        WHERE a.trashedAt IS NULL AND a.workspaceId = ?
       `).all(scope.workspaceId!)
     : db.prepare(`
         SELECT a.id, a.createdAt
         FROM attachments a
         INNER JOIN notes n ON n.id = a.noteId
-        WHERE a.userId = ? AND a.workspaceId IS NULL
+        WHERE a.trashedAt IS NULL AND a.userId = ? AND a.workspaceId IS NULL
       `).all(userId)) as Array<{ id: string; createdAt: string }>;
 
   const ids = new Set<string>();
@@ -316,6 +318,9 @@ function visibleFileList(c: Context, userId: string) {
   const pageSize = normalizePositiveInteger(c.req.query("pageSize"), 50, 200);
   const whereParts: string[] = [];
   const params: Array<string | number> = [];
+  const explorer = fileExplorerFilters(c.req.query("fileKind"), c.req.query("createdAfter"), c.req.query());
+  whereParts.push(...explorer.conditions);
+  params.push(...explorer.params);
 
   if (scope.scope === "workspace") {
     whereParts.push("a.workspaceId = ?");
@@ -336,8 +341,8 @@ function visibleFileList(c: Context, userId: string) {
     params.push(notebookId);
   }
   if (q) {
-    whereParts.push("a.filename LIKE ? COLLATE NOCASE");
-    params.push(`%${q}%`);
+    whereParts.push("(a.filename LIKE ? COLLATE NOCASE OR EXISTS (SELECT 1 FROM asset_descriptions ad WHERE ad.attachmentId=a.id AND ad.description LIKE ? COLLATE NOCASE) OR EXISTS (SELECT 1 FROM asset_tag_relations ar JOIN asset_tags at ON at.id=ar.tagId WHERE ar.attachmentId=a.id AND at.name LIKE ? COLLATE NOCASE))");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (noteId) {
     whereParts.push(
@@ -385,7 +390,7 @@ function visibleFileList(c: Context, userId: string) {
     ORDER BY ${resolveOrderBy(c.req.query("sort") || "created_desc")}
   `).all(...params) as FileListDbRow[];
 
-  const accessCache = new Map<string, { canView: boolean; canDownload: boolean }>();
+  const accessCache = new Map<string, { canView: boolean; canDownload: boolean; canWrite: boolean }>();
   const permissions = (row: FileListDbRow) => {
     const cached = accessCache.get(row.id);
     if (cached) return cached;
@@ -393,16 +398,18 @@ function visibleFileList(c: Context, userId: string) {
     const resolved = {
       canView: access.canView,
       canDownload: access.canDownload,
+      canWrite: row.userId === userId && access.canWrite,
     };
     accessCache.set(row.id, resolved);
     return resolved;
   };
 
-  const visibleRows = rows.filter((row) => permissions(row).canView);
+  const visibleRows = filterOrganizedAssets(rows.filter((row) => permissions(row).canView), parseAssetFilters(c.req.query()), userId);
   const start = (page - 1) * pageSize;
   const pageRows = visibleRows.slice(start, start + pageSize);
   const items = pageRows.map((row) => {
     const output = toFileOut(row);
+    output.canManage = permissions(row).canWrite;
     if (permissions(row).canDownload) return { ...output, downloadAllowed: true };
     delete output.url;
     delete output.thumbnailUrl;

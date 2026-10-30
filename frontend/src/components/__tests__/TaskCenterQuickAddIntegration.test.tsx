@@ -2,6 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TaskCenter from "../TaskCenter";
+import type { ContextMenuItem } from "../ContextMenu";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -17,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
     createTaskReminder: vi.fn(),
     toggleTask: vi.fn(),
     deleteTask: vi.fn(),
+    archiveTask: vi.fn(),
     updateTask: vi.fn(),
     createTaskDependency: vi.fn(),
     deleteTaskDependency: vi.fn(),
@@ -38,6 +40,9 @@ const apiMocks = vi.hoisted(() => ({
 const i18nMocks = vi.hoisted(() => ({
     t: (key: string) => key,
 }));
+
+const reportExport = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/taskReportExport", () => ({ exportTaskReport: reportExport }));
 
 vi.mock("react-i18next", () => ({
     useTranslation: () => ({ t: i18nMocks.t, i18n: { language: "zh-CN" } }),
@@ -63,6 +68,7 @@ vi.mock("@/lib/api", () => ({
         createTaskReminder: apiMocks.createTaskReminder,
         toggleTask: apiMocks.toggleTask,
         deleteTask: apiMocks.deleteTask,
+        archiveTask: apiMocks.archiveTask,
         updateTask: apiMocks.updateTask,
         createTaskDependency: apiMocks.createTaskDependency,
         deleteTaskDependency: apiMocks.deleteTaskDependency,
@@ -80,6 +86,12 @@ vi.mock("@/lib/api", () => ({
             bind: apiMocks.taskAttachmentsBind,
         },
     },
+}));
+
+vi.mock("../ContextMenu", () => ({
+    default: ({ isOpen, items, menuRef, onAction, header }: { isOpen: boolean; items: ContextMenuItem[]; menuRef: React.RefObject<HTMLDivElement>; onAction: (id: string) => void; header?: string }) => isOpen ? <div role="menu" ref={menuRef} aria-label={header}>
+        {items.flatMap(item => item.children ? [item, ...item.children] : [item]).filter(item => !item.separator).map(item => <button key={item.id} disabled={item.disabled} onClick={() => onAction(item.id)}>{item.label}</button>)}
+    </div> : null,
 }));
 
 vi.mock("../tasks/useReminderNotifier", () => ({
@@ -612,7 +624,7 @@ describe("TaskCenter quick-add integration", () => {
         let workspacePhase = 0;
 
         apiMocks.getTasks.mockImplementation(async (filter?: string) => {
-            if (filter === "all") {
+            if (filter === "all" || filter === "history") {
                 return workspacePhase === 0
                     ? [makeTask({ id: "task-old", title: "旧工作区任务", completedAt: "2026-07-08T09:00:00" })]
                     : [makeTask({ id: "task-new", title: "新工作区任务", completedAt: "2026-07-09T09:00:00" })];
@@ -674,4 +686,99 @@ describe("TaskCenter quick-add integration", () => {
         });
         expect(apiMocks.getHabitCheckinLog).toHaveBeenCalledTimes(2);
     });
+
+    async function openTaskMenu(id: string, keyboard = false) {
+        await import("../tasks/TaskContextMenu");
+        const row = host.querySelector<HTMLElement>(`[data-task-context-id="${id}"]`)!;
+        await act(async () => {
+            if (keyboard) row.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }));
+            else row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
+            await flush();
+        });
+        expect(host.querySelector("[role=menu]")).not.toBeNull();
+    }
+    async function chooseTaskAction(label: string) {
+        const button = Array.from(host.querySelectorAll<HTMLButtonElement>("[role=menu] button")).find(button => button.textContent === label)!;
+        expect(button).toBeDefined();
+        await act(async () => { button.click(); await flush(); });
+    }
+
+    it("right-click completes only the clicked task without creating another task", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask({ id: "first" }), makeTask({ id: "second" })]);
+        apiMocks.toggleTask.mockResolvedValue({ task: makeTask({ id: "second", isCompleted: 1, status: "done" }) });
+        await renderTaskCenter(root);
+        await openTaskMenu("second");
+        await chooseTaskAction("tasks.contextMenu.complete");
+        expect(apiMocks.toggleTask).toHaveBeenCalledOnce();
+        expect(apiMocks.toggleTask).toHaveBeenCalledWith("second");
+        expect(apiMocks.createTask).not.toHaveBeenCalled();
+        expect(host.querySelector("[role=menu]")).toBeNull();
+    });
+
+    it("keyboard context menu updates priority through the existing task API", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask()]);
+        apiMocks.updateTask.mockResolvedValue({ task: makeTask({ priority: 3 }) });
+        await renderTaskCenter(root);
+        await openTaskMenu("task-1", true);
+        await chooseTaskAction("tasks.high");
+        expect(apiMocks.updateTask).toHaveBeenCalledOnce();
+        expect(apiMocks.updateTask).toHaveBeenCalledWith("task-1", { priority: 3 });
+    });
+
+    it.each(["xlsx", "md"])("exports the clicked subtask as %s without exporting its parent", async format => {
+        apiMocks.getTasks.mockResolvedValue([makeTask({ id: "parent" }), makeTask({ id: "child", parentId: "parent" })]);
+        await renderTaskCenter(root);
+        const expand = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(button => button.title === "tasks.expand");
+        await act(async () => { expand?.click(); await flush(); });
+        await openTaskMenu("child");
+        await chooseTaskAction(format === "xlsx" ? "tasks.report.exportExcel" : "tasks.report.exportMarkdown");
+        expect(reportExport).toHaveBeenLastCalledWith(format, expect.any(Function), "child");
+        expect(host.querySelector("[role=menu]")).toBeNull();
+    });
+
+    it("archived task menu restores the task tree and omits editing actions", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask({ archivedAt: "archived", isCompleted: 1 })]);
+        apiMocks.archiveTask.mockResolvedValue({ success: true });
+        await renderTaskCenter(root);
+        await openTaskMenu("task-1");
+        expect(host.querySelector("[role=menu]")!.textContent).not.toContain("tasks.contextMenu.reopen");
+        expect(host.querySelector("[role=menu]")!.textContent).not.toContain("tasks.addChild");
+        await chooseTaskAction("tasks.lifecycle.restore");
+        expect(apiMocks.archiveTask).toHaveBeenCalledOnce();
+        expect(apiMocks.archiveTask).toHaveBeenCalledWith("task-1", false);
+        expect(apiMocks.updateTask).not.toHaveBeenCalled();
+    });
+
+    it("canceling delete leaves the task untouched", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask()]);
+        const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+        try {
+            await renderTaskCenter(root);
+            await openTaskMenu("task-1");
+            await chooseTaskAction("tasks.deleteTask");
+            expect(confirm).toHaveBeenCalledOnce();
+            expect(apiMocks.deleteTask).not.toHaveBeenCalled();
+            expect(host.querySelector('[data-task-context-id="task-1"]')).not.toBeNull();
+        } finally { confirm.mockRestore(); }
+    });
+
+    it("switching workspace closes the context menu before any action can run", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask()]);
+        await renderTaskCenter(root);
+        await openTaskMenu("task-1");
+        await act(async () => { window.dispatchEvent(new Event("nowen:workspace-changed")); await flush(); });
+        expect(host.querySelector("[role=menu]")).toBeNull();
+        expect(apiMocks.toggleTask).not.toHaveBeenCalled();
+        expect(apiMocks.deleteTask).not.toHaveBeenCalled();
+    });
+
+    it("does not offer archiving while a loaded descendant is still incomplete", async () => {
+        apiMocks.getTasks.mockResolvedValue([makeTask({ isCompleted: 1 }), makeTask({ id: "child", parentId: "task-1" })]);
+        await renderTaskCenter(root);
+        await openTaskMenu("task-1");
+        const archive = Array.from(host.querySelectorAll<HTMLButtonElement>("[role=menu] button")).find(button => button.textContent === "tasks.lifecycle.archive")!;
+        expect(archive.disabled).toBe(true);
+        expect(apiMocks.archiveTask).not.toHaveBeenCalled();
+    });
+
 });

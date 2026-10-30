@@ -1,3 +1,5 @@
+import { ENCRYPTED_NOTE_V2_FORMAT, parseEncryptedContentV2 } from "./encryptedContentV2.js";
+
 export const ENCRYPTED_NOTE_FORMAT = "encrypted-note-v1";
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_ENVELOPE_CHARACTERS = Math.ceil((MAX_PAYLOAD_BYTES + 16) / 3) * 4 + 2048;
@@ -57,16 +59,22 @@ export function guardEncryptedNoteMutation(body: Record<string, any>, current?: 
   const wasEncrypted = isEncryptedNoteFormat(current?.contentFormat);
   const encrypted = wasEncrypted || isEncryptedNoteFormat(body.contentFormat);
   if (!encrypted) return;
-  if (body.contentFormat !== undefined && body.contentFormat !== ENCRYPTED_NOTE_FORMAT) throw new EncryptedNotePayloadError();
+  if (body.contentFormat !== undefined && ![ENCRYPTED_NOTE_FORMAT, ENCRYPTED_NOTE_V2_FORMAT].includes(body.contentFormat)) throw new EncryptedNotePayloadError();
   if (current && !wasEncrypted) throw new EncryptedNotePayloadError();
+  if (current && body.contentFormat !== undefined && body.contentFormat !== current.contentFormat) throw new EncryptedNotePayloadError();
   if (body.contentText !== undefined && body.contentText !== "") throw new EncryptedNotePayloadError();
   if (body.content !== undefined || !current) {
     // An old client cannot overwrite an encrypted note through an unmarked whole-save.
-    if (body.contentFormat !== ENCRYPTED_NOTE_FORMAT) throw new EncryptedNotePayloadError();
-    const next = parseEncryptedNote(body.content);
+    if (![ENCRYPTED_NOTE_FORMAT, ENCRYPTED_NOTE_V2_FORMAT].includes(body.contentFormat)) throw new EncryptedNotePayloadError();
+    const parse = body.contentFormat === ENCRYPTED_NOTE_V2_FORMAT ? parseEncryptedContentV2 : parseEncryptedNote;
+    const next = parse(body.content);
     if (current) {
-      const previous = parseEncryptedNote(current.content);
+      const previous = parse(current.content);
       if (next.objectId !== previous.objectId || next.originalFormat !== previous.originalFormat) throw new EncryptedNotePayloadError();
+      if (body.contentFormat === ENCRYPTED_NOTE_V2_FORMAT) {
+        const nextV2 = parseEncryptedContentV2(body.content), previousV2 = parseEncryptedContentV2(current.content);
+        if (nextV2.keyEpoch !== previousV2.keyEpoch || nextV2.encryptionEpoch !== previousV2.encryptionEpoch) throw new EncryptedNotePayloadError();
+      }
     }
     body.contentText = "";
   }

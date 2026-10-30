@@ -1,11 +1,11 @@
 import type { Context, Next } from "hono";
 import { getDb } from "../db/schema";
-import { hasPermission, resolveNotePermission } from "../middleware/acl";
+import { resolveFileAttachmentAccess, type FileAttachmentAccessRow } from "../services/fileAttachmentAccess";
 import { parseSingleHttpRange } from "../lib/http-range";
 import { inferVideoMime } from "../lib/media-mime";
 import { getAttachmentSize, readAttachmentRange } from "../services/attachment-storage";
 
-interface MediaAttachmentRow {
+interface MediaAttachmentRow extends FileAttachmentAccessRow {
   id: string;
   noteId: string;
   mimeType: string;
@@ -38,8 +38,7 @@ async function authorizeMediaRange(c: Context, row: MediaAttachmentRow): Promise
   }
 
   if (row.noteId && userId) {
-    const { permission } = resolveNotePermission(row.noteId, userId);
-    if (!hasPermission(permission, "read")) {
+    if (!resolveFileAttachmentAccess(row, userId).canView) {
       return c.json({ error: "无权访问该附件" }, 403);
     }
     return null;
@@ -73,7 +72,7 @@ export async function handleAttachmentMediaRange(c: Context, next: Next): Promis
   const db = getDb();
   const row = db
     .prepare(
-      "SELECT id, noteId, mimeType, path, filename, size FROM attachments WHERE id = ?",
+      "SELECT id, noteId, mimeType, path, filename, size, userId, workspaceId, uploadSource FROM attachments WHERE id = ?",
     )
     .get(id) as MediaAttachmentRow | undefined;
 

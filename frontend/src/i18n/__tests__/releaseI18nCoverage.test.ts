@@ -1,8 +1,7 @@
+import i18n from "../index";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
-import zhBase from "../locales/zh-CN.json";
-import enBase from "../locales/en.json";
 import {
   enAdditionalTranslations,
   zhCNAdditionalTranslations,
@@ -43,34 +42,8 @@ import {
   enCoverageTranslations,
   zhCNCoverageTranslations,
 } from "../coverageTranslations";
-import { enWorkspaceIssuesTranslations, zhCNWorkspaceIssuesTranslations } from "../workspaceIssuesTranslations";
-import { enVoiceTranslations, zhCNVoiceTranslations } from "../voiceTranslations";
 
 type TranslationTree = Record<string, unknown>;
-
-function merge(base: TranslationTree, patch: TranslationTree): TranslationTree {
-  const result: TranslationTree = { ...base };
-  for (const [key, value] of Object.entries(patch)) {
-    const current = result[key];
-    if (
-      value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      current &&
-      typeof current === "object" &&
-      !Array.isArray(current)
-    ) {
-      result[key] = merge(current as TranslationTree, value as TranslationTree);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-function mergePatches(base: TranslationTree, ...patches: TranslationTree[]): TranslationTree {
-  return patches.reduce((current, patch) => merge(current, patch), base);
-}
 
 function getPath(tree: TranslationTree, path: string): unknown {
   return path.split(".").reduce<unknown>((value, key) => {
@@ -138,36 +111,8 @@ const enEditorSplitPatch = enEditorSplitTranslations as unknown as TranslationTr
 const zhCoveragePatch = zhCNCoverageTranslations as unknown as TranslationTree;
 const enCoveragePatch = enCoverageTranslations as unknown as TranslationTree;
 
-const zh = mergePatches(
-  zhBase as TranslationTree,
-  zhAdditionalPatch,
-  zhYoudaoPatch,
-  zhDownloadNetworkPatch,
-  zhMiCloudPatch,
-  zhLargeDocumentPatch,
-  zhWorkspaceLayoutPatch,
-  zhSecurityPatch,
-  zhDiaryMarkdownPatch,
-  zhEditorSplitPatch,
-  zhCoveragePatch,
-  zhCNWorkspaceIssuesTranslations,
-  zhCNVoiceTranslations,
-);
-const en = mergePatches(
-  enBase as TranslationTree,
-  enAdditionalPatch,
-  enYoudaoPatch,
-  enDownloadNetworkPatch,
-  enMiCloudPatch,
-  enLargeDocumentPatch,
-  enWorkspaceLayoutPatch,
-  enSecurityPatch,
-  enDiaryMarkdownPatch,
-  enEditorSplitPatch,
-  enCoveragePatch,
-  enWorkspaceIssuesTranslations,
-  enVoiceTranslations,
-);
+const zh = i18n.getResourceBundle("zh-CN", "translation") as TranslationTree;
+const en = i18n.getResourceBundle("en", "translation") as TranslationTree;
 
 const criticalNamespaces = [
   "editorError",
@@ -197,6 +142,17 @@ function expectPatchParity(
 }
 
 describe("release i18n coverage", () => {
+  it.each(["zh-CN", "en"])("defines dynamic slash block labels and descriptions in %s", (language) => {
+    for (const type of ["columns", "callout", "details"]) {
+      const label = `slash.${type}`;
+      const description = `${label}Desc`;
+      expect(i18n.getResource(language, "translation", label), label)
+        .toBe(i18n.getResource(language, "translation", `slash.convert.${type}`));
+      expect(i18n.getResource(language, "translation", description), description).toBeTypeOf("string");
+      expect(i18n.t(description, { lng: language })).not.toBe(description);
+    }
+  });
+
   it("keeps the complete runtime translation trees in parity", () => {
     const zhEntries = leafEntries(zh);
     const enEntries = leafEntries(en);

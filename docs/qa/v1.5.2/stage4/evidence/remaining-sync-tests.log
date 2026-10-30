@@ -1,0 +1,679 @@
+TAP version 13
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: moving folders and documents into root documents retains hidden containers and permission checks
+ok 1 - moving folders and documents into root documents retains hidden containers and permission checks
+  ---
+  duration_ms: 4770.6419
+  ...
+# Subtest: knowledge tree creates rich-text and Markdown documents at root
+ok 2 - knowledge tree creates rich-text and Markdown documents at root
+  ---
+  duration_ms: 18.7791
+  ...
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [sync-v2] push.done deviceId=folder-trash pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash pushCount=4 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash pushCount=3 conflictCount=0
+# Subtest: offline folder trash and restore preserve bodies and replay their deletion cohort after restart
+ok 3 - offline folder trash and restore preserve bodies and replay their deletion cohort after restart
+  ---
+  duration_ms: 1203.1571
+  ...
+# [sync-v2] push.done deviceId=document-move-body pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=document-move-body pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=document-move-body pushCount=0 conflictCount=1
+# Subtest: remote document moves reject stale body metadata without losing the offline edit
+ok 4 - remote document moves reject stale body metadata without losing the offline edit
+  ---
+  duration_ms: 337.8245
+  ...
+# [sync-v2] push.done deviceId=folder-trash-rollback pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-rollback pushCount=1 conflictCount=0
+# Subtest: folder lifecycle rolls back the entire local subtree when Outbox persistence fails
+ok 5 - folder lifecycle rolls back the entire local subtree when Outbox persistence fails
+  ---
+  duration_ms: 248.2053
+  ...
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost folder trash ACK and a restore queued during Push retain stable intentions and child bodies
+ok 6 - lost folder trash ACK and a restore queued during Push retain stable intentions and child bodies
+  ---
+  duration_ms: 302.2866
+  ...
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-local-child pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-local-root pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-child pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-keep-remote-root pushCount=0 conflictCount=1
+# Subtest: concurrent child moves conflict with offline folder trash and both explicit choices retain bodies
+ok 7 - concurrent child moves conflict with offline folder trash and both explicit choices retain bodies
+  ---
+  duration_ms: 1311.869
+  ...
+# [sync-v2] push.done deviceId=folder-trash-guards pushCount=5 conflictCount=0
+# Subtest: folder trash rejects missing server capability and protected ancestry without altering queues
+ok 8 - folder trash rejects missing server capability and protected ancestry without altering queues
+  ---
+  duration_ms: 218.5316
+  ...
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=3 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-batch pushCount=1 conflictCount=0
+# Subtest: acknowledged folder trash restores its cohort and a reverse-ordered batch deletes each subtree once
+ok 9 - acknowledged folder trash restores its cohort and a reverse-ordered batch deletes each subtree once
+  ---
+  duration_ms: 331.2863
+  ...
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-writer pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-old-reader pushCount=0 conflictCount=1
+# Subtest: a pre-trash edit from an old device cannot revive a document under a trashed folder
+ok 10 - a pre-trash edit from an old device cannot revive a document under a trashed folder
+  ---
+  duration_ms: 477.6352
+  ...
+# [sync-v2] push.done deviceId=folder-trash-password-race pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-password-race pushCount=0 conflictCount=0
+# Subtest: a password added after local trash was committed blocks server application and retains the intent
+ok 11 - a password added after local trash was committed blocks server application and retains the intent
+  ---
+  duration_ms: 227.6895
+  ...
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=folder-trash-snapshot pushCount=1 conflictCount=0
+# Subtest: folder trash committed during the final Snapshot page retains its complete pending projection
+ok 12 - folder trash committed during the final Snapshot page retains its complete pending projection
+  ---
+  duration_ms: 327.9607
+  ...
+# [sync-v2] push.done deviceId=folder-create pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create pushCount=7 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create pushCount=1 conflictCount=0
+# Subtest: offline folder creation atomically persists nested resources and document parents across reopen and a second device
+ok 13 - offline folder creation atomically persists nested resources and document parents across reopen and a second device
+  ---
+  duration_ms: 467.3436
+  ...
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-lost-ack pushCount=3 conflictCount=0
+# Subtest: lost creation ACK replays immutable mutations before later offline nested creation and moves
+ok 14 - lost creation ACK replays immutable mutations before later offline nested creation and moves
+  ---
+  duration_ms: 312.1331
+  ...
+# [sync-v2] push.done deviceId=folder-create-guards pushCount=5 conflictCount=0
+# Subtest: folder creation fails closed for unbound, missing, foreign and newly protected ancestor proofs
+ok 15 - folder creation fails closed for unbound, missing, foreign and newly protected ancestor proofs
+  ---
+  duration_ms: 535.0334
+  ...
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=0 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-partial-ack pushCount=2 conflictCount=0
+# Subtest: a lost structural creation ACK retains the local folder for further nested writes and snapshot recovery
+ok 16 - a lost structural creation ACK retains the local folder for further nested writes and snapshot recovery
+  ---
+  duration_ms: 323.7918
+  ...
+# [sync-v2] push.done deviceId=folder-create-page pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-page pushCount=100 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-page pushCount=2 conflictCount=0
+# Subtest: creation dependencies remain ordered when folder mutations span the 100-row Push boundary
+ok 17 - creation dependencies remain ordered when folder mutations span the 100-row Push boundary
+  ---
+  duration_ms: 705.9463
+  ...
+# [sync-v2] push.done deviceId=folder-create-during-snapshot pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=folder-create-during-snapshot pushCount=5 conflictCount=0
+# Subtest: a folder created during the final Snapshot page remains a creation intent rather than a remote tombstone
+ok 18 - a folder created during the final Snapshot page remains a creation intent rather than a remote tombstone
+  ---
+  duration_ms: 343.7019
+  ...
+# [sync-v2] push.done deviceId=folder-create-rollback pushCount=5 conflictCount=0
+# Subtest: offline folder creation rolls back the business row, structure, origin and both queues on a structural enqueue failure
+ok 19 - offline folder creation rolls back the business row, structure, origin and both queues on a structural enqueue failure
+  ---
+  duration_ms: 229.5553
+  ...
+# [sync-v2] push.done deviceId=active-offline pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-offline pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=active-offline pushCount=1 conflictCount=0
+# Subtest: native personal moves and sorting are atomic, survive reopen and push only structural fields
+ok 20 - native personal moves and sorting are atomic, survive reopen and push only structural fields
+  ---
+  duration_ms: 301.4282
+  ...
+# [sync-v2] push.done deviceId=active-keep-local pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-keep-local pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-peer-keep-local pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=active-peer-keep-local pushCount=1 conflictCount=0
+# Subtest: concurrent native tree moves recover with keep-local and preserve latest local position
+ok 21 - concurrent native tree moves recover with keep-local and preserve latest local position
+  ---
+  duration_ms: 527.1229
+  ...
+# [sync-v2] push.done deviceId=active-keep-remote pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-keep-remote pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-peer-keep-remote pushCount=0 conflictCount=1
+# Subtest: concurrent native tree moves recover with keep-remote and preserve latest local position
+ok 22 - concurrent native tree moves recover with keep-remote and preserve latest local position
+  ---
+  duration_ms: 507.9695
+  ...
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost tree Push ACK and a newer move during Push retain stable mutation identities
+ok 23 - lost tree Push ACK and a newer move during Push retain stable mutation identities
+  ---
+  duration_ms: 282.5188
+  ...
+# [sync-v2] push.done deviceId=active-guards pushCount=5 conflictCount=0
+# Subtest: native tree writes reject missing subscription, protected ancestry and cycles without partial commits
+ok 24 - native tree writes reject missing subscription, protected ancestry and cycles without partial commits
+  ---
+  duration_ms: 237.2015
+  ...
+# [sync-v2] push.done deviceId=active-write-failure pushCount=5 conflictCount=0
+# Subtest: a structural Outbox insert failure rolls back every move in the local batch
+ok 25 - a structural Outbox insert failure rolls back every move in the local batch
+  ---
+  duration_ms: 232.4472
+  ...
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-snapshot-pending pushCount=0 conflictCount=0
+# Subtest: full tree rebuild preserves newer pending moves and recognizes an intermediate lost ACK echo
+ok 26 - full tree rebuild preserves newer pending moves and recognizes an intermediate lost ACK echo
+  ---
+  duration_ms: 356.3891
+  ...
+# [sync-v2] push.done deviceId=active-delete-race pushCount=5 conflictCount=0
+# [sync-v2] push.done deviceId=active-delete-race pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=active-delete-race pushCount=0 conflictCount=0
+# Subtest: a remote folder tombstone retains pending native structure and child bodies until an explicit remote choice
+ok 27 - a remote folder tombstone retains pending native structure and child bodies until an explicit remote choice
+  ---
+  duration_ms: 326.0007
+  ...
+# [sync-v2] push.done deviceId=tree-offline pushCount=3 conflictCount=0
+# Subtest: personal tree creates are readable offline, survive reopen and converge with stable root identities
+ok 28 - personal tree creates are readable offline, survive reopen and converge with stable root identities
+  ---
+  duration_ms: 385.8116
+  ...
+# [sync-v2] push.done deviceId=structure-writer pushCount=3 conflictCount=0
+# Subtest: negotiated native tree preserves folder-under-document links and remote moves across reopen
+ok 29 - negotiated native tree preserves folder-under-document links and remote moves across reopen
+  ---
+  duration_ms: 661.5765
+  ...
+# [sync-v2] push.done deviceId=structure-upgrade pushCount=3 conflictCount=0
+# Subtest: a new native tree subscription rebuilds an existing legacy cursor without discarding local edits
+ok 30 - a new native tree subscription rebuilds an existing legacy cursor without discarding local edits
+  ---
+  duration_ms: 201.4927
+  ...
+# [sync-v2] push.done deviceId=structure-lost-ack pushCount=1 conflictCount=0
+# Subtest: lost initial tree ACK retains subscription intent and replays the complete baseline after reopen
+ok 31 - lost initial tree ACK retains subscription intent and replays the complete baseline after reopen
+  ---
+  duration_ms: 243.4704
+  ...
+# [sync-v2] push.done deviceId=structure-rest-notice pushCount=1 conflictCount=0
+# [sync-v2] realtime.notified pullSequence=563
+# Subtest: REST tree movement emits a committed metadata-only Sync V2 notice and wakes the negotiated receiver
+ok 32 - REST tree movement emits a committed metadata-only Sync V2 notice and wakes the negotiated receiver
+  ---
+  duration_ms: 212.7133
+  ...
+# [sync-v2] push.done deviceId=structure-invalid pushCount=2 conflictCount=0
+# Subtest: invalid remote tree rolls back incremental bodies and structure without acknowledging the cursor
+ok 33 - invalid remote tree rolls back incremental bodies and structure without acknowledging the cursor
+  ---
+  duration_ms: 233.0689
+  ...
+# Subtest: native structural Apply rejects foreign scopes, identities and missing dependencies without altering Outbox
+ok 34 - native structural Apply rejects foreign scopes, identities and missing dependencies without altering Outbox
+  ---
+  duration_ms: 124.7344
+  ...
+# Subtest: native file tree metadata requires its scoped attachment without claiming bytes or authorization
+ok 35 - native file tree metadata requires its scoped attachment without claiming bytes or authorization
+  ---
+  duration_ms: 126.6724
+  ...
+# Subtest: native structural Apply validates final ancestry and deletes parent/child in either order
+ok 36 - native structural Apply validates final ancestry and deletes parent/child in either order
+  ---
+  duration_ms: 135.2098
+  ...
+# [sync-v2] push.done deviceId=structure-prune pushCount=2 conflictCount=0
+# Subtest: native tree Snapshot reconciles stale metadata after remote permanent deletion
+ok 37 - native tree Snapshot reconciles stale metadata after remote permanent deletion
+  ---
+  duration_ms: 220.7206
+  ...
+# Subtest: tree create rolls back body, root container and provenance when Outbox insertion fails
+ok 38 - tree create rolls back body, root container and provenance when Outbox insertion fails
+  ---
+  duration_ms: 115.9731
+  ...
+# Subtest: authorized hydration persists a remote body without creation mutations and preserves newer local writes
+not ok 39 - authorized hydration persists a remote body without creation mutations and preserves newer local writes
+  ---
+  duration_ms: 120.8993
+  location: 'C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\tests\\sync-v2-mobile-multidevice.test.ts:6:3692'
+  failureType: 'testCodeFailure'
+  error: '请先将笔记移入回收站，再永久删除'
+  code: 'NOTE_NOT_TRASHED'
+  stack: |-
+    <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\frontend\src\lib\nativeLocalRepository.ts:608:29)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\backend\tests\sync-v2-mobile-multidevice.test.ts:62:28)
+  ...
+# Subtest: workspace Snapshot pruning preserves pending descendants, unresolved conflicts and local attachment bytes
+ok 40 - workspace Snapshot pruning preserves pending descendants, unresolved conflicts and local attachment bytes
+  ---
+  duration_ms: 140.7356
+  ...
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=fold-a pushCount=1 conflictCount=0
+# Subtest: create then permanent delete between Pulls advances the cursor without a missing Snapshot error
+not ok 41 - create then permanent delete between Pulls advances the cursor without a missing Snapshot error
+  ---
+  duration_ms: 434.4361
+  location: 'C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\tests\\sync-v2-mobile-multidevice.test.ts:6:7085'
+  failureType: 'testCodeFailure'
+  error: '请先将笔记移入回收站，再永久删除'
+  code: 'NOTE_NOT_TRASHED'
+  stack: |-
+    <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\frontend\src\lib\nativeLocalRepository.ts:608:29)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\backend\tests\sync-v2-mobile-multidevice.test.ts:62:28)
+  ...
+# [sync-v2] push.done deviceId=a-markdown pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=a-markdown pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=b-markdown pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=a-tiptap-json pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=a-tiptap-json pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=b-tiptap-json pushCount=1 conflictCount=0
+# Subtest: three independent SQLite clients converge bidirectionally after consecutive Markdown and rich-text edits
+ok 42 - three independent SQLite clients converge bidirectionally after consecutive Markdown and rich-text edits
+  ---
+  duration_ms: 1390.3103
+  ...
+# [sync-v2] push.done deviceId=delete-a pushCount=2 conflictCount=0
+# Subtest: remote permanent deletion preserves offline body, pending mutation and recoverable conflict
+not ok 43 - remote permanent deletion preserves offline body, pending mutation and recoverable conflict
+  ---
+  duration_ms: 393.4164
+  location: 'C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\tests\\sync-v2-mobile-multidevice.test.ts:6:9609'
+  failureType: 'testCodeFailure'
+  error: '请先将笔记移入回收站，再永久删除'
+  code: 'NOTE_NOT_TRASHED'
+  stack: |-
+    <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\frontend\src\lib\nativeLocalRepository.ts:608:29)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\backend\tests\sync-v2-mobile-multidevice.test.ts:62:28)
+  ...
+# [sync-v2] push.done deviceId=restart-a pushCount=2 conflictCount=0
+# Subtest: offline create survives database close/reopen and immediate local read before uploading
+ok 44 - offline create survives database close/reopen and immediate local read before uploading
+  ---
+  duration_ms: 390.369
+  ...
+# Subtest: missing or invalid successful ACK version cannot claim cloud confirmation
+ok 45 - missing or invalid successful ACK version cannot claim cloud confirmation
+  ---
+  duration_ms: 130.1138
+  ...
+# [sync-v2] push.done deviceId=resurrect-a pushCount=2 conflictCount=0
+# Subtest: an old offline update cannot resurrect a permanently deleted server note
+not ok 46 - an old offline update cannot resurrect a permanently deleted server note
+  ---
+  duration_ms: 399.9334
+  location: 'C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\backend\\tests\\sync-v2-mobile-multidevice.test.ts:6:12166'
+  failureType: 'testCodeFailure'
+  error: '请先将笔记移入回收站，再永久删除'
+  code: 'NOTE_NOT_TRASHED'
+  stack: |-
+    <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\frontend\src\lib\nativeLocalRepository.ts:608:29)
+    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    async <anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\backend\tests\sync-v2-mobile-multidevice.test.ts:62:28)
+  ...
+# [sync-v2] push.done deviceId=apply-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=apply-a pushCount=1 conflictCount=0
+# Subtest: apply failure rolls back the entire batch and leaves cursor and ACK unchanged
+ok 47 - apply failure rolls back the entire batch and leaves cursor and ACK unchanged
+  ---
+  duration_ms: 633.2344
+  ...
+# [sync-v2] push.done deviceId=ack-crash-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=ack-crash-a pushCount=0 conflictCount=0
+# Subtest: successful push replay after client ACK crash uses the same mutationId exactly once
+ok 48 - successful push replay after client ACK crash uses the same mutationId exactly once
+  ---
+  duration_ms: 137.3121
+  ...
+# [sync-v2] push.done deviceId=overlap-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=overlap-a pushCount=2 conflictCount=0
+# Subtest: overlapping native writes read the latest revision inside the write transaction
+ok 49 - overlapping native writes read the latest revision inside the write transaction
+  ---
+  duration_ms: 258.9688
+  ...
+# [sync-v2] push.done deviceId=conflict-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-b pushCount=0 conflictCount=1
+# [sync-v2] push.done deviceId=conflict-b pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=conflict-b pushCount=1 conflictCount=0
+# Subtest: concurrent devices preserve both versions, and keep-local resolution establishes the remote base
+ok 50 - concurrent devices preserve both versions, and keep-local resolution establishes the remote base
+  ---
+  duration_ms: 648.9611
+  ...
+# [sync-v2] push.done deviceId=delayed-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=delayed-a pushCount=1 conflictCount=0
+# [sync-v2] push.done deviceId=delayed-a pushCount=2 conflictCount=0
+# Subtest: two edits committed during a delayed ACK survive own echo and subsequent push
+ok 51 - two edits committed during a delayed ACK survive own echo and subsequent push
+  ---
+  duration_ms: 465.2654
+  ...
+# [sync-v2] push.done deviceId=invalid-ack-a pushCount=2 conflictCount=0
+# [sync-v2] push.done deviceId=invalid-ack-a pushCount=0 conflictCount=0
+# Subtest: invalid note ACK leaves the durable mutation available for an idempotent retry
+ok 52 - invalid note ACK leaves the durable mutation available for an idempotent retry
+  ---
+  duration_ms: 204.7886
+  ...
+# Subtest: a failed Outbox insertion rolls back note creation in the same SQLite transaction
+ok 53 - a failed Outbox insertion rolls back note creation in the same SQLite transaction
+  ---
+  duration_ms: 121.062
+  ...
+# Subtest: native tree subscription completes multiple Snapshot pages before binding and survives incremental deletion
+ok 54 - native tree subscription completes multiple Snapshot pages before binding and survives incremental deletion
+  ---
+  duration_ms: 261.1339
+  ...
+1..54
+# tests 54
+# suites 0
+# pass 50
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 25200.6971

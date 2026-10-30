@@ -95,25 +95,26 @@ export default function FileUploadDialog({
     if (pendingFiles.length === 0) return;
     setUploading(true);
     let ok = 0;
+    let existing = 0;
     let fail = 0;
     for (const pf of pendingFiles) {
       try {
-        await api.files.upload(pf.file, { folderId: selectedFolderId || undefined });
-        ok++;
+        const result = await api.files.upload(pf.file, { folderId: selectedFolderId || undefined });
+        if (result.deduplicated) existing++; else ok++;
       } catch (e: any) {
         fail++;
         console.warn("[FileUploadDialog] upload failed:", pf.file.name, e);
       }
     }
     setUploading(false);
-    if (ok > 0) {
-      toast.success(`已上传并保护 ${ok} 个文件${fail > 0 ? `，${fail} 个失败` : ""}`);
+    if (ok > 0 || existing > 0) {
+      toast.success(t("fileExplorer.legacyUploadSummary", { uploaded: ok, existing, failed: fail }));
       onUploaded();
       onClose();
     } else {
       toast.error("上传失败");
     }
-  }, [pendingFiles, selectedFolderId, onUploaded, onClose]);
+  }, [pendingFiles, selectedFolderId, onUploaded, onClose, t]);
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes}B`;

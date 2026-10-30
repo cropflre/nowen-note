@@ -53,7 +53,7 @@ function evaluateLocalWindowsPublishPolicy({ targets, pcPlatforms, host, githubR
       allowed: false,
       reason:
         `Local GitHub Release would include unsigned Windows ${channels} artifacts. ` +
-        "Push a Git tag or use workflow dispatch so GitHub Actions can obtain SignPath signatures. " +
+        "Push a Git tag and collect verified same-tag Windows CI assets before publishing. " +
         "For local debug builds, use --no-github-release.",
     };
   }

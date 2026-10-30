@@ -50,8 +50,16 @@ export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string)
       : null;
     return {
       verified,
-      folders: (note: LocalNote) => {
+      folders: async (note: LocalNote) => {
         const node = liveNotes.get(note.id);
+        // A locally created personal draft is our own body, not a cached cloud
+        // authorization. Never apply this exception to inherited passwords.
+        if (!note.workspaceId && node && node.isDeleted === 0 && node.access?.capabilities.canView
+          && resolveFolders(note)?.length === 0) {
+          const draft = (await db.query<{ value: string }>("SELECT value FROM native_runtime_meta WHERE key=?",
+            [`localTreeDraft:personal:${note.id}`]))[0];
+          if (draft && draft.value === JSON.stringify(node.parentId)) return [];
+        }
         // 在线授权携带真实保护链，不能依赖导航树提升共享节点后的父链。
         if (verified && node) return Promise.resolve(resolveFolders(note) === null ? null : verified.get(note.id) ?? null);
         return resolveNoteFolders(note, resolveFolders);

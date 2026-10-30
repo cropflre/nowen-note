@@ -1,0 +1,16 @@
+{
+  "initial": {
+    "observation": "ADB returned List of devices attached with no entries",
+    "provenance": "initial tool output in this review; original inventory stdout was not separately saved"
+  },
+  "final": {
+    "observedAt": "2026-10-12T13:34:10.783Z",
+    "model": "PJZ110",
+    "inventory": "android-device-inventory.log",
+    "packageInventory": "android-installed-package-inventory.log",
+    "versionInventory": "android-installed-version.log"
+  },
+  "acceptance": "NOT_TESTED",
+  "reason": "No final candidate APK with proven source SHA was installed or exercised in this review; matrix task is evidence-gap planning",
+  "actions": "Read-only device/package/version inventory; no install, uninstall, force-stop, app data access, or user note operations"
+}

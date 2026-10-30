@@ -176,6 +176,7 @@ import {
   insertLink,
   insertImage,
   replaceSelection,
+  applyMarkdownCjkTypography,
 } from "@/lib/markdownCommands";
 import {
   MarkdownSlashMenu,
@@ -871,10 +872,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // ���꣺����ѡ����㣬�䵽��Ļ��
     const coords = view.coordsAtPos(sel.from);
     if (coords) {
-      setAiPosition({
-        top: Math.min(coords.top + 24, window.innerHeight - 500),
-        left: Math.min(coords.left, window.innerWidth - 420),
-      });
+      // Shared assistant owns viewport clamping (including mobile keyboards).
+      setAiPosition({ top: coords.top + 24, left: coords.left });
     }
     setAiOpen(true);
   }, [isGuest, onAIAssistant]);
@@ -935,6 +934,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   const closeAttachmentLibrary = useCallback(() => {
     setAttachmentLibraryOpen(false);
+    if (attachmentLibrarySelectionRef.current) asyncPasteAnchorsRef.current.delete(attachmentLibrarySelectionRef.current);
     attachmentLibrarySelectionRef.current = null;
   }, []);
 
@@ -946,10 +946,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       from: selection.from,
       to: selection.to,
     };
+    asyncPasteAnchorsRef.current.add(attachmentLibrarySelectionRef.current);
     setAttachmentLibraryOpen(true);
   }, [editable]);
 
+  useEffect(() => { closeAttachmentLibrary(); }, [note.id, closeAttachmentLibrary]);
+
   const insertExistingAttachment = useCallback((item: FileItem) => {
+    if (!editable || noteRef.current.isTrashed) return;
     const view = viewRef.current;
     const selection = attachmentLibrarySelectionRef.current;
     if (!view || !selection || selection.to > view.state.doc.length) {
@@ -969,7 +973,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     closeAttachmentLibrary();
     queueMicrotask(() => view.focus());
     toast.success(tr("tiptap.attachmentLinkInserted", { defaultValue: "附件链接已插入" }));
-  }, [closeAttachmentLibrary, tr]);
+  }, [closeAttachmentLibrary, editable, tr]);
 
   // slash 菜单项：基础 Markdown、附件、AI 与日期日记命令共享同一个 CodeMirror 菜单。
   const openVoiceRecorder = useCallback(() => {
@@ -1017,14 +1021,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
 
-  /** 上传图片文件到 /api/attachments 或图床，插入 Markdown 图片语法 */
+  /** 上传图片附件，插入带真实图片扩展名的完整 URL。 */
   const insertImageFromFile = useCallback((file: File) => {
     const view = viewRef.current;
     if (!view) return;
     const currentNote = noteRef.current;
     const alt = file.name.replace(/\.[^.]+$/, "");
     if (currentNote?.id) {
-      // 优先走图床，失败时回退本地附件
       uploadAndInsertImage(
         file,
         file.name,
@@ -1074,7 +1077,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       if (!files.length || viewRef.current !== view || pasteNoteScopeRef.current !== scope) { releaseAnchor(); return; }
       if (!noteId) { toast.error("请先创建笔记，再上传照片"); releaseAnchor(); return; }
       toast.info(tr("tiptap.imageUploading"));
-      void uploadPhotoSelection(noteId, files)
+      void uploadPhotoSelection(noteId, files, "markdown")
         .then((photos) => {
           // 复用异步粘贴锚点映射，上传完成后恢复原选区；切换笔记则不插入。
           if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
@@ -1308,6 +1311,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      applyCjkTypography: (action) => {
+        const view = viewRef.current;
+        if (!view || !editable || !view.state.facet(EditorView.editable)) return false;
+        return applyMarkdownCjkTypography(view, action);
+      },
       insertMarkdownAtCursor: (md: string) => {
         const view = viewRef.current;
         if (!view) return false;
@@ -2649,6 +2657,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       />
 
       <AttachmentLibraryPicker
+        key={note.id}
+        noteId={note.id}
+        workspaceId={note.workspaceId}
         open={attachmentLibraryOpen}
         onClose={closeAttachmentLibrary}
         onSelect={insertExistingAttachment}

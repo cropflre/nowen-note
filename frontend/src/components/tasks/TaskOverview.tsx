@@ -6,6 +6,7 @@ import { CalendarDays, Clock } from "lucide-react";
 import type { Task, TaskStats } from "@/types";
 import { cn } from "@/lib/utils";
 import { isTaskDateOverdue } from "./DateBadge";
+import { parseTaskDate } from "./taskDateUtils";
 
 /* ===== SVG 圆环进度 ===== */
 function ProgressRing({ value, size = 40, strokeWidth = 4 }: {
@@ -92,7 +93,7 @@ export function TaskOverview({
 
   // 最近截止：优先按 dueAt 排序，回退到 dueDate
   const nearestDue = tasks
-    .filter((t) => !t.isCompleted && (t.dueAt || t.dueDate))
+    .filter((t) => !t.isCompleted && parseTaskDate(t.dueAt || t.dueDate))
     .sort((a, b) => {
       const aTime = a.dueAt || a.dueDate!;
       const bTime = b.dueAt || b.dueDate!;
@@ -103,7 +104,7 @@ export function TaskOverview({
   let countdownStr = "";
   let isOverdue = false;
   if (nearestDue) {
-    const dueStr = nearestDue.dueAt || nearestDue.dueDate!;
+    const dueStr = (nearestDue.dueAt || nearestDue.dueDate!).trim().replace(" ","T");
     const targetMs = new Date(dueStr.includes("T") ? dueStr : dueStr + "T23:59:59").getTime();
     isOverdue = isTaskDateOverdue(nearestDue.dueDate!, nearestDue.dueAt);
     if (isOverdue) {

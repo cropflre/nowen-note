@@ -207,7 +207,6 @@ export default function ServerAddressInput({
         ref={inputRef}
         type="text"
         value={displayText}
-        onFocus={() => { editingRef.current = true; }}
         onChange={handleTextChange}
         onBlur={handleBlur}
         placeholder={t("server.urlPlaceholder") || "example.com:3001 或 fnos.net/user:3001"}

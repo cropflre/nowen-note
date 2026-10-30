@@ -9,6 +9,7 @@ data/
 release/
 release2/
 release-*/
+!tools/release-center/
 dist-electron/
 electron/node/
 $null

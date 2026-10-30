@@ -50,6 +50,7 @@ import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
+import { useKnowledgeTreeDisplaySize } from "@/hooks/useKnowledgeTreeDisplaySize";
 import { api } from "@/lib/api";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
@@ -156,15 +157,15 @@ function buildChildren(nodes: KnowledgeTreeNode[]) {
 function nodeIcon(node: KnowledgeTreeNode) {
   if (node.nodeType === "folder") {
     return node.icon
-      ? <span className="w-[15px] shrink-0 text-center text-sm leading-none">{node.icon}</span>
-      : <Folder size={15} className="text-amber-500" />;
+      ? <span data-knowledge-tree-icon="" className="w-[15px] shrink-0 text-center text-sm leading-none">{node.icon}</span>
+      : <Folder data-knowledge-tree-icon="" size={15} className="text-amber-500" />;
   }
-  if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
-  if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
-  if (node.resourceType === "file") return <Paperclip size={15} className="text-amber-500" />;
-  if (node.noteType === "sheet") return <Table2 size={15} className="text-sky-500" />;
-  if (node.noteType === "excel") return <FileSpreadsheet size={15} className="text-emerald-600" />;
-  return <FileText size={15} className="text-accent-primary" />;
+  if (node.nodeType === "markdown") return <FileCode data-knowledge-tree-icon="" size={15} className="text-emerald-500" />;
+  if (node.nodeType === "mindmap") return <BrainCircuit data-knowledge-tree-icon="" size={15} className="text-accent-primary" />;
+  if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={15} className="text-amber-500" />;
+  if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={15} className="text-sky-500" />;
+  if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={15} className="text-emerald-600" />;
+  return <FileText data-knowledge-tree-icon="" size={15} className="text-accent-primary" />;
 }
 
 function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
@@ -289,7 +290,6 @@ export interface KnowledgeTreePanelProps {
   createRequest?: KnowledgeTreeInlineCreateRequest;
   importRequest?: KnowledgeTreeImportRequest;
   templateCreateRequest?: KnowledgeTreeTemplateCreateRequest;
-  showAllNotesToolbar?: boolean;
   layoutMode?: NoteWorkspaceLayoutMode;
 }
 
@@ -319,7 +319,6 @@ export function KnowledgeTreePanel({
   createRequest,
   importRequest,
   templateCreateRequest,
-  showAllNotesToolbar = true,
   layoutMode = "standard",
 }: KnowledgeTreePanelProps) {
   const { t } = useTranslation();
@@ -328,6 +327,7 @@ export function KnowledgeTreePanel({
   const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const [sidebarTextStyle] = useSidebarTextStyle();
+  const [treeDisplaySize] = useKnowledgeTreeDisplaySize();
   const classicText = sidebarTextStyle === "classic";
   const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const threeColumnFolderNavigation = usesThreeColumnFolderNavigation({
@@ -493,7 +493,8 @@ export function KnowledgeTreePanel({
   useEffect(() => {
     if (!surfaceActive) return;
     const revealCreatedNote = (event: Event) => {
-      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      const { parentId, nodeId, clearOnly } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      if (clearOnly) { setQuery(""); return; }
       // 全文搜索由全局 searchQuery 管理，不能把它当作目录树临时筛选清空。
       if (state.viewMode !== "search") setQuery("");
       if (typeof parentId === "string") setNodeExpanded(parentId, true);
@@ -996,7 +997,8 @@ export function KnowledgeTreePanel({
     try {
       created = await knowledgeTreeApi.create({
         parentId: snapshot.parentId,
-        nodeType: snapshot.kind,
+        nodeType: snapshot.kind === "plaintext" ? "note" : snapshot.kind,
+        ...(snapshot.kind === "plaintext" ? { contentFormat: "plaintext" as const } : {}),
         title,
       });
     } catch (requestError: any) {
@@ -1013,7 +1015,7 @@ export function KnowledgeTreePanel({
 
     setDraft(null);
     if (snapshot.parentId) setNodeExpanded(snapshot.parentId, true);
-    if (snapshot.kind === "note" || snapshot.kind === "markdown") revealCreatedKnowledgeTreeNote(snapshot.parentId);
+    if (snapshot.kind === "note" || snapshot.kind === "markdown" || snapshot.kind === "plaintext") revealCreatedKnowledgeTreeNote(snapshot.parentId);
     emitTreeChanged("node-created-inline");
     await reload();
     actions.refreshNotebooks();
@@ -1430,7 +1432,7 @@ export function KnowledgeTreePanel({
             {nodeIcon(node)}
             {node.resourceType === "note" && <NoteColorMarkDot value={node.colorMark} />}
             <span className="flex min-w-0 flex-1 items-center gap-1">
-              <span className="min-w-0 truncate">{node.title}</span>
+              <span data-knowledge-tree-title="" className="min-w-0 truncate">{node.title}</span>
               {variant === "mobile" && firstLevelNoteCount !== null && (
                 <span
                   className="shrink-0 text-[10px] tabular-nums text-tx-tertiary"
@@ -1570,7 +1572,7 @@ export function KnowledgeTreePanel({
         onClick={() => startInlineCreate(null, "folder")}
         className={cn(
           "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-bg hover:text-tx-primary",
-          variant === "mobile" ? "w-8" : showAllNotesToolbar ? "w-7" : "w-6",
+          variant === "mobile" ? "w-8" : "w-6",
         )}
         title="新建根文件夹"
       >
@@ -1582,7 +1584,7 @@ export function KnowledgeTreePanel({
         onClick={() => setMobileActionsOpen((current) => !current)}
         className={cn(
           "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-bg hover:text-tx-primary",
-          variant === "mobile" ? "w-8" : showAllNotesToolbar ? "w-7" : "w-6",
+          variant === "mobile" ? "w-8" : "w-6",
         )}
         title="更多目录操作"
         aria-label="更多目录操作"
@@ -1598,6 +1600,7 @@ export function KnowledgeTreePanel({
     <section
       ref={rootRef}
       className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}
+      data-knowledge-tree-size={treeDisplaySize}
       data-nowen-knowledge-tree="embedded"
       data-knowledge-tree-variant={variant}
       data-knowledge-tree-compact-toolbar={compactToolbar ? "true" : "false"}
@@ -1613,7 +1616,7 @@ export function KnowledgeTreePanel({
           : "items-center gap-0.5 px-2 pb-1.5",
       )}>
         <div className={compactToolbar
-          ? cn("flex w-full items-center", showAllNotesToolbar ? "gap-2" : "gap-0")
+          ? "flex w-full items-center gap-0"
           : "contents"}
         >
           <div className={cn(
@@ -1653,22 +1656,9 @@ export function KnowledgeTreePanel({
               />
             )}
           </div>
-          {compactToolbar && !showAllNotesToolbar && compactActionButtons}
+          {compactToolbar && compactActionButtons}
         </div>
-        {compactToolbar && showAllNotesToolbar ? (
-          <div className={cn(
-            "grid w-full rounded-lg border border-app-border/70 bg-app-hover/40 px-0.5",
-            variant === "mobile"
-              ? "grid-cols-[minmax(0,1fr)_2rem_2rem]"
-              : "grid-cols-[minmax(0,1fr)_1.75rem_1.75rem]",
-          )}>
-            <span
-              className="min-w-0 border-r border-app-border/70 pr-0.5"
-              data-knowledge-tree-all-notes-host="mobile-toolbar"
-            />
-            {compactActionButtons}
-          </div>
-        ) : !compactToolbar ? (
+        {!compactToolbar && (
           <div className="contents">
             <button
               type="button"
@@ -1709,7 +1699,7 @@ export function KnowledgeTreePanel({
               <RefreshCw size={13} className={loading ? "animate-spin" : undefined} />
             </button>
           </div>
-        ) : null}
+        )}
       </div>
 
       {!controlsCollapsed && compactToolbar && (
@@ -1802,41 +1792,6 @@ export function KnowledgeTreePanel({
           </div>
         ) : (
           <>
-            {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
-              <div
-                data-knowledge-tree-root-drop=""
-                className={cn(
-                  "mx-1 mb-2 flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs font-medium transition-colors",
-                  rootDropActive
-                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
-                    : "border-app-border text-tx-tertiary",
-                )}
-                onDragOver={(event) => {
-                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
-                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
-                  if (!canDropToRoot(sourceId)) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = "move";
-                  setRootDropActive(true);
-                  setTreeDropTarget(null);
-                }}
-                onDragLeave={() => setRootDropActive(false)}
-                onDrop={(event) => {
-                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
-                  setRootDropActive(false);
-                  setDraggedTreeNodeId(null);
-                  draggedTreeNodeIdRef.current = null;
-                  if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
-                }}
-              >
-                <TreePine size={14} />
-                <span>移动到根目录</span>
-              </div>
-            )}
             {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
                 <div
@@ -1941,6 +1896,42 @@ export function KnowledgeTreePanel({
           />
         )}
       </div>
+      {/* Keep the root target outside the scroll flow so starting a child drag never shifts its source. */}
+      {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
+        <div
+          data-knowledge-tree-root-drop=""
+          className={cn(
+            "absolute inset-x-2 bottom-2 z-20 flex items-center justify-center gap-2 rounded-lg border border-dashed bg-app-surface px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+            rootDropActive
+              ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+              : "border-app-border text-tx-tertiary",
+          )}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            if (!canDropToRoot(sourceId)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+            setRootDropActive(true);
+            setTreeDropTarget(null);
+          }}
+          onDragLeave={() => setRootDropActive(false)}
+          onDrop={(event) => {
+            if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            setRootDropActive(false);
+            setDraggedTreeNodeId(null);
+            draggedTreeNodeIdRef.current = null;
+            if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
+          }}
+        >
+          <TreePine size={14} />
+          <span>移动到根目录</span>
+        </div>
+      )}
       <KnowledgeTreeNodeMenu
         menu={menu}
         menuRef={menuRef}

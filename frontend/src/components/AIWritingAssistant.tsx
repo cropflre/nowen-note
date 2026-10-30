@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 import {
   Sparkles, PenLine, RefreshCw, Shrink, Expand, Languages,
   FileText, HelpCircle, Wrench, Copy, Check, X, Loader2,
@@ -10,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { getAIWritingAssistantLayout } from "@/lib/aiWritingAssistantLayout";
 import { extractFinalAnswer } from "@/lib/aiOutput";
 import { buildAiContext } from "@/lib/aiContextBuilder";
 import { toast } from "@/lib/toast";
@@ -67,6 +69,7 @@ export default function AIWritingAssistant({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveHint, setSaveHint] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  const [viewport, setViewport] = useState(() => readAIWritingViewport());
   const resultRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLTextAreaElement>(null);
@@ -229,6 +232,21 @@ export default function AIWritingAssistant({
     }
   }, [editingId, t]);
 
+  // Follow mobile keyboard, viewport rotation and browser zoom; fixed editor
+  // offsets should never be reused when the visual viewport changes.
+  useEffect(() => {
+    const updateViewport = () => setViewport(readAIWritingViewport());
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", updateViewport);
+    visualViewport?.addEventListener("resize", updateViewport);
+    visualViewport?.addEventListener("scroll", updateViewport);
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      visualViewport?.removeEventListener("resize", updateViewport);
+      visualViewport?.removeEventListener("scroll", updateViewport);
+    };
+  }, []);
+
   // 自动滚动到底部
   useEffect(() => {
     if (resultRef.current) {
@@ -263,23 +281,27 @@ export default function AIWritingAssistant({
     onClose();
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <motion.div
+      role="dialog"
+      aria-label={t("ai.assistant")}
       ref={panelRef}
       initial={{ opacity: 0, y: 8, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 8, scale: 0.96 }}
       transition={{ duration: 0.15 }}
-      className="fixed z-[60] w-[400px] max-h-[480px] flex flex-col bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl overflow-hidden"
-      style={position ? { top: position.top, left: position.left } : { top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
+      className="fixed z-[60] flex min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
+      style={getAIWritingAssistantLayout(position, viewport)}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+        <div className="flex min-w-0 items-center gap-1.5">
           <Sparkles size={14} className="text-accent-primary" />
           <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t("ai.assistant")}</span>
           {currentAction && (
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">
+            <span className="min-w-0 truncate text-[10px] text-zinc-400 dark:text-zinc-500">
               · {actions.find(a => a.id === currentAction)?.label}
             </span>
           )}
@@ -291,7 +313,7 @@ export default function AIWritingAssistant({
 
       {/* 选中文本预览 */}
       {visibleSelectedText && !result && !isLoading && (
-        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
+        <div className="shrink-0 px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-1">{t("ai.selectedText")}</p>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3 leading-relaxed">{visibleSelectedText}</p>
         </div>
@@ -299,15 +321,15 @@ export default function AIWritingAssistant({
 
       {/* 动作按钮网格 */}
       {!result && !isLoading && !error && !showCustomInput && (
-        <div className="p-2">
-          <div className="grid grid-cols-2 gap-1">
+        <div className="min-h-0 overflow-y-auto p-2">
+          <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-1">
             {actions.map(action => {
               const Icon = action.icon;
               return (
                 <button
                   key={action.id}
                   onClick={() => handleAction(action.id)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-zinc-600 dark:text-zinc-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-accent-primary transition-colors text-left"
+                  className="flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-600 dark:text-zinc-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-accent-primary transition-colors"
                 >
                   <Icon size={13} className="shrink-0" />
                   {action.label}
@@ -330,7 +352,7 @@ export default function AIWritingAssistant({
 
       {/* 自定义指令输入框 */}
       {showCustomInput && !result && !isLoading && !error && (
-        <div className="p-3 max-h-[360px] overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto p-3">
           {/* ── 已保存指令列表 ──
               优先级高于输入框：第一次打开就能直接点击复用。
               每行右侧露出 Pencil / Trash 两个轻按钮，不占主视觉。 */}
@@ -457,7 +479,7 @@ export default function AIWritingAssistant({
 
       {/* 加载状态 / 结果展示 */}
       {(isLoading || result) && (
-        <div ref={resultRef} className="flex-1 overflow-auto px-3 py-3 min-h-[100px] max-h-[280px]">
+        <div ref={resultRef} className="min-h-0 flex-1 overflow-auto px-3 py-3">
           {/* 首 chunk 返回前：展示明显的 Loader，避免用户以为卡死 */}
           {isLoading && !result && (
             <div className="flex items-center gap-2 py-4 text-xs text-zinc-500 dark:text-zinc-400">
@@ -465,7 +487,7 @@ export default function AIWritingAssistant({
               <span>{t("ai.generating")}</span>
             </div>
           )}
-          <div className="text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
+          <div className="text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
             {/* 流式输出完成时清洗 <think>...</think> 推理内容 */}
             {isLoading ? visibleResult : extractFinalAnswer(visibleResult)}
             {isLoading && result && (
@@ -477,7 +499,7 @@ export default function AIWritingAssistant({
 
       {/* 错误提示 */}
       {error && (
-        <div className="px-3 py-3">
+        <div className="min-h-0 overflow-y-auto px-3 py-3">
           <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-xs">
             <X size={13} />
             {error}
@@ -487,7 +509,7 @@ export default function AIWritingAssistant({
 
       {/* 底部操作栏 */}
       {(result && !isLoading) && (
-        <div className="flex items-center gap-1.5 px-3 py-2 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
           <button
             onClick={handleReplace}
             className="flex items-center gap-1 px-3 py-1.5 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg text-xs font-medium transition-colors"
@@ -519,6 +541,21 @@ export default function AIWritingAssistant({
           </button>
         </div>
       )}
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
+}
+
+/** Visual viewport coordinates include the visible area above a mobile keyboard. */
+function readAIWritingViewport() {
+  if (typeof window === "undefined") {
+    return { width: 1024, height: 768, offsetLeft: 0, offsetTop: 0 };
+  }
+  const viewport = window.visualViewport;
+  return {
+    width: viewport?.width ?? window.innerWidth,
+    height: viewport?.height ?? window.innerHeight,
+    offsetLeft: viewport?.offsetLeft ?? 0,
+    offsetTop: viewport?.offsetTop ?? 0,
+  };
 }

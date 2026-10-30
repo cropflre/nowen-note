@@ -127,10 +127,10 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/yjs-durability.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-yupdates-repository-async.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree-migration-registry.test.ts
-          node --import tsx --test tests/attachment-cache-contract.test.ts
-          node --import tsx --test tests/attachment-references-repository-async.test.ts
-          node --import tsx --test tests/attachment-shared-access.test.ts
-          node --import tsx --test tests/attachment-signed-url-window.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/attachment-cache-contract.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/attachment-references-repository-async.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/attachment-shared-access.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/attachment-signed-url-window.test.ts
       - name: Backend typecheck
         if: always()
         run: npm run build:tsc
@@ -180,7 +180,7 @@ jobs:
           src/lib/__tests__/editorLifecycleSafety.test.ts
       - name: Frontend lint
         if: always()
-        run: npm run lint:baseline
+        run: npm run lint:baseline -- --emit-delta
       - name: Frontend build
         if: always()
         run: npm run build

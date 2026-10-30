@@ -451,6 +451,10 @@ export function syncNoteBlocks(
 ): { content: string; contentText: string; blocks: NoteBlockIndexRow[]; changed: boolean } {
   ensureNoteBlockTables(db);
   if (contentFormat.startsWith("encrypted-")) return { content, contentText: "", blocks: [], changed: false };
+  if (contentFormat === "plaintext") {
+    db.prepare("DELETE FROM note_blocks_index WHERE noteId = ?").run(noteId);
+    return { content, contentText: content, blocks: [], changed: false };
+  }
   if (contentFormat === "html") {
     db.prepare("DELETE FROM note_blocks_index WHERE noteId = ?").run(noteId);
     return {
@@ -584,6 +588,7 @@ export function searchNoteBlocks(
 }
 
 export function plainTextFromNoteContent(content: string, contentFormat: string): string {
+  if (contentFormat === "plaintext") return content;
   if (contentFormat.startsWith("encrypted-")) return "";
   if (contentFormat === "html") {
     return content.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();

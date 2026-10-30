@@ -5,30 +5,52 @@ on:
     branches:
       - release/v1.5.0
       - release/v1.5.1
+      - release/v1.5.2
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/nativeKnowledgeTreeSync.ts"
+      - "frontend/src/lib/nativePersonalTreeWrites.ts"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts"
+      - "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/src/lib/__tests__/mobileNativeTreeSubscription.test.ts"
+      - "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts"
       - "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts"
+      - "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/lib/accountLoginHistory.ts"
       - "frontend/src/components/AccountLoginHistory.tsx"
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts"
       - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
       - ".github/workflows/android-local-first-ci.yml"
   pull_request:
     branches:
       - main
       - release/v1.5.1
+      - release/v1.5.2
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/nativeKnowledgeTreeSync.ts"
+      - "frontend/src/lib/nativePersonalTreeWrites.ts"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts"
+      - "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/src/lib/__tests__/mobileNativeTreeSubscription.test.ts"
+      - "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts"
       - "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts"
+      - "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/lib/accountLoginHistory.ts"
       - "frontend/src/components/AccountLoginHistory.tsx"
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts"
       - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
       - ".github/workflows/android-local-first-ci.yml"
   workflow_dispatch:
@@ -46,7 +68,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -64,10 +86,17 @@ jobs:
           npx vitest run
           src/lib/__tests__/mobileLocalFirstGuestRuntime.test.ts
           src/lib/__tests__/mobileLocalKnowledgeTreeBridge.test.ts
+          src/lib/__tests__/mobileSignedInTreeCreate.test.ts
+          src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts
           src/lib/__tests__/mobileLocalAdvancedTaskBridge.test.ts
           src/lib/__tests__/mobileLocalNoteRelationsBridge.test.ts
           src/lib/__tests__/mobileLocalAttachmentFolderBridge.test.ts
           src/lib/__tests__/mobileLocalRealtimeGuard.test.ts
           src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts
+          src/lib/__tests__/mobileSyncEndpoint.test.ts
+          src/lib/__tests__/mobileNativeTreeSubscription.test.ts
+          src/lib/__tests__/nativeTreeSchemaMigration.test.ts
+          src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts
+          src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts
           src/components/__tests__/AccountLoginHistory.test.tsx
           src/components/__tests__/AccountLoginHistoryServerEdit.test.tsx

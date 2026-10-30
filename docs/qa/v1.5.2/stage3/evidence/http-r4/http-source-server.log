@@ -1,0 +1,65 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:2700
+📖 OpenAPI 文档: http://localhost:2700/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:2700/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:2700" port=2700
+{"timestamp":"2026-10-12T14:36:48.522Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"946cf1a9-88b8-41a1-bd2c-b6ee701c0df9","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":1}
+[fixture transaction] FORBIDDEN 仅笔记 owner 或工作区管理员可永久删除 Error: 仅笔记 owner 或工作区管理员可永久删除
+    at deleteTrashedNoteData (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2596)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2037
+    at sqliteTransaction (C:\Users\cropf\Desktop\UGits\nowen-note\backend\node_modules\better-sqlite3\lib\methods\transaction.js:65:24)
+    at Function.immediate (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\trace-fixture-sql.cjs:8:18)
+    at permanentlyDeleteNote (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2073)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:9139:1178
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at enforceKnowledgeNoteCapabilities (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:11441:3790)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at automationEventCaptureMiddleware (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8585:5422)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at enforceApiTokenAccess (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:14368:2343)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+{"timestamp":"2026-10-12T14:36:48.526Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"d8c101fd-dcb6-42b0-be2d-11a1614795dc","method":"DELETE","route":"/api/notes/:id","httpStatus":403,"durationMs":3}
+[fixture transaction] NOTE_NOT_TRASHED 请先将笔记移入回收站，再永久删除 Error: 请先将笔记移入回收站，再永久删除
+    at deleteTrashedNoteData (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2947)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2037
+    at sqliteTransaction (C:\Users\cropf\Desktop\UGits\nowen-note\backend\node_modules\better-sqlite3\lib\methods\transaction.js:65:24)
+    at Function.immediate (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\trace-fixture-sql.cjs:8:18)
+    at permanentlyDeleteNote (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2073)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:9139:1178
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at enforceKnowledgeNoteCapabilities (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:11441:3790)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at automationEventCaptureMiddleware (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8585:5422)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at enforceApiTokenAccess (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:14368:2343)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+{"timestamp":"2026-10-12T14:36:48.531Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"bcface39-a0da-4590-97e1-8057221894ed","method":"DELETE","route":"/api/notes/:id","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T14:36:48.535Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"e0441543-4685-44f8-b926-f268283c5997","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":0}
+[fixture transaction] SQLITE_ERROR no such table: knowledge_tree_denials SqliteError: no such table: knowledge_tree_denials
+    at Database.prepare (C:\Users\cropf\Desktop\UGits\nowen-note\backend\node_modules\better-sqlite3\lib\methods\wrappers.js:5:21)
+    at Database.prepare (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\trace-fixture-sql.cjs:16:30)
+    at findNearestKnowledgeDenial (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:6450:143)
+    at resolveKnowledgeNodeAccess (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:6535:2798)
+    at resolveResourceKnowledgeAccessForTombstone (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:6541:479)
+    at resolveTrashedNotePermission (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:7227:3568)
+    at deleteTrashedNoteData (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2509)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2037
+    at sqliteTransaction (C:\Users\cropf\Desktop\UGits\nowen-note\backend\node_modules\better-sqlite3\lib\methods\transaction.js:65:24)
+    at Function.immediate (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\trace-fixture-sql.cjs:8:18)
+    at permanentlyDeleteNote (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:8914:2073)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:9139:1178
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+    at C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3683
+    at enforceKnowledgeNoteCapabilities (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:11441:3790)
+    at dispatch (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\dist\index.js:5309:3663)
+{"timestamp":"2026-10-12T14:36:48.536Z","level":"ERROR","event":"http.request.failed","module":"http","requestId":"c6820f37-93fb-44bb-94c1-6fa5c184fb46","code":"SYSTEM_INTERNAL_ERROR","httpStatus":500,"errorName":"SqliteError"}

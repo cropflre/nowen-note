@@ -2,6 +2,12 @@
 export const conversionLockName = (noteId: string) => `nowen-encrypted-conversion:v1:${encodeURIComponent(noteId)}`;
 // Legacy queues are also global. Serialize cleanup against replay in any window.
 export const CONVERSION_REPLAY_LOCK = "nowen-encrypted-conversion-replay:v1";
+export interface ConversionLease { readonly noteId: string }
+const activeLeases = new WeakSet<ConversionLease>();
+export function withHeldConversionLease<T>(lease: ConversionLease, noteId: string, operation: () => Promise<T>): Promise<T> {
+  if (lease.noteId !== noteId || !activeLeases.has(lease)) throw new ConversionCleanupError("busy");
+  return operation();
+}
 
 export class ConversionCleanupError extends Error {
   constructor(readonly code: "unavailable" | "busy" | "scope_changed" | "not_committed" | "pending_writes" | "storage_failed" | "invalid_consent" | "converted_note") {
@@ -22,14 +28,33 @@ export function holdConversionEditorLease(noteId: string, ready: () => void, fai
   return () => { released = true; controller.abort(); release(); };
 }
 
-/** No forced takeover, timeout-based success, or unlocked storage fallback. */
-export async function withConversionCleanupLease<T>(noteId: string, operation: () => Promise<T>): Promise<T> {
-  if (!navigator.locks?.request) throw new ConversionCleanupError("unavailable");
-  return navigator.locks.request(conversionLockName(noteId), { mode: "exclusive", ifAvailable: true }, async (lock) => {
-    if (!lock) throw new ConversionCleanupError("busy");
-    return navigator.locks.request(CONVERSION_REPLAY_LOCK, { mode: "exclusive", ifAvailable: true }, async (replayLock) => {
-      if (!replayLock) throw new ConversionCleanupError("busy");
+/** Queue behind short-lived readers/writers; an editor still open after the wait stays protected. */
+async function withExclusiveLock<T>(name: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timeout = setTimeout(abort, 5_000);
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  try {
+    return await navigator.locks.request(name, { mode: "exclusive", signal: controller.signal }, async (lock) => {
+      clearTimeout(timeout); signal?.removeEventListener("abort", abort);
+      if (!lock) throw new ConversionCleanupError("busy");
+      if (signal?.aborted) throw new ConversionCleanupError("scope_changed");
       return operation();
     });
-  });
+  } catch (error) {
+    if (controller.signal.aborted) throw new ConversionCleanupError(signal?.aborted ? "scope_changed" : "busy");
+    throw error;
+  } finally { clearTimeout(timeout); signal?.removeEventListener("abort", abort); }
+}
+
+/** No forced takeover, timeout-based success, or unlocked storage fallback. */
+export async function withConversionCleanupLease<T>(noteId: string, operation: (lease: ConversionLease) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!navigator.locks?.request) throw new ConversionCleanupError("unavailable");
+  return withExclusiveLock(conversionLockName(noteId), async () => {
+    return withExclusiveLock(CONVERSION_REPLAY_LOCK, async () => {
+      const lease = { noteId }; activeLeases.add(lease);
+      try { return await operation(lease); } finally { activeLeases.delete(lease); }
+    }, signal);
+  }, signal);
 }

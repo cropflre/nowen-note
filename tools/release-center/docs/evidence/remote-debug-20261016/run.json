@@ -1,0 +1,76 @@
+{
+  "conclusion": "success",
+  "createdAt": "2026-10-16T04:40:51Z",
+  "databaseId": 38851856910,
+  "event": "workflow_dispatch",
+  "headBranch": "codex/release-center-debug-v1.5.2",
+  "headSha": "f1066e49386200780d85ee651775895b513f71ca",
+  "jobs": [
+    {
+      "name": "plan",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-16T04:40:54Z",
+      "completedAt": "2026-10-16T04:41:00Z",
+      "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910/job/116814612545"
+    },
+    {
+      "name": "contracts",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-16T04:41:01Z",
+      "completedAt": "2026-10-16T04:41:48Z",
+      "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910/job/116814645932"
+    },
+    {
+      "name": "build (macos, macos-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-16T04:41:55Z",
+      "completedAt": "2026-10-16T04:47:36Z",
+      "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910/job/116814865818"
+    },
+    {
+      "name": "build (windows, windows-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-16T04:41:52Z",
+      "completedAt": "2026-10-16T04:49:03Z",
+      "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910/job/116814865888"
+    },
+    {
+      "name": "build (linux, ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-10-16T04:41:55Z",
+      "completedAt": "2026-10-16T04:47:07Z",
+      "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910/job/116814866645"
+    }
+  ],
+  "status": "completed",
+  "updatedAt": "2026-10-16T04:49:04Z",
+  "url": "https://github.com/cropflre/nowen-note/actions/runs/38851856910",
+  "artifacts": [
+    {
+      "id": 12025802798,
+      "name": "rc-debug-119fdb1e-9a61-4146-8716-361ac5507559-linux",
+      "size": 273618156,
+      "digest": "sha256:0d4679fc1ae525b5555d93b9d0e34ec7020d4b51e19338aec857e09706a1e497",
+      "expired": false
+    },
+    {
+      "id": 12025449070,
+      "name": "rc-debug-119fdb1e-9a61-4146-8716-361ac5507559-macos",
+      "size": 575700663,
+      "digest": "sha256:9c228f54e809d186abc42e3d2aa7f9e80729573d0a97cee26eaee344e4333b00",
+      "expired": false
+    },
+    {
+      "id": 12025339687,
+      "name": "rc-debug-119fdb1e-9a61-4146-8716-361ac5507559-windows",
+      "size": 275008250,
+      "digest": "sha256:7bd7ea00247264696cf5133fe214889bea2d169eaf55e768ed5c2d8b389c8bdb",
+      "expired": false
+    }
+  ]
+}

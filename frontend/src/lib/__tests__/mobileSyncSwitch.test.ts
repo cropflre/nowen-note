@@ -68,7 +68,15 @@ vi.mock("../api.impl", () => ({
   setCurrentWorkspace: vi.fn(), SERVER_URL_CHANGED_EVENT: "nowen:server-url-changed",
 }));
 vi.mock("../api", () => ({ getBaseUrl: () => "/api", api: { attachments: {}, files: {}, attachmentFolders: {}, dataFile: {} } }));
-vi.mock("../authSession", () => ({ getAccessToken: () => localStorage.getItem("nowen-token") }));
+// Mobile Sync V2 now delegates every request through the shared token-refresh
+// transport. Mode-switch tests are about SQLite/outbox lifecycle, not refresh
+// itself (covered by mobileSyncEndpoint.test.ts), so delegate to the passed
+// fetch implementation rather than silently dropping transport requests.
+vi.mock("../authSession", () => ({
+  getAccessToken: () => localStorage.getItem("nowen-token"),
+  fetchWithAuthRefresh: (url: string, init: RequestInit, _apiBase: string, fetchImpl: typeof fetch) =>
+    fetchImpl(url, init),
+}));
 vi.mock("../mobileLocalFirstBridge", () => ({ installMobileLocalFirstBridge: () => () => undefined }));
 vi.mock("../mobileLocalAccountMigration", () => ({ migrateMobileLocalAccount: async () => undefined }));
 vi.mock("../localStore", () => ({
@@ -96,9 +104,12 @@ beforeEach(async () => {
   mocks.fetch.mockImplementation(async (url: string, init?: RequestInit) => {
     let payload: unknown;
     if (url.endsWith("/scopes")) payload = { items: [{ scopeKey: "personal", workspaceId: null, workspaceName: null, role: null, canWrite: true, accessFingerprint: "test" }] };
+    else if (url.includes("/plan?")) payload = { entityTypes: ["notebook","note","tag","note_tag","favorite","attachment","task","task_reminder","diary","mindmap"] };
     else if (url.includes("/push?")) {
       const { mutations } = JSON.parse(String(init?.body));
-      payload = { serverSequence: 1, results: mutations.map(({ mutationId }: { mutationId: string }) => ({ mutationId, status: "applied" })) };
+      payload = { serverSequence: 1, results: mutations.map(({ mutationId, baseVersion, payload: note }: { mutationId: string; baseVersion?: number; payload?: {version?:number} }) => ({
+        mutationId, status: "applied", version: baseVersion == null ? note?.version || 1 : baseVersion + 1,
+      })) };
     } else if (url.includes("/changes?")) payload = { resetRequired: false, nextSequence: 1, items: [] };
     else if (url.includes("/ack")) payload = {};
     else if (url.includes("/blob/")) return { ok: init?.method !== "HEAD", status: init?.method === "HEAD" ? 404 : 200 };

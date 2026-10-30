@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@config "../tailwind.config.cjs";
+
+@layer base {
+  body {
+    @apply m-0 antialiased;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+  ::selection {
+    @apply bg-violet-200 text-violet-950;
+  }
+}
+@layer components {
+  .panel-title {
+    @apply flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 text-sm font-semibold dark:border-slate-800;
+  }
+  .field-label {
+    @apply flex flex-col gap-2 text-sm font-medium;
+  }
+  .field-help {
+    @apply text-xs font-normal text-slate-400;
+  }
+  .select-input {
+    @apply w-full rounded-lg border border-slate-200 bg-transparent px-3 py-2.5 text-sm font-normal outline-none focus:ring-2 focus:ring-primary dark:border-slate-700;
+  }
+  .select-input option {
+    @apply bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100;
+  }
+}

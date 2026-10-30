@@ -138,6 +138,14 @@ export default function TaskDescriptionRichEditor({ taskId, value, placeholder, 
     },
   });
 
+  useEffect(() => {
+    if (!editor) return;
+    const panel = editor.view.dom.closest("[data-task-id]");
+    const readDraft = (event: Event) => { const draft = (event as CustomEvent<{ description: string; attachmentsPending?: boolean }>).detail; draft.description = editorMarkdown(editor); draft.attachmentsPending = uploading; };
+    panel?.addEventListener("nowen:task-snapshot-draft",readDraft);
+    return () => panel?.removeEventListener("nowen:task-snapshot-draft",readDraft);
+  }, [editor, uploading]);
+
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
   }, []);

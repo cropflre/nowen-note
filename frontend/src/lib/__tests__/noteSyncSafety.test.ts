@@ -9,10 +9,19 @@ import {
   recordNoteSyncConflict,
 } from "@/lib/noteSyncSafety";
 import { getQueue } from "@/lib/offlineQueue";
+import { loadDraft } from "@/lib/draftStorage";
 
 describe("note sync safety", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it("retains literal TXT in conflict drafts and the retry queue without attachment parsing", () => {
+    const content = '  <img src="blob:literal">\n![literal](file:///example)\n  ';
+    preserveNoteSyncConflictSnapshot("txt-conflict", { title: "TXT", content, contentText: content, contentFormat: "plaintext" }, 3,
+      { id: "txt-conflict", title: "Remote", content: "remote", contentText: "remote", contentFormat: "plaintext", version: 4 });
+    expect(loadDraft("txt-conflict")).toMatchObject({ content, contentFormat: "plaintext", conflicted: true });
+    expect(getQueue().find(item => item.noteId === "txt-conflict")?.body).toMatchObject({ content, contentFormat: "plaintext" });
   });
 
   it("requires server revision advancement before a versioned write is considered synced", () => {

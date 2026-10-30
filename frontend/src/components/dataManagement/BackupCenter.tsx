@@ -78,6 +78,8 @@ export default function BackupCenter({ migration, advanced }: { migration: React
   // 调度模式：interval=按间隔小时；daily=每天 HH:mm。默认 interval（兼容旧行为）。
   const [autoMode, setAutoMode] = useState<"interval" | "daily">("interval");
   const [autoDailyAt, setAutoDailyAt] = useState("03:00");
+  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const [autoTimeZone, setAutoTimeZone] = useState(browserTimeZone);
   // 自动备份保留数量，默认 15，范围 1~100。
   const [autoKeepCount, setAutoKeepCount] = useState(15);
   // 自动备份成功后是否发邮件 + 收件人。默认 false；启用时邮箱必填。
@@ -104,6 +106,8 @@ export default function BackupCenter({ migration, advanced }: { migration: React
       // 新字段：旧后端不返回这些字段时回退默认值，避免 UI 闪烁
       setAutoMode(s.autoBackupMode === "daily" ? "daily" : "interval");
       setAutoDailyAt(s.autoBackupDailyAt || "03:00");
+      // Do not silently shift legacy server-local jobs until the admin saves.
+      setAutoTimeZone(s.autoBackupTimeZone || browserTimeZone);
       setAutoKeepCount(typeof s.autoBackupKeepCount === "number" ? s.autoBackupKeepCount : 15);
       setAutoEmailOnSuccess(s.autoBackupEmailOnSuccess === true);
       setAutoEmailTo(s.autoBackupEmailTo || "");
@@ -330,6 +334,13 @@ export default function BackupCenter({ migration, advanced }: { migration: React
         return;
       }
     }
+    if (autoMode === "daily") {
+      try { new Intl.DateTimeFormat("en-US", { timeZone: autoTimeZone }); }
+      catch {
+        setAutoMsg({ type: "err", text: t("dataManager.backup.invalidTimeZone") });
+        return;
+      }
+    }
     setAutoSaving(true);
     setAutoMsg(null);
     try {
@@ -337,6 +348,7 @@ export default function BackupCenter({ migration, advanced }: { migration: React
         (tk) => api.backup.setAuto(enabled, autoIntervalHours, tk, {
           mode: autoMode,
           dailyAt: autoDailyAt,
+          timeZone: autoTimeZone,
           keepCount: autoKeepCount,
           emailOnSuccess: autoEmailOnSuccess,
           emailTo: autoEmailTo.trim(),
@@ -369,7 +381,7 @@ export default function BackupCenter({ migration, advanced }: { migration: React
         healthy={!!status?.backupDirWritable && !status?.degraded && backups.some((b) => b.type === "full")}
         lastBackup={backups.reduce<string | null>((latest, b) => !latest || b.createdAt > latest ? b.createdAt : latest, null)}
         automatic={status?.autoBackupRunning ?? false}
-        schedule={!status?.autoBackupRunning ? t("dataManager.backup.autoDisabledLabel") : status.autoBackupMode === "daily" ? t("dataManager.overview.daily", { time: status.autoBackupDailyAt || "03:00" }) : t("dataManager.overview.interval", { hours: status.autoBackupIntervalHours })}
+        schedule={!status?.autoBackupRunning ? t("dataManager.backup.autoDisabledLabel") : status.autoBackupMode === "daily" ? `${t("dataManager.overview.daily", { time: status.autoBackupDailyAt || "03:00" })} · ${status.autoBackupTimeZone || status.autoBackupServerTimeZone || "UTC"}` : t("dataManager.overview.interval", { hours: status.autoBackupIntervalHours })}
         location={webdav?.enabled && webdav.configured ? `${locationLabel} / WebDAV` : locationLabel}
         busy={creating !== null} saving={autoSaving}
         onBackup={() => void handleCreate("full")} onRestore={() => setRestoreOpen((open) => !open)}
@@ -560,7 +572,7 @@ export default function BackupCenter({ migration, advanced }: { migration: React
               </div>
             )}
 
-            {/* daily 模式：HH:mm 时间选择器（服务器本地时区） */}
+            {/* 显式时间 + IANA 时区，避免 Docker 的 UTC 与管理员本地时间混淆。 */}
             {autoMode === "daily" && (
               <div>
                 <div className="flex items-center gap-3">
@@ -574,10 +586,37 @@ export default function BackupCenter({ migration, advanced }: { migration: React
                     className="px-2 py-1 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200"
                     disabled={!autoEnabled}
                   />
-                  <span className="text-xs text-zinc-500">
-                    {t("dataManager.backup.dailyAtTzNote")}
-                  </span>
                 </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                  <label htmlFor="backup-daily-timezone">{t("dataManager.backup.timeZoneLabel")}</label>
+                  <input
+                    id="backup-daily-timezone"
+                    type="text"
+                    list="backup-timezone-suggestions"
+                    value={autoTimeZone}
+                    onChange={(e) => setAutoTimeZone(e.target.value)}
+                    className="w-48 rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                    disabled={!autoEnabled}
+                    placeholder="Asia/Shanghai"
+                  />
+                  <datalist id="backup-timezone-suggestions">
+                    {[browserTimeZone, "Asia/Shanghai", "UTC", "Asia/Tokyo", "Europe/London", "America/New_York", "Australia/Sydney"]
+                      .filter((value, index, all) => all.indexOf(value) === index)
+                      .map((value) => <option key={value} value={value} />)}
+                  </datalist>
+                </div>
+                {status?.autoBackupTimeZone == null && status?.autoBackupRunning && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    {t("dataManager.backup.legacyTimeZoneHint", { timeZone: status.autoBackupServerTimeZone || "UTC" })}
+                  </p>
+                )}
+                {status?.autoBackupNextRunAt && (
+                  <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {t("dataManager.backup.nextRunLabel")}: {new Date(status.autoBackupNextRunAt).toLocaleString(undefined, {
+                      timeZone: status.autoBackupTimeZone || status.autoBackupServerTimeZone || "UTC",
+                    })} ({status.autoBackupTimeZone || status.autoBackupServerTimeZone || "UTC"})
+                  </p>
+                )}
                 <div className="text-[11px] text-zinc-400 mt-1">
                   {t("dataManager.backup.dailyAtHint")}
                 </div>
@@ -655,6 +694,7 @@ export default function BackupCenter({ migration, advanced }: { migration: React
                   status.autoBackupIntervalHours === autoIntervalHours &&
                   (status.autoBackupMode ?? "interval") === autoMode &&
                   (status.autoBackupDailyAt ?? "03:00") === autoDailyAt &&
+                  (autoMode !== "daily" || status.autoBackupTimeZone === autoTimeZone) &&
                   (status.autoBackupKeepCount ?? 15) === autoKeepCount &&
                   (status.autoBackupEmailOnSuccess ?? false) === autoEmailOnSuccess &&
                   (status.autoBackupEmailTo ?? "") === autoEmailTo.trim())

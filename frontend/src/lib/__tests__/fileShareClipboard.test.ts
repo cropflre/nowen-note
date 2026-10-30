@@ -4,7 +4,7 @@ import { stabilizeClipboardAttachmentLinks } from "@/lib/fileShareClipboard";
 const ATTACHMENT_ID = "11111111-2222-4333-8444-555555555555";
 const STABLE_URL = `https://notes.example/api/attachments/${ATTACHMENT_ID}?share=stable-token`;
 
-function encodeScope(kind: "user" | "share" | "publication"): string {
+function encodeScope(kind: "user" | "file" | "share" | "publication"): string {
   const payload = JSON.stringify({
     version: 2,
     kind,
@@ -18,11 +18,43 @@ function encodeScope(kind: "user" | "share" | "publication"): string {
   return `v2.${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
 }
 
-function signedUrl(kind: "user" | "share" | "publication" = "user"): string {
+function signedUrl(kind: "user" | "file" | "share" | "publication" = "user"): string {
   return `https://notes.example/api/attachments/${ATTACHMENT_ID}?exp=4102444800&sig=deadbeef&scope=${encodeURIComponent(encodeScope(kind))}`;
 }
 
 describe("stabilizeClipboardAttachmentLinks", () => {
+  it("copies a whole Markdown article with named images as permanent public URLs", async () => {
+    const named = `https://files.example/api/attachments/${ATTACHMENT_ID}/image.png`;
+    const stable = `${named}?share=stable-token`;
+    const createShare = vi.fn(async () => stable);
+    expect(await stabilizeClipboardAttachmentLinks(`# Article\n\n![photo](${named})`, createShare))
+      .toBe(`# Article\n\n![photo](${stable})`);
+    expect(createShare).toHaveBeenCalledWith(ATTACHMENT_ID);
+    expect(await stabilizeClipboardAttachmentLinks(stable, createShare)).toBe(stable);
+    expect(createShare).toHaveBeenCalledTimes(1);
+  });
+  it("keeps adjacent Markdown links separate and leaves unrelated paths unchanged", async () => {
+    const named = `https://files.example/api/attachments/${ATTACHMENT_ID}/image.jpg`;
+    const stable = `${named}?share=stable-token`;
+    const createShare = vi.fn(async () => stable);
+    expect(await stabilizeClipboardAttachmentLinks(`![a](${named})![b](${named})`, createShare))
+      .toBe(`![a](${stable})![b](${stable})`);
+    const unrelated = `${named}x`;
+    expect(await stabilizeClipboardAttachmentLinks(unrelated, createShare)).toBe(unrelated);
+    expect(createShare).toHaveBeenCalledTimes(1);
+  });
+  it("does not silently copy private named images when sharing is denied (DCC-006)", async () => {
+    await expect(stabilizeClipboardAttachmentLinks(`![private](https://files.example/api/attachments/${ATTACHMENT_ID}/image.png)`, async () => {
+      throw new Error("FILE_EXTERNAL_ACCESS_DISABLED");
+    })).rejects.toThrow("FILE_EXTERNAL_ACCESS_DISABLED");
+  });
+  it("exchanges manual-upload file scopes for revocable links and propagates privacy denial", async () => {
+    const createShare = vi.fn(async () => STABLE_URL);
+    await expect(stabilizeClipboardAttachmentLinks(signedUrl("file"), createShare)).resolves.toBe(STABLE_URL);
+    await expect(stabilizeClipboardAttachmentLinks(signedUrl("file"), async () => {
+      throw new Error("FILE_EXTERNAL_ACCESS_DISABLED");
+    })).rejects.toThrow("FILE_EXTERNAL_ACCESS_DISABLED");
+  });
   it("keeps ordinary clipboard content unchanged without creating a share", async () => {
     const createShare = vi.fn(async () => STABLE_URL);
     const input = "hello https://example.com/image.png";

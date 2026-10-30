@@ -1,3 +1,8 @@
+import { assertPermanentNoteDeletion } from "./noteDeletion";
+import { applyAssetOrganization } from "./assetOrganization";
+import { TASK_SYNC_FIELDS, taskSyncValues } from "./taskFields.js";
+import { invalidTaskDateField } from "../lib/taskDates.js";
+import { guardTaskRecurrenceWrite, removeTaskOccurrences, taskRemovalRows } from "../lib/taskRecurrenceDeletion.js";
 import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import type Database from "better-sqlite3";
 import { guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
@@ -7,6 +12,7 @@ import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 import { normalizeNoteColorMark } from "../lib/noteColorMark";
 import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
+import { isRootDocumentNotebookId } from "../services/knowledgeTreeRootDocuments.js";
 
 /**
  * Sync V2 服务端 mutation 应用层。
@@ -29,7 +35,7 @@ export interface ApplyMutationInput {
   userId: string;
   deviceId: string;
   mutationId: string;
-  entityType: SyncEntityType | "knowledge_tree_node";
+  entityType: SyncEntityType | "knowledge_tree_node" | "attachment_organization";
   entityId: string;
   operation: SyncOperation;
   baseVersion?: number;
@@ -113,6 +119,17 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
   }
 
   const p = input.payload || {};
+  // Existing folders under root documents retain a hidden compatibility
+  // container. UPSERT would rerun the creation guard against that deleted
+  // container even for a rename; update state without reassigning its parent.
+  if (isRootDocumentNotebookId(str(p.parentId)) && db.prepare(`SELECT 1 FROM notebooks
+    WHERE id=? AND parentId=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)`)
+    .get(input.entityId,p.parentId,workspaceIdOf(input),workspaceIdOf(input),input.userId)) {
+    db.prepare(`UPDATE notebooks SET name=?,description=?,icon=?,color=?,sortOrder=?,isExpanded=?,
+      isDeleted=?,deletedAt=?,updatedAt=datetime('now') WHERE id=?`).run(str(p.name,"未命名笔记本"),p.description??null,
+      str(p.icon,"📒"),p.color??null,num(p.sortOrder),bit(p.isExpanded??1),bit(p.isDeleted),p.deletedAt??null,input.entityId);
+    return null;
+  }
   db.prepare(`
     INSERT INTO notebooks (
       id, userId, parentId, name, description, icon, color,
@@ -192,10 +209,17 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     | undefined;
 
   if (input.operation === "delete") {
-    if (!existing) return null; // 已不存在：delete 天然幂等
-    if (input.baseVersion !== undefined && existing.version !== input.baseVersion) {
+    if (!existing) {
+      if(db.prepare("SELECT 1 FROM notes WHERE id=?").get(input.entityId)) throw new SyncError("SCOPE_FORBIDDEN","笔记不属于当前同步空间");
+      return null; // Already deleted: idempotent without reviving the note.
+    }
+    if (input.baseVersion === undefined || existing.version !== input.baseVersion) {
       throw new SyncError("VERSION_CONFLICT", `服务端版本 ${existing.version}`);
     }
+    assertPermanentNoteDeletion(db,input.entityId,input.userId);
+    const attachments=db.prepare("SELECT id,path FROM attachments WHERE noteId=?").all(input.entityId);
+    db.prepare("INSERT INTO sync_note_deletion_cleanup(mutationId,noteId,attachments) VALUES(?,?,?)")
+      .run(input.mutationId,input.entityId,JSON.stringify(attachments));
     db.prepare(`DELETE FROM notes WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)`)
       .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
@@ -212,6 +236,14 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     const base = input.baseVersion;
     if (base === undefined || existing.version !== base) {
       throw new SyncError("VERSION_CONFLICT", `服务端版本 ${existing.version}`);
+    }
+    // A pre-trash body update cannot implicitly restore a child while its
+    // folder is still deleted. Restoration belongs to the tree lifecycle.
+    if (!p.isTrashed && db.prepare(`WITH RECURSIVE ancestry(id,parentId,isDeleted) AS (
+      SELECT id,parentId,isDeleted FROM knowledge_tree_nodes WHERE id=?
+      UNION SELECT t.id,t.parentId,t.isDeleted FROM knowledge_tree_nodes t JOIN ancestry a ON t.id=a.parentId
+    ) SELECT 1 FROM ancestry WHERE id<>? AND isDeleted=1 LIMIT 1`).get(`note:${input.entityId}`,`note:${input.entityId}`)) {
+      throw new SyncError("VERSION_CONFLICT","所在目录仍在回收站，请先恢复目录后处理正文修改");
     }
     const nextVersion = existing.version + 1;
     withEncryptedBlockWrite(db, input.entityId, effective.content, effective.contentFormat, () => db.prepare(`
@@ -247,6 +279,10 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     ), p.encryptedBlocksVersion);
     return nextVersion;
   }
+
+  // An update based on an existing revision is not a new entity. An old device
+  // must not resurrect a permanently deleted note, even after feed retention.
+  if (input.baseVersion !== undefined) throw new SyncError("VERSION_CONFLICT", "远端笔记已删除，请保留冲突或另存为新笔记");
 
   // 新建：客户端生成 UUID，离线也能创建，不依赖服务端分配 ID。
   const version = Math.max(1, num(p.version, 1));
@@ -394,15 +430,42 @@ function applyAttachment(db: Database.Database, input: ApplyMutationInput): numb
  * 因此只要双方 updatedAt 不同就判冲突，交给用户决定。
  */
 function applyTask(db: Database.Database, input: ApplyMutationInput): number | null {
+  const p = input.payload || {};
+  const scopeTask = db.prepare(`SELECT * FROM tasks WHERE id=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)`)
+    .get(input.entityId,workspaceIdOf(input),workspaceIdOf(input),input.userId) as any;
+  const tombstone = db.prepare(`SELECT * FROM task_deletion_tombstones WHERE id=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)`)
+    .get(input.entityId,workspaceIdOf(input),workspaceIdOf(input),input.userId) as any;
+  if ((!scopeTask && db.prepare("SELECT 1 FROM tasks WHERE id=?").get(input.entityId)) || (!tombstone && db.prepare("SELECT 1 FROM task_deletion_tombstones WHERE id=?").get(input.entityId))) {
+    throw new SyncError("SCOPE_FORBIDDEN", "任务不属于当前同步作用域");
+  }
+  if (scopeTask && p.repeatGroupId !== undefined && (p.repeatGroupId || input.entityId) !== (scopeTask.repeatGroupId || input.entityId)) {
+    throw new SyncError("VERSION_CONFLICT", "不能通过同步更改循环任务系列");
+  }
+  const anchor = scopeTask || tombstone || { id: input.entityId, userId: input.userId, workspaceId: workspaceIdOf(input) };
+  const removalMode = p.recurrenceAction === "stop" ? "stop" : (input.operation === "delete" ? (p.recurrenceAction === "series" ? "series" : "single") : null);
+  const removalRows = removalMode ? taskRemovalRows(db,anchor,removalMode) : [];
+  if (input.operation === "delete" && p.recurrenceAction === "stop") removalRows.push(...taskRemovalRows(db,anchor,"single"));
+  if (removalRows.some(row => {
+    if (row.userId === input.userId) return false;
+    if (!row.workspaceId) return true;
+    const role = db.prepare("SELECT role FROM workspace_members WHERE workspaceId=? AND userId=?").get(row.workspaceId,input.userId) as {role:string} | undefined;
+    return role?.role !== "owner" && role?.role !== "admin";
+  })) {
+    throw new SyncError("SCOPE_FORBIDDEN", "无权操作部分循环任务");
+  }
   if (input.operation === "delete") {
+    if (p.recurrenceAction === "stop") removeTaskOccurrences(db,anchor,"stop");
+    if (p.recurrenceAction === "series" && anchor) removeTaskOccurrences(db,anchor,"series");
+    else if (scopeTask) removeTaskOccurrences(db,scopeTask,"single");
+    db.prepare("INSERT OR IGNORE INTO task_deletion_tombstones(id,userId,workspaceId,repeatGroupId,deletedAt) VALUES(?,?,?,?,?)")
+      .run(input.entityId,input.userId,workspaceIdOf(input),anchor.repeatGroupId || null,new Date().toISOString());
     // 子任务通过 parentId 的 CASCADE 一并删除，与本地删除语义一致。
-    db.prepare(`DELETE FROM tasks WHERE id = ? AND workspaceId IS ?
-      AND (? IS NOT NULL OR userId = ?)`)
-      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
-
-  const p = input.payload || {};
+  if (p.recurrenceAction === "stop" && anchor && p.title === undefined) {
+    removeTaskOccurrences(db,anchor,"stop"); return null;
+  }
+  if (tombstone && !scopeTask) throw new SyncError("VERSION_CONFLICT", "任务已删除，请保留冲突或另建任务");
   const requestedNoteId = typeof p.noteId === "string" ? p.noteId : null;
   const requestedParentId = typeof p.parentId === "string" ? p.parentId : null;
   if (requestedNoteId && !noteExists(db,requestedNoteId,input)) {
@@ -412,10 +475,10 @@ function applyTask(db: Database.Database, input: ApplyMutationInput): number | n
     throw new SyncError("MISSING_DEPENDENCY", "父任务尚未同步");
   }
   const existing = db.prepare(
-    `SELECT updatedAt FROM tasks WHERE id = ? AND workspaceId IS ?
+    `SELECT * FROM tasks WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)`,
   ).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
-    | { updatedAt: string }
+    | ({ updatedAt: string; archivedAt: string | null } & Record<string, unknown>)
     | undefined;
 
   if (existing) {
@@ -427,27 +490,38 @@ function applyTask(db: Database.Database, input: ApplyMutationInput): number | n
     }
   }
 
+  const invalidDate = invalidTaskDateField(p,existing);
+  if (invalidDate) throw new SyncError("INVALID_PAYLOAD",`Invalid ${invalidDate}`);
+  const taskScope = { id: input.entityId, userId: input.userId, workspaceId: workspaceIdOf(input), repeatGroupId: typeof p.repeatGroupId === "string" ? p.repeatGroupId : (scopeTask?.repeatGroupId ?? null) };
+  if (p.recurrenceAction === "stop" && existing) removeTaskOccurrences(db,taskScope,"stop");
+  guardTaskRecurrenceWrite(db,taskScope,p.repeatRule ?? existing?.repeatRule);
+
+  const archivedAt = Object.prototype.hasOwnProperty.call(p,"archivedAt") ? (typeof p.archivedAt === "string" ? p.archivedAt : null) : (existing?.archivedAt ?? null);
+  if (archivedAt && !p.isCompleted) throw new SyncError("VERSION_CONFLICT", "请先恢复已归档任务");
   db.prepare(`
     INSERT INTO tasks (
-      id, userId, title, isCompleted, completedAt, priority, dueDate,
-      noteId, parentId, sortOrder, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
+      id, userId, title, isCompleted, completedAt, archivedAt, priority, dueDate,
+      noteId, parentId, sortOrder, createdAt, updatedAt, workspaceId, ${TASK_SYNC_FIELDS.join(",")}
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?, ${TASK_SYNC_FIELDS.map(() => "?").join(",")})
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       isCompleted = excluded.isCompleted,
       completedAt = excluded.completedAt,
+      archivedAt = excluded.archivedAt,
       priority = excluded.priority,
       dueDate = excluded.dueDate,
       noteId = excluded.noteId,
       parentId = excluded.parentId,
       sortOrder = excluded.sortOrder,
-      updatedAt = datetime('now')
+      updatedAt = datetime('now'),
+      ${TASK_SYNC_FIELDS.map(field => `${field}=excluded.${field}`).join(",")}
   `).run(
     input.entityId,
     input.userId,
     typeof p.title === "string" ? p.title : "",
     p.isCompleted ? 1 : 0,
     typeof p.completedAt === "string" ? p.completedAt : null,
+    archivedAt,
     Number.isFinite(p.priority as number) ? Number(p.priority) : 2,
     typeof p.dueDate === "string" ? p.dueDate : null,
     requestedNoteId,
@@ -455,6 +529,7 @@ function applyTask(db: Database.Database, input: ApplyMutationInput): number | n
     Number.isFinite(p.sortOrder as number) ? Number(p.sortOrder) : 0,
     typeof p.createdAt === "string" ? p.createdAt : null,
     workspaceIdOf(input),
+    ...taskSyncValues(p, existing),
   );
   return null;
 }
@@ -617,6 +692,7 @@ function applyMindmap(db: Database.Database, input: ApplyMutationInput): number 
 }
 
 const APPLIERS: Record<ApplyMutationInput["entityType"], (db: Database.Database, input: ApplyMutationInput) => number | null> = {
+  attachment_organization: applyAssetOrganization,
   notebook: applyNotebook,
   note: applyNote,
   tag: applyTag,
@@ -628,6 +704,7 @@ const APPLIERS: Record<ApplyMutationInput["entityType"], (db: Database.Database,
   diary: applyDiary,
   mindmap: applyMindmap,
   knowledge_tree_node: (db, input) => {
+    if(input.payload?.lifecycle && input.payload.lifecycleMutationId!==input.mutationId) throw new SyncError("INVALID_PAYLOAD","回收站操作身份不匹配");
     applyKnowledgeTreeStructureMutation(db, {
       userId: input.userId,
       workspaceId: input.workspaceId ?? null,

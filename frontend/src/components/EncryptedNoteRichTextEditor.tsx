@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { readEncryptedRichTextContent } from "@/lib/encryptedNotes/noteDocument";
 
 /** Deliberately independent of normal note editors, uploads, Yjs and diagnostic snapshots. */
 export default function EncryptedNoteRichTextEditor({ initialContent, editable, onChange }: {
@@ -8,7 +9,7 @@ export default function EncryptedNoteRichTextEditor({ initialContent, editable, 
 }) {
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: false, underline: false })],
-    content: JSON.parse(initialContent),
+    content: readEncryptedRichTextContent(initialContent),
     editable,
     onUpdate: ({ editor }) => onChange(JSON.stringify(editor.getJSON())),
     editorProps: {

@@ -58,7 +58,7 @@ describe("NoteWorkspaceLayoutController", () => {
     state.noteListCollapsed = false;
     state.editorFullscreen = false;
     state.editorSplit = null;
-    state.viewMode = "all";
+    state.viewMode = "notebook";
     actions.toggleNoteListCollapsed.mockClear();
     actions.setEditorFullscreen.mockClear();
     delete (window as any).nowenDesktop;
@@ -179,19 +179,20 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
   });
 
-  it("forces functional result lists open and restores the saved base mode afterwards", () => {
+  it.each(["all", "favorites", "tag", "search"])("keeps %s results visible in a narrow window and restores the saved base mode afterwards", (viewMode) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "standard");
     state.noteListCollapsed = true;
     act(() => root.render(<NoteWorkspaceLayoutController />));
 
-    state.viewMode = "favorites";
+    state.viewMode = viewMode;
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(1);
     expect(state.noteListCollapsed).toBe(false);
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
 
     act(() => root.render(<NoteWorkspaceLayoutController />));
-    state.viewMode = "all";
+    state.viewMode = "notebook";
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
     expect(state.noteListCollapsed).toBe(true);
@@ -218,7 +219,7 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
 
-    state.viewMode = "all";
+    state.viewMode = "notebook";
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="note-workspace-layout-menu"]')).toBeNull();

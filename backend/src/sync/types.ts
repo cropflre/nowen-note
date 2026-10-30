@@ -53,11 +53,13 @@ export const SYNC_V2_NEGOTIATED_ENTITY_TYPES = [
 export const SYNC_ENTITY_TYPES = [...SYNC_V2_LEGACY_ENTITY_TYPES] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];
-export type SyncNegotiatedEntityType = (typeof SYNC_V2_NEGOTIATED_ENTITY_TYPES)[number];
+export const SYNC_V2_ASSET_ENTITY_TYPES = [...SYNC_V2_NEGOTIATED_ENTITY_TYPES, "attachment_organization"] as const;
+
+export type SyncNegotiatedEntityType = (typeof SYNC_V2_ASSET_ENTITY_TYPES)[number];
 
 export function isSyncNegotiatedEntityType(value: unknown): value is SyncNegotiatedEntityType {
   return typeof value === "string"
-    && (SYNC_V2_NEGOTIATED_ENTITY_TYPES as readonly string[]).includes(value);
+    && (SYNC_V2_ASSET_ENTITY_TYPES as readonly string[]).includes(value);
 }
 
 export function isSyncEntityType(value: unknown): value is SyncEntityType {

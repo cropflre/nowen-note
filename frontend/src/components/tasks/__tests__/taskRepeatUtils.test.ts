@@ -46,6 +46,13 @@ describe("isRepeatingTask", () => {
 });
 
 describe("getNextRepeatDate", () => {
+  it("handles legacy SQLite wall times and preserves the time of day",()=>{
+    const task=makeTask({repeatRule:"monthly",dueDate:"2026-09-20",dueAt:"2026-09-20 16:30:00"});
+    expect(buildNextRepeatedTaskPatch(task)).toMatchObject({dueDate:"2026-10-20",dueAt:"2026-10-20T16:30:00"});
+  });
+  it("does not generate invalid dates from corrupt legacy task data",()=>{
+    for(const patch of [{dueDate:"NaN-NaN-NaN"},{dueDate:"2026-02-30"},{dueAt:"NaN-T00:00:00"},{dueAt:"2026-09-20TNaN:00"},{dueDate:"2026-09-20",repeatEndDate:"NaN-NaN-NaN"}]) expect(buildNextRepeatedTaskPatch(makeTask({repeatRule:"monthly",...patch}))).toBeNull();
+  });
   it("daily: adds interval days", () => {
     const t = makeTask({ repeatRule: "daily", dueDate: "2026-06-10" });
     expect(getNextRepeatDate(t)).toBe("2026-06-11");

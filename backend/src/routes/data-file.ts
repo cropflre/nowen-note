@@ -22,6 +22,7 @@
  */
 
 import { Hono } from "hono";
+import { attachmentDeletionRisk } from "../services/attachment-deletion-safety";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -357,14 +358,14 @@ app.post("/cleanup-orphans", (c) => {
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
          WHERE n.id IS NULL
-           AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
+           AND COALESCE(a.uploadSource, '') <> 'file_manager' AND a.trashedAt IS NULL`,
       ).all()
     : db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
          WHERE n.id IS NULL
            AND a.userId = ?
-           AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
+           AND COALESCE(a.uploadSource, '') <> 'file_manager' AND a.trashedAt IS NULL`,
       ).all(userId)) as { id: string; path: string; size: number }[];
 
   let dbOrphansRemoved = 0;
@@ -394,6 +395,7 @@ app.post("/cleanup-orphans", (c) => {
     const tx = db.transaction((list: { id: string; path: string; size: number }[]) => {
       for (const r of list) {
         try {
+          if (attachmentDeletionRisk(r.id)) continue;
           const info = delStmt.run(r.id);
           if (info.changes > 0) dbOrphansRemoved++;
         } catch { /* ignore */ }
@@ -403,6 +405,7 @@ app.post("/cleanup-orphans", (c) => {
 
     for (const [p, list] of pathToRows.entries()) {
       if (!pathsSafeToUnlink.has(p)) continue;
+      if (db.prepare("SELECT 1 FROM attachments WHERE path = ? LIMIT 1").get(p)) continue;
       try {
         const abs = path.join(attachmentsDir, p);
         if (fs.existsSync(abs)) {
@@ -432,14 +435,14 @@ app.post("/cleanup-orphans", (c) => {
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size, a.createdAt
            FROM attachments a
           INNER JOIN notes n ON n.id = a.noteId
-          WHERE COALESCE(a.uploadSource, '') <> 'file_manager'`,
+          WHERE COALESCE(a.uploadSource, '') <> 'file_manager' AND a.trashedAt IS NULL`,
       ).all()
     : db.prepare(
         `SELECT a.id, a.path, COALESCE(a.size, 0) AS size, a.createdAt
            FROM attachments a
           INNER JOIN notes n ON n.id = a.noteId
           WHERE a.userId = ?
-            AND COALESCE(a.uploadSource, '') <> 'file_manager'`,
+            AND COALESCE(a.uploadSource, '') <> 'file_manager' AND a.trashedAt IS NULL`,
       ).all(userId)) as { id: string; path: string; size: number; createdAt: string }[];
 
   const contentOrphanRows: { id: string; path: string; size: number }[] = [];
@@ -478,6 +481,7 @@ app.post("/cleanup-orphans", (c) => {
     const tx = db.transaction((list: { id: string; path: string; size: number }[]) => {
       for (const r of list) {
         try {
+          if (attachmentDeletionRisk(r.id)) continue;
           const info = delStmt.run(r.id);
           if (info.changes > 0) contentOrphansRemoved++;
         } catch {
@@ -489,6 +493,7 @@ app.post("/cleanup-orphans", (c) => {
 
     for (const [p, list] of pathToRows.entries()) {
       if (!pathsSafeToUnlink.has(p)) continue;
+      if (db.prepare("SELECT 1 FROM attachments WHERE path = ? LIMIT 1").get(p)) continue;
       try {
         const abs = path.join(attachmentsDir, p);
         if (fs.existsSync(abs)) {

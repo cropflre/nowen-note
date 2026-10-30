@@ -72,6 +72,9 @@ export function resetKnowledgeTreeSyncReadiness(
 export function resetAllKnowledgeTreeSyncReadiness(
   db: Database.Database,
 ): number {
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_sync_bindings'").get()) {
+    db.prepare("UPDATE asset_sync_bindings SET ready=0").run();
+  }
   if (!readinessTableExists(db)) return 0;
   return db.prepare(`
     UPDATE sync_v2_tree_scope_readiness

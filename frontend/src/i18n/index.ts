@@ -1,3 +1,8 @@
+import { enAssetAITranslations, zhCNAssetAITranslations } from "./assetAITranslations";
+import { enAICollaborationTranslations, zhCNAICollaborationTranslations } from "./aiCollaborationTranslations";
+import { enAssetReliabilityTranslations, zhCNAssetReliabilityTranslations } from "./assetReliabilityTranslations";
+import { enAssetToolsTranslations, zhCNAssetToolsTranslations } from "./assetToolsTranslations";
+import { enAssetOrganizationTranslations, zhCNAssetOrganizationTranslations } from "./assetOrganizationTranslations";
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
@@ -46,6 +51,11 @@ import {
 import { enWorkspaceIssuesTranslations, zhCNWorkspaceIssuesTranslations } from "./workspaceIssuesTranslations";
 import { installLegacySettingsI18nBridge } from "./legacySettingsI18nBridge";
 import { enVoiceTranslations, zhCNVoiceTranslations } from "./voiceTranslations";
+import { enEncryptedConversionTranslations, zhCNEncryptedConversionTranslations } from "./encryptedConversionTranslations";
+import { enTaskComposerTranslations, zhCNTaskComposerTranslations } from "./taskComposerTranslations";
+import { enFileExplorerTranslations, zhCNFileExplorerTranslations } from "./fileExplorerTranslations";
+import { enTaskRemovalTranslations, zhCNTaskRemovalTranslations } from "./taskRemovalTranslations";
+import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
@@ -77,6 +87,16 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNCoverageTranslations,
   zhCNWorkspaceIssuesTranslations,
   zhCNVoiceTranslations,
+  zhCNEncryptedConversionTranslations,
+  zhCNTaskComposerTranslations,
+  zhCNFileExplorerTranslations,
+  zhCNAssetOrganizationTranslations,
+  zhCNAssetReliabilityTranslations,
+  zhCNAssetToolsTranslations,
+  zhCNAssetAITranslations,
+  zhCNAICollaborationTranslations,
+  zhCNTaskRemovalTranslations,
+  zhCNAutomationTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -93,6 +113,16 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enCoverageTranslations,
   enWorkspaceIssuesTranslations,
   enVoiceTranslations,
+  enEncryptedConversionTranslations,
+  enTaskComposerTranslations,
+  enFileExplorerTranslations,
+  enAssetOrganizationTranslations,
+  enAssetReliabilityTranslations,
+  enAssetToolsTranslations,
+  enAssetAITranslations,
+  enAICollaborationTranslations,
+  enTaskRemovalTranslations,
+  enAutomationTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

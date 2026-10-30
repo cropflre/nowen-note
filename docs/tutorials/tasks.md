@@ -8,6 +8,20 @@
 
 点击左侧导航栏的 ✅「待办」图标。
 
+## 导出任务报告
+
+点击任务中心的「导出任务」，选择 **Excel 工作簿 (.xlsx)** 或 **Markdown 报告 (.md)**。也可从「设置 → 数据管理 → 待办数据导入导出」进入。
+
+报告包含当前空间全部任务（包括已完成和已归档任务）的标题、状态、项目、父子层级、进度、描述、优先级和日期。进度与任务树一致：叶子任务为 0% 或 100%，父任务为直属子任务进度的平均值。Excel 还包含任务 ID、父任务 ID 和完整路径；Markdown 使用有层级的勾选清单，并保留描述中的 Markdown 格式。
+
+只导出单个任务时，在任务或子任务上右键，选择「导出 Excel」或「导出 Markdown」；移动端点击该任务的「更多操作」。报告仅包含所选任务和它的全部下级子任务（包括折叠、已完成和已归档的子任务），不会包含它的父任务、兄弟任务或其他项目。选择没有下级的任务时，只导出这一条。
+
+导出期间不会修改任务。图片保留原引用，需要包含图片文件的完整迁移请使用 ZIP。Excel 单元格超过 32767 字符时会提示使用 Markdown，避免截断；Excel / Markdown 报告不用于重新导入，恢复和批量迁移仍使用 ZIP / JSON / CSV。Android 客户端使用系统文件保存选择器；移动浏览器复用文件分享或下载入口。
+
+**English:** Choose **Export tasks** in the task center, then **Excel workbook (.xlsx)** or **Markdown report (.md)**. Reports include all tasks in the current space, including completed and archived tasks, with status, hierarchy, project, progress, full descriptions, priority and dates. Leaf progress is 0% or 100%; parent progress averages its direct children's progress, matching the task tree. Excel includes task IDs and paths; Markdown preserves nested checkboxes and description formatting. Reports do not modify tasks. Images remain references; use ZIP for image files and ZIP / JSON / CSV for re-import. Text exceeding Excel's 32767-character cell limit requires Markdown to retain the full content. Android uses the system file picker; mobile browsers use the existing file-sharing or download path.
+
+For a single task or subtask, right-click it (or use its mobile **Task actions** button), then choose **Export Excel** or **Export Markdown**. Only that task and its complete subtree are included, even when descendants are collapsed, completed or archived. Ancestors, siblings and other projects are excluded. A leaf task produces a one-task report.
+
 ---
 
 ## 创建任务
@@ -22,6 +36,24 @@
 提醒支持截止时、提前 10 分钟、30 分钟、1 小时、1 天，也可以填写自定义提前分钟数（最多提前一年），并同时选择多个提醒。请先设置截止日期；选择「不提醒」可关闭识别产生的自动提醒，选择「清除截止日期」会清除日期、时间和提醒。
 
 创建成功后，快捷属性会重置；创建失败时保留设置，便于重试。
+
+## 任务右键菜单 / Task context menu
+
+在列表、子任务树、看板、日历或甘特视图中右键任务，可查看详情、完成或重新打开、添加子任务、调整优先级、移动项目、保存为笔记，以及归档、恢复或删除。菜单只操作指向的任务；带子任务的删除会说明影响范围，取消确认不会删除。已归档任务保持只读，归档与恢复以根任务树为单位，归档时整棵任务树必须已经完成。
+
+列表中的「任务操作」按钮提供相同入口。键盘聚焦任务后可按 Shift+F10 或菜单键打开，使用 Tab 和 Enter 选择操作，Escape 或点击菜单外部关闭。
+
+Right-click a task in list, tree, board, calendar or Gantt views for its existing actions. The menu operates on that task, confirms deletion, preserves archived tasks as read-only, and archives/restores a completed tree from its root. List rows also expose a Task actions button. Focus a task and press Shift+F10 or the menu key; use Tab and Enter to choose, or Escape to close.
+
+## AI 智能生成待办 / AI Task Composer
+
+在任务中心顶部点击「AI 生成待办」，描述计划或粘贴待办文字。复用设置中的 AI 服务；无需配置第二套密钥。高级选项可设置日期范围、项目、候选上限（默认 12，最多 30）以及时间和重复识别。
+
+生成结果仅为草稿。可以编辑标题、描述、项目、优先级、日期、时间和重复规则，删除或添加候选项，再勾选需要的任务。疑似重复项默认不选中；确实需要同名同日期任务时，勾选「仍然创建此重复任务」。点击「确认创建」后整批事务保存，任何项失败都会回滚本批次。请求结果不确定时，请用「重试确认创建」重试原批次，不必重新生成。
+
+只提供日期的任务保持全天日期语义；精确时间沿用当前任务系统的本地时间语义。离线或移动端仅此设备模式不进行在线生成或确认，草稿在当前账号、服务器和空间的浏览器会话中保留。每日重点数量只指导优先级建议，不自动加入「我的一天」。笔记提取和已有任务智能规划属于后续阶段。
+
+In Task Center, choose **AI tasks**, describe a plan, and generate drafts using your existing AI settings. Edit, add/remove and select candidates before confirming. The default limit is 12 candidates, with a server limit of 30. Possible duplicates start unselected and need an explicit override. Confirmation saves the entire batch atomically; uncertain responses retry the same request ID. Offline and device-only mobile modes preserve the session draft without submitting tasks. Date-only tasks and local wall times follow the existing task calendar contract. Daily priority suggestions do not automatically change My Day.
 
 ## 记住任务视图
 
@@ -114,6 +146,33 @@
 | `今天下午3点 开会` | 保持识别为今天 15:00，标题为 `开会` |
 
 如果你希望系统识别日期或重复规则，建议在识别词和标题之间加一个空格，例如 `明天 开会`、`每周 报告`。如果你希望它只是标题的一部分，直接连写即可，例如 `下午茶`、`每周报`。
+
+---
+
+## 今日完成汇总
+
+在任务筛选栏选择「今日完成」，查看数量、完成时间及所属父任务，点击任务可打开详情。
+
+- 按当前设备时区的实际完成时间统计，与截止日期无关。
+- 包含已归档任务；每个任务项计一次，父任务和子任务分别计数。
+- 重新打开任务后移出清单，再完成时使用新的完成时间。
+- 老数据没有完成时间时不会推测日期；页面跨过本地午夜后会刷新。
+
+## 归档完成的任务
+
+打开顶层任务详情，点击「归档任务树」。顶层任务和所有后代都完成后才允许归档。
+
+归档后，整棵任务树从活动列表、看板、日历和时间线中隐藏，详情、附件、层级、依赖关系和完成记录仍保留。在「已归档」中查看任务，打开顶层任务后点击「恢复任务树」恢复编辑。归档不会重新生成循环任务，也不会删除未来已经生成的独立任务。
+
+Web 离线归档保存到浏览器队列，发送失败会保留并重试；Native 归档在本机 SQLite 和 Outbox 中原子保存。浏览器离线副本的耐久性仍受浏览器环境限制。
+
+## 将任务详情保存为笔记
+
+打开任务详情，点击「保存为笔记」，选择当前空间内可写的文件夹，保存后可直接「打开笔记」。保存包含当前标题、最新详情草稿和附件；原任务保留，笔记与任务之后独立编辑。
+
+附件会复制到笔记受管存储，后续删除原任务附件不会影响已生成笔记。附件正在上传、缺失、不可访问或无法下载时，保存会明确失败，不把不完整内容当作成功。保留保存窗口并重试会复用同一请求，避免网络中断后的重复笔记。首版不合并整个子任务树。
+
+Native 的本机正文附件可以独立复制；仅此设备模式的任务可在本机保存。联网账户需要核对服务端的独立任务附件列表，这类保存需要联网并能读取源任务。Web 生成笔记需要后端可访问；Electron 使用本机后端。上述写入成功并不等于第二设备已经收到数据。
 
 ---
 

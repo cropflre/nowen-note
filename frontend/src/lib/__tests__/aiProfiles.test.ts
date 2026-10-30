@@ -63,6 +63,31 @@ describe("aiProfiles client", () => {
     expect(init.body).toBe("{}");
   });
 
+  it("tests an unsaved draft with selected profile ID and key", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      message: "连接成功",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const result = await aiProfiles.testDraft({
+      name: "SiliconFlow",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "****5432",
+      model: "deepseek-ai/DeepSeek-V4-Flash",
+    }, "profile-sf");
+
+    expect(result.success).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://note.example.com/api/user-preferences/ai-profiles/test-draft");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      profileId: "profile-sf",
+      apiKey: "****5432",
+      model: "deepseek-ai/DeepSeek-V4-Flash",
+    });
+  });
+
   it("sends unsaved profile fields when discovering models", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       models: [{ id: "qwen-plus", name: "qwen-plus" }],

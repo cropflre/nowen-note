@@ -1,0 +1,45 @@
+
+> nowen-note@1.5.1 test:update-release
+> node --test scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs
+
+✔ generator check accepts Windows CRLF but still rejects stale content and missing output (423.033375ms)
+✔ tag 构建工作流不让 electron-builder 直接发布 GitHub Release (29.218292ms)
+✔ Windows GitHub Direct EXE never requires third-party signer (1.946459ms)
+✔ Direct Windows release is gated on same-tag CI artifacts and remote metadata (1.887125ms)
+✔ 本地发布守卫在正式校验前汇总完整 CI macOS 产物 (0.619375ms)
+✔ 完整桌面 Release 会写明四个平台支持情况 (0.772167ms)
+✔ 完整桌面 Release 的远端校验会阻止 macOS 平台整体缺失 (0.879417ms)
+✔ macOS 发版资产必须同时包含 Intel、Apple Silicon 与更新元数据 (1.044584ms)
+✔ macOS 双架构 ZIP 按手动下载资产处理 (0.34825ms)
+✔ Windows Node ZIP 使用 PowerShell Expand-Archive 解压 (1.826917ms)
+✔ debug Linux artifact names follow electron-builder target-specific architecture expansion (116.154333ms)
+✔ Android release sync preserves a higher code for the same version (107.40525ms)
+✔ Android next release increments a code above the semver formula (122.131833ms)
+✔ release dry-run leaves root, backend and Android versions unchanged (30.562917ms)
+✔ release entry sets a 4GB heap default while preserving explicit limits and other options (20.86375ms)
+✔ changelog uses the previous stable tag even after signing bootstrap and RC tags (150.757875ms)
+✔ package sync changes only the application version and preserves dependencies (36.431708ms)
+✔ application and lockfile version labels stay aligned without bumping release version (9.325167ms)
+✔ full desktop updater uses stable no-space artifact names (0.760291ms)
+✔ lite updater stays on an isolated latest-lite channel (0.360042ms)
+✔ parses electron-builder files[] metadata (1.568083ms)
+✔ accepts a valid stable Windows updater asset (4.15175ms)
+✔ rejects metadata that references a missing installer (1.672541ms)
+✔ rejects unsafe names that GitHub may normalize (1.413334ms)
+✔ rejects a missing blockmap (1.531417ms)
+✔ accepts an AppImage with an embedded blockmap (2.417875ms)
+✔ rejects an AppImage without embedded blockmap metadata (1.171583ms)
+✔ rejects size and sha512 mismatches (0.714125ms)
+✔ keeps full and lite update channels isolated (0.543542ms)
+✔ SHA-512 stays identical for empty files, full chunks and a final partial chunk (3.614ms)
+✔ Windows and macOS use manual browser download policy (0.2875ms)
+✔ release URL targets the detected stable version (0.380709ms)
+✔ manual download notice is prepended exactly once (0.107625ms)
+ℹ tests 33
+ℹ suites 0
+ℹ pass 33
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 563.050583

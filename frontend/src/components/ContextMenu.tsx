@@ -178,6 +178,11 @@ function DesktopContextMenuItems({
               event.stopPropagation();
               if (!item.disabled) onAction(item.id);
             }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault(); event.stopPropagation();
+              if (!item.disabled) onAction(item.id);
+            }}
             className={cn(
               contextMenuRowClassName,
               item.disabled && "opacity-40 cursor-not-allowed",
@@ -777,6 +782,13 @@ export default function ContextMenu({
                       setMobileMenuPath([]);
                       void handleSpecialInlineNoteAction(item.id);
                     }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault(); event.stopPropagation();
+                    if (item.disabled) return;
+                    if (item.children?.length) setMobileMenuPath(current => [...current, item.id]);
+                    else { setMobileMenuPath([]); void handleSpecialInlineNoteAction(item.id); }
                   }}
                   className={cn(
                     contextMenuRowClassName,

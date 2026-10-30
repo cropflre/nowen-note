@@ -62,7 +62,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - name: File public origin regression
-        run: node --import tsx --test tests/file-public-origin-runtime.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/file-public-origin-runtime.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 

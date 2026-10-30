@@ -42,7 +42,9 @@ describe("已移除的连接与迁移功能", () => {
     expect(navRailSource).not.toContain("handleDesktopResetLocalAuth");
     expect(navRailSource).toContain("const handleLogout = useCallback");
     expect(navRailSource).toContain("onClick={handleLogout}");
-    expect(navRailSource).toContain("handleDesktopCloudButton");
+    expect(navRailSource).toContain("const handleSwitchToLocal = useCallback");
+    expect(navRailSource).toContain("onClick={handleSwitchToLocal}");
+    expect(navRailSource).toContain("switchDesktopToFull");
     expect(dataManagerSource).toContain("resetDesktopLocalAuth");
   });
 
@@ -55,7 +57,10 @@ describe("已移除的连接与迁移功能", () => {
     expect(dataManagerSource).not.toContain("待处理冲突");
     expect(dataManagerSource).not.toContain("版本冲突待人工处理");
     expect(dataManagerSource).not.toContain("版本冲突未自动覆盖");
-    expect(dataManagerSource).toContain("summary.pending - summary.versionConflicts");
+    const syncSettingsSource = readSource("src/components/settings/SyncSettingsTab.tsx");
+    expect(syncSettingsSource).toContain("<MobileSyncSettings");
+    expect(syncSettingsSource).toContain("<ConflictCenter");
+    expect(syncSettingsSource).toContain("fetchSyncDiagnostics");
     expect(editorSource).not.toContain("offlineQueue:conflict");
     expect(editorSource).not.toContain("offlineVersionConflict");
     expect(fs.existsSync(path.resolve(process.cwd(), "src/components/common/OfflineIndicator.tsx"))).toBe(false);

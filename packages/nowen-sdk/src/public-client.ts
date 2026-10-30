@@ -22,7 +22,7 @@ export class NowenClient extends CoreNowenClient {
 
   constructor(config: NowenConfig) {
     super(config);
-    this.attachments = new NowenAttachmentClient(config);
+    this.attachments = new NowenAttachmentClient(config, this.auth);
   }
 
   uploadAttachment(params: UploadAttachmentParams): Promise<AttachmentUploadResult> {

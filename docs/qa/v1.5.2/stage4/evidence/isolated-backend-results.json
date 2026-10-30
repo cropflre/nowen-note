@@ -1,0 +1,212 @@
+[
+  {
+    "file": "backend/tests/backup-restore-corrupt-hotfix.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/backup-restore-integrity.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 7,
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/knowledge-policy-initialization.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/knowledge-tree-folder-password.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/knowledge-tree-personal-owner-invariant.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/knowledge-tree-root-documents.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/knowledge-tree.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/note-delete-attachments.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 13,
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/offline-workspace-sync.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/shared-knowledge-tree-boundary.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/shared-knowledge-tree.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-engine.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 32,
+    "passed": 32,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-identity-outbox.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 20,
+    "passed": 20,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-knowledge-tree-conflict.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-knowledge-tree-feed.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-knowledge-tree-outbox.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-knowledge-tree-snapshot.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 52,
+    "passed": 52,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 13,
+    "passed": 13,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/sync-v2-personal-entities.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 23,
+    "passed": 23,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  },
+  {
+    "file": "backend/tests/trash-center.test.ts",
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 10,
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "firstError": null
+  }
+]

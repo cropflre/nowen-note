@@ -67,7 +67,7 @@ export default function AIKnowledgeScopePicker({
   let menu: ReactNode = null;
   if (open && buttonRef.current && typeof document !== "undefined") {
     const rect = buttonRef.current.getBoundingClientRect();
-    const width = Math.min(320, Math.max(272, rect.width + 72));
+    const width = Math.min(window.innerWidth - 16, 320, Math.max(272, rect.width + 72));
     const estimatedHeight = Math.min(360, 112 + notebooks.length * 36);
     const top = rect.top - estimatedHeight - 8 >= 8
       ? rect.top - estimatedHeight - 8
@@ -181,7 +181,7 @@ export default function AIKnowledgeScopePicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          "flex h-7 min-w-28 max-w-56 items-center gap-1.5 rounded-lg px-2 text-left text-[11px] font-medium transition-colors",
+          "flex h-7 min-w-0 max-w-40 md:min-w-28 md:max-w-56 items-center gap-1.5 rounded-lg px-2 text-left text-[11px] font-medium transition-colors",
           open
             ? "bg-accent-primary/10 text-accent-primary ring-1 ring-accent-primary/30"
             : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",

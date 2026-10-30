@@ -1,0 +1,127 @@
+{
+  "generatedAt": "2026-10-12T15:24:50.778Z",
+  "codeSha": "98d1ddf51791c2eb76262cc6bf7841bc184c0696",
+  "upstreamSha": "65eda826fefe3e481cbbf19ed261a77f0123c6b6",
+  "decision": "NO-GO",
+  "blockers": [
+    "BUG-11 Sync V2 active permanent delete bypass",
+    "Studio directory writer / write-race boundary",
+    "Android full GUI, attachment bytes, WAN, ACK fault and upgrade acceptance",
+    "Signed installer/update and Docker upgrade/rollback acceptance"
+  ],
+  "frontend": {
+    "runtime": "Node 24.19.0",
+    "files": 657,
+    "assertions": {
+      "passed": 3630
+    },
+    "evidence": "frontend-full-release.json"
+  },
+  "backend": {
+    "runtime": "Electron Node 20.18.0 / ABI 130",
+    "executedCodeSha": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+    "filesPassed": 343,
+    "filesFailed": 0,
+    "filesTimeout": 0,
+    "finalBackendTree": "54ba3bcb0ce117f0aa846ec90f5c8442a87426ac",
+    "exactBackendTreeEqual": true,
+    "fullRunApplicableToFinalNativeImports": false,
+    "applicabilityCorrection": "Backend tests import frontend Native sources. The final Native deletion guard changes four old test prerequisites despite the identical backend tree. See ../stage4/README.md for isolated baseline failures and current scoped reruns.",
+    "internalSkippedCaseCount": "not aggregated"
+  },
+  "dcc": {
+    "invariants": 12,
+    "testReferences": 116,
+    "backendFiles": 10,
+    "frontendFiles": 22,
+    "mappingOnly": true
+  },
+  "builds": {
+    "backend": "PASS (unchanged final backend tree)",
+    "frontend": "PASS",
+    "sdk": "PASS",
+    "mcp": "PASS",
+    "cli": "PASS"
+  },
+  "artifacts": [
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+      "bytes": 25576998,
+      "sha256": "ecb70b93bbbd57a16e90f111a03a30e8cb3db22d21f7888eeb1fc71cca3d4f05"
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\.qa152-windows-release\\win-unpacked\\Nowen Note QA152.exe",
+      "bytes": 188789760,
+      "sha256": "d6b90479d3dbe34883a584f1311b9d4418a127a06ac158d2549dc1dcc521906c"
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\backend\\dist\\index.js",
+      "bytes": 7109380,
+      "sha256": "1adbeb89cd122b49ab50ffa7a946aa3641b815ccaa7b22370d5539d8c847c1f3"
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\dist\\index.html",
+      "bytes": 20381,
+      "sha256": "be4c6946b6c0d1f70139cc6a53ff8ead3ad972603c15bd8ea475b109c1217a5c"
+    }
+  ],
+  "packagedBackendEqualsBuild": true,
+  "packagedFrontendIndexEqualsBuild": true,
+  "apk": {
+    "version": 3,
+    "artifactType": {
+      "type": "APK",
+      "kind": "Directory"
+    },
+    "applicationId": "com.nowen.note.qa152",
+    "variantName": "debug",
+    "elements": [
+      {
+        "type": "SINGLE",
+        "filters": [],
+        "attributes": [],
+        "versionCode": 10508,
+        "versionName": "1.5.2-qa.98d1ddf5",
+        "outputFile": "app-debug.apk"
+      }
+    ],
+    "elementType": "File",
+    "minSdkVersionForDexing": 23
+  },
+  "docker": {
+    "image": "nowen-qa152:98d1ddf5",
+    "imageId": "sha256:307285e3d62cea13d7c726274bf89bd095ff8adf6a76a2dc7e925a25e7d8b540",
+    "buildInput": "git -c core.autocrlf=false archive 98d1ddf5; Linux Git blob line endings",
+    "acceptance": "production runtime smoke and restart; not soak/upgrade/rollback"
+  },
+  "android": {
+    "device": "3B1F5GE5MS12B4GT",
+    "package": "com.nowen.note.qa152",
+    "sourceCommit": "98d1ddf51791c2eb76262cc6bf7841bc184c0696",
+    "accepted": "Native SQLite / API Bridge diagnostic entry, real physical device, isolated loopback identity",
+    "fullProductMatrix": "PARTIAL",
+    "nativeCommitToServerAndAck": {
+      "samples": 30,
+      "p50Ms": 358,
+      "p95Ms": 412,
+      "p99Ms": 438
+    },
+    "httpPushToNativePull": {
+      "samples": 30,
+      "p50Ms": 261,
+      "p95Ms": 399,
+      "p99Ms": 421
+    }
+  },
+  "safety": {
+    "bug": "BUG-11",
+    "severity": "P1",
+    "status": "OPEN",
+    "evidence": "sync-delete-audit-with-restore.json",
+    "activeOwnerSyncDeleteApplied": true,
+    "recoveryFailed": true,
+    "unauthorizedExploitProven": false
+  },
+  "originalWorkspace": "retained existing modifications; no source changes copied back",
+  "externalActions": "no push, PR, merge or release"
+}

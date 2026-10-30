@@ -77,7 +77,8 @@ export interface LocalizationJob {
   startedAt: string | null;
   completedAt: string | null;
   cancelRequested: boolean;
-  source: "note_ids" | "notebook";
+  automaticBatching?: boolean;
+  source: "note_ids" | "notebook" | "all_personal";
   notebookId: string | null;
   noteIds: string[];
   expectedVersions: Record<string, number>;
@@ -96,6 +97,10 @@ export interface LocalizationJob {
     totalImageReferences: number;
     remoteReferenceCount: number;
     uniqueRemoteUrlCount: number;
+    /** Operations count unique URLs once per note; a shared URL in two notes is two write operations. */
+    totalImageOperations: number;
+    processedImageOperations: number;
+    skippedImageOperations: number;
     downloadedUniqueUrls: number;
     reusedDownloads: number;
     localizedReferences: number;
@@ -111,6 +116,8 @@ export interface LocalizationJob {
 export interface LocalizationScopeInput {
   noteIds?: unknown;
   notebookId?: unknown;
+  /** Only the requesting user's personal notes. Enforced server-side. */
+  allPersonal?: unknown;
   expectedVersions?: unknown;
 }
 
@@ -199,6 +206,21 @@ function loadJobs(): void {
       if (!parsed?.id || !parsed?.userId) continue;
       if (parsed.status === "queued" || parsed.status === "running") {
         parsed.status = "failed";
+        // The note commit may not have happened when the service stopped.
+        // Mark unfinished notes as retryable; the retry path rescans actual persisted content.
+        for (const note of parsed.noteResults || []) {
+          if (note.status === "queued") {
+            note.status = "failed";
+            note.failures = note.failures || [];
+            note.failures.push({
+              noteId: note.noteId,
+              code: "JOB_INTERRUPTED",
+              message: "服务中断，需重新扫描该笔记后重试",
+            });
+            note.localizedUrls = 0;
+            note.localizedReferences = 0;
+          }
+        }
         parsed.error = "服务在任务执行期间重启；可使用重试重新扫描未完成笔记";
         parsed.completedAt = nowIso();
         parsed.currentNoteId = null;
@@ -239,8 +261,8 @@ function normalizeNoteIds(value: unknown): string[] {
     .filter(Boolean))];
 }
 
-export function resolveScopeNoteIds(userId: string, input: LocalizationScopeInput): {
-  source: "note_ids" | "notebook";
+export function resolveScopeNoteIds(userId: string, input: LocalizationScopeInput, automaticBatching = false): {
+  source: "note_ids" | "notebook" | "all_personal";
   notebookId: string | null;
   noteIds: string[];
   expectedVersions: Record<string, number>;
@@ -248,12 +270,21 @@ export function resolveScopeNoteIds(userId: string, input: LocalizationScopeInpu
   const limits = getLimits();
   const noteIds = normalizeNoteIds(input.noteIds);
   const notebookId = typeof input.notebookId === "string" ? input.notebookId.trim() : "";
+  const allPersonal = input.allPersonal === true;
   const expectedVersions = normalizeExpectedVersions(input.expectedVersions);
-  if ((noteIds.length > 0 && notebookId) || (noteIds.length === 0 && !notebookId)) {
-    throw new LocalizationJobError("noteIds 与 notebookId 必须且只能提供一个", "INVALID_SCOPE", 400);
+  if (Number(noteIds.length > 0) + Number(Boolean(notebookId)) + Number(allPersonal) !== 1) {
+    throw new LocalizationJobError("noteIds、notebookId、allPersonal 必须且只能提供一个", "INVALID_SCOPE", 400);
+  }
+  if (allPersonal) {
+    const rows = getDb().prepare(`
+      SELECT id FROM notes
+      WHERE userId = ? AND workspaceId IS NULL AND isTrashed = 0
+      ORDER BY id ASC
+    `).all(userId) as Array<{ id: string }>;
+    return { source: "all_personal", notebookId: null, noteIds: rows.map((row) => row.id), expectedVersions };
   }
   if (noteIds.length > 0) {
-    if (noteIds.length > limits.maxNotes) {
+    if (!automaticBatching && noteIds.length > limits.maxNotes) {
       throw new LocalizationJobError(`单次最多处理 ${limits.maxNotes} 篇笔记`, "NOTE_LIMIT_EXCEEDED", 413);
     }
     return { source: "note_ids", notebookId: null, noteIds, expectedVersions };
@@ -301,12 +332,12 @@ function emptyScan(contentFormat = "unknown"): RemoteImageScanResult {
   };
 }
 
-function scanOneNote(userId: string, noteId: string, expectedVersion?: number): LocalizationNoteScan {
+export function scanOneNote(userId: string, noteId: string, expectedVersion?: number, personalOnly = false): LocalizationNoteScan {
   try { yFlush(noteId); } catch {}
   const row = readNote(noteId);
   if (!row) return { noteId, title: "", version: 0, contentFormat: "unknown", status: "not_found", reason: "笔记不存在", scan: emptyScan() };
   const { permission } = resolveNotePermission(noteId, userId);
-  if (!hasPermission(permission, "write")) {
+  if (!hasPermission(permission, "write") || (personalOnly && (row.userId !== userId || row.workspaceId))) {
     return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "forbidden", reason: "没有写权限", scan: emptyScan(row.contentFormat) };
   }
   if (row.isTrashed) return { noteId, title: row.title, version: row.version, contentFormat: row.contentFormat, status: "trashed", reason: "笔记位于回收站", scan: emptyScan(row.contentFormat) };

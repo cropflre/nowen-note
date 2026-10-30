@@ -67,14 +67,16 @@ describe("markdownLivePreviewExtension", () => {
       extensions: [markdown(), scope.of(markdownLivePreviewNoteId.of("note-a")), markdownLivePreviewExtension],
     }) });
     try {
-      await flushPreview();
-      expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-a");
+      await vi.waitFor(() => {
+        // CodeMirror widgets mount their React subtree asynchronously.
+        expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-a");
+      }, { timeout: 2500 });
       view.dispatch({ effects: scope.reconfigure(markdownLivePreviewNoteId.of("note-b")) });
-      await flushPreview();
       resetAttachmentAccessStateForTests();
-      await flushPreview();
-      expect(fetch.mock.calls.some(([url]) => String(url).includes("noteId=note-b"))).toBe(true);
-      expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-b");
+      await vi.waitFor(() => {
+        expect(fetch.mock.calls.some(([url]) => String(url).includes("noteId=note-b"))).toBe(true);
+        expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-b");
+      }, { timeout: 2500 });
       expect(view.state.doc.toString()).toBe(doc);
     } finally { view.destroy(); }
   });

@@ -1,0 +1,16 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "source",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-source-YZkQ49",
+  "base": "http://127.0.0.1:9412",
+  "checks": [
+    "JWT spoof/cross-user/locked denied; both active delete routes preserve body, history, tree, file and Outbox across restart"
+  ],
+  "result": "FAIL",
+  "error": {
+    "message": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'QA body\\n\\n[fixture](/api/attachments/qa-file)'\n- 'QA body'\n          ^",
+    "stack": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'QA body\\n\\n[fixture](/api/attachments/qa-file)'\n- 'QA body'\n          ^\n    at <anonymous> (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\http-release-acceptance.mjs:95:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"
+  }
+}

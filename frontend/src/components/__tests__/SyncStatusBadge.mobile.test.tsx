@@ -3,15 +3,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SyncStatusBadge from "../SyncStatusBadge";
 import { MOBILE_SYNC_STATUS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
+import i18n from "@/i18n";
 const mocks = vi.hoisted(() => ({ settings: vi.fn(), diagnostics: vi.fn() }));
 vi.mock("@/lib/syncLocalApi", () => ({
   fetchSyncSettings: mocks.settings, fetchSyncDiagnostics: mocks.diagnostics, SyncV2DisabledError: class extends Error {},
 }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, host: HTMLElement;
 let pending = 0, attachments = 0;
 const render = async (saving = false) => { await act(async () => root.render(<SyncStatusBadge saving={saving} />)); };
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
   pending = 0; attachments = 0;
   Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
   mocks.settings.mockResolvedValue({ mode: "server" });

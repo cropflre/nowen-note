@@ -71,6 +71,8 @@ export function recoverStaleEmbeddingJobs(): EmbeddingQueueRecoveryResult {
 }
 
 /**
+ * Legacy one-off repair helper (kept for compatibility with existing callers).
+ * The new worker no longer requires this helper and must not call it on timers.
  * 旧 worker 在“本轮没有笔记任务”时会提前返回，导致纯附件队列饥饿。
  * 当附件待处理、但笔记队列完全空闲时，把该附件所属笔记重新入队一次；worker 下一轮
  * 会先处理这条笔记，随后继续执行附件分支。该操作幂等，且每次最多唤醒一条笔记。
@@ -115,10 +117,11 @@ export function wakeAttachmentOnlyQueue(): number {
 export function runEmbeddingQueueMaintenance(): void {
   try {
     const recovered = recoverStaleEmbeddingJobs();
-    const awakened = wakeAttachmentOnlyQueue();
-    if (recovered.notes || recovered.attachments || awakened) {
+    // The worker processes attachment-only queues directly. Do not synthesize
+    // note jobs here: that would cause unnecessary paid embedding requests.
+    if (recovered.notes || recovered.attachments) {
       console.warn(
-        `[embedding-queue] maintenance recovered notes=${recovered.notes}, attachments=${recovered.attachments}, awakened=${awakened}`,
+        `[embedding-queue] maintenance recovered notes=${recovered.notes}, attachments=${recovered.attachments}`,
       );
     }
   } catch (error) {
@@ -129,10 +132,9 @@ export function runEmbeddingQueueMaintenance(): void {
 export function installEmbeddingQueueHardening(): void {
   if (maintenanceTimer) return;
   const recovered = recoverInterruptedEmbeddingJobs();
-  const awakened = wakeAttachmentOnlyQueue();
-  if (recovered.notes || recovered.attachments || awakened) {
+  if (recovered.notes || recovered.attachments) {
     console.warn(
-      `[embedding-queue] startup recovered notes=${recovered.notes}, attachments=${recovered.attachments}, awakened=${awakened}`,
+      `[embedding-queue] startup recovered notes=${recovered.notes}, attachments=${recovered.attachments}`,
     );
   }
   maintenanceTimer = setInterval(runEmbeddingQueueMaintenance, MAINTENANCE_INTERVAL_MS);

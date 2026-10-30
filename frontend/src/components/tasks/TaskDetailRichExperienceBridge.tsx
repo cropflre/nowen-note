@@ -43,6 +43,7 @@ async function resolveTask(
   titleTextarea: HTMLTextAreaElement,
   descriptionTextarea: HTMLTextAreaElement,
 ): Promise<Task | null> {
+  if (panel.dataset.taskId) return api.getTask(panel.dataset.taskId);
   const tasks = await api.getTasks("all");
   const title = titleTextarea.value;
   const description = descriptionTextarea.value;
@@ -130,6 +131,7 @@ function findTaskDetailPanels(root: ParentNode = document): Array<{
   root.querySelectorAll<HTMLTextAreaElement>("textarea.font-mono").forEach((titleTextarea) => {
     const panel = titleTextarea.closest<HTMLElement>(".h-full.border-l");
     if (!panel || panel.dataset.taskDetailRichEnhanced === "true") return;
+    if (panel.dataset.taskArchived === "true") return;
     const textareas = Array.from(panel.querySelectorAll<HTMLTextAreaElement>("textarea"));
     const descriptionTextarea = textareas.find((textarea) => textarea !== titleTextarea);
     if (!descriptionTextarea) return;

@@ -1,0 +1,145 @@
+第二轮复核开始。先建任务框架并确认代码基线未变：
+关键发现：**远端已前进到 `99dbdef9`**（第一轮结果不自动适用），且本地有我第一轮 npm 操作留下的 package.json/lock 改动。先看这两者：
+远端 4 个新提交全在 automation 域（需复测受影响模块）；本地 package.json 污染是我第一轮 `npm install --force` 造成的（把精确版本 `6.28.1` 改成了 `^6.28.1`），先还原再快进：
+快进完成（HEAD=`99dbdef9`）。检查新提交的源码影响面，然后启动 BUG-02 深度审计：
+影响面：后端 automation 3 文件（复测该域），前端零改动（14 失败归因结果仍适用）。并行启动 automation 复测与 BUG-02 审计：
+automation 域在 `99dbdef9` 上 4/4 通过 ✅。开始 BUG-02 深度审计——读 `permanentlyDeleteNote` 实现：
+实现读完了。关键疑点：`resolveTrashedNotePermission` 对未入回收站笔记的行为、树节点孤儿、同步 tombstone 是否被绕过。先读 ACL 实现：
+ACL 存在、DB 行有 CASCADE。查同步墓碑机制是否被 legacy 端点绕过：
+软删路径清晰（isTrashed + 树 isDeleted + history）。关键疑点：`permanentlyDeleteNote` 没有删树节点——查 `softDeleteBusinessNode` 是否带同步广播，然后实验验证树孤儿：
+`softDeleteBusinessNode` 无 outbox——同步靠 pull 树快照墓碑。现在实验验证 legacy DELETE 是否留下孤儿树节点（隔离库）：
+API 层树里无残留——但可能是查询 join 过滤掉了。直接查 DB 看孤儿行真相：
+树节点行真的被删了（非孤儿）——但源码里没有删树节点的代码。查触发器：
+162 个触发器——`knowledge_tree_notes_ad`（删树节点）和 `sync_v2_notes_delete`/`sync_outbox_notes_delete`（写同步墓碑）都在。看触发器内容确认传播：
+触发器确认：树清理 + 同步墓碑都由 DB 触发器兜底。验证实验笔记的墓碑确实写入了 outbox：
+BUG-02 审计完成（outbox 空是因为本地未启用同步，触发器逻辑正确）。定性维持 P2 但修正第一轮的错误担忧（树孤儿/同步绕过均被触发器兜底）。转入 plugin-studio symlink 定性：
+测试意图明确：symlink 逃逸读取项目外 secret 应被拒。现在验证 **readFile 到底读没读到外部文件**——这是安全分界线：
+检测逻辑本身标准（逐段 lstat）。直接实验重现——看 readFile 实际读到什么：
+探针文件还没生成（.cjs 没跑过）。先跑 .cjs：
+spawn 的 bin shim 在 Windows 上不行，改用 electron exe 实际路径：
+better-sqlite3 解析路径问题，改用显式路径：
+探针的 actor 传错了（要对象 `{userId}`）。修正重跑：
+sed 匹配失败，直接重写探针脚本：
+**定性完成：外部 secret 未泄露**——Windows 下 symlinkSync 没建成真符号链接（读到的是 0 字节空文件）。但 Windows 现实攻击向量是 junction（无需特权），补测 junction：
+**junction 被正确拒绝 ✅，但硬链接逃逸成功读取外部 secret ❌**——新发现真缺陷（BUG-06，防御纵深缺口，暂定 P2）。plugin-studio 定性完成。转入前端 14 失败逐一重跑归因：
+稳定复现（非偶发）。看这两个测试的断言语义判定方向：
+`handleDesktopCloudButton` 只存在于测试中——源码已无此特征。git 追溯判定"被替代"还是"被移除"：
+`handleDesktopCloudButton` 在 `58022ccf`（v1.5.1）被有意移除，等价替代为 `handleSwitchToLocal`——**契约过时，非回归**。验证第二个特征：
+模式确认：v1.5.1 期间的两次有意重构（58022ccf、8cea0f22）后契约未更新。批量重跑剩余失败文件：
+proxyCompatibility 和 ShareModalClipboard **本次通过**——存在偶发因素！继续跑剩余文件：
+LoginPage 本次通过（偶发）。跑 cryptoV2 和 SyncStatusBadge，同时查 serverConnection i18n 键：
+cryptoV2 本次也通过（偶发）。`serverConnection` 键也是空的——**BUG-01 扩大：同一次 i18n 提交漏了两个命名空间**。查最后一个稳定失败的 compactMobileEditing：
+契约过时确认（`59fa68e6` 改写紧凑布局模式）。最后深挖 useAttachmentVideoRenderSource 的 3 个稳定失败：
+**14 个失败全部归因完成**：真缺陷 3（BUG-01 范畴）/ 契约过时 7 / 偶发 4。补齐 BUG-01 受影响键清单：
+BUG-01 键清单齐了（syncBadge 9 组 + serverConnection 9 个）。快速记录 BUG-03 精确响应后更新报告：
+全部数据齐了。更新 bugs.md（含 BUG 卡片完整化 + 新增 BUG-06 + 修正 BUG-02）：
+更新 test-results 前先补 E2E 导出闭环的最后一块（轮询作业完成+下载产物）：
+导出作业对 body 格式有更严格要求。查校验逻辑：
+校验失败可能与笔记 contentFormat 相关。换 markdown 格式的真实笔记重试闭环：
+字段名是 `markdown` 而非 `content`。重试闭环：
+**导出完整闭环 PASS**（202→building→ready→downloadToken）。E2E 四级审计数据齐。更新 test-results.md：
+# 第二轮质量复核完成 · 结论：**NO-GO（维持）**
+
+**新基准 SHA：`99dbdef9`**（远端在第一轮后前进 4 个提交，全部在 automation 域；前端零改动）。已还原我第一轮 npm 操作对 package.json 的污染后快进，automation 域复测 4/4 通过。逐项汇报：
+
+## 1-2 · BUG-02 深度审计（隔离库 5 维度实验）——第一轮担忧证伪，维持 P2
+
+| 维度 | 结果 |
+|------|------|
+| 权限 | ✅ `manage` 必需（editor 403）+ 锁定笔记 403（`noteTrashAdapter.ts:17`） |
+| 附件 | ✅ 物理文件先删 + DB CASCADE；`note-delete-attachments` 7/7 覆盖 |
+| 知识树 | ✅ **无孤儿**——触发器 `knowledge_tree_notes_ad` 自动清树节点（DB 实证） |
+| 同步 | ✅ 触发器 `sync_outbox_notes_delete` 自动写墓碑（第一轮“绕过同步”担忧**证伪**；真实设备传播仍 BLOCKED） |
+| 恢复 | ❌ 唯一硬伤：无软删环节不可恢复 |
+
+UI 用户不受影响（前端走树软删）。**风险面=API 消费者误调**，P2 定级维持。
+
+## 3 · plugin-studio symlink——测试兼容性 + **新发现 BUG-06**
+
+- Windows 下 `symlinkSync` 未创建真符号链接（`isSymbolicLink=false`，读到 0 字节空文件，**secret 未泄露**）→ 测试失败=兼容性问题
+- **junction（Windows 真实攻击向量）被正确拒绝** ✅
+- **但硬链接逃逸成功**：`linkSync` 外部文件 → `readFile` 返回 `{"secret":true}` ❌ → **BUG-06（P2，防御纵深缺口）**，`projectPaths.ts:96` 的 symlink 检测对硬链接盲区，修复建议 nlink 校验
+
+## 4 · 前端 14 失败全部归因（逐一重跑 + git -S 考古）
+
+- **真产品缺陷 3**：BUG-01（SyncStatusBadge ×2 + ServerConnectionSettings ×1——渲染 i18n 原始键名，稳定复现）
+- **契约过时 7**：`58022ccf`（v1.5.1 有意重构，等价替代 `handleSwitchToLocal`）、`59fa68e6`（紧凑布局改写）、视频 hook mock 缺 `requiresVerifiedAttachmentAccess`（vitest 明确报错）
+- **偶发 4**：proxyCompatibility / ShareModalClipboard / LoginPage / cryptoV2 单独重跑**全部通过**
+
+## 5 · 后端 5 非 PASS：4 环境问题 + 1 负载偶发（单独重跑 7/7），产品回归 0；正式安装包环境 NOT_TESTED 已标注
+
+## 6 · BUG-01 扩大：`serverConnection`（9 键）与 `syncBadge`（9 组）**同一提交 `8b0cb213` 漏配**，共 18 键 ×2 语言。BUG-03 补充：伪造 notebookId 走 403 另一路径，真实约束类型被 catch 吞掉（缺陷本体）
+
+## 7 · E2E 四级审计：完整闭环 6 项；导出补齐到 `state=ready + downloadToken`（契约：`notes[].markdown`）；UI 层缺口 4 项明列（登录表单/搜索框/回收站页/AI 流式）
+
+## 8 · Android 真机矩阵已建立：`android-acceptance-matrix.md`（A-E 五域 25+ 步骤，含证据要求），全部 BLOCKED 未冒充
+
+## 9-10 · 矛盾核对与报告更新
+
+修正了第一轮三处不严谨：BUG-02 同步/树担忧（证伪）、BUG-01 范围（扩大）、导出 E2E 判据（补齐闭环）。全部 10 个报告已更新至 `docs/qa/v1.5.2/`，原始失败证据（4 份测试日志、E2E JSON）保留。
+
+**最终：NO-GO。** GO 前置条件：① Android 真机矩阵执行；② 7 个契约过时由维护者裁决并修复至前端全绿；③ BUG-01（低成本）修复随版；④ 在最终发版 SHA 上重跑双端全量。P0=0 P1=0 P2=4 P3=2，无数据丢失与权限绕过路径——代码层质量是好的，卡在验收完整性与新发现的防御纵深缺口。# v1.5.2 真实测试执行结果 · 第二轮复核版
+
+- **复核基准 Commit**：`99dbdef9fa160ccce0f66aa0489dc964a28bc6cd`（远端在第一轮 aa49e2fb 后前进 4 个提交：automation 域 fix+test+ci ×3 文件；前端零改动）
+- **基准适用性判定**：① 前端 14 失败归因与 E2E 结果对 99dbdef9 **依然有效**（前端零改动）；② automation 域在新 HEAD 上复测 `automation-platform.test.ts` 4/4 通过；③ 其余后端测试文件改动面不相关，第一轮结果可声明适用于 99dbdef9
+- **执行时间**：第一轮 17:02-17:50 · 第二轮复核 17:46-18:10
+
+## 一、自动化套件（真实执行）
+
+### AT-1 后端全量串行：337/342 文件通过（@aa49e2fb）+ automation 复测通过（@99dbdef9）
+
+5 个非 PASS 逐一复核（区分三环境）：
+
+| 文件                           | 失败原因                                       | 定性                               | dev bundle                                           | 正式 Windows 安装包          |
+| ---------------------------- | ------------------------------------------ | -------------------------------- | ---------------------------------------------------- | ----------------------- |
+| attachment-modern-media      | `ffmpeg-static/ffmpeg.exe ENOENT`          | **环境**：npm 未下载二进制                | bundle 显式 external ffmpeg-static（运行时依赖 node_modules） | NOT_TESTED（打包含二进制则无此问题） |
+| attachments-router-bootstrap | `Cannot find package 'tsx' from repo root` | **环境**：Windows 目录布局              | 与 bundle 无关                                          | NOT_TESTED              |
+| encrypted-notes-upgrade      | `tar: Cannot connect to C:`                | **测试脚本平台缺陷**（需 --force-local）    | 与 bundle 无关                                          | NOT_TESTED              |
+| plugin-studio-projects       | symlink 语义差异                               | **测试兼容性 + 牵出 BUG-06**（见 bugs.md） | 与 bundle 无关                                          | NOT_TESTED              |
+| note-delete-attachments      | 120s 超时                                    | **负载偶发**：单独重跑 7/7 通过             | —                                                    | —                       |
+
+**结论：产品代码回归 0（两轮一致）。**
+
+### AT-2 前端全量 Vitest：3608/3622 用例（14 失败已全部归因，前端零改动 → 适用 99dbdef9）
+
+| 归因        | 数量 | 明细                                                                                                                                                                                    |
+| --------- | -- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **真产品缺陷** | 3  | SyncStatusBadge ×2 + ServerConnectionSettings ×1（BUG-01：i18n 两组命名空间缺失，稳定复现）                                                                                                           |
+| **契约过时**  | 7  | removedConnectionFeatures ×2（58022ccf 有意重构）· androidImmersiveEditorContract ×2（59fa68e6 重构）· useAttachmentVideoRenderSource ×3（mock 缺 `requiresVerifiedAttachmentAccess`，vitest 明确报错） |
+| **偶发**    | 4  | proxyCompatibility / ShareModalClipboard / LoginPageLocalDesktopLogin / cryptoV2（单独重跑全部通过）                                                                                            |
+
+### AT-3/AT-4 构建双 PASS · AT-5 OpenAPI 探测（BUG-04 维持）
+
+## 二、E2E 四级成功审计（第二轮新增）
+
+区分：**请求成功**（HTTP 2xx）→ **UI 成功**（真实浏览器渲染/交互）→ **数据落盘成功**（DB/API 层验证）→ **完整业务闭环成功**（含产物/回读/恢复）。
+
+| 场景                   | 请求 | UI                             | 落盘                                 | 闭环             | 备注                                                                                                             |
+| -------------------- | -- | ------------------------------ | ---------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------- |
+| 登录会话                 | ✅  | ❌ NOT_TESTED（token 注入，UI 表单未走） | ✅                                  | 部分             | UI 登录表单（含服务器地址字段）待补                                                                                            |
+| 笔记编辑→自动保存            | ✅  | ✅（ProseMirror 输入）              | ✅（后端 GET 正文含输入）                    | ✅              |                                                                                                                |
+| 全文搜索                 | ✅  | ❌ NOT_TESTED（API 层）            | —                                  | ✅（API 语义）      | UI 搜索框交互待补                                                                                                     |
+| 标签创建/关联/计数           | ✅  | 部分（#833 逻辑级）                   | ✅                                  | ✅              |                                                                                                                |
+| 回收站软删→恢复→可读          | ✅  | ❌ NOT_TESTED                   | ✅（trash 列表+DB）                     | ✅              |                                                                                                                |
+| 导出 markdown-package  | ✅  | ❌ NOT_TESTED                   | ✅（job state=ready + downloadToken） | ✅ **（第二轮补齐）**  | 第一轮"作业创建即 PASS"判据不完整，已修正；补充发现 body 契约：`notes[].markdown`（客户端 prepared），`content` 字段会报 INVALID_MARKDOWN_CONTENT |
+| #832 AI 面板布局         | —  | ✅（双视口 rect+截图）                 | —                                  | ✅（布局域）         | AI 真实流式生成未测（外部 key）                                                                                            |
+| #833 标签搜索            | —  | 部分（逻辑级 10 场景）                  | —                                  | ✅（过滤域）         |                                                                                                                |
+| 回收站 legacy DELETE 直删 | ✅  | —                              | ✅（notes/trash/树节点/outbox 全查）       | ✅（BUG-02 审计实验） | 触发器兜底：树清理+outbox 墓碑                                                                                            |
+
+## 三、第二轮新增/修正的实验证据
+
+1. **BUG-02 审计**（隔离库实验）：权限 ✅ / 附件物理+DB 清理 ✅ / 树无孤儿（触发器 `knowledge_tree_notes_ad`）/ outbox 墓碑触发器存在（`sync_outbox_notes_delete`，本地未启用同步故空）/ 不可恢复 ❌。**维持 P2**，第一轮"绕过同步/树孤儿"担忧证伪。
+2. **BUG-06 新增**（P2）：Plugin Studio 硬链接逃逸读取外部 secret 成功；junction 被正确拒绝；Windows symlinkSync 未创建真 symlink（测试失败根因）。
+3. **BUG-01 扩大**：除 syncBadge（9 组键）外，`serverConnection`（9 键）同样缺失，同一引入提交 8b0cb213。
+4. **BUG-03 补充**：伪造 notebookId 返回 403 KNOWLEDGE_CAPABILITY_FORBIDDEN（与无 notebookId 的 409 不同路径）；真实约束类型因 catch 无日志不可知（缺陷本体）。
+5. **导出契约**：`notes[].markdown` 为客户端准备字段——`content` 报 INVALID_MARKDOWN_CONTENT（错误信息未提示字段名，轻微可用性问题，并入 BUG-04 备注）。
+
+## 四、统计（复核版）
+
+| 指标       | 数值                                                                  |
+| -------- | ------------------------------------------------------------------- |
+| 后端文件级    | 342 执行 / 337 PASS / 5 非 PASS（0 产品回归，全部定性）                           |
+| 前端用例     | 3622 执行 / 3608 PASS / 14 FAIL（真缺陷 3 · 契约过时 7 · 偶发 4）                |
+| E2E 四级审计 | 完整闭环 6 · UI 层缺口 4（已列明）                                              |
+| 缺陷       | P0=0 · P1=0 · P2=4（BUG-01/02/03/06）· P3=2（BUG-04/05）                |
+| 自动化覆盖域   | Web/Electron-API 全量；Android 0%（BLOCKED）；Docker/WebDAV/性能 NOT_TESTED |

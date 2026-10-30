@@ -5,6 +5,7 @@ import { installOfflineAttachmentRecoveryCapture } from "@/lib/offlineAttachment
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useAppActions } from "@/store/AppContext";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
+import { MOBILE_SYNC_APPLIED_EVENT } from "@/lib/mobileSyncStatus";
 
 /**
  * Web / Electron 使用的旧离线队列 Runtime。
@@ -36,6 +37,22 @@ function ServerOfflineSyncRuntime() {
 }
 
 export default function OfflineSyncRuntime() {
-  if (isAndroidNativeRuntime()) return null;
+  if (isAndroidNativeRuntime()) return <NativeSyncRefresh />;
   return <ServerOfflineSyncRuntime />;
+}
+
+function NativeSyncRefresh() {
+  const actions = useAppActions();
+  useEffect(() => {
+    const refresh = () => {
+      actions.refreshNotes(); actions.refreshNotebooks();
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "native-sync" } }));
+      void api.getTags().then(actions.setTags).catch((error) => {
+        console.warn("[OfflineSyncRuntime] refresh tags after native sync failed:", error);
+      });
+    };
+    window.addEventListener(MOBILE_SYNC_APPLIED_EVENT, refresh);
+    return () => window.removeEventListener(MOBILE_SYNC_APPLIED_EVENT, refresh);
+  }, [actions]);
+  return null;
 }

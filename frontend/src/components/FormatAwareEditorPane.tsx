@@ -49,7 +49,6 @@ export default function FormatAwareEditorPane({
 
   return (
     <EditorPane
-      key={editorKey}
       canSplitDocument={canSplitDocument}
       onSplitDocument={onSplitDocument}
     />

@@ -24,7 +24,7 @@ type CreateMenuState = {
   y: number;
 } | null;
 
-type CreateNoteFormat = "tiptap-json" | "markdown";
+type CreateNoteFormat = "tiptap-json" | "markdown" | "plaintext";
 
 type CreateNotebookMenuState = {
   x: number;
@@ -322,7 +322,7 @@ export default function NoteTabsBar() {
         notebookId,
         title: t("common.untitledNote"),
         contentFormat,
-        ...(contentFormat === "markdown" ? { content: "", contentText: "" } : {}),
+        ...(contentFormat === "markdown" || contentFormat === "plaintext" ? { content: "", contentText: "" } : {}),
       });
       markNewNoteForImmediateEdit(note.id);
       actions.setActiveNote(note);
@@ -791,6 +791,7 @@ export default function NoteTabsBar() {
             description={t("editorTabs.markdownEditor")}
             onClick={() => startCreateNote("markdown")}
           />
+          <CreateMenuItem icon={<FileText size={15} />} label={t("note.format.plainTextDocument")} description={t("note.format.plainTextDescription")} onClick={() => startCreateNote("plaintext")} />
         </div>,
         document.body
       )}

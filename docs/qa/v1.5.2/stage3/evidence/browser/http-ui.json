@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "ui",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-ui-Irl0GT",
+  "base": "http://127.0.0.1:13066",
+  "checks": [],
+  "result": "FAIL",
+  "error": {
+    "message": "browserType.launch: Executable doesn't exist at C:\\Users\\cropf\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1243\\chrome-headless-shell-win64\\chrome-headless-shell.exe\n╔════════════════════════════════════════════════════════════╗\n║ Looks like Playwright was just installed or updated.       ║\n║ Please run the following command to download new browsers: ║\n║                                                            ║\n║     npx playwright install                                 ║\n║                                                            ║\n║ <3 Playwright Team                                         ║\n╚════════════════════════════════════════════════════════════╝",
+    "stack": "browserType.launch: Executable doesn't exist at C:\\Users\\cropf\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1243\\chrome-headless-shell-win64\\chrome-headless-shell.exe\n╔════════════════════════════════════════════════════════════╗\n║ Looks like Playwright was just installed or updated.       ║\n║ Please run the following command to download new browsers: ║\n║                                                            ║\n║     npx playwright install                                 ║\n║                                                            ║\n║ <3 Playwright Team                                         ║\n╚════════════════════════════════════════════════════════════╝\n    at runBrowserAcceptance (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\browser-release-acceptance.mjs:8:34)\n    at <anonymous> (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\http-release-acceptance.mjs:90:33)"
+  }
+}

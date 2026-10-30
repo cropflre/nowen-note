@@ -1,3 +1,5 @@
+import { ALL_EMOJIS, filterEmojis } from "@/data/emojiData";
+
 export interface NoteIconGroup {
   id: string;
   label: string;
@@ -21,7 +23,7 @@ export const NOTE_ICON_GROUPS: NoteIconGroup[] = [
 ];
 
 export const ALL_NOTE_ICONS = Array.from(
-  new Set(NOTE_ICON_GROUPS.flatMap((group) => group.icons)),
+  new Set([...NOTE_ICON_GROUPS.flatMap((group) => group.icons), ...ALL_EMOJIS]),
 );
 
 export function searchNoteIcons(query: string): string[] {
@@ -33,7 +35,8 @@ export function searchNoteIcons(query: string): string[] {
     || group.keywords.some((keyword) => keyword.toLocaleLowerCase().includes(normalized))
   ));
   const direct = ALL_NOTE_ICONS.filter((icon) => icon.includes(normalized));
-  return Array.from(new Set([...direct, ...matchedGroups.flatMap((group) => group.icons)]));
+  const named = filterEmojis(normalized).map((result) => result.emoji);
+  return Array.from(new Set([...direct, ...named, ...matchedGroups.flatMap((group) => group.icons)]));
 }
 
 export interface VirtualIconRows {

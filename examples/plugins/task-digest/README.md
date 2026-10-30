@@ -31,7 +31,11 @@ node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
 4. 点击「预览」确认统计内容，再发送测试 Webhook。
 5. 查看 Webhook 投递日志核对响应。Docker/NAS 等常驻服务部署更适合全天候提醒。
 
-目前输出为通用 JSON（事件名、日期、统计、任务概要），接收端需要按目标平台要求转换消息格式。Webhook URL 如包含口令，请仅在可信服务中使用并保护其访问权限。此版本未内置飞书、企业微信的专用报文转换；可通过自建转发服务或后续通知适配器接入。
+默认仍输出通用 JSON（事件名、日期、统计、任务概要）。为兼容 PushPlus 原生 JSON Webhook，绑定 `https://www.pushplus.plus/send/你的Token?template=json` 后，早间简报、晚间总结和任务到点提醒会自动转换为**中文字段的可读 JSON**，包含本地推送时间、任务概览、计数和重点任务；通用 Webhook 和其他事件格式保持不变。
+
+PushPlus 的 `template=json` 是必须的；此方案采用 PushPlus 的 Webhook-only 模式，**不需要把 Token 放在消息体中**。Token 仅存在于目标地址，请勿公开地址、截图或日志。PushPlus HTTP 状态为 200 但业务响应码不为 200 时，投递会被记录为失败。真实 PushPlus 微信/应用推送仍需在发布前使用有效 Token 验收。
+
+其他平台接入时，Webhook 接收端应按目标平台要求转换消息格式。本版本未内置飞书、企业微信的专用消息转换；可通过自建转发服务或后续通知适配器接入。
 
 ## 设计边界
 

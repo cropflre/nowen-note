@@ -41,6 +41,55 @@ test("read-only mode rejects mutations", () => {
   assert.throws(() => policy.assertWritable("更新笔记"), ScopeDeniedError);
 });
 
+test("read-only mode is enforced even without notebook whitelist", () => {
+  const policy = new NotebookScopePolicy(loadScopeConfiguration({
+    MCP_ACCESS_MODE: "read-only",
+  }));
+  assert.equal(policy.enabled, false);
+  assert.equal(policy.isNotebookAllowed("any-notebook"), true);
+  assert.throws(() => policy.assertWritable("创建笔记"), ScopeDeniedError);
+});
+
+test("knowledge tree filtering drops out-of-scope nested notebooks and their notes", () => {
+  const policy = new NotebookScopePolicy(loadScopeConfiguration({
+    ALLOWED_NOTEBOOK_IDS: "allowed",
+  }));
+  const nodes = [
+    { id: "notebook:allowed", resourceType: "notebook", resourceId: "allowed", parentId: null },
+    { id: "note:a", resourceType: "note", resourceId: "a", parentId: "notebook:allowed" },
+    { id: "notebook:denied", resourceType: "notebook", resourceId: "denied", parentId: "notebook:allowed" },
+    { id: "note:b", resourceType: "note", resourceId: "b", parentId: "notebook:denied" },
+    { id: "note:orphan", resourceType: "note", resourceId: "orphan", parentId: null },
+  ];
+  assert.deepEqual(policy.filterKnowledgeTree(nodes).map((item) => item.id), [
+    "notebook:allowed",
+    "note:a",
+  ]);
+});
+
+test("deleted child notebook is visible only to explicit recycle-bin view with ancestor grant", () => {
+  const policy = new NotebookScopePolicy(loadScopeConfiguration({
+    ALLOWED_NOTEBOOK_IDS: "root",
+    MCP_INCLUDE_DESCENDANTS: "true",
+  }));
+  const nodes = [
+    { id: "notebook:root", parentId: null, resourceType: "notebook", resourceId: "root" },
+    { id: "notebook:deleted", parentId: "notebook:root", resourceType: "notebook", resourceId: "deleted" },
+    { id: "note:inside", parentId: "notebook:deleted", resourceType: "note", resourceId: "inside" },
+    { id: "notebook:other", parentId: null, resourceType: "notebook", resourceId: "other" },
+  ];
+  assert.deepEqual(policy.filterKnowledgeTree(nodes).map((node) => node.id), ["notebook:root"]);
+  assert.deepEqual(policy.filterKnowledgeTree(nodes, true).map((node) => node.id), [
+    "notebook:root", "notebook:deleted", "note:inside",
+  ]);
+  const noDescendants = new NotebookScopePolicy(loadScopeConfiguration({
+    ALLOWED_NOTEBOOK_IDS: "root",
+    MCP_INCLUDE_DESCENDANTS: "false",
+  }));
+  assert.deepEqual(noDescendants.filterKnowledgeTree(nodes, true).map((node) => node.id),
+    ["notebook:root"]);
+});
+
 test("note and file filtering cannot expand the whitelist", () => {
   const policy = new NotebookScopePolicy(loadScopeConfiguration({
     ALLOWED_NOTEBOOK_IDS: "allowed",

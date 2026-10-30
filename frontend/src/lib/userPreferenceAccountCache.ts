@@ -85,7 +85,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   codeBlockCollapseMode: "long",
   noteTheme: "default",
   noteListTitleOnly: false,
-  hiddenNavigationModules: [],
+  hiddenNavigationModules: ["notifications"],
   navigationModuleOrder: [...NAVIGATION_MODULE_IDS],
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,

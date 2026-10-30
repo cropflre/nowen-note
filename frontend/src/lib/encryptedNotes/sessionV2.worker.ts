@@ -1,6 +1,6 @@
 import { EncryptedContentError } from "./envelope";
 import { identityV2, type ContentIdentityV2 } from "./envelopeV2";
-import { changeContentV2Passphrase, createContentV2Session, decryptHistoryV2, encryptHistoryV2, unlockContentV2, updateContentV2, validateDocumentV2, type EncryptedDocumentV2 } from "./cryptoV2";
+import { changeContentV2Passphrase, createContentV2Session, decryptHistoryV2, encryptHistoryV2, readContentV2, unlockContentV2, updateContentV2, validateDocumentV2, type EncryptedDocumentV2 } from "./cryptoV2";
 import { decryptAttachment, encryptAttachment, validateAttachmentManifest } from "./attachmentCodec";
 import type { SessionV2Io, SessionV2Request } from "./sessionV2Protocol";
 
@@ -47,6 +47,7 @@ self.onmessage = async (event: MessageEvent<SessionV2Request | { id: number; ioI
     } else {
       if (!key || !identity) throw new EncryptedContentError("invalid");
       switch (request.operation) {
+        case "read-document": result = await readContentV2(request.input.envelope, key, identity); break;
         case "update": result = await updateContentV2(request.input.envelope, key, identity, request.input.document); remember(validateDocumentV2(request.input.document)); break;
         case "change-passphrase": result = await changeContentV2Passphrase(request.input.envelope, request.input.passphrase, identity, request.input.newPassphrase); break;
         case "encrypt-history": result = await encryptHistoryV2(key, identity, request.input.context, request.input.document, request.input.changeSummary); break;

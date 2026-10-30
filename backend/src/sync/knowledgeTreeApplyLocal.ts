@@ -33,6 +33,7 @@ export function applyKnowledgeTreeSnapshotLocal(
   const treeScopeKey = workspaceId ? scopeKey : `personal:${userId}`;
   const parsed: TreeStructure[] = [];
   const seen = new Set<string>();
+  // Root-document placement can allocate negative sort positions. Keep signed safe integers.
   for (const item of items) {
     const p = item.payload;
     const resourceType = p.resourceType;
@@ -43,7 +44,7 @@ export function applyKnowledgeTreeSnapshotLocal(
       || typeof nodeType !== "string" || !ALLOWED_NODE_TYPES[resourceType].includes(nodeType)
       || (p.parentId !== null && (typeof p.parentId !== "string" || !p.parentId))
       || p.workspaceId !== workspaceId
-      || !Number.isSafeInteger(p.sortOrder) || (p.sortOrder as number) < 0
+      || !Number.isSafeInteger(p.sortOrder)
       || (p.isDeleted !== 0 && p.isDeleted !== 1)
       || (p.deletedAt !== null && typeof p.deletedAt !== "string")
       || typeof p.createdAt !== "string" || !p.createdAt

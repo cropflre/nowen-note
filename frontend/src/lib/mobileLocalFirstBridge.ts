@@ -1,4 +1,5 @@
-import { api } from "./api";
+import { getCurrentWorkspace } from "./api.impl";
+import { api, getBaseUrl } from "./api";
 import { newLocalId } from "./localRepository";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 import type { Note, Notebook, Tag, Workspace } from "@/types";
@@ -29,6 +30,11 @@ export function installMobileLocalFirstBridge(
 ): () => void {
   if (installed) return () => undefined;
   installed = true;
+  let active = true;
+  const serverBase = getBaseUrl();
+  const assertActive = () => {
+    if (!active || getBaseUrl() !== serverBase) throw new Error("笔记读取会话已改变，请重新打开");
+  };
 
   const target = api as Omit<typeof api, "getVersion" | "getSiteSettings" | "duplicateNote"> & {
     getVersion: () => Promise<Partial<Awaited<ReturnType<typeof api.getVersion>>>>;
@@ -89,11 +95,12 @@ export function installMobileLocalFirstBridge(
   const restoreAdvancedTaskBridge = deviceOnlyMode
     ? installMobileLocalAdvancedTaskBridge(db, userId)
     : () => undefined;
-  // 附件文件夹目前不是 Sync V2 实体；只在纯设备模式使用本地增量 schema，
-  // 避免登录态产生“本地 folderId 成功、远端没有对应文件夹”的数据分叉。
-  const restoreAttachmentFolderBridge = deviceOnlyMode
-    ? installMobileLocalAttachmentFolderBridge(db, userId)
-    : () => undefined;
+  const restoreAttachmentFolderBridge = installMobileLocalAttachmentFolderBridge(db,userId,deviceOnlyMode?undefined:{
+    onCommitted: () => { void repository.sync.requestSync(); }, assertActive: () => {
+      assertActive();
+      if(getCurrentWorkspace()!=="personal") throw Object.assign(new Error("工作区暂不支持附件目录整理"),{code:"WORKSPACE_ATTACHMENT_FOLDER_UNSUPPORTED"});
+    },
+  });
   // 块索引 / 反链 / 关系图都是 notes.content 的派生数据。纯设备模式直接从本地权威
   // 内容计算，彻底阻断编辑器侧栏对 /blocks、/backlinks、Yjs release-room 的请求。
   const restoreNoteRelationsBridge = deviceOnlyMode
@@ -113,22 +120,6 @@ export function installMobileLocalFirstBridge(
     // SiteSettingsProvider 会把自定义字体 id 自动降级为默认字体。
     target.getFonts = async () => [];
     target.getFontsPublic = async () => [];
-  } else {
-    // 登录后的 Android 仍以 Native Repository 作为附件数据源，但 attachment_folder
-    // 尚未进入 Sync V2 实体注册表。如果这里继续保留服务端 create/rename/remove，
-    // 就会出现“远端创建了 folderId，本地附件却引用另一份库”的静默数据分叉。
-    // 因此在同步能力补齐前必须 fail-closed，而不是让 UI 看似成功。
-    const unsupportedAttachmentFolders = async () => {
-      const error = Object.assign(
-        new Error("Android 登录同步模式暂不支持附件文件夹；请切换到‘仅此设备’后使用该功能"),
-        { code: "MOBILE_SYNC_ATTACHMENT_FOLDER_UNSUPPORTED" },
-      );
-      throw error;
-    };
-    target.attachmentFolders.list = async () => ({ folders: [] });
-    target.attachmentFolders.create = unsupportedAttachmentFolders;
-    target.attachmentFolders.rename = unsupportedAttachmentFolders;
-    target.attachmentFolders.remove = unsupportedAttachmentFolders;
   }
 
   target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
@@ -171,29 +162,84 @@ export function installMobileLocalFirstBridge(
     });
     return deviceOnlyMode ? notes : passwordGuard.filterReadable(notes, params.workspaceId);
   };
+  // Advanced tree operations still create on the server before native Pull.
+  // Read missing content through live authorization, then persist personal
+  // owned bodies so subsequent saves use the transactional Native Outbox.
+  const readRemoteMissingNote = async (id: string): Promise<Note> => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new Error("这篇笔记尚未同步到本机，请联网后重试");
+    }
+    // Require an actual server authorization check before the original getNote
+    // (which may have an IndexedDB offline fallback). Never bypass folder ACL.
+    const slim = await originals.getNoteSlim(id);
+    if (slim.id !== id) throw new Error("笔记身份校验失败");
+    const remote = await originals.getNote(id);
+    if (remote.id !== id) throw new Error("笔记身份校验失败");
+    assertActive();
+    // Shared/workspace documents still need the complete native ACL/structure
+    // capability. Personal owned notes can be persisted without another create.
+    if (remote.workspaceId || remote.userId !== userId) return remote;
+    const notebook = (await repository.listNotebooksForWorkspace("personal"))
+      .find((item) => item.id === remote.notebookId)
+      || (await originals.getNotebooks("personal")).find((item) => item.id === remote.notebookId);
+    assertActive();
+    const hydrated = await repository.hydrateAuthorizedNote(remote, notebook);
+    await passwordGuard.assertReadable(hydrated);
+    assertActive();
+    return hydrated;
+  };
+
   target.getNote = async (id: string): Promise<Note> => {
     const note = await repository.notes.get(id);
-    if (!note) throw new Error("笔记不存在");
+    if (!note) {
+      if (deviceOnlyMode) throw new Error("笔记不存在");
+      return readRemoteMissingNote(id);
+    }
     if (!deviceOnlyMode) await passwordGuard.assertReadable(note);
     return note;
   };
-  target.getNoteSlim = target.getNote;
+  target.getNoteSlim = async (id: string) => {
+    const note = await repository.notes.get(id);
+    if (!note) {
+      if (deviceOnlyMode) throw new Error("笔记不存在");
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new Error("这篇笔记尚未同步到本机，请联网后重试");
+      }
+      return originals.getNoteSlim(id);
+    }
+    if (!deviceOnlyMode) await passwordGuard.assertReadable(note);
+    return note;
+  };
   target.createNote = async (data: Partial<Note>): Promise<Note> => {
     const id = data.id || newLocalId();
     await repository.notes.create(stabilizeNoteMutationPayload({ ...data, id }));
     return (await repository.notes.get(id))!;
   };
   target.updateNote = async (id: string, data: Partial<Note>): Promise<Note> => {
+    // If the tree created this note on the server but it has not reached the
+    // local repository yet, save through the server too. Otherwise editing a
+    // successfully opened remote note would still fail with "笔记不存在".
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.updateNote(id, data);
+    }
     await repository.notes.update(id, stabilizeNoteMutationPayload(data));
     return (await repository.notes.get(id))!;
   };
   target.deleteNote = async (id: string) => {
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.deleteNote(id);
+    }
     await repository.notes.remove(id);
     return { success: true };
   };
   target.createNoteConfirmed = target.createNote;
   target.updateNoteConfirmed = target.updateNote;
-  target.duplicateNote = async (id: string) => repository.duplicateNote(id);
+  target.duplicateNote = async (id: string) => {
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.duplicateNote(id);
+    }
+    return repository.duplicateNote(id);
+  };
   target.reorderNotes = async (items: Array<{ id: string; sortOrder: number }>) => {
     await repository.reorderNotes(items);
     return { success: true };
@@ -261,6 +307,7 @@ export function installMobileLocalFirstBridge(
   };
 
   return () => {
+    active = false;
     passwordGuard.dispose();
     // 子 Bridge 按安装的逆序恢复，避免 wrapper 恢复到另一个 wrapper 上。
     restoreNoteRelationsBridge();

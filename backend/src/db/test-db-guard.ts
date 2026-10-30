@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 
 export function assertSafeTestDatabasePath(dbPath: string): void {
-  if (process.env.NODE_ENV !== "test") return;
+  if (process.env.NODE_ENV !== "test" && !process.env.NODE_TEST_CONTEXT) return;
 
   const resolvedPath = path.resolve(dbPath);
   const temporaryRoot = path.resolve(os.tmpdir());

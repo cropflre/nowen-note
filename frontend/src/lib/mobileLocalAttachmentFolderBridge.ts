@@ -1,3 +1,4 @@
+import { nativeAssetContext, queueNativeAsset } from "./nativeAssetOrganization";
 import type { FileDetail, FileItem, FileListResponse } from "@/types";
 import { api } from "./api";
 import { newLocalId } from "./localRepository";
@@ -17,16 +18,12 @@ function now(): string {
   return new Date().toISOString();
 }
 
-/**
- * Android 设备本地模式的附件文件夹门面。
- *
- * Native v2 schema 最初没有 attachment_folders / attachments.folderId。这里采用和
- * AdvancedTaskBridge 相同的“本地运行时增量 schema”策略：只在设备本地库第一次
- * 使用文件夹能力时补表/补列，不触碰 Server Sync 的实体注册表。
- */
+/** Native directory facade. Signed-in writes require a bound protocol and
+ * commit the business row and its recoverable organization mutation together. */
 export function installMobileLocalAttachmentFolderBridge(
   db: NativeDatabase,
   userId: string,
+  sync?: { onCommitted: () => void; assertActive: () => void },
 ): () => void {
   const target = api;
   const originals = {
@@ -34,6 +31,7 @@ export function installMobileLocalAttachmentFolderBridge(
     filesList: target.files.list,
     filesGet: target.files.get,
     filesUpload: target.files.upload,
+    filesMove: target.files.move,
   };
 
   let schemaPromise: Promise<void> | null = null;
@@ -62,9 +60,8 @@ export function installMobileLocalAttachmentFolderBridge(
     return schemaPromise;
   };
 
-  const readFolder = async (id: string): Promise<AttachmentFolder> => {
-    await ready();
-    const row = (await db.query<AttachmentFolder>(
+  const readFolder = async (id: string, tx = db): Promise<AttachmentFolder> => {
+    const row = (await tx.query<AttachmentFolder>(
       "SELECT * FROM mobile_local_attachment_folders WHERE id=? AND userId=? LIMIT 1",
       [id,userId],
     ))[0];
@@ -76,8 +73,9 @@ export function installMobileLocalAttachmentFolderBridge(
     name: string,
     parentId: string | null,
     excludeId?: string,
+    tx = db,
   ): Promise<void> => {
-    const rows = await db.query<{ id: string }>(`
+    const rows = await tx.query<{ id: string }>(`
       SELECT id FROM mobile_local_attachment_folders
       WHERE userId=? AND name=?
         AND ((parentId=?) OR (parentId IS NULL AND ? IS NULL))
@@ -91,64 +89,87 @@ export function installMobileLocalAttachmentFolderBridge(
 
   const listFolders = async () => {
     await ready();
+    sync?.assertActive();
     const folders = await db.query<AttachmentFolder>(`
       SELECT f.*,
         (SELECT COUNT(*) FROM attachments a
-          WHERE a.scopeKey='personal' AND a.userId=? AND a.available=1 AND a.folderId=f.id
+          WHERE a.scopeKey='personal' AND a.userId=? AND a.available=1 AND a.folderId=f.id${sync ? ' AND a.assetTrashedAt IS NULL' : ''}
         ) AS fileCount
       FROM mobile_local_attachment_folders f
       WHERE f.userId=?
       ORDER BY f.name COLLATE NOCASE
     `,[userId,userId]);
-    return { folders: folders.map((folder) => ({
+    let supported=true;
+    if(sync) { try { await nativeAssetContext(db,userId); } catch(error) {
+      if((error as {code?:string}).code!=="MOBILE_SYNC_ATTACHMENT_FOLDER_UNSUPPORTED") throw error;
+      supported=false;
+    } }
+    return { supported, folders: folders.map((folder) => ({
       ...folder,
       fileCount: Number(folder.fileCount) || 0,
     })) };
   };
 
-  target.attachmentFolders.list = listFolders;
-  target.attachmentFolders.create = async (rawName: string, rawParentId?: string) => {
+  const write = async <T>(work: (tx: NativeDatabase) => Promise<T>): Promise<T> => {
     await ready();
-    const name = String(rawName || "").trim();
-    const parentId = rawParentId || null;
-    if (!name) throw new Error("文件夹名称不能为空");
-    if (name.length > 100) throw new Error("文件夹名称过长");
-    if (parentId) await readFolder(parentId);
-    await assertUniqueName(name,parentId);
-    const id = newLocalId();
-    const timestamp = now();
-    await db.run(`INSERT INTO mobile_local_attachment_folders
-      (id,userId,name,parentId,createdAt,updatedAt) VALUES (?,?,?,?,?,?)`,[
-      id,userId,name,parentId,timestamp,timestamp,
-    ]);
-    return { id,name,parentId,fileCount:0 };
-  };
-  target.attachmentFolders.rename = async (id: string, rawName: string) => {
-    const folder = await readFolder(id);
-    const name = String(rawName || "").trim();
-    if (!name) throw new Error("文件夹名称不能为空");
-    if (name.length > 100) throw new Error("文件夹名称过长");
-    await assertUniqueName(name,folder.parentId,id);
-    await db.run("UPDATE mobile_local_attachment_folders SET name=?,updatedAt=? WHERE id=? AND userId=?",[
-      name,now(),id,userId,
-    ]);
-    return { id,name,parentId:folder.parentId };
-  };
-  target.attachmentFolders.remove = async (id: string) => {
-    await readFolder(id);
-    await db.transaction(async (tx) => {
-      await tx.run("UPDATE attachments SET folderId=NULL,updatedAt=? WHERE scopeKey='personal' AND userId=? AND folderId=?",[
-        now(),userId,id,
-      ]);
-      // 后端目前没有文件夹移动 API；若未来 UI 创建了子文件夹，删除父级后把子级提升到根，
-      // 避免留下不可达 parentId。
-      await tx.run("UPDATE mobile_local_attachment_folders SET parentId=NULL,updatedAt=? WHERE userId=? AND parentId=?",[
-        now(),userId,id,
-      ]);
-      await tx.run("DELETE FROM mobile_local_attachment_folders WHERE id=? AND userId=?",[id,userId]);
+    sync?.assertActive();
+    const result = await db.transaction(async tx => {
+      if (sync) await nativeAssetContext(tx,userId);
+      sync?.assertActive();
+      return work(tx);
     });
-    return { success:true };
+    sync?.onCommitted();
+    return result;
   };
+  const captureFolder = async (tx: NativeDatabase, folder: AttachmentFolder, deleted = 0) => {
+    if (sync) await queueNativeAsset(tx,{...folder,id:`folder:${folder.id}`,resourceId:folder.id,kind:"folder",deleted},userId);
+  };
+  const validName = (rawName: string) => {
+    const name=String(rawName || "").trim();
+    if (!name || name.length>100) throw new Error("请提供 1–100 字的文件夹名称");
+    return name;
+  };
+  target.attachmentFolders.list = listFolders;
+  target.attachmentFolders.create = async (rawName: string, rawParentId?: string) => write(async tx => {
+    const name=validName(rawName),parentId=rawParentId || null;
+    if(parentId) await readFolder(parentId,tx);
+    await assertUniqueName(name,parentId,undefined,tx);
+    const folder={id:newLocalId(),userId,name,parentId,createdAt:now(),updatedAt:now()};
+    await tx.run(`INSERT INTO mobile_local_attachment_folders (id,userId,name,parentId,createdAt,updatedAt) VALUES (?,?,?,?,?,?)`,
+      [folder.id,userId,name,parentId,folder.createdAt,folder.updatedAt]);
+    await captureFolder(tx,folder);
+    return {...folder,fileCount:0};
+  });
+  target.attachmentFolders.rename = async (id: string, rawName: string) => write(async tx => {
+    const folder=await readFolder(id,tx),name=validName(rawName);
+    await assertUniqueName(name,folder.parentId,id,tx);
+    const updatedAt=now();
+    await tx.run("UPDATE mobile_local_attachment_folders SET name=?,updatedAt=? WHERE id=? AND userId=?",[name,updatedAt,id,userId]);
+    await captureFolder(tx,{...folder,name,updatedAt});
+    return {id,name,parentId:folder.parentId};
+  });
+  target.attachmentFolders.remove = async (id: string) => write(async tx => {
+    const folder=await readFolder(id,tx);
+    const files=await tx.query("SELECT id FROM attachments WHERE folderId=? LIMIT 1",[id]);
+    const children=await tx.query("SELECT id FROM mobile_local_attachment_folders WHERE parentId=? LIMIT 1",[id]);
+    if(files.length || children.length) throw Object.assign(new Error("文件夹非空，请先移出文件和子文件夹"),{code:"FOLDER_NOT_EMPTY"});
+    await tx.run("DELETE FROM mobile_local_attachment_folders WHERE id=? AND userId=?",[id,userId]);
+    await captureFolder(tx,folder,1);
+    return {success:true};
+  });
+  target.attachmentFolders.move = async (id: string, parentId: string|null) => write(async tx => {
+    const folder=await readFolder(id,tx),seen=new Set([id]);
+    let ancestor=parentId;
+    while(ancestor) {
+      if(seen.has(ancestor)) throw Object.assign(new Error("不能移动到自身或子文件夹"),{code:"FOLDER_CYCLE"});
+      seen.add(ancestor);ancestor=(await readFolder(ancestor,tx)).parentId;
+    }
+    await assertUniqueName(folder.name,parentId,id,tx);
+    const updatedAt=now();
+    await tx.run("UPDATE mobile_local_attachment_folders SET parentId=?,updatedAt=? WHERE id=? AND userId=?",[parentId,updatedAt,id,userId]);
+    await captureFolder(tx,{...folder,parentId,updatedAt});
+    return {id,name:folder.name,parentId};
+  });
 
   const folderMap = async (): Promise<Map<string,AttachmentFolder>> => {
     const { folders } = await listFolders();
@@ -176,6 +197,7 @@ export function installMobileLocalAttachmentFolderBridge(
         ...item,
         folderId,
         folderName: folderId ? folders.get(folderId)?.name || null : null,
+        canManage: true,
       };
     });
   };
@@ -194,23 +216,40 @@ export function installMobileLocalAttachmentFolderBridge(
     await ready();
     const folderId = options?.folderId || null;
     const folder = folderId ? await readFolder(folderId) : null;
+    if(sync) { sync.assertActive(); await db.transaction(tx=>nativeAssetContext(tx,userId)); }
     const item = await originals.filesUpload(file, options);
-    if (folderId) {
-      await db.run("UPDATE attachments SET folderId=?,updatedAt=? WHERE scopeKey='personal' AND id=?",[
-        folderId,now(),item.id,
-      ]);
+    sync?.assertActive();
+    if (folderId && !(item as FileItem & { deduplicated?: boolean }).deduplicated) {
+      await target.files.move([item.id],folderId);
     }
-    return {
-      ...item,
-      folderId,
-      folderName:folder?.name || null,
-    };
+    if ((item as FileItem & { deduplicated?: boolean }).deduplicated) return (await decorateItems([item]))[0];
+    return { ...item, folderId, folderName:folder?.name || null };
   };
+
+  target.files.move = async (rawIds: string[], folderId: string | null, expectedFolderIds?: Record<string,string|null>) => write(async tx => {
+    if(!rawIds.length || rawIds.length>200 || rawIds.some(id=>typeof id!=="string" || !id)) throw new Error("请提供 1–200 个文件 ID");
+    const ids=[...new Set(rawIds)],folder=folderId?await readFolder(folderId,tx):null;
+    for(const id of ids) {
+      const row=(await tx.query<{id:string;folderId:string|null}>(
+        `SELECT id FROM attachments WHERE id=? AND scopeKey='personal' AND userId=? AND available=1${sync ? ' AND assetTrashedAt IS NULL' : ''}`,[id,userId]))[0];
+      if(!row) throw new Error("文件不存在或无权移动");
+      const location=expectedFolderIds ? (await tx.query<{folderId:string|null}>("SELECT folderId FROM attachments WHERE id=? AND userId=? AND scopeKey='personal'",[id,userId]))[0] : undefined;
+      if(expectedFolderIds && Object.hasOwn(expectedFolderIds,id) && (location?.folderId || null)!==expectedFolderIds[id]) {
+        throw Object.assign(new Error("文件位置已更改，请刷新后重试"),{code:"FILE_LOCATION_CONFLICT"});
+      }
+    }
+    for(const id of ids) {
+      await tx.run("UPDATE attachments SET folderId=?,updatedAt=? WHERE id=? AND scopeKey='personal' AND userId=?",[folderId,now(),id,userId]);
+      if(sync) await queueNativeAsset(tx,{id:`file:${id}`,kind:"file",resourceId:id,folderId,trashedAt:null,deleted:0},userId);
+    }
+    return {success:true,moved:ids.length,folderId,folderName:folder?.name || null};
+  });
 
   return () => {
     target.attachmentFolders = originals.attachmentFolders;
     target.files.list = originals.filesList;
     target.files.get = originals.filesGet;
     target.files.upload = originals.filesUpload;
+    target.files.move = originals.filesMove;
   };
 }

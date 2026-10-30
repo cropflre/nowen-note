@@ -65,8 +65,8 @@ app.get("/", (c) => {
   if (!taskId) return c.json({ error: "taskId 必传" }, 400);
 
   const task = getDb()
-    .prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
-    .get(taskId) as { userId: string; workspaceId: string | null } | undefined;
+    .prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?")
+    .get(taskId) as { userId: string; workspaceId: string | null; archivedAt: string | null } | undefined;
   if (!task) return c.json({ error: "任务不存在" }, 404);
   if (!canReadTask(task, userId)) {
     return c.json({ error: "无权访问该任务附件", code: "FORBIDDEN" }, 403);
@@ -106,12 +106,13 @@ app.post("/", async (c) => {
   let effectiveWorkspaceId: string | null = null;
   if (taskId) {
     const task = db
-      .prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
-      .get(taskId) as { userId: string; workspaceId: string | null } | undefined;
+      .prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?")
+      .get(taskId) as { userId: string; workspaceId: string | null; archivedAt: string | null } | undefined;
     if (!task) return c.json({ error: "任务不存在" }, 404);
     if (!canManageResource(task.userId, task.workspaceId, userId)) {
       return c.json({ error: "无权向该任务上传附件", code: "FORBIDDEN" }, 403);
     }
+    if (task.archivedAt) return c.json({error:"请先恢复已归档任务",code:"TASK_ARCHIVED"},409);
     effectiveWorkspaceId = task.workspaceId;
   } else {
     const raw = c.req.query("workspaceId");
@@ -188,13 +189,14 @@ app.patch("/:id/bind", async (c) => {
   }
 
   const task = db
-    .prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
-    .get(taskId) as { userId: string; workspaceId: string | null } | undefined;
+    .prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?")
+    .get(taskId) as { userId: string; workspaceId: string | null; archivedAt: string | null } | undefined;
   if (!task) return c.json({ error: "任务不存在" }, 404);
   if (!canManageResource(task.userId, task.workspaceId, userId)) {
     return c.json({ error: "无权操作该任务", code: "FORBIDDEN" }, 403);
   }
 
+  if (task.archivedAt) return c.json({error:"请先恢复已归档任务",code:"TASK_ARCHIVED"},409);
   taskAttachmentsRepository.updateTaskAssociation(id, taskId, task.workspaceId);
   return c.json({ success: true });
 });
@@ -210,12 +212,13 @@ app.delete("/:id", async (c) => {
 
   if (row.taskId) {
     const task = db
-      .prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
-      .get(row.taskId) as { userId: string; workspaceId: string | null } | undefined;
+      .prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?")
+      .get(row.taskId) as { userId: string; workspaceId: string | null; archivedAt: string | null } | undefined;
     const ok = task
       ? canManageResource(task.userId, task.workspaceId, userId) || row.userId === userId
       : row.userId === userId;
     if (!ok) return c.json({ error: "无权删除该附件", code: "FORBIDDEN" }, 403);
+    if (task?.archivedAt) return c.json({error:"请先恢复已归档任务",code:"TASK_ARCHIVED"},409);
   } else if (row.userId !== userId) {
     return c.json({ error: "无权删除该附件", code: "FORBIDDEN" }, 403);
   }

@@ -1,0 +1,10 @@
+{
+  "phase": "create",
+  "node": "v20.20.2",
+  "checks": [
+    "production API create; JWT refusal; both active delete routes preserve the body",
+    "actual Linux hardened Studio HTTP read/export reject hardlink and symlink without returning outside fixture bytes",
+    "runtime sqlite-vec load and FFmpeg H.264 media generation"
+  ],
+  "result": "PASS"
+}

@@ -186,7 +186,7 @@ export function buildKnowledgeTreeNodeMenuItems(
           id: "convert_format",
           label: note?.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
-          disabled: !note || note.isLocked === 1,
+          disabled: !note || note.isLocked === 1 || note.contentFormat === "plaintext",
         },
       );
     }

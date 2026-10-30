@@ -11,6 +11,10 @@
  */
 
 export const SYNC_ERROR_CODES = [
+  "NOTE_NOT_TRASHED",
+  "NOTE_LOCKED",
+  "ATTACHMENT_TRASH_RETAINED",
+  "NOTE_DELETION_UPGRADE_REQUIRED",
   /** 携带的 baseVersion 与服务端当前版本不一致，禁止静默覆盖正文。 */
   "VERSION_CONFLICT",
   /** 客户端游标早于服务端可增量供给的最小序号，需回退 snapshot。 */

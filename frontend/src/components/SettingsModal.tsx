@@ -9,15 +9,16 @@ import qqGroupQr from "@/assets/feedback/qq-group.jpg";
 import communityQr from "@/assets/community/nowen-lab-wechat.jpg";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
+import ShareBannerEditor from "@/components/settings/ShareBannerEditor";
 import SecuritySettings from "@/components/SecuritySettings";
 import TokenManagement from "@/components/TokenManagement";
+import McpConnectionPanel from "@/components/settings/McpConnectionPanel";
 import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
 import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
 import MobileAccountSettings from "@/components/settings/MobileAccountSettings";
 import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
-import PluginSettingsTab from "@/components/settings/plugins/PluginSettingsTab";
 import AutomationCenter from "@/components/automation/AutomationCenter";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
@@ -31,6 +32,8 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
+import { useKnowledgeTreeDisplaySize } from "@/hooks/useKnowledgeTreeDisplaySize";
+import { normalizeSharePageWidth } from "@/lib/sharePageWidth";
 import { api } from "@/lib/api";
 import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
@@ -433,9 +436,21 @@ function AboutPanel() {
       <div className="text-center py-4">
         <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('about.appName')}</h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('about.slogan')}</p>
-        <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
-          {t('about.version')} {__APP_VERSION__}
-        </span>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <span className="inline-block px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
+            {t('about.version')} {__APP_VERSION__}
+          </span>
+          <a
+            href="https://nowen.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+          >
+            <Globe size={12} />
+            {t('about.website')}
+            <ExternalLink size={11} />
+          </a>
+        </div>
       </div>
 
       {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}
@@ -1325,14 +1340,26 @@ function SwitchesPanel() {
 
 function AppearancePanel() {
   const { t, i18n } = useTranslation();
-  const { siteConfig, updateSiteConfig, updateEditorFont } = useSiteSettings();
+  const { siteConfig, updateSiteConfig, updateEditorFont, isLoaded } = useSiteSettings();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
   const [sidebarTextStyle, setSidebarTextStyle] = useSidebarTextStyle();
+  const [treeDisplaySize, setTreeDisplaySize] = useKnowledgeTreeDisplaySize();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
   const [shareFooterText, setShareFooterText] = useState(siteConfig.shareFooterText);
+  const [sharePageWidth, setSharePageWidth] = useState(siteConfig.sharePageWidth);
+  const [shareBanner, setShareBanner] = useState({ enabled: siteConfig.shareBannerEnabled, image: siteConfig.shareBannerImage });
+  useEffect(() => setShareBanner({ enabled: siteConfig.shareBannerEnabled, image: siteConfig.shareBannerImage }), [siteConfig.shareBannerEnabled, siteConfig.shareBannerImage]);
+  useEffect(() => setSharePageWidth(siteConfig.sharePageWidth), [siteConfig.sharePageWidth]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  // 等待真实配置填充表单，避免仅修改横幅时把原品牌覆盖为初始占位值。
+  useEffect(() => {
+    if (!isLoaded) return;
+    setTitle(siteConfig.title);
+    setPreviewIcon(siteConfig.favicon);
+    setShareFooterText(siteConfig.shareFooterText);
+  }, [isLoaded, siteConfig.title, siteConfig.favicon, siteConfig.shareFooterText]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 站点标识属于全站共享配置，只有系统管理员能改。
@@ -1346,6 +1373,8 @@ function AppearancePanel() {
       .catch(() => { if (!cancelled) setIsAdmin(false); });
     return () => { cancelled = true; };
   }, []);
+
+  const canEditSiteIdentity = isAdmin && isLoaded && !isSaving;
 
   // 字体状态
   const [customFonts, setCustomFonts] = useState<CustomFont[]>([]);
@@ -1403,7 +1432,7 @@ function AppearancePanel() {
     setIsSaving(true);
     setSaveMessage("");
     try {
-      await updateSiteConfig(title.trim(), previewIcon, shareFooterText.trim());
+      await updateSiteConfig(title.trim(), previewIcon, shareFooterText.trim(), sharePageWidth, shareBanner);
       setShareFooterText(shareFooterText.trim());
       setSaveMessage(t('settings.saveSuccess'));
       setTimeout(() => setSaveMessage(""), 2000);
@@ -1414,7 +1443,7 @@ function AppearancePanel() {
     }
   };
 
-  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon || shareFooterText !== siteConfig.shareFooterText;
+  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon || shareFooterText !== siteConfig.shareFooterText || sharePageWidth !== siteConfig.sharePageWidth || shareBanner.enabled !== siteConfig.shareBannerEnabled || shareBanner.image !== siteConfig.shareBannerImage;
 
   // 当前字体的显示名
   const currentFontName = (() => {
@@ -1474,6 +1503,7 @@ function AppearancePanel() {
       <div>
         <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('settings.siteIdentity')}</h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">{t('settings.siteIdentityDesc')}</p>
+        {!isLoaded && <p className="mb-2 text-sm text-zinc-500">{t("settings.siteIdentityLoading")}</p>}
         {!isAdmin && (
           <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
             {t('settings.siteIdentityAdminOnly')}
@@ -1488,11 +1518,11 @@ function AppearancePanel() {
             <div
               className={cn(
                 "relative w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center overflow-hidden group transition-colors",
-                isAdmin
+                canEditSiteIdentity
                   ? "cursor-pointer hover:border-accent-primary"
                   : "cursor-not-allowed opacity-60"
               )}
-              onClick={() => { if (isAdmin) fileInputRef.current?.click(); }}
+              onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
             >
               {previewIcon ? (
                 <img src={previewIcon} alt="Site Icon" className="w-full h-full object-cover" />
@@ -1514,14 +1544,15 @@ function AppearancePanel() {
               onChange={handleImageChange}
               accept="image/png,image/jpeg,image/svg+xml,image/x-icon,image/webp"
               className="hidden"
-              disabled={!isAdmin}
+              disabled={!canEditSiteIdentity}
             />
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-zinc-400 dark:text-zinc-500">PNG/SVG/ICO · &lt;1MB</span>
               {previewIcon && isAdmin && (
                 <button
                   onClick={handleRemoveIcon}
-                  className="text-[10px] text-red-500 hover:text-red-400 transition-colors"
+                  disabled={!canEditSiteIdentity}
+                  className="text-[10px] text-red-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t('settings.remove')}
                 </button>
@@ -1538,7 +1569,7 @@ function AppearancePanel() {
                 value={title}
                 onChange={(e) => { setTitle(e.target.value); setSaveMessage(""); }}
                 maxLength={20}
-                disabled={!isAdmin}
+                disabled={!canEditSiteIdentity}
                 className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder={t('settings.siteNamePlaceholder')}
               />
@@ -1553,7 +1584,7 @@ function AppearancePanel() {
                 value={shareFooterText}
                 onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
                 maxLength={100}
-                disabled={!isAdmin}
+                disabled={!canEditSiteIdentity}
                 className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder="通过 Nowen Note 分享"
               />
@@ -1561,11 +1592,29 @@ function AppearancePanel() {
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
             </div>
 
+            <div className="space-y-1.5">
+              <label htmlFor="site-share-page-width" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.sharePageWidth')}</label>
+              <select
+                id="site-share-page-width"
+                value={sharePageWidth}
+                onChange={(e) => { setSharePageWidth(normalizeSharePageWidth(e.target.value)); setSaveMessage(""); }}
+                disabled={!canEditSiteIdentity}
+                className="w-full px-3 py-2 bg-app-elevated border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {(["standard", "wide", "full"] as const).map(width => (
+                  <option key={width} value={width}>{t(`settings.sharePageWidth_${width}`)}</option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('settings.sharePageWidthHint')}</p>
+            </div>
+
+            <ShareBannerEditor value={shareBanner} onChange={value => { setShareBanner(value); setSaveMessage(""); }} disabled={!canEditSiteIdentity} />
+
             {isAdmin && (
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleSave}
-                  disabled={isSaving || !title.trim() || !hasChanges}
+                  disabled={!canEditSiteIdentity || !title.trim() || !hasChanges}
                   className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
@@ -1633,6 +1682,31 @@ function AppearancePanel() {
                 )}
               >
                 {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.knowledgeTreeDisplaySize')}</span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.knowledgeTreeDisplaySizeHint')}</p>
+          </div>
+          <div role="group" aria-label={t('settings.knowledgeTreeDisplaySize')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+            {(["default", "large", "extra-large"] as const).map(size => (
+              <button
+                key={size}
+                type="button"
+                aria-pressed={treeDisplaySize === size}
+                onClick={() => setTreeDisplaySize(size)}
+                className={cn(
+                  "min-h-10 rounded-md px-3 py-1 text-sm transition-colors",
+                  treeDisplaySize === size
+                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                )}
+              >
+                {t(`settings.knowledgeTreeDisplaySize_${size}`)}
               </button>
             ))}
           </div>
@@ -1874,7 +1948,7 @@ function AppearancePanel() {
 const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const [activeTab, setActiveTab] = useState<TabId>(defaultTab === "plugins" ? "appearance" : defaultTab);
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
   const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
@@ -1912,7 +1986,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: "快捷键", icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
-    { id: "plugins" as const, label: "插件", icon: Puzzle },
+    { id: "plugins" as const, label: t("settings.plugins"), icon: Puzzle },
     { id: "automations" as const, label: "自动化", icon: Workflow },
     { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
@@ -1963,7 +2037,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 md:sm:p-6"
+      className="fixed inset-0 z-50 flex min-h-0 items-center justify-center overflow-hidden p-0 md:p-4 md:sm:p-6"
       // data-swipe-blocker：让 App.tsx::useSwipeGesture 在本子树内的 touchstart 上主动跳过
       // 判定。整个 portal 子树（含移动端 tab 栏 / panel 内容）一并受保护。
       data-swipe-blocker="settings-modal"
@@ -1988,7 +2062,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-        className="relative w-full max-w-4xl h-[80vh] min-h-[500px] flex flex-col md:flex-row overflow-hidden bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-md:h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
+        className="relative flex h-[80dvh] max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 md:flex-row max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
         style={{ touchAction: "pan-y pinch-zoom" }}
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
@@ -2005,13 +2079,18 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
+              const isDisabled = tab.id === "plugins";
               return (
                 <button
                   key={tab.id}
+                  disabled={isDisabled}
+                  title={isDisabled ? t("settings.pluginsUnavailable") : undefined}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0",
-                    isActive
+                    isDisabled
+                      ? "text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed"
+                      : isActive
                       ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
                       : "text-zinc-500 dark:text-zinc-400 active:bg-zinc-200/40 dark:active:bg-zinc-800/50"
                   )}
@@ -2031,22 +2110,27 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 桌面端：左侧导航栏 */}
-        <div className="hidden md:flex w-56 flex-shrink-0 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 p-4 flex-col">
+        <div className="hidden min-h-0 w-56 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50 md:flex">
           <div className="flex items-center gap-2 mb-6 px-2">
             <Settings className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{t('settings.title')}</span>
           </div>
 
-          <nav className="flex-1 space-y-0.5">
+          <nav aria-label="设置分类" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-1">
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
+              const isDisabled = tab.id === "plugins";
               return (
                 <button
                   key={tab.id}
+                  disabled={isDisabled}
+                  title={isDisabled ? t("settings.pluginsUnavailable") : undefined}
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
+                    isDisabled
+                      ? "text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed"
+                      : isActive
                       ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/40 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200"
                   }`}
@@ -2065,7 +2149,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 overflow-y-auto relative">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {/* 关闭按钮 — 桌面端 */}
           <button
             onClick={onClose}
@@ -2075,7 +2159,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           </button>
 
           {/* 动态渲染内容 */}
-          <div className="p-4 md:p-8 md:pr-14">
+          <div className="min-w-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-8 md:pr-14">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
@@ -2106,13 +2190,12 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "switches" && <SwitchesPanel />}
             {activeTab === "shortcuts" && shortcutSurface !== "android" && <ShortcutSettingsPanel />}
             {activeTab === "ai" && <AISettingsPanel />}
-            {activeTab === "plugins" && <PluginSettingsTab isAdmin={isAdmin} />}
             {activeTab === "automations" && <AutomationCenter />}
             {activeTab === "security" && <div className="space-y-6">
               {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
               {!isMobileLocalMode() && <SecuritySettings />}
             </div>}
-            {activeTab === "tokens" && <TokenManagement />}
+            {activeTab === "tokens" && <div className="space-y-6"><McpConnectionPanel /><TokenManagement /></div>}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
                   {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}

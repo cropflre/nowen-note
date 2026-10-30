@@ -35,6 +35,18 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); Reflect.deleteProperty(window,"Capacitor"); });
 describe("account preferences across Android device-only mode", () => {
+  it("keeps the saved notification choice when an older refresh arrives after the save", async () => {
+    mocks.get.mockResolvedValue({ ...remote(), hiddenNavigationModules: ["notifications"] });
+    await mount();
+    let finish!: (value: unknown) => void;
+    mocks.get.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () => preferences.setPref("hiddenNavigationModules", []));
+    expect(preferences.prefs.hiddenNavigationModules).toEqual([]);
+    await act(async () => finish({ ...remote(), hiddenNavigationModules: ["notifications"] }));
+    expect(preferences.prefs.hiddenNavigationModules).toEqual([]);
+    expect(readAccountPreferenceCache(localStorage, "account")?.prefs.hiddenNavigationModules).toEqual([]);
+  });
   it("keeps account settings local while sync is off, then uploads them after enabling sync", async () => {
     await mount();
     await act(async () => setMobileSyncEnabled(false));

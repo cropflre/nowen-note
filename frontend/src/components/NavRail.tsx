@@ -5,6 +5,7 @@ import {
   Bell,
   CloudOff,
   FolderOpen,
+  Files,
   ListTodo,
   Link2,
   LogIn,
@@ -23,11 +24,13 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
+import { openAICollaboration } from "@/lib/aiCollaboration";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { useRailMode } from "@/hooks/useRailMode";
+import { KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, type KnowledgeTreeClearSearchDetail } from "@/lib/knowledgeTreeCreateVisibility";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -77,11 +80,11 @@ const NON_NOTE_WORKSPACE_VIEWS = new Set<ViewMode>([
   "issues",
 ]);
 
-/**
- * The unified content tree is the primary note-navigation surface. The rail
- * therefore contains only cross-tree filters and independent modules; the old
- * "All Notes" directory/list entry is intentionally retired.
- */
+// Keep the return to all notes fixed and available independently of optional modules.
+const ALL_NOTES_ITEM: NavConfigItem = {
+  icon: <Files size={RAIL_ICON_SIZE} />, labelKey: "sidebar.allNotes", mode: "all", group: "workspace",
+};
+
 const NAV_CONFIG: NavConfigItem[] = [
   { icon: <Star size={RAIL_ICON_SIZE} />, labelKey: "sidebar.favorites", mode: "favorites", feature: "favorites", group: "workspace" },
   { icon: <FolderOpen size={RAIL_ICON_SIZE} />, labelKey: "sidebar.fileManager", mode: "files", feature: "files", group: "workspace" },
@@ -208,8 +211,16 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
     actions.setViewMode(mode);
     actions.setSelectedNotebook(null);
+    if (mode === "all") {
+      actions.clearSelectedTags();
+      actions.setSearchQuery("");
+      window.dispatchEvent(new CustomEvent<KnowledgeTreeClearSearchDetail>(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, { detail: { clearOnly: true } }));
+      actions.setMobileView("list");
+      actions.setEditorFullscreen(false);
+      if (!isMobile && state.noteListCollapsed) actions.toggleNoteListCollapsed();
+    }
     if (isMobile) actions.setMobileSidebar(false);
-  }, [actions, isMobile, localDeviceMode]);
+  }, [actions, isMobile, localDeviceMode, state.noteListCollapsed]);
 
   const handleSwitchToLocal = useCallback(async () => {
     if (isAndroidNativeRuntime()) {
@@ -274,7 +285,9 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
     : "relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors";
 
   const renderItem = (item: NavConfigItem) => {
-    const active = state.viewMode === item.mode;
+    const active = state.viewMode === item.mode && (item.mode !== "all" || (
+      state.selectedNotebookId === null && state.selectedTagIds.length === 0 && !state.searchQuery.trim()
+    ));
     const label = item.mode === "diary"
       ? t("sidebar.dailyRecords", { defaultValue: "每日记录" })
       : t(item.labelKey);
@@ -285,6 +298,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         onClick={() => handleClick(item.mode)}
         title={showLabel ? undefined : label}
         aria-label={label}
+        aria-current={active ? "page" : undefined}
         className={cn(
           itemBaseClass,
           active ? "bg-accent-primary/12 text-accent-primary" : `${classicText ? "text-tx-tertiary" : "text-tx-secondary"} hover:bg-app-hover hover:text-tx-primary`,
@@ -365,6 +379,8 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
         {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
+        <button onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAICollaboration(); }} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Sparkles size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiCollaboration.entry")}</span>}</button>
+        {renderItem(ALL_NOTES_ITEM)}
         {orderedNavigationModuleIds.map((id) => {
           if (id === "notifications") return renderNotificationItem();
           const item = configurableItemById.get(id);

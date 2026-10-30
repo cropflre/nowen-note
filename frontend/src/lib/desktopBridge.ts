@@ -81,6 +81,7 @@ export interface UpdaterPayload {
 export interface AppInfo {
   version: string;
   name: string;
+  distribution?: "direct" | "microsoft-store";
   platform: string;
   arch: string;
   mode?: "full" | "lite";
@@ -231,6 +232,7 @@ export interface FolderSyncUploadCandidate {
   contentText: string | null;
   existingNoteId: string | null;
   skipReason: string | null;
+  action?: "upsert" | "delete" | "organize";
 }
 
 export interface FolderSyncPendingUploads {
@@ -260,7 +262,7 @@ export interface FolderSyncAPI {
   runNow(folderId: string): Promise<FolderSyncScanResult>;
   getIndex(folderId: string): Promise<FolderSyncIndexItem[]>;
   getPendingUploads(folderId: string): Promise<FolderSyncPendingUploads>;
-  markUploadResult(folderId: string, relativePath: string, result: { success: boolean; noteId?: string; attachmentId?: string; skipped?: boolean; error?: string }): Promise<{ ok: boolean }>;
+  markUploadResult(folderId: string, relativePath: string, result: { success: boolean; noteId?: string; attachmentId?: string; skipped?: boolean; error?: string; hierarchyTarget?: string }): Promise<{ ok: boolean }>;
   getUploadFile(folderId: string, relativePath: string): Promise<FolderSyncUploadFileResult>;
   appendLog(folderId: string, type: string, message: string, detail?: unknown): Promise<{ ok: boolean }>;
 }
@@ -318,6 +320,7 @@ export interface DesktopHttpAPI {
 interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
+  openMicrosoftStoreUpdates?: () => Promise<{ ok: boolean; reason?: string }>;
   quitAndInstall: () => Promise<{ ok: boolean }>;
   getAppInfo: () => Promise<AppInfo>;
   getDiagnosticsInfo?: () => Promise<DiagnosticsInfo>;
@@ -467,6 +470,12 @@ export async function checkForUpdates(): Promise<{ ok: boolean; reason?: string;
   const bridge = getBridge();
   if (!bridge) return { ok: false, reason: "not-desktop" };
   return bridge.checkForUpdates();
+}
+
+export async function openMicrosoftStoreUpdates(): Promise<{ ok: boolean; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.openMicrosoftStoreUpdates) return { ok: false, reason: "not-supported" };
+  return bridge.openMicrosoftStoreUpdates();
 }
 
 export async function quitAndInstall(): Promise<void> {

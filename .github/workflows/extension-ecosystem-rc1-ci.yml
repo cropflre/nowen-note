@@ -53,11 +53,11 @@ jobs:
       - name: Run Extension V2 security regression
         working-directory: backend
         run: |
-          npx tsx --test tests/extension-platform-v2.test.ts
-          npx tsx --test tests/extension-ecosystem-rc1.test.ts
-          npx tsx --test tests/extension-registry-supply-chain-e2e.test.ts
-          npx tsx --test tests/extension-sandbox-attack-matrix.test.ts
-          npx tsx --test tests/plugin-update-recovery-matrix.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-platform-v2.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-ecosystem-rc1.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-registry-supply-chain-e2e.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-sandbox-attack-matrix.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/plugin-update-recovery-matrix.test.ts
 
       - name: Typecheck backend
         working-directory: backend

@@ -1,0 +1,16 @@
+{
+  "sourceCommit": "98d1ddf51791c2eb76262cc6bf7841bc184c0696",
+  "mode": "ui",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-ui-RgowtW",
+  "base": "http://127.0.0.1:1395",
+  "checks": [
+    "Microsoft Edge 156.0.4314.15",
+    "real browser login against built hardened JWT server",
+    "markdown: UI create and keyboard edit, server body persisted, reload and editor body readback",
+    "tiptap-json: UI create and keyboard edit, server body persisted, reload and editor body readback",
+    "390px viewport editor visible without horizontal page overflow (not Android keyboard acceptance)"
+  ],
+  "result": "PASS"
+}

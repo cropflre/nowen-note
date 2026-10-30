@@ -75,7 +75,7 @@ describe("mobile Sync V2 protocol safety", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ resetRequired: false, nextSequence: 6, items: [
-        { entityType: "knowledge_tree_node", entityId: "note:n1", operation: "upsert" },
+        { entityType: "future_entity", entityId: "note:n1", operation: "upsert" },
       ] }),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -91,7 +91,7 @@ describe("mobile Sync V2 protocol safety", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ resetRequired: true, nextSequence: 6, items: [
-        { entityType: "knowledge_tree_node", entityId: "note:n1", operation: "upsert" },
+        { entityType: "future_entity", entityId: "note:n1", operation: "upsert" },
       ] }),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -107,7 +107,7 @@ describe("mobile Sync V2 protocol safety", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ snapshotSequence: 6, nextCursor: null, items: [
-        { entityType: "knowledge_tree_node", entityId: "note:n1", payload: {} },
+        { entityType: "future_entity", entityId: "note:n1", payload: {} },
       ] }),
     });
     vi.stubGlobal("fetch", fetchMock);

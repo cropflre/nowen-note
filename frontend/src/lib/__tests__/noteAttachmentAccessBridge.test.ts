@@ -47,6 +47,9 @@ describe("noteAttachmentAccessBridge", () => {
   });
 
   it("recognizes only canonical note attachment ids", () => {
+    expect(extractAttachmentId(`https://files.example/api/attachments/${ATTACHMENT_ID}/image.png`)).toBe(ATTACHMENT_ID);
+    expect(requiresVerifiedAttachmentAccess(`/api/attachments/${ATTACHMENT_ID}/image.png`)).toBe(true);
+    expect(getPersistentAttachmentUrl(`https://files.example/api/attachments/${ATTACHMENT_ID}/image.png?share=token`)).toBe(`/api/attachments/${ATTACHMENT_ID}`);
     expect(extractAttachmentId(`/api/attachments/${ATTACHMENT_ID}`)).toBe(ATTACHMENT_ID);
     expect(extractAttachmentId(`https://api.example.com/api/attachments/${ATTACHMENT_ID}?w=720`)).toBe(ATTACHMENT_ID);
     expect(extractAttachmentId("/api/task-attachments/123")).toBeNull();

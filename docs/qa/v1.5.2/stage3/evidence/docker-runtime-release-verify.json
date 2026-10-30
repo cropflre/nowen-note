@@ -1,0 +1,9 @@
+{
+  "phase": "verify",
+  "node": "v20.20.2",
+  "checks": [
+    "container restart retained body; production soft-delete and restore readback",
+    "runtime sqlite-vec load and FFmpeg H.264 media generation"
+  ],
+  "result": "PASS"
+}

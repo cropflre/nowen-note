@@ -47,7 +47,7 @@ export function generateOpenAPISpec(): Record<string, any> {
             title: { type: "string" },
             content: { type: "string", description: "笔记内容；contentFormat=markdown 时为 Markdown 源文，tiptap-json 时为 Tiptap JSON" },
             contentText: { type: "string", description: "纯文本内容" },
-            contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html"], description: "内容格式" },
+            contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html", "plaintext"], description: "内容格式" },
             isPinned: { type: "integer", enum: [0, 1] },
             isFavorite: { type: "integer", enum: [0, 1] },
             isLocked: { type: "integer", enum: [0, 1] },
@@ -274,12 +274,15 @@ export function generateOpenAPISpec(): Record<string, any> {
       // ===== 笔记 =====
       "/api/notes": {
         get: { tags: ["笔记"], summary: "获取笔记列表", parameters: [{ name: "notebookId", in: "query", schema: { type: "string" } }, { name: "isFavorite", in: "query", schema: { type: "string" } }, { name: "isTrashed", in: "query", schema: { type: "string" } }, { name: "search", in: "query", schema: { type: "string" } }], responses: { "200": { description: "笔记列表" } } },
-        post: { tags: ["笔记"], summary: "创建笔记", requestBody: { content: { "application/json": { schema: { type: "object", properties: { notebookId: { type: "string" }, title: { type: "string" }, content: { type: "string" }, contentText: { type: "string" }, contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html"], default: "tiptap-json" } }, required: ["notebookId"] } } } }, responses: { "201": { description: "创建成功" } } },
+        post: { tags: ["笔记"], summary: "创建笔记", requestBody: { content: { "application/json": { schema: { type: "object", properties: { notebookId: { type: "string" }, title: { type: "string" }, content: { type: "string" }, contentText: { type: "string" }, contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html", "plaintext"], default: "tiptap-json" } }, required: ["notebookId"] } } } }, responses: { "201": { description: "创建成功" } } },
       },
       "/api/notes/{id}": {
         get: { tags: ["笔记"], summary: "获取笔记详情", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "笔记详情", content: { "application/json": { schema: { $ref: "#/components/schemas/Note" } } } } } },
-        put: { tags: ["笔记"], summary: "更新笔记", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], requestBody: { content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" }, contentText: { type: "string" }, contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html"] }, version: { type: "integer", description: "内容类更新必须携带当前笔记 version" } } } } } }, responses: { "200": { description: "更新成功" } } },
-        delete: { tags: ["笔记"], summary: "永久删除笔记", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "删除成功" } } },
+        put: { tags: ["笔记"], summary: "更新笔记", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], requestBody: { content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" }, contentText: { type: "string" }, contentFormat: { type: "string", enum: ["tiptap-json", "markdown", "html", "plaintext"] }, version: { type: "integer", description: "内容类更新必须携带当前笔记 version" } } } } } }, responses: { "200": { description: "更新成功" } } },
+        delete: { tags: ["笔记"], summary: "永久删除回收站笔记（旧入口）", deprecated: true, description: "普通删除使用 PUT isTrashed=1。活动笔记返回 409 NOTE_NOT_TRASHED；不会自动软删。", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "删除成功" }, "403": { description: "无管理权限或笔记已锁定" }, "409": { description: "NOTE_NOT_TRASHED：请先移入回收站" } } },
+      },
+      "/api/notes/{id}/permanent": {
+        delete: { tags: ["笔记"], summary: "永久删除已在回收站的笔记", description: "需要管理权限。活动笔记返回 NOTE_NOT_TRASHED，正文、历史、附件保持原样。", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "删除成功" }, "403": { description: "无管理权限或笔记已锁定" }, "409": { description: "NOTE_NOT_TRASHED：请先移入回收站" } } },
       },
 
       // ===== 标签 =====
@@ -377,8 +380,14 @@ export function generateOpenAPISpec(): Record<string, any> {
       },
 
       // ===== 导出 =====
-      "/api/export/{noteId}": {
-        get: { tags: ["导出"], summary: "导出笔记", parameters: [{ name: "noteId", in: "path", required: true, schema: { type: "string" } }, { name: "format", in: "query", schema: { type: "string", enum: ["markdown", "html", "json", "txt"] } }], responses: { "200": { description: "导出内容" } } },
+      "/api/export/markdown-package/jobs": {
+        post: { tags: ["导出"], summary: "创建 Markdown 包导出作业", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["notes"], properties: { notes: { type: "array", items: { type: "object", required: ["id", "markdown"], properties: { id: { type: "string" }, title: { type: "string" }, markdown: { type: "string", description: "客户端准备的 Markdown 正文，不是 content 字段" } } } } } } } } }, responses: { "202": { description: "作业已创建；查询状态，ready 后下载并校验产物" } } },
+      },
+      "/api/export/markdown-package/jobs/{id}": {
+        get: { tags: ["导出"], summary: "查询 Markdown 导出作业状态", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "作业状态及 ready 时的 downloadToken" }, "404": { description: "作业不存在或无权访问" } } },
+      },
+      "/api/export/download/{token}": {
+        get: { tags: ["导出"], summary: "使用下载能力令牌读取导出文件", parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "实际导出字节；下载成功不代表重新导入已验证" }, "404": { description: "下载令牌不存在或已失效" } } },
       },
 
       // ===== 附件 / 文件 =====

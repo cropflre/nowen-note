@@ -16,6 +16,7 @@ export const ACKNOWLEDGED_DRAFT_CLEAR_GRACE_MS = 10_000;
 export interface NoteDraft {
   noteId: string;
   editorMode: "tiptap" | "md";
+  contentFormat?: "plaintext";
   content: string;
   contentText: string;
   title: string;
@@ -138,7 +139,7 @@ export function saveDraft(draft: NoteDraft): void {
   try {
     const content = stabilizeNoteContentForPersistence(
       draft.content,
-      draft.editorMode === "tiptap" ? "tiptap-json" : "markdown",
+      draft.contentFormat || (draft.editorMode === "tiptap" ? "tiptap-json" : "markdown"),
     );
     if (content !== draft.content) stableDraft = { ...draft, content };
   } catch (error) {

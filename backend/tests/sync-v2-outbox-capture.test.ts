@@ -207,7 +207,9 @@ test("删除笔记产生 delete mutation 且带 baseVersion", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].operation, "delete");
   assert.equal(rows[0].baseVersion, 1);
-  assert.equal(rows[0].payload, null, "delete 不需要 payload");
+  const recovery=JSON.parse(rows[0].payload!);
+  assert.equal(recovery._deletionRecovery.note.id,note);
+  assert.equal(recovery._deletionRecovery.note.content,"{}");
 });
 
 test("标签与笔记标签关系都会进入 Outbox", () => {

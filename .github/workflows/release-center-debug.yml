@@ -1,0 +1,178 @@
+name: Release Center Debug (isolated)
+run-name: Release Center debug ${{ inputs.task_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Release Center task UUID
+        required: true
+        type: string
+      commit_sha:
+        description: Immutable source commit (40 lowercase hex)
+        required: true
+        type: string
+      version:
+        description: Expected source package version
+        required: true
+        type: string
+      windows:
+        type: boolean
+        default: false
+      macos:
+        type: boolean
+        default: false
+      linux:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nowen-release-center-debug
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate inputs and select exact platforms
+        id: matrix
+        env:
+          TASK_ID: ${{ inputs.task_id }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          VERSION: ${{ inputs.version }}
+          WINDOWS: ${{ inputs.windows }}
+          MACOS: ${{ inputs.macos }}
+          LINUX: ${{ inputs.linux }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const e = process.env;
+          if (!/^[a-f0-9-]{36}$/.test(e.TASK_ID) || !/^[a-f0-9]{40}$/.test(e.COMMIT_SHA) || !/^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/.test(e.VERSION)) throw Error('Invalid debug inputs');
+          const include = [
+            { platform: 'windows', os: 'windows-latest', enabled: e.WINDOWS },
+            { platform: 'macos', os: 'macos-latest', enabled: e.MACOS },
+            { platform: 'linux', os: 'ubuntu-latest', enabled: e.LINUX },
+          ].filter(p => p.enabled === 'true').map(({ enabled, ...p }) => p);
+          if (!include.length) throw Error('No platforms selected');
+          fs.appendFileSync(e.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
+          NODE
+
+  contracts:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Existing publisher and Store isolation contracts
+        run: npm run test:update-release && npm run test:microsoft-store
+
+  build:
+    needs: [plan, contracts]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 220
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify immutable source and expected versions
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const expected = process.env.EXPECTED_VERSION;
+          for (const path of ['package.json', 'package-lock.json', 'backend/package.json', 'backend/package-lock.json']) {
+            const value = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (value.version !== expected || (value.packages && value.packages[''].version !== expected)) throw Error(`Version mismatch: ${path}`);
+          }
+          NODE
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Prepare embedded runtime
+        run: npm run fetch:node
+      - name: Build backend and frontend
+        run: npm run build:all
+      - name: Rebuild Windows native modules
+        if: matrix.platform == 'windows'
+        run: npm run rebuild:native
+      - name: Build unsigned Windows Full debug packages
+        if: matrix.platform == 'windows'
+        run: npx electron-builder --config electron/builder.config.js --win --publish never
+      - name: Test macOS native dependency packaging
+        if: matrix.platform == 'macos'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+      - name: Build unsigned macOS Intel debug packages
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          NOWEN_MAC_ARCH: x64
+          TARGET_ARCH: x64
+          npm_config_target_arch: x64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Build unsigned macOS Apple Silicon debug packages
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          NOWEN_MAC_ARCH: arm64
+          TARGET_ARCH: arm64
+          npm_config_target_arch: arm64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Rebuild Linux native modules
+        if: matrix.platform == 'linux'
+        run: npm run rebuild:native
+      - name: Build Linux Full debug packages
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --config electron/builder.config.js --linux --publish never
+      - name: Verify updater hashes and create debug manifest
+        env:
+          RC_PLATFORM: ${{ matrix.platform }}
+          RC_TASK_ID: ${{ inputs.task_id }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+        run: node scripts/release-center-assets.mjs
+      - name: Upload isolated debug artifacts (never Release assets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-debug-${{ inputs.task_id }}-${{ matrix.platform }}
+          path: dist-electron/rc-debug/
+          if-no-files-found: error
+          retention-days: 7

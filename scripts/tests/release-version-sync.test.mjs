@@ -90,3 +90,42 @@ test("changelog uses the previous stable tag even after signing bootstrap and RC
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "v1.4.16");
 });
+
+test("package sync changes only the application version and preserves dependencies", { skip: process.platform === "win32" }, async (t) => {
+  const root = await fixture(t, 10502, "1.5.2");
+  for (const file of ["package.json", "backend/package.json"]) {
+    await writeFile(path.join(root, file), '{\n  "version": "1.4.16",\n  "description": "fixture",\n  "dependencies": {"dependency": "^1.4.16"}\n}\n');
+  }
+  sync(root, "1.5.2");
+  for (const file of ["package.json", "backend/package.json"]) {
+    const content = JSON.parse(await readFile(path.join(root, file), "utf8"));
+    assert.equal(content.version, "1.5.2");
+    assert.equal(content.dependencies.dependency, "^1.4.16");
+  }
+});
+
+test("application, lockfile and Android version labels stay aligned without bumping release version", async () => {
+  const root = new URL("../../", import.meta.url);
+  const version = JSON.parse(await readFile(new URL("package.json", root), "utf8")).version;
+  for (const directory of ["", "backend/"]) {
+    const pkg = JSON.parse(await readFile(new URL(`${directory}package.json`, root), "utf8"));
+    const lock = JSON.parse(await readFile(new URL(`${directory}package-lock.json`, root), "utf8"));
+    assert.equal(pkg.version, version);
+    assert.equal(lock.version, version);
+    assert.equal(lock.packages[""].version, version);
+  }
+  const android = await readFile(new URL("frontend/android/app/build.gradle", root), "utf8");
+  assert.equal(android.match(/versionName\s+["']([^"']+)/)?.[1], version);
+});
+
+test("desktop build lockfiles fetch npm tarballs from the official registry", async () => {
+  const root = new URL("../../", import.meta.url);
+  for (const file of ["package-lock.json", "backend/package-lock.json", "frontend/package-lock.json"]) {
+    const lock = JSON.parse(await readFile(new URL(file, root), "utf8"));
+    for (const [name, pkg] of Object.entries(lock.packages)) {
+      if (pkg.resolved && new URL(pkg.resolved).pathname.endsWith(".tgz")) {
+        assert.equal(new URL(pkg.resolved).origin, "https://registry.npmjs.org", `${file}: ${name}`);
+      }
+    }
+  }
+});

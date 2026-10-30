@@ -49,6 +49,7 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
   }, []);
 
   const handleDragStart = useCallback((taskId: string, e: React.MouseEvent, mode: "move" | "resize-start" | "resize-end" = "move") => {
+    if (e.button !== 0) return;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     const startDate = getTaskStartDate(task) || getTaskEndDate(task);
@@ -122,6 +123,8 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
           {scheduledTasks.map((task) => (
             <div
               key={task.id}
+              data-task-context-id={task.id}
+              tabIndex={0}
               className="flex items-center gap-2 px-3 py-2 border-b border-app-border hover:bg-app-bg cursor-pointer"
               style={{ opacity: task.isCompleted ? 0.5 : 1 }}
               onClick={() => onSelect(task)}
@@ -169,7 +172,7 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
               const dragOffset = isDragging && dragState ? (dragState.diffDays / days.length) * 100 : 0;
               const roundedClass = `${bar.clippedStart ? "rounded-l-none" : "rounded-l"} ${bar.clippedEnd ? "rounded-r-none" : "rounded-r"}`;
               return (
-                <div key={task.id} className="relative h-8 border-b border-app-border">
+                <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="relative h-8 border-b border-app-border">
                   <div
                     className={`absolute top-1 h-6 cursor-grab active:cursor-grabbing ${roundedClass}`}
                     style={{
@@ -264,7 +267,7 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
           <h3 className="text-sm font-medium text-tx-secondary mb-2">{t("tasks.gantt.unscheduled")}</h3>
           <div className="flex flex-wrap gap-2">
             {unscheduledTasks.map((task) => (
-              <div key={task.id} className="flex items-center gap-1">
+              <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="flex items-center gap-1">
                 <button onClick={() => onSelect(task)} className="px-2 py-1 text-xs rounded bg-app-bg hover:bg-app-bg/80 text-tx-primary">
                   {task.title}
                 </button>

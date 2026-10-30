@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 /**
  * AI Client 适配层
  *
@@ -27,6 +28,7 @@ export interface CallAIOptions {
   temperature?: number;
   max_tokens?: number;
   timeout_ms?: number;
+  signal?: AbortSignal;
 }
 
 const FINAL_MARKER_RE = /(?:^|\n)\s*(最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]\s*/gi;
@@ -176,11 +178,11 @@ export async function callAIChat(
   if (options.temperature !== undefined) body.temperature = options.temperature;
   if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(options.timeout_ms ?? 30000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeout_ms ?? 30000)]) : AbortSignal.timeout(options.timeout_ms ?? 30000),
   });
 
   if (!res.ok) {
@@ -217,7 +219,7 @@ export async function* callAIChatStream(
   if (options.temperature !== undefined) body.temperature = options.temperature;
   if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),

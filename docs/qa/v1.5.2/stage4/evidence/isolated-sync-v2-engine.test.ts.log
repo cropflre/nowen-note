@@ -1,0 +1,336 @@
+TAP version 13
+# [migrations] applied v1 (init-migration-table-anchor)
+# [migrations] applied v2 (workspace-data-isolation-phase1)
+# [migrations] applied v3 (workspace-data-isolation-phase2-y1-favorites)
+# [migrations] applied v4 (workspace-data-isolation-phase2-y4-mindmaps)
+# [migrations] applied v5 (attachments-backfill-workspace-id-from-notes)
+# [migrations] applied v6 (users-personal-export-import-per-user-toggle)
+# [migrations] applied v7 (embeddings-add-workspace-id-and-backfill)
+# [migrations] applied v8 (attachment-content-embeddings)
+# [migrations] applied v9 (ai-custom-prompts)
+# [migrations] applied v10 (ai-chat-conversations)
+# [migrations] v11 backfill attachment_references: scanned 0 notes, inserted 0 rows
+# [migrations] applied v11 (attachment-hash-dedup-and-references)
+# [migrations] applied v12 (attachment-upload-source)
+# [migrations] applied v13 (share-comments-allow-guest)
+# [migrations] applied v14 (notebooks-soft-delete)
+# [migrations] applied v15 (users-add-isDemo)
+# [migrations] applied v16 (notes-fts-rebuild)
+# [migrations] applied v17 (mindmap-folders)
+# [migrations] applied v18 (notebook-members)
+# [migrations] applied v19 (notebook-share-links)
+# [migrations] applied v20 (tasks-dueAt)
+# [migrations] applied v21 (task-reminders)
+# [migrations] applied v22 (task-projects)
+# [migrations] applied v23 (task-repeat)
+# [migrations] applied v24 (task-templates)
+# [migrations] applied v25 (diaries-add-media)
+# [migrations] applied v26 (tasks-add-startDate)
+# [migrations] applied v27 (task-dependencies)
+# [migrations] applied v28 (task-reminders-snoozedUntil)
+# [migrations] applied v29 (tasks-add-description)
+# [migrations] applied v30 (task-calendar-feeds)
+# [migrations] applied v31 (notes-add-contentFormat)
+# [migrations] applied v32 (folder-sync-files)
+# [migrations] applied v33 (attachment-folders)
+# [migrations] applied v34 (journal-type-and-date)
+# [migrations] applied v35 (task-repeat-rule-json)
+# [migrations] applied v36 (note-links)
+# [migrations] applied v37 (note-links-add-fk)
+# [migrations] applied v38 (note-links-block-fields)
+# [migrations] applied v39 (calendar-export-targets)
+# [migrations] applied v40 (note-versions-add-contentFormat)
+# [migrations] applied v41 (tasks-repeat-end-count)
+# [migrations] applied v42 (user-preferences)
+# [migrations] applied v43 (habits-checkins)
+# [migrations] applied v44 (tasks-completed-at)
+# [migrations] applied v45 (task-activity-events)
+# [migrations] applied v46 (repair-notes-fts-index)
+# [migrations] applied v47 (user-ai-settings)
+# [migrations] applied v48 (knowledge-block-index-and-source-links)
+# [migrations] applied v49 (note-import-origins)
+# [migrations] applied v50 (share-security-capabilities-lifecycle)
+# [migrations] applied v51 (notebook-share-link-lifecycle)
+# [migrations] applied v52 (repair-search-content-text)
+# [migrations] applied v53 (roundtrip-import-resource-links)
+# [migrations] applied v54 (roundtrip-import-batches)
+# [migrations] applied v55 (block-authority-store)
+# [migrations] applied v56 (yjs-subdocuments)
+# [migrations] applied v57 (block-authority-stale-write-guard)
+# [migrations] applied v58 (yjs-subdocument-generation)
+# [migrations] applied v59 (tag-scope-unique-names)
+# [migrations] applied v60 (knowledge-tree-capabilities)
+# [migrations] applied v61 (knowledge-tree-resource-views)
+# [migrations] applied v62 (knowledge-tree-parent-preservation)
+# [migrations] applied v63 (knowledge-tree-legacy-sync-split)
+# [migrations] applied v64 (knowledge-tree-structural-update-guard)
+# [migrations] applied v65 (knowledge-tree-folder-passwords)
+# [migrations] applied v66 (offline-workspace-sync-feed)
+# [migrations] applied v67 (new-user-bilingual-onboarding)
+# [migrations] applied v68 (new-user-onboarding-first-login-gate)
+# [migrations] applied v69 (repair-skipped-block-schema)
+# [migrations] applied v70 (task-day-plans)
+# [migrations] applied v71 (yjs-operation-receipts)
+# [migrations] applied v74 (yjs-operation-receipts-version-collision-repair)
+# [migrations] applied v75 (task-labels-and-saved-views-canonical)
+# [migrations] applied v76 (task-estimates-and-time-blocks-canonical)
+# [migrations] applied v77 (personal-task-inbox-and-capture-source-canonical)
+# [migrations] applied v78 (workspace-shared-journals)
+# [migrations] applied v79 (note-templates)
+# [migrations] applied v80 (task-reminder-timezone-offset)
+# [migrations] applied v81 (sync-v2-local-state)
+# [migrations] applied v82 (sync-v2-change-feed)
+# [migrations] applied v83 (attachment-local-first-sync-state)
+# [migrations] applied v84 (attachment-sync-auto-register)
+# [migrations] applied v85 (knowledge-tree-scope-aware-triggers)
+# [migrations] applied v86 (api-token-usage-schema)
+# [migrations] applied v87 (sync-v2-outbox-capture)
+# [migrations] applied v88 (sync-v2-identity-and-outbox-semantics)
+# [migrations] applied v89 (sync-v2-bootstrap-reconcile)
+# [migrations] applied v90 (sync-v2-personal-entities)
+# [migrations] applied v91 (sync-v2-workspace-scopes)
+# [migrations] applied v92 (knowledge-tree-runtime-trigger-repair)
+# [migrations] applied v93 (nowen-extension-platform-v1)
+# [migrations] applied v94 (nowen-extension-platform-v1-1-community-ready)
+# [migrations] applied v95 (nowen-extension-platform-v1-2-automation)
+# [migrations] applied v96 (nowen-extension-platform-v2-ecosystem)
+# [migrations] applied v97 (nowen-extension-platform-v2-rc1-lifecycle)
+# [migrations] applied v98 (plugin-update-candidate-lifecycle)
+# [migrations] applied v99 (extension-advisory-trust-freshness)
+# [migrations] applied v100 (repair-extension-advisory-schema)
+# [migrations] applied v101 (user-search-notebook-exclusions)
+# [migrations] applied v102 (note-theme-contribution)
+# [migrations] applied v103 (plugin-studio-isolated-projects)
+# [migrations] applied v104 (knowledge-tree-mindmaps)
+# [migrations] applied v105 (knowledge-tree-legacy-mindmap-folders)
+# [migrations] applied v106 (sync-v2-entity-subscription)
+# [migrations] applied v107 (sync-v2-knowledge-tree-feed)
+# [migrations] applied v108 (sync-v2-knowledge-tree-outbox)
+# [migrations] applied v109 (sync-v2-knowledge-tree-profile-readiness)
+# [migrations] applied v110 (sync-v2-knowledge-tree-conflicts)
+# [migrations] applied v111 (sync-v2-knowledge-tree-scope-readiness)
+# [migrations] applied v112 (lightweight-sheet-documents)
+# [migrations] applied v113 (attachment-media-variants)
+# [migrations] applied v114 (workspace-issues-and-notifications)
+# [migrations] applied v115 (note-color-mark)
+# [migrations] applied v116 (note-comment-notifications)
+# [migrations] applied v117 (encrypted-note-storage-guards)
+# [migrations] applied v118 (encrypted-block-write-guards)
+# [migrations] applied v119 (encrypted-note-conversion-guards)
+# [migrations] applied v120 (plugin-inbound-webhooks)
+# [migrations] applied v121 (wechat-assistant-inbox)
+# [migrations] applied v122 (wechat-assistant-queue-authorization-columns)
+# [migrations] applied v123 (encrypted-content-v2-storage)
+# [search] extractor v3: 0 markdown notes normalized, 0 text rows repaired
+# Subtest: 同一实体的连续 update 合并为最新状态
+ok 1 - 同一实体的连续 update 合并为最新状态
+  ---
+  duration_ms: 639.1932
+  ...
+# Subtest: update + delete 合并后保留 delete
+ok 2 - update + delete 合并后保留 delete
+  ---
+  duration_ms: 0.9101
+  ...
+# Subtest: 合并保留最早的 baseVersion，避免漏判与远端的真实冲突
+ok 3 - 合并保留最早的 baseVersion，避免漏判与远端的真实冲突
+  ---
+  duration_ms: 0.7927
+  ...
+# Subtest: 合并保持实体首次出现顺序，父实体仍先于子实体
+ok 4 - 合并保持实体首次出现顺序，父实体仍先于子实体
+  ---
+  duration_ms: 0.8709
+  ...
+# [sync-v2] engine.cycle-done profileId=b836cac8-619a-4790-bf02-a43c7fd98970 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=18
+# [sync-v2] engine.cycle-done profileId=7b29ea15-d115-48e5-9190-a3a52bf27ef4 deviceId=engine-device conflictCount=0 pendingCount=1 durationMs=1
+# Subtest: 批次按实体合并全部后处理操作，不发送导入中间态
+ok 5 - 批次按实体合并全部后处理操作，不发送导入中间态
+  ---
+  duration_ms: 46.6881
+  ...
+# Subtest: 推送等待期间的新编辑保留，duplicate 确认版本后仍检测真正的远端修改
+ok 6 - 推送等待期间的新编辑保留，duplicate 确认版本后仍检测真正的远端修改
+  ---
+  duration_ms: 3.9473
+  ...
+# ⚠️  [SECURITY] JWT_SECRET 未设置（或长度 < 16），正在使用开发期默认密钥。
+#    上线前请务必配置强随机密钥：openssl rand -base64 48
+# [sync-v2] engine.pull-applied profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 pullSequence=1 applyCount=200 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 deviceId=engine-device conflictCount=0 pendingCount=530 durationMs=527
+# [sync-v2] engine.pull-applied profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 pullSequence=2 applyCount=200 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 deviceId=engine-device conflictCount=0 pendingCount=30 durationMs=553
+# [sync-v2] engine.pull-applied profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 pullSequence=3 applyCount=12 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=eb03f9fe-8db6-426b-8f58-a1273a895d05 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=38
+# [sync-v2] engine.cycle-done profileId=252ffd9f-6e65-479a-a738-07e3333f2ad3 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=0
+# [sync-v2] engine.cycle-done profileId=be4e9b70-51a2-4ae4-9cac-2f437e556428 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# [sync-v2] engine.cycle-done profileId=e3b46a4e-2bb6-43c4-a5ec-e3e11be3f387 deviceId=engine-device conflictCount=0 pendingCount=1 durationMs=0
+# [sync-v2] engine.conflict profileId=8ada34b7-9d87-45ac-8f25-68445bf5ee78 errorCode=VERSION_CONFLICT entityType=note entityId=8b45d675-8f58-40a6-bb7e-d381df2be88f
+# [sync-v2] engine.cycle-done profileId=8ada34b7-9d87-45ac-8f25-68445bf5ee78 deviceId=engine-device conflictCount=1 pendingCount=0 durationMs=1
+# [sync-v2] engine.pull-applied profileId=d31ec9a9-3252-4e03-9da2-92561629bc90 pullSequence=10 applyCount=1 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=d31ec9a9-3252-4e03-9da2-92561629bc90 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# [sync-v2] engine.pull-applied profileId=b4a26b20-12e3-4726-871d-a370119a02dc pullSequence=5 applyCount=1 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=b4a26b20-12e3-4726-871d-a370119a02dc deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# [sync-v2] engine.pull-applied profileId=e4065de3-9478-42be-bbf8-9be6bedccb4d pullSequence=20 applyCount=0 conflictCount=1
+# [sync-v2] engine.cycle-done profileId=e4065de3-9478-42be-bbf8-9be6bedccb4d deviceId=engine-device conflictCount=1 pendingCount=1 durationMs=1
+# [sync-v2] engine.pull-applied profileId=c63f697a-6004-4074-ae00-e44f9a5769df pullSequence=30 applyCount=1 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=c63f697a-6004-4074-ae00-e44f9a5769df deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=2
+# [sync-v2] engine.cycle-done profileId=c81646a1-8008-447f-9619-f2aba8ba383f deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=0
+# [sync-v2] engine.pull-applied profileId=b344cbde-28ea-4ace-894e-06e4413a8ea1 pullSequence=43 applyCount=1 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=b344cbde-28ea-4ace-894e-06e4413a8ea1 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=2
+# [sync-v2] engine.cycle-failed profileId=eec656f8-82a4-406b-a320-45637f4dd5f3 retryCount=1 errorCode=SERVER_ERROR
+# [sync-v2] engine.cycle-failed profileId=ce11a11c-c4b3-447b-a8dd-97702ccf22f4 retryCount=1 errorCode=SERVER_ERROR
+# [sync-v2] engine.pull-applied profileId=5e7a938f-4e27-4f02-8bcc-33e8f0137895 pullSequence=50 applyCount=1 conflictCount=0
+# [sync-v2] engine.cycle-done profileId=5e7a938f-4e27-4f02-8bcc-33e8f0137895 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# [sync-v2] engine.reset-required profileId=7477cab3-2b78-4923-a5f5-f9c0adee529d pullSequence=5
+# [sync-v2] engine.snapshot-rebuilt profileId=7477cab3-2b78-4923-a5f5-f9c0adee529d pullSequence=300 applyCount=1
+# [sync-v2] engine.cycle-done profileId=7477cab3-2b78-4923-a5f5-f9c0adee529d deviceId=engine-device conflictCount=0 pendingCount=1 durationMs=1
+# Subtest: 真实思源导入产生的跨批次变更经服务端应用后最终收敛
+ok 7 - 真实思源导入产生的跨批次变更经服务端应用后最终收敛
+  ---
+  duration_ms: 1862.496
+  ...
+# Subtest: 推送成功后 Outbox 出队，被合并条目一并清除
+ok 8 - 推送成功后 Outbox 出队，被合并条目一并清除
+  ---
+  duration_ms: 1.919
+  ...
+# Subtest: duplicate 响应也视为已同步并出队
+ok 9 - duplicate 响应也视为已同步并出队
+  ---
+  duration_ms: 1.309
+  ...
+# Subtest: 服务端错误时条目保留在 Outbox，重试次数增长但不删除
+ok 10 - 服务端错误时条目保留在 Outbox，重试次数增长但不删除
+  ---
+  duration_ms: 1.3546
+  ...
+# Subtest: VERSION_CONFLICT 登记冲突台账并保留本地内容
+ok 11 - VERSION_CONFLICT 登记冲突台账并保留本地内容
+  ---
+  duration_ms: 1.6465
+  ...
+# Subtest: 存在未解决冲突时状态对外呈现 conflict
+ok 12 - 存在未解决冲突时状态对外呈现 conflict
+  ---
+  duration_ms: 0.3781
+  ...
+# Subtest: 应用远端变更不产生新的 Outbox 条目（防回环）
+ok 13 - 应用远端变更不产生新的 Outbox 条目（防回环）
+  ---
+  duration_ms: 1.7574
+  ...
+# Subtest: 应用远端变更不写入本地 Change Feed，避免二次广播
+ok 14 - 应用远端变更不写入本地 Change Feed，避免二次广播
+  ---
+  duration_ms: 1.6907
+  ...
+# Subtest: 抑制在 apply 结束后解除，本地新写入照常入 feed
+ok 15 - 抑制在 apply 结束后解除，本地新写入照常入 feed
+  ---
+  duration_ms: 0.3912
+  ...
+# Subtest: 远端变更不覆盖本地未推送的修改，改为登记冲突
+ok 16 - 远端变更不覆盖本地未推送的修改，改为登记冲突
+  ---
+  duration_ms: 2.5274
+  ...
+# Subtest: delete 变更被正确应用
+ok 17 - delete 变更被正确应用
+  ---
+  duration_ms: 3.7172
+  ...
+# Subtest: 无变更时也推进游标并 ACK，避免重复扫描
+ok 18 - 无变更时也推进游标并 ACK，避免重复扫描
+  ---
+  duration_ms: 0.9755
+  ...
+# Subtest: 同一批创建后删除只应用最终删除，不等待已不存在的 Snapshot
+ok 19 - 同一批创建后删除只应用最终删除，不等待已不存在的 Snapshot
+  ---
+  duration_ms: 90.6029
+  ...
+# Subtest: Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK
+ok 20 - Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK
+  ---
+  duration_ms: 1.2358
+  ...
+# Subtest: 未知同步实体不能被跳过并推进游标或 ACK
+ok 21 - 未知同步实体不能被跳过并推进游标或 ACK
+  ---
+  duration_ms: 1.0167
+  ...
+# Subtest: hasMore 时安排立即续拉，不等下个周期
+ok 22 - hasMore 时安排立即续拉，不等下个周期
+  ---
+  duration_ms: 1.6949
+  ...
+# Subtest: resetRequired 时复位游标并走 snapshot 重建，不清 Outbox
+ok 23 - resetRequired 时复位游标并走 snapshot 重建，不清 Outbox
+  ---
+  duration_ms: 2.3705
+  ...
+# [sync-v2] engine.offline profileId=2cf0359b-c41b-43a8-b7a0-43ff8d8f86e9 pendingCount=1 retryCount=1
+# Subtest: 断网时进入 offline，Outbox 原样保留
+ok 24 - 断网时进入 offline，Outbox 原样保留
+  ---
+  duration_ms: 2.8871
+  ...
+# [sync-v2] engine.offline profileId=18ddc977-08fb-4e26-be97-9901a8046a85 pendingCount=1 retryCount=1
+# [sync-v2] engine.cycle-done profileId=18ddc977-08fb-4e26-be97-9901a8046a85 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# Subtest: 断网后条目不会卡在 inflight，网络恢复即可继续推送
+ok 25 - 断网后条目不会卡在 inflight，网络恢复即可继续推送
+  ---
+  duration_ms: 2.3354
+  ...
+# [sync-v2] engine.offline profileId=8db68ff9-fe00-4306-badc-b2951621722a pendingCount=0 retryCount=1
+# [sync-v2] engine.offline profileId=8db68ff9-fe00-4306-badc-b2951621722a pendingCount=0 retryCount=2
+# Subtest: 断网重试使用退避间隔且逐步增长
+ok 26 - 断网重试使用退避间隔且逐步增长
+  ---
+  duration_ms: 1.2816
+  ...
+# [sync-v2] engine.auth-expired profileId=0872cb7a-f612-4399-8fc8-13cb53c96a49 errorCode=AUTH_EXPIRED
+# [sync-v2] engine.recovered-inflight profileId=14b993f2-8796-4667-8a0d-8a909c0e2da9 deviceId=engine-device pendingCount=1
+# [sync-v2] engine.cycle-done profileId=10ad6b9c-1f06-4bb3-8b99-2c4c534a467c deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=0
+# [sync-v2] engine.cycle-done profileId=a45e0d43-4771-4713-9ef0-e67f7c170b22 deviceId=engine-device conflictCount=0 pendingCount=0 durationMs=1
+# Subtest: Token 过期时暂停同步但不重试，本地数据不受影响
+ok 27 - Token 过期时暂停同步但不重试，本地数据不受影响
+  ---
+  duration_ms: 1.4752
+  ...
+# Subtest: 启动时复位 inflight，覆盖强杀恢复
+ok 28 - 启动时复位 inflight，覆盖强杀恢复
+  ---
+  duration_ms: 0.8235
+  ...
+# Subtest: stop 只停调度，本地数据与 Outbox 一个字不删
+ok 29 - stop 只停调度，本地数据与 Outbox 一个字不删
+  ---
+  duration_ms: 1.2211
+  ...
+# Subtest: Profile 被停用后引擎自动停止且不清数据
+ok 30 - Profile 被停用后引擎自动停止且不清数据
+  ---
+  duration_ms: 0.753
+  ...
+# Subtest: 同一时刻只跑一轮同步，重入请求排到轮次结束后
+ok 31 - 同一时刻只跑一轮同步，重入请求排到轮次结束后
+  ---
+  duration_ms: 1.0933
+  ...
+# Subtest: 诊断状态暴露定位同步问题所需的全部字段
+ok 32 - 诊断状态暴露定位同步问题所需的全部字段
+  ---
+  duration_ms: 1.0991
+  ...
+1..32
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2941.53
+

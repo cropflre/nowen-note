@@ -19,6 +19,12 @@ const {
   isManualDownloadPlatform,
   withManualDownloadNotice,
 } = require("./updaterPolicy");
+const {
+  STORE_UPDATES_URI,
+  isMicrosoftStorePackage,
+  storeManagedSnapshot,
+} = require("./storeChannel");
+
 
 let autoUpdater = null;
 try {
@@ -84,6 +90,7 @@ function isUnsupportedLinuxPackage() {
 }
 
 function updaterDisabledReason() {
+  if (isMicrosoftStorePackage({ packaged: app.isPackaged })) return "microsoft-store-managed";
   if (!autoUpdater) return "updater-unavailable";
   if (!app.isPackaged) return "development-build";
   if (isPortableBuild()) return "portable-build";
@@ -434,6 +441,7 @@ function registerIpc(opts, disabled) {
   ipcMain.removeHandler("updater:quit-and-install");
 
   ipcMain.handle("updater:check", async () => {
+    if (disabled === "microsoft-store-managed") return { ok: true, managedBy: "microsoft-store", state: publicState() };
     if (disabled) return { ok: false, reason: disabled, state: publicState() };
 
     // 兼容旧 preload 的单一 checkForUpdates()：按状态推进下一步。
@@ -449,7 +457,22 @@ function registerIpc(opts, disabled) {
     return checkNow({ manual: true });
   });
 
-  ipcMain.handle("updater:quit-and-install", () => installNow(opts));
+  ipcMain.handle("updater:quit-and-install", () =>
+    disabled === "microsoft-store-managed"
+      ? { ok: false, reason: "microsoft-store-managed", state: publicState() }
+      : installNow(opts));
+
+  // Fixed, allowlisted URI: the renderer cannot substitute an arbitrary external URL.
+  ipcMain.removeHandler("updater:open-store");
+  ipcMain.handle("updater:open-store", async () => {
+    if (disabled !== "microsoft-store-managed") return { ok: false, reason: "not-store-build" };
+    try {
+      await shell.openExternal(STORE_UPDATES_URI);
+      return { ok: true, external: true };
+    } catch (error) {
+      return { ok: false, reason: sanitizeError(error) };
+    }
+  });
 }
 
 function initAutoUpdater(opts = {}) {
@@ -459,6 +482,10 @@ function initAutoUpdater(opts = {}) {
 
   const disabled = updaterDisabledReason();
   if (disabled) {
+    if (disabled === "microsoft-store-managed") {
+      state = { ...state, ...storeManagedSnapshot(app.getVersion(), process.arch) };
+      console.log("[updater] Windows Store package: updates managed by Microsoft Store.");
+    }
     console.log("[updater] 自动更新不可用：", disabled);
     registerIpc(opts, disabled);
     return;
@@ -601,6 +628,15 @@ function initAutoUpdater(opts = {}) {
 /** 系统菜单“检查更新”：只检查；macOS 已发现更新时打开浏览器下载页。 */
 async function checkForUpdatesManually() {
   const disabled = updaterDisabledReason();
+  if (disabled === "microsoft-store-managed") {
+    try { await shell.openExternal(STORE_UPDATES_URI); }
+    catch (error) {
+      await dialog.showMessageBox({ type: "warning", title: "Microsoft Store",
+        message: "无法打开微软商店更新页，请手动打开 Microsoft Store → 库 → 获取更新。",
+        detail: sanitizeError(error) });
+    }
+    return;
+  }
   if (disabled) {
     await dialog.showMessageBox({
       type: "info",

@@ -28,22 +28,25 @@ export class WorkflowRunner {
   async run(runId: string): Promise<void> {
     const run = this.repository.getRun(runId);
     if (!run || run.status === "cancelled") return;
-    const workflow = this.repository.get(run.workflowId);
-    if (!workflow) return this.fail(runId, "AUTOMATION_NOT_FOUND", "工作流不存在");
-    const definition = JSON.parse(workflow.definitionJson) as WorkflowDefinition;
-    const event = this.loadEvent(run, workflow);
-    const variables: ExecutionVariables = {
-      event,
-      steps: this.loadPreviousOutputs(runId),
-      workflow: { id: workflow.id, name: workflow.name },
-      user: { id: workflow.userId },
-      workspace: { id: workflow.workspaceId },
-    };
-    const startedAt = new Date().toISOString();
-    getDb().prepare("UPDATE automation_workflow_runs SET status='running',startedAt=COALESCE(startedAt,?),resumeAt=NULL,errorCode=NULL,errorMessage=NULL WHERE id=? AND status IN ('queued','waiting')")
-      .run(startedAt, runId);
-    let index = run.currentStep;
+    // Loading an event or definition can fail before the first workflow step.
+    // Those failures must still persist a failed run rather than reject the
+    // background Promise and potentially terminate Node.
     try {
+      const workflow = this.repository.get(run.workflowId);
+      if (!workflow) return this.fail(runId, "AUTOMATION_NOT_FOUND", "工作流不存在");
+      const definition = JSON.parse(workflow.definitionJson) as WorkflowDefinition;
+      const event = this.loadEvent(run, workflow);
+      const variables: ExecutionVariables = {
+        event,
+        steps: this.loadPreviousOutputs(runId),
+        workflow: { id: workflow.id, name: workflow.name },
+        user: { id: workflow.userId },
+        workspace: { id: workflow.workspaceId },
+      };
+      const startedAt = new Date().toISOString();
+      getDb().prepare("UPDATE automation_workflow_runs SET status='running',startedAt=COALESCE(startedAt,?),resumeAt=NULL,errorCode=NULL,errorMessage=NULL WHERE id=? AND status IN ('queued','waiting')")
+        .run(startedAt, runId);
+      let index = run.currentStep;
       while (index < definition.steps.length) {
         const latest = this.repository.getRun(runId);
         if (!latest || latest.status === "cancelled") return;

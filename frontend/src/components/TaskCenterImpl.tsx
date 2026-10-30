@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
-  Calendar, ListTodo,
+  Calendar, ListTodo, Sparkles,
   CalendarDays, AlertTriangle, CheckCheck, Inbox,
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight, Bell, Maximize2, Minimize2,
-  MoreHorizontal, Trash2 as TrashIcon, FileText, ClipboardPlus, Sun, CalendarClock,
+  Archive, MoreHorizontal, FileText, ClipboardPlus, Sun, CalendarClock, Download, Info,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Portal as TooltipPortal } from "@radix-ui/react-tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
@@ -52,10 +54,18 @@ import { TaskInboxPanel } from "./tasks/TaskInboxPanel";
 import { MyDayPanel } from "./tasks/MyDayPanel";
 import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
+import { openTaskDataTransfer } from "@/lib/taskDataTransferBridge";
+import { exportTaskReport } from "@/lib/taskReportExport";
 import { consumePendingTaskNotificationTaskId } from "@/lib/taskNotifications";
 import { TASK_NOTIFICATION_OPEN_EVENT } from "@/lib/taskNotificationSchedule";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useContextMenu } from "@/hooks/useContextMenu";
+import { SubtaskInput, type SubtaskSchedule } from "./tasks/SubtaskInput";
 import { isTaskCenterModuleVisible } from "@/lib/navigationVisibility";
+const TaskSaveNoteDialog = React.lazy(() => import("./tasks/TaskSaveNoteDialog").then(module => ({ default: module.TaskSaveNoteDialog })));
+const TaskRecurrenceDeleteDialog = React.lazy(() => import("./tasks/TaskRecurrenceDeleteDialog").then(module => ({ default: module.TaskRecurrenceDeleteDialog })));
+const TaskContextMenu = React.lazy(() => import("./tasks/TaskContextMenu"));
+const TaskComposer = React.lazy(() => import("./tasks/TaskComposer"));
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -97,6 +107,8 @@ export default function TaskCenter() {
     { key: "week", label: t("tasks.next7Days"), icon: <Calendar size={16} /> },
     { key: "overdue", label: t("tasks.overdue"), icon: <AlertTriangle size={16} /> },
     { key: "completed", label: t("tasks.completed"), icon: <CheckCheck size={16} /> },
+    { key: "completed-today", label: t("tasks.lifecycle.completedToday"), icon: <CheckCheck size={16} /> },
+    { key: "archived", label: t("tasks.lifecycle.archived"), icon: <Archive size={16} /> },
   ];
 
   const selectTaskFilter = (nextFilter: TaskFilter) => {
@@ -108,6 +120,7 @@ export default function TaskCenter() {
   };
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [showTaskComposer, setShowTaskComposer] = useState(false);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
 
@@ -123,6 +136,11 @@ export default function TaskCenter() {
   const [newHabitTitle, setNewHabitTitle] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [recurrenceDeleteTask, setRecurrenceDeleteTask] = useState<Task | null>(null);
+  const { menu: taskMenu, menuRef: taskMenuRef, openMenu: openTaskMenu, openMenuAt: openTaskMenuAt, closeMenu: closeTaskMenu } = useContextMenu();
+  const [contextChildTask, setContextChildTask] = useState<Task | null>(null);
+  const [contextNoteTask, setContextNoteTask] = useState<Task | null>(null);
+  const contextTask = tasks.find(task => task.id === taskMenu.targetId);
   const [newTitle, setNewTitle] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -277,6 +295,7 @@ export default function TaskCenter() {
   // filtered tasks by search query
   const displayTasks = useMemo(() => {
     const source = searchQuery.trim() ? tasks.filter((t) => taskMatchesSearch(t, searchQuery)) : tasks;
+    if (filter === "completed-today") return [...source].sort((a,b) => Date.parse(b.completedAt || "") - Date.parse(a.completedAt || ""));
     if (viewMode !== "list") {
       return sortByDueTime ? [...source].sort(compareTasksByDueTime) : source;
     }
@@ -284,7 +303,7 @@ export default function TaskCenter() {
       source,
       sortByDueTime ? compareTasksByDueTime : undefined,
     );
-  }, [tasks, searchQuery, sortByDueTime, viewMode]);
+  }, [tasks, searchQuery, sortByDueTime, viewMode, filter]);
 
   // recompute flatOrdered for display (search-filtered)
   const displayFlatOrdered = useMemo(() => {
@@ -307,6 +326,15 @@ export default function TaskCenter() {
     }
   }, [filter, selectedProjectId, workspaceVersion]);
 
+  useEffect(() => {
+    let day = formatLocalDateKey();
+    const timer = window.setInterval(() => {
+      const next = formatLocalDateKey();
+      if (next !== day) { day = next; void loadTasks(); }
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [loadTasks]);
+
   const loadHabits = useCallback(async () => {
     try {
       const checkinDate = formatLocalDateKey();
@@ -327,7 +355,7 @@ export default function TaskCenter() {
       setStatsLoading(true);
       const checkinDate = formatLocalDateKey();
       const [taskList, taskStatsData, habitList, habitStatsData, habitCheckins] = await Promise.all([
-        api.getTasks("all"),
+        api.getTasks("history"),
         api.getTaskStats(),
         api.getHabits(true, checkinDate),
         api.getHabitStats(true, checkinDate),
@@ -335,7 +363,8 @@ export default function TaskCenter() {
       ]);
       if (generation !== statsLoadGenerationRef.current) return;
       setStatsTasks(taskList);
-      setStats(taskStatsData);
+      const completed = taskList.filter((task) => task.isCompleted).length;
+      setStats({...taskStatsData,total:taskList.length,completed,pending:taskList.length-completed});
       setStatsHabits(habitList);
       setHabitStats(habitStatsData);
       setStatsHabitCheckins(habitCheckins);
@@ -372,6 +401,8 @@ export default function TaskCenter() {
 
   useEffect(() => {
     const onWs = () => {
+      closeTaskMenu(); setContextChildTask(null); setContextNoteTask(null);
+      setRecurrenceDeleteTask(null);
       setSelectedTaskId(null);
       setSearchQuery("");
       setSelectedIds(new Set());
@@ -384,7 +415,7 @@ export default function TaskCenter() {
     };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [centerMode, loadHabits, loadStatsCenter, loadTasks]);
+  }, [centerMode, loadHabits, loadStatsCenter, loadTasks, closeTaskMenu]);
 
   useEffect(() => {
     if (centerMode === "stats") {
@@ -443,6 +474,7 @@ export default function TaskCenter() {
   // === Keyboard shortcuts ===
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (taskMenu.isOpen || contextChildTask || contextNoteTask) return;
       const tag = (e.target as HTMLElement)?.tagName;
       const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
 
@@ -464,10 +496,15 @@ export default function TaskCenter() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectMode, selectedTaskId, searchQuery]);
+  }, [selectMode, selectedTaskId, searchQuery, taskMenu.isOpen, contextChildTask, contextNoteTask]);
+
+  useEffect(() => {
+    closeTaskMenu(); setContextChildTask(null); setContextNoteTask(null);
+  }, [centerMode, filter, selectedProjectId, viewMode, workspaceVersion, closeTaskMenu]);
 
   // === CRUD Handlers ===
   const handleToggle = async (id: string) => {
+    if (tasks.find((task) => task.id === id)?.archivedAt) return;
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, isCompleted: t.isCompleted ? 0 : 1, status: t.isCompleted ? "todo" : "done" } : t))
     );
@@ -522,7 +559,7 @@ export default function TaskCenter() {
     }
   };
 
-  const handleCreateChild = async (title: string, parentId: string): Promise<void> => {
+  const handleCreateChild = async (title: string, parentId: string, schedule?: SubtaskSchedule): Promise<void> => {
     const childTitleToCreate = title.trim();
     const childParsed = parseTaskQuickAdd(childTitleToCreate);
     const childCreatePatch = getQuickAddCreatePatch(childParsed);
@@ -536,6 +573,7 @@ export default function TaskCenter() {
         parentId,
         projectId: childProjectId,
         ...childCreatePatch,
+        ...schedule,
       });
       setTasks((prev) => [task, ...prev]);
       if (childParsed.reminderOffsets.length) {
@@ -555,6 +593,10 @@ export default function TaskCenter() {
   };
 
   const handleDelete = async (id: string) => {
+    const task = tasks.find(task => task.id === id);
+    if (task && (task.repeatGroupId || (task.repeatRule && task.repeatRule !== "none"))) {
+      setRecurrenceDeleteTask(task); return;
+    }
     const descendantIds = getDescendantIds(id, tasks);
     if (descendantIds.length > 1) {
       const ok = window.confirm(t("tasks.confirmDeleteWithChildren", { count: descendantIds.length - 1 }));
@@ -566,10 +608,19 @@ export default function TaskCenter() {
     }
     try {
       await api.deleteTask(id);
+      await loadTasks();
       const s = await api.getTaskStats();
       setStats(s);
       refreshCounts();
     } catch { toast.error(t("tasks.toast.deleteFailed")); loadTasks(); }
+  };
+
+  const handleArchive = async (id: string, archived: boolean) => {
+    try {
+      await api.archiveTask(id, archived);
+      setSelectedTaskId(null); await loadTasks(); refreshCounts();
+      toast.success(t(archived ? "tasks.lifecycle.archiveSuccess" : "tasks.lifecycle.restoreSuccess"));
+    } catch (error) { toast.error(error instanceof Error ? error.message : t("tasks.lifecycle.archiveFailed")); }
   };
 
   const handleUpdate = async (id: string, data: Partial<Task>) => {
@@ -643,6 +694,10 @@ export default function TaskCenter() {
     if (!name) return;
     const p = await createProject(name);
     if (p) {
+      setCenterMode("tasks");
+      setFilter("all");
+      setSelectedTaskId(null);
+      setSearchQuery("");
       setSelectedProjectId(p.id);
       setNewProjectName("");
       setShowNewProject(false);
@@ -699,6 +754,7 @@ export default function TaskCenter() {
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    if (tasks.some(task => selectedIds.has(task.id) && (task.repeatGroupId || (task.repeatRule && task.repeatRule !== "none"))) && !window.confirm(t("taskRemoval.bulkSingle"))) return;
     // Collect all descendants
     const idsToRemove = new Set<string>();
     for (const id of ids) {
@@ -716,6 +772,7 @@ export default function TaskCenter() {
     setSelectedIds(new Set());
     try {
       await api.batchTasks(ids, "delete");
+      await loadTasks();
       const s = await api.getTaskStats();
       setStats(s);
       refreshCounts();
@@ -806,6 +863,8 @@ export default function TaskCenter() {
       case "week": return stats.week;
       case "overdue": return stats.overdue;
       case "completed": return stats.completed;
+      case "completed-today": return stats.completedToday ?? 0;
+      case "archived": return stats.archived ?? 0;
       default: return 0;
     }
   };
@@ -820,12 +879,70 @@ export default function TaskCenter() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [taskFullscreen]);
 
+  const getContextTaskTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Element) || isLoading || centerMode !== "tasks") return null;
+    if (target.closest("input, textarea, [contenteditable='true']")) return null;
+    return target.closest<HTMLElement>("[data-task-context-id]");
+  };
+  const contextDescendants = new Set(contextTask ? getDescendantIds(contextTask.id, tasks) : []);
+  const canArchiveContextTask = !!contextTask && tasks.every(task => !contextDescendants.has(task.id) || task.isCompleted === 1);
+  const handleTaskMenuAction = (action: string) => {
+    const task = contextTask;
+    closeTaskMenu();
+    if (!task) return;
+    if (action === "open") { setSelectedTaskId(task.id); return; }
+    if (action === "save-note") { setContextNoteTask(task); return; }
+    if (action === "export:xlsx" || action === "export:md") {
+      const format = action === "export:xlsx" ? "xlsx" : "md";
+      void exportTaskReport(format, key => t(key), task.id)
+        .catch(error => toast.error(error instanceof Error ? error.message : t("tasks.report.exportFailed")));
+      return;
+    }
+    if (action === "delete") {
+      if (getDescendantIds(task.id, tasks).length === 1 && !window.confirm(t("tasks.contextMenu.confirmDelete", { title: task.title }))) return;
+      void handleDelete(task.id); return;
+    }
+    if (action === "restore") { if (task.archivedAt && !task.parentId) void handleArchive(task.id, false); return; }
+    if (task.archivedAt) return;
+    if (action === "toggle") void handleToggle(task.id);
+    else if (action === "add-child") setContextChildTask(task);
+    else if (action === "archive" && canArchiveContextTask && !task.parentId) void handleArchive(task.id, true);
+    else if (action.startsWith("priority:")) {
+      const priority = Number(action.slice(9));
+      if (priority === 1 || priority === 2 || priority === 3) void handleUpdate(task.id, { priority });
+    } else if (action.startsWith("project:")) {
+      const projectId = action.slice(8);
+      if (projectId === "none" || projects.some(project => project.id === projectId)) void handleUpdate(task.id, { projectId: projectId === "none" ? null : projectId });
+    }
+  };
+
   return (
-    <div className={cn(TASK_CENTER_ROOT_CLASS, taskFullscreen && "fixed inset-0 z-[80] bg-app-bg")}>
+    <div className={cn(TASK_CENTER_ROOT_CLASS, taskFullscreen && "fixed inset-0 z-[80] bg-app-bg")}
+      onContextMenu={event => {
+        const target = getContextTaskTarget(event.target);
+        if (target) openTaskMenu(event, target.dataset.taskContextId!, "task");
+      }}
+      onKeyDown={event => {
+        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+        const target = getContextTaskTarget(event.target);
+        if (!target) return;
+        event.preventDefault(); event.stopPropagation();
+        const rect = target.getBoundingClientRect();
+        openTaskMenuAt(rect.left + 16, rect.top + 16, target.dataset.taskContextId!, "task");
+      }}
+      onClickCapture={event => {
+        if (!(event.target instanceof Element) || !event.target.closest("[data-task-menu-trigger]")) return;
+        const target = getContextTaskTarget(event.target);
+        if (!target) return;
+        event.preventDefault(); event.stopPropagation();
+        const rect = event.target.closest("button")!.getBoundingClientRect();
+        openTaskMenuAt(rect.right, rect.bottom, target.dataset.taskContextId!, "task");
+      }}>
       {/* Left: Sidebar Filters + Projects (desktop) */}
       <div className="hidden md:flex w-56 shrink-0 flex-col border-r border-app-border bg-app-surface overflow-y-auto" style={{ paddingTop: "var(--safe-area-top)" }}>
         <nav className="flex-1 px-2 py-1.5 space-y-0.5">
-          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+          <div className="flex items-center gap-2 px-3 pb-2 pt-2 text-sm font-semibold text-tx-primary">
+            <ListTodo size={16} className="text-accent-primary" />
             {t("tasks.title")}
           </div>
           <button
@@ -857,6 +974,105 @@ export default function TaskCenter() {
                 {filterCount(f.key)}
               </span>
             </button>
+          ))}
+
+          {/* Projects section */}
+          <div className="!mt-3 border-t border-app-border px-3 pb-2 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
+                <FolderOpen size={16} className="text-accent-primary" />
+                {t("tasks.projects")}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("tasks.projectsHelp")}
+                        className="rounded text-tx-tertiary transition-colors hover:text-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                      >
+                        <Info size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipPortal>
+                      <TooltipContent side="right" collisionPadding={12} className="max-w-64 font-normal leading-relaxed">
+                        {t("tasks.projectsDescription")}
+                      </TooltipContent>
+                    </TooltipPortal>
+                  </Tooltip>
+                </TooltipProvider>
+              </span>
+              <button
+                onClick={() => setShowNewProject(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-accent-primary/10 px-2 py-1.5 text-xs font-medium text-accent-primary transition-colors hover:bg-accent-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                aria-expanded={showNewProject}
+              >
+                <Plus size={14} />
+                {t("tasks.newProject")}
+              </button>
+            </div>
+          </div>
+
+          {showNewProject && (
+            <form
+              className="px-3 pb-2"
+              onSubmit={(e) => { e.preventDefault(); void handleCreateProject(); }}
+            >
+              <input
+                type="text"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setShowNewProject(false); }}
+                aria-label={t("tasks.projectName")}
+                placeholder={t("tasks.projectName")}
+                className="w-full px-2 py-1.5 text-sm rounded-md bg-app-bg border border-app-border text-tx-primary focus:outline-none focus:border-accent-primary"
+                autoFocus
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="submit" disabled={!newProjectName.trim()} className="rounded-md bg-accent-primary px-2 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                  {t("tasks.newProject")}
+                </button>
+                <button type="button" onClick={() => setShowNewProject(false)} className="rounded-md px-2 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">
+                  {t("common.cancel")}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {projects.map((p) => (
+            <div key={p.id} className="relative">
+              <button
+                onClick={() => { setCenterMode("tasks"); setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
+                className={cn(
+                  "flex items-center gap-2.5 w-full px-3 py-1.5 rounded-lg text-sm transition-colors group",
+                  centerMode === "tasks" && selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
+                )}
+              >
+                <FolderOpen size={14} style={{ color: p.color }} />
+                <span className="flex-1 text-left truncate">{p.name}</span>
+                <span className="text-[10px] text-tx-tertiary">{p.completedCount ?? 0}/{p.taskCount ?? 0}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowProjectMenu(showProjectMenu === p.id ? null : p.id); }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-hover text-tx-tertiary transition-all"
+                >
+                  <MoreHorizontal size={12} />
+                </button>
+              </button>
+              {/* Progress bar */}
+              {(p.taskCount ?? 0) > 0 && (
+                <div className="mx-3 mb-1 h-1 rounded-full bg-app-border overflow-hidden">
+                  <div className="h-full rounded-full bg-accent-primary transition-all" style={{ width: `${p.progress ?? 0}%` }} />
+                </div>
+              )}
+              {/* Project menu */}
+              {showProjectMenu === p.id && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-app-border bg-app-surface shadow-lg py-1">
+                  <button onClick={() => { setEditingProject(p); setEditProjectName(p.name); setEditProjectColor(p.color); setShowProjectMenu(null); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">{t("tasks.projectName")}</button>
+                  <button onClick={() => handleDeleteProject(p.id)}
+                    className="w-full text-left px-3 py-1.5 text-xs text-accent-danger hover:bg-accent-danger/10">{t("tasks.deleteProject")}</button>
+                </div>
+              )}
+            </div>
           ))}
 
           {(isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ||
@@ -917,71 +1133,6 @@ export default function TaskCenter() {
             <BarChart3 size={16} />
             <span className="flex-1 text-left">{t("stats.title")}</span>
           </button>
-
-          {/* Projects section */}
-          <div className="mt-3 mb-0.5 px-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-tx-tertiary uppercase tracking-wider">{t("tasks.projects")}</span>
-              <button
-                onClick={() => setShowNewProject(true)}
-                className="p-0.5 rounded hover:bg-app-hover text-tx-tertiary hover:text-accent-primary transition-colors"
-                title={t("tasks.newProject")}
-              >
-                <Plus size={12} />
-              </button>
-            </div>
-          </div>
-
-          {showNewProject && (
-            <div className="px-2 pb-1">
-              <input
-                type="text"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateProject(); if (e.key === "Escape") setShowNewProject(false); }}
-                placeholder={t("tasks.projectName")}
-                className="w-full px-2 py-1 text-xs rounded-md bg-app-bg border border-app-border text-tx-primary focus:outline-none focus:border-accent-primary"
-                autoFocus
-              />
-            </div>
-          )}
-
-          {projects.map((p) => (
-            <div key={p.id} className="relative">
-              <button
-                onClick={() => { setCenterMode("tasks"); setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
-                className={cn(
-                  "flex items-center gap-2.5 w-full px-3 py-1.5 rounded-lg text-sm transition-colors group",
-                  centerMode === "tasks" && selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
-                )}
-              >
-                <FolderOpen size={14} style={{ color: p.color }} />
-                <span className="flex-1 text-left truncate">{p.name}</span>
-                <span className="text-[10px] text-tx-tertiary">{p.completedCount ?? 0}/{p.taskCount ?? 0}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowProjectMenu(showProjectMenu === p.id ? null : p.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-hover text-tx-tertiary transition-all"
-                >
-                  <MoreHorizontal size={12} />
-                </button>
-              </button>
-              {/* Progress bar */}
-              {(p.taskCount ?? 0) > 0 && (
-                <div className="mx-3 mb-1 h-1 rounded-full bg-app-border overflow-hidden">
-                  <div className="h-full rounded-full bg-accent-primary transition-all" style={{ width: `${p.progress ?? 0}%` }} />
-                </div>
-              )}
-              {/* Project menu */}
-              {showProjectMenu === p.id && (
-                <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-app-border bg-app-surface shadow-lg py-1">
-                  <button onClick={() => { setEditingProject(p); setEditProjectName(p.name); setEditProjectColor(p.color); setShowProjectMenu(null); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">{t("tasks.projectName")}</button>
-                  <button onClick={() => handleDeleteProject(p.id)}
-                    className="w-full text-left px-3 py-1.5 text-xs text-accent-danger hover:bg-accent-danger/10">{t("tasks.deleteProject")}</button>
-                </div>
-              )}
-            </div>
-          ))}
         </nav>
       </div>
 
@@ -1071,6 +1222,8 @@ export default function TaskCenter() {
           {centerMode === "tasks" && (
             <>
               {/* Mobile project trigger */}
+              <button type="button" onClick={() => setShowTaskComposer(true)} className="flex shrink-0 items-center gap-1 rounded-full bg-accent-primary/10 px-3 py-1.5 text-xs text-accent-primary"><Sparkles size={14} />{t("taskComposer.entry")}</button>
+              <button type="button" onClick={openTaskDataTransfer} className="flex shrink-0 items-center gap-1 rounded-full bg-app-hover/50 px-3 py-1.5 text-xs text-tx-secondary"><Download size={14} />{t("tasks.report.open")}</button>
               <MobileProjectTrigger
                 selectedProjectId={selectedProjectId}
                 projects={projects}
@@ -1096,18 +1249,18 @@ export default function TaskCenter() {
 
         {/* Header desktop with batch controls */}
         {centerMode === "tasks" ? (
-          <div className="hidden items-center gap-3 border-b border-app-border px-5 py-3 md:flex">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-bold text-tx-primary">
+          <div className="hidden shrink-0 flex-wrap items-center gap-3 border-b border-app-border px-5 py-3 md:flex">
+            <div className="min-w-0 flex-1 basis-40">
+              <h1 className="truncate text-lg font-bold text-tx-primary">
                 {selectedProjectId
                   ? projects.find((p) => p.id === selectedProjectId)?.name || t("tasks.allTasks")
                   : FILTERS.find((f) => f.key === filter)?.label || t("tasks.allTasks")}
               </h1>
-              <p className="mt-0.5 text-[11px] text-tx-tertiary">
+              <p className="mt-0.5 whitespace-nowrap text-[11px] text-tx-tertiary">
                 {t("tasks.visibleTaskCount", { count: displayTasks.length, defaultValue: `${displayTasks.length} 条任务` })}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2 whitespace-nowrap">
               {selectMode ? (
                 <>
                   <span className="text-xs text-tx-tertiary">{t("tasks.selectedCount", { count: selectedIds.size })}</span>
@@ -1149,6 +1302,8 @@ export default function TaskCenter() {
                     <ClipboardPlus size={14} />
                     {t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获" })}
                   </button>
+                  <button type="button" onClick={() => setShowTaskComposer(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-app-border px-3 py-1.5 text-xs text-accent-primary hover:bg-app-hover"><Sparkles size={14} />{t("taskComposer.entry")}</button>
+                  <button type="button" onClick={openTaskDataTransfer} className="inline-flex items-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover"><Download size={14} />{t("tasks.report.open")}</button>
                   <label className="flex items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2 py-1 text-xs text-tx-secondary">
                     <span className="text-tx-tertiary">{t("tasks.view", { defaultValue: "视图" })}</span>
                     <select
@@ -1266,8 +1421,13 @@ export default function TaskCenter() {
           </div>
         ) : null}
 
+        {centerMode === "tasks" && (filter === "completed-today" || filter === "archived") && <div className="border-b border-app-border px-4 py-3 text-sm text-tx-secondary">
+          <strong className="text-tx-primary">{filter === "completed-today" ? `${t("tasks.lifecycle.completedToday")} ${displayTasks.length}` : t("tasks.lifecycle.archived")}</strong>
+          <p className="mt-1 text-xs">{t(filter === "completed-today" ? "tasks.lifecycle.todayHint" : "tasks.lifecycle.archiveHint")}</p>
+        </div>}
+
         {/* Quick Add */}
-        {centerMode === "tasks" && (
+        {centerMode === "tasks" && filter !== "archived" && filter !== "completed-today" && (
           <div className="px-4 md:px-5 py-2 border-b border-app-border">
             <TaskQuickAdd
               value={newTitle}
@@ -1384,19 +1544,19 @@ export default function TaskCenter() {
               </div>
             )}
           </div>
-        ) : viewMode === "board" && !isLoading && displayTasks.length > 0 ? (
+        ) : filter !== "archived" && filter !== "completed-today" && viewMode === "board" && !isLoading && displayTasks.length > 0 ? (
           <TaskBoardView
             tasks={displayTasks}
             onSelect={(task) => setSelectedTaskId(task.id)}
             onStatusChange={handleStatusChange}
           />
-        ) : viewMode === "calendar" && !isLoading ? (
+        ) : filter !== "archived" && filter !== "completed-today" && viewMode === "calendar" && !isLoading ? (
           <TaskCalendarView
             tasks={displayTasks}
             onSelect={(task) => setSelectedTaskId(task.id)}
             onMoveTaskDate={handleMoveTaskDate}
           />
-        ) : viewMode === "timeline" && !isLoading ? (
+        ) : filter !== "archived" && filter !== "completed-today" && viewMode === "timeline" && !isLoading ? (
           <TaskGanttView
             tasks={displayTasks}
             projects={projects}
@@ -1415,7 +1575,9 @@ export default function TaskCenter() {
                 {searchQuery ? (
                   <TaskEmptyState type="no-search" compact onAction={() => setSearchQuery("")} />
                 ) : (
-                  <TaskEmptyState type="no-tasks" onAction={() => inputRef.current?.focus()} />
+                  filter === "archived" || filter === "completed-today"
+                    ? <TaskEmptyState type="no-tasks" title={t(filter === "archived" ? "tasks.lifecycle.noArchived" : "tasks.lifecycle.noCompletedToday")} description={t(filter === "archived" ? "tasks.lifecycle.archiveHint" : "tasks.lifecycle.todayHint")} />
+                    : <TaskEmptyState type="no-tasks" onAction={() => inputRef.current?.focus()} />
                 )}
               </div>
             ) : (
@@ -1425,11 +1587,13 @@ export default function TaskCenter() {
                     displayFlatOrdered.map((item) => (
                       <div
                         key={item.node.id}
+                        data-task-context-id={item.node.id}
+                        tabIndex={0}
                         className={cn(
                           "relative",
                           dragOverId === item.node.id && dragId !== item.node.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                         )}
-                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        draggable={filter !== "archived" && filter !== "completed-today" && !selectMode && !sortByDueTime && !isMobile}
                         onDragStart={(e) => handleDragStart(item.node.id, e)}
                         onDragOver={(e) => handleDragOver(item.node.id, e)}
                         onDrop={() => handleDrop(item.node.id)}
@@ -1463,11 +1627,13 @@ export default function TaskCenter() {
                     displayTasks.map((task) => (
                       <div
                         key={task.id}
+                        data-task-context-id={task.id}
+                        tabIndex={0}
                         className={cn(
                           "relative",
                           dragOverId === task.id && dragId !== task.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
                         )}
-                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        draggable={filter !== "archived" && filter !== "completed-today" && !selectMode && !sortByDueTime && !isMobile}
                         onDragStart={(e) => handleDragStart(task.id, e)}
                         onDragOver={(e) => handleDragOver(task.id, e)}
                         onDrop={() => handleDrop(task.id)}
@@ -1483,6 +1649,7 @@ export default function TaskCenter() {
                               : <Square size={16} className="text-tx-tertiary" />}
                           </button>
                         )}
+                        {filter === "completed-today" && <div className="px-3 pt-2 text-xs text-tx-tertiary">{task.parentTitle ? `${task.parentTitle} · ` : ""}{task.completedAt ? new Date(task.completedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : ""}</div>}
                         <FlatTaskRow
                           task={task}
                           onToggle={handleToggle}
@@ -1529,6 +1696,21 @@ export default function TaskCenter() {
         )}
       </div>
 
+      {taskMenu.isOpen && contextTask && <React.Suspense fallback={null}><TaskContextMenu menu={taskMenu} menuRef={taskMenuRef} task={contextTask} projects={projects} canArchive={canArchiveContextTask} onAction={handleTaskMenuAction} /></React.Suspense>}
+      {contextNoteTask && <React.Suspense fallback={null}><TaskSaveNoteDialog task={contextNoteTask} draft={{ title: contextNoteTask.title, description: contextNoteTask.description || "" }} onClose={() => setContextNoteTask(null)} /></React.Suspense>}
+      {recurrenceDeleteTask && <React.Suspense fallback={null}><TaskRecurrenceDeleteDialog task={recurrenceDeleteTask} onClose={() => setRecurrenceDeleteTask(null)} onConfirm={async mode => {
+        if (mode === "stop") await api.stopTaskRecurrence(recurrenceDeleteTask.id);
+        else await api.deleteTask(recurrenceDeleteTask.id,mode);
+        setSelectedTaskId(null); await loadTasks(); refreshCounts();
+      }} /></React.Suspense>}
+      {contextChildTask && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4" onClick={() => setContextChildTask(null)}>
+        <div role="dialog" aria-modal="true" aria-labelledby="task-context-child-title" className="w-full max-w-md rounded-xl border border-app-border bg-app-surface p-4 shadow-xl" onClick={event => event.stopPropagation()} onKeyDown={event => { if (event.key === "Escape") setContextChildTask(null); }}>
+          <h2 id="task-context-child-title" className="font-semibold text-tx-primary">{t("tasks.addChild")}</h2>
+          <p className="mb-3 truncate text-sm text-tx-secondary">{contextChildTask.title}</p>
+          <SubtaskInput parentId={contextChildTask.id} onSubmit={handleCreateChild} onCancel={() => setContextChildTask(null)} />
+        </div>
+      </div>}
+
       {/* Project edit dialog */}
       {editingProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditingProject(null)}>
@@ -1567,6 +1749,7 @@ export default function TaskCenter() {
       )}
 
       {/* Right: Detail Panel — direct flex sibling, no AnimatePresence to avoid layout gap */}
+      {showTaskComposer && <React.Suspense fallback={null}><TaskComposer projects={projects} initialProjectId={selectedProjectId} onClose={() => setShowTaskComposer(false)} onCreated={() => { void loadTasks(); void refreshCounts(); }} onView={selectTaskFilter} /></React.Suspense>}
       {centerMode === "tasks" && selectedTask && (
         <TaskDetailPanel
           key={selectedTask.id}
@@ -1575,6 +1758,7 @@ export default function TaskCenter() {
           onClose={() => setSelectedTaskId(null)}
           onUpdate={handleUpdate}
           onDelete={handleDelete}
+          onArchive={handleArchive}
           allTasks={tasks}
           onToggle={handleToggle}
           onSelectTask={(taskId) => setSelectedTaskId(taskId)}

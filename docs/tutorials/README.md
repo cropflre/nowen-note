@@ -69,6 +69,7 @@
 |---|---|
 | [富文本编辑器](./editor-rich-text.md) | 工具栏、快捷键、图片、链接和常用格式 |
 | [Markdown 编辑器](./editor-markdown.md) | CodeMirror、实时预览、分屏和 Markdown 语法 |
+| [纯文本笔记（TXT）](./editor-plaintext.md) | 只记录文字、按原文保存和导出 TXT |
 | [斜杠命令](./slash-commands.md) | 使用 `/` 快速插入内容块和 AI 指令 |
 | [高级内容块](./advanced-blocks.md) | 表格、代码块、KaTeX、脚注和媒体内容 |
 | [Mermaid 图表](./mermaid.md) | 流程图、时序图、类图和甘特图 |

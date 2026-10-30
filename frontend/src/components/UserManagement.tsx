@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { User } from "@/types";
 import { toast } from "@/lib/toast";
+import { formatServerTime } from "@/lib/dateTime";
 
 type StatusFilter = "all" | "active" | "disabled";
 type RoleFilter = "all" | "admin" | "user";
@@ -377,7 +378,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
   const filteredCount = useMemo(() => users.length, [users]);
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-3 sm:space-y-5">
       {/* 标题 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -399,7 +400,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
       </div>
 
       {/* 注册开关 */}
-      <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+      <div className="flex items-center justify-between gap-3 px-3 py-2 sm:px-4 sm:py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
         <div>
           <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             {t("userManagement.openRegistration")}
@@ -425,7 +426,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
 
       {/* 过滤 */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
           <input
             type="text"
@@ -438,7 +439,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-          className="text-xs px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+          className="min-w-0 flex-1 sm:flex-none text-xs px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
         >
           <option value="all">{t("userManagement.filterRoleAll")}</option>
           <option value="admin">{t("userManagement.roleAdmin")}</option>
@@ -447,7 +448,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          className="text-xs px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+          className="min-w-0 flex-1 sm:flex-none text-xs px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
         >
           <option value="all">{t("userManagement.filterStatusAll")}</option>
           <option value="active">{t("userManagement.statusActive")}</option>
@@ -457,7 +458,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
 
       {/* 用户列表（卡片） */}
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <div className="max-h-[52vh] overflow-y-auto">
+        <div className="sm:max-h-[52vh] sm:overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-10 text-zinc-400">
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -473,9 +474,9 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                 return (
                   <li
                     key={u.id}
-                    className="px-4 py-3 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/30 transition-colors"
+                    className="px-3 py-2 sm:px-4 sm:py-3 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/30 transition-colors"
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 sm:flex sm:items-start sm:gap-3">
                       {/* 头像 */}
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold overflow-hidden shrink-0">
                         {u.avatarUrl ? (
@@ -523,19 +524,19 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                           @{u.username}
                           {u.email && ` · ${u.email}`}
                         </div>
-                        <div className="mt-1 flex items-center gap-3 text-[11px] text-zinc-400 dark:text-zinc-500">
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">
                           <span>
                             {t("userManagement.colNotes")}: {u.noteCount ?? 0}
                           </span>
                           <span className="truncate">
                             {t("userManagement.colLastLogin")}:{" "}
-                            {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}
+                            {formatServerTime(u.lastLoginAt, undefined, "—")}
                           </span>
                         </div>
                       </div>
 
                       {/* 操作按钮 */}
-                      <div className="flex items-center gap-0.5 shrink-0">
+                      <div className="col-start-2 flex items-center justify-end gap-0.5 shrink-0">
                         <button
                           onClick={() =>
                             setEdit({
@@ -1118,9 +1119,9 @@ function Modal({
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-        className="relative w-full max-w-md bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden"
+        className="relative flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-md flex-col bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 sm:px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
           <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h4>
           <button
             onClick={onClose}
@@ -1129,7 +1130,7 @@ function Modal({
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-5">{children}</div>
       </motion.div>
     </motion.div>
   );

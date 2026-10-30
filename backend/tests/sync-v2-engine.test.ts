@@ -247,7 +247,7 @@ test("同一实体的连续 update 合并为最新状态", () => {
   assert.equal(merged[0].supersededIds.length, 2, "被合并的条目要记账以便一并出队");
 });
 
-test("update + delete 合并后保留 delete", () => {
+test("note update + delete 保留待确认写入，永久删除留在队列", () => {
   resetSyncTables();
   const db = getDb();
   const { profileId } = createEngine();
@@ -264,7 +264,9 @@ test("update + delete 合并后保留 delete", () => {
 
   const merged = sync.coalesceMutations(sync.listPendingMutations(db, 100));
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].operation, "delete");
+  assert.equal(merged[0].operation, "upsert");
+  assert.equal(sync.listPendingMutations(db,100).filter(row=>row.operation==="delete").length,1);
+  assert.equal(merged[0].supersededIds.length,0);
 });
 
 test("合并保留最早的 baseVersion，避免漏判与远端的真实冲突", () => {
@@ -315,6 +317,155 @@ test("合并保持实体首次出现顺序，父实体仍先于子实体", () =>
 // ---------------------------------------------------------------------------
 // Push
 // ---------------------------------------------------------------------------
+
+test("批次按实体合并全部后处理操作，不发送导入中间态", async () => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  const notebookId = seedNotebook();
+  const noteId = seedNote(notebookId);
+  const limit = (await import("../src/sync/constants")).SYNC_PUSH_MAX_MUTATIONS;
+  for (let i = 0; i <= limit; i++) {
+    sync.enqueueMutation(db, {
+      entityType: "note", entityId: noteId, operation: "upsert",
+      deviceId: DEVICE_ID, profileId, baseVersion: 1,
+      payload: { notebookId, title: `后处理 ${i}`, version: 1 },
+    });
+  }
+  let serverVersion = 1;
+  remote.pushResponder = (mutations) => ({
+    serverSequence: 0,
+    results: mutations.map((m) => m.baseVersion === serverVersion
+      ? { mutationId: m.mutationId, status: "applied", version: ++serverVersion }
+      : { mutationId: m.mutationId, status: "conflict", code: "VERSION_CONFLICT", serverVersion }),
+  });
+  await engine.syncOnce();
+  assert.equal(sync.countPendingMutations(db), 0);
+  assert.equal(sync.countUnresolvedConflicts(db), 0);
+  assert.equal(remote.pushCalls.length, 1);
+  assert.equal(remote.pushCalls[0].length, 1);
+  assert.equal(remote.pushCalls[0][0].payload.title, `后处理 ${limit}`);
+  assert.equal(db.prepare("SELECT version FROM notes WHERE id=?").get(noteId).version, serverVersion);
+});
+
+test("推送等待期间的新编辑保留，duplicate 确认版本后仍检测真正的远端修改", async () => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  const notebookId = seedNotebook();
+  const noteId = seedNote(notebookId, "旧标题", 4);
+  sync.enqueueMutation(db, {
+    entityType: "note", entityId: noteId, operation: "upsert",
+    deviceId: DEVICE_ID, profileId, baseVersion: 2, payload: { notebookId, title: "已发送", version: 4 },
+  });
+  remote.pushResponder = (mutations) => {
+    db.prepare("UPDATE notes SET title='等待期间编辑', version=5 WHERE id=?").run(noteId);
+    sync.enqueueMutation(db, {
+      entityType: "note", entityId: noteId, operation: "upsert",
+      deviceId: DEVICE_ID, profileId, baseVersion: 4, payload: { notebookId, title: "等待期间编辑", version: 5 },
+    });
+    return { serverSequence: 0, results: mutations.map((m) => ({ mutationId: m.mutationId, status: "duplicate", version: 3 })) };
+  };
+  await engine.syncOnce();
+  assert.equal(sync.listPendingMutations(db, 10)[0].baseVersion, 3);
+  const local = db.prepare("SELECT title, version FROM notes WHERE id=?").get(noteId);
+  assert.equal(local.title, "等待期间编辑");
+  assert.equal(local.version, 5, "尚有本地编辑时不能回退编辑器的本地版本");
+  const incoming = (version: number) => sync.applyRemoteChanges(db, [{
+    entityType: "note", entityId: noteId, operation: "upsert", payload: { notebookId, version },
+  }], { userId: USER_ID });
+  assert.equal(incoming(3).pendingConflicts.length, 0);
+  assert.equal(incoming(4).pendingConflicts.length, 1, "远端超过已确认基线仍必须保留冲突");
+});
+
+test("真实思源导入产生的跨批次变更经服务端应用后最终收敛", async (t) => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  sync.ensureDevice(db, { profileId, platform: "win32" });
+  sync.markBootstrapReady(db, profileId, 0);
+  (await import("../src/sync/knowledgeTreeReadiness")).markKnowledgeTreeSyncReady(db, profileId);
+  const serverPath = path.join(tmpDir, "issue-820-server.db");
+  await db.backup(serverPath);
+  const Sqlite = (await import("better-sqlite3")).default;
+  const serverDb = new Sqlite(serverPath);
+  t.after(() => serverDb.close());
+  serverDb.pragma("foreign_keys = ON");
+  (await import("../src/lib/searchIndex")).ensureNormalizedSearchFts(serverDb);
+  const { applyMutation } = await import("../src/sync/apply");
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  zip.file("data/box/.siyuan/conf.json", JSON.stringify({ name: "Issue 820" }));
+  const count = (await import("../src/sync/constants")).SYNC_PUSH_MAX_MUTATIONS + 5;
+  for (let i = 0; i < count; i++) {
+    zip.file(`data/box/doc-${i}.sy`, JSON.stringify({
+      ID: `doc-${i}`, Type: "NodeDocument", Properties: { title: `导入 ${i}` },
+      Children: [{ Type: "NodeParagraph", Children: [{ Type: "NodeText", Data: `正文 ${i}` }] }],
+    }));
+  }
+  const zipPath = path.join(tmpDir, "issue-820.zip");
+  fs.writeFileSync(zipPath, await zip.generateAsync({ type: "nodebuffer" }));
+  const imported = await (await import("../src/services/siyuanPackageImport")).importSiyuanPackageFromZipFile(
+    zipPath, { userId: USER_ID, workspaceId: null, contentFormat: "tiptap-json" },
+  );
+  assert.equal(imported.success, true);
+  assert.equal(imported.count, count);
+  assert.ok(sync.countPendingMutations(db, profileId) > count);
+  const serverNotes = new Map<string, Record<string, any>>();
+  const serverEntities = new Map<string, any>();
+  let serverFailure: unknown;
+  remote.pushResponder = (mutations) => {
+    const results = mutations.map((m) => {
+      let result;
+      try {
+        result = serverDb.transaction(() => applyMutation(serverDb, { ...m, userId: USER_ID, deviceId: DEVICE_ID }))();
+      } catch (error) {
+        serverFailure = error;
+        throw error;
+      }
+      const table = { note: "notes", notebook: "notebooks", knowledge_tree_node: "knowledge_tree_nodes" }[m.entityType as string];
+      assert.ok(table);
+      const payload = serverDb.prepare(`SELECT * FROM ${table} WHERE id=?`).get(m.entityId) as Record<string, any>;
+      serverEntities.set(`${m.entityType}:${m.entityId}`, { entityType: m.entityType, entityId: m.entityId, payload });
+      if (m.entityType === "note") serverNotes.set(m.entityId, payload);
+      return result;
+    });
+    remote.serverSequence++;
+    remote.changesQueue.push({
+      serverSequence: remote.serverSequence, nextSequence: remote.serverSequence, hasMore: false,
+      resetRequired: false, items: mutations.map((m) => ({
+        sequence: remote.serverSequence, entityType: m.entityType, entityId: m.entityId, operation: "upsert",
+      })),
+    });
+    remote.snapshotPages.push({
+      snapshotSequence: remote.serverSequence, hasMore: false, nextCursor: null,
+      items: [...serverEntities.values()],
+    });
+    return { serverSequence: remote.serverSequence, results };
+  };
+  for (let cycle = 0; cycle < 20 && sync.countPendingMutations(db, profileId); cycle++) {
+    await engine.syncOnce();
+    if (serverFailure) throw serverFailure;
+    assert.equal(engine.getStatus().lastError, null);
+  }
+  assert.equal(sync.countPendingMutations(db, profileId), 0);
+  assert.equal(sync.countUnresolvedConflicts(db, profileId), 0);
+  assert.equal(serverNotes.size, count);
+  assert.ok(remote.pushCalls.length > 1);
+  assert.ok(remote.pushCalls.every((batch) => batch.length <= sync.SYNC_PUSH_MAX_MUTATIONS));
+  for (const note of imported.notes) {
+    const local = db.prepare("SELECT title, content, sortOrder, version FROM notes WHERE id=?").get(note.id) as any;
+    const remoteNote = serverNotes.get(note.id)!;
+    for (const field of ["title", "content", "sortOrder", "version"]) {
+      assert.equal(local[field], remoteNote[field], `${note.id}: ${field}`);
+    }
+    const treeId = `note:${note.id}`;
+    const localTree = db.prepare("SELECT parentId, sortOrder FROM knowledge_tree_nodes WHERE id=?").get(treeId) as any;
+    const remoteTree = serverEntities.get(`knowledge_tree_node:${treeId}`).payload;
+    assert.equal(localTree.parentId, remoteTree.parentId);
+    assert.equal(localTree.sortOrder, remoteTree.sortOrder);
+  }
+});
 
 test("推送成功后 Outbox 出队，被合并条目一并清除", async () => {
   resetSyncTables();
@@ -555,6 +706,24 @@ test("无变更时也推进游标并 ACK，避免重复扫描", async () => {
 
   assert.equal(sync.getSyncState(db, profileId)?.lastSequence, 42);
   assert.deepEqual(remote.ackCalls, [42]);
+});
+
+test("同一批创建后删除只应用最终删除，不等待已不存在的 Snapshot", async () => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  remote.serverSequence = 43;
+  remote.changesQueue.push({
+    serverSequence: 43, nextSequence: 43, hasMore: false, resetRequired: false,
+    items: [
+      { sequence: 42, entityType: "note", entityId: "created-then-deleted", operation: "upsert" },
+      { sequence: 43, entityType: "note", entityId: "created-then-deleted", operation: "delete" },
+    ],
+  });
+  const status = await engine.syncOnce();
+  assert.notEqual(status.state, "error");
+  assert.equal(sync.getSyncState(db, profileId)?.lastSequence, 43);
+  assert.deepEqual(remote.ackCalls, [43]);
 });
 
 test("Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK", async () => {
@@ -831,4 +1000,24 @@ test("诊断状态暴露定位同步问题所需的全部字段", async () => {
   assert.equal(typeof status.pendingMutations, "number");
   assert.equal(typeof status.conflictCount, "number");
   assert.ok(status.lastPullAt, "应记录最近拉取时间");
+});
+
+test("legacy terminal delete is held for an older server without discarding its mutation or recovery body",async()=>{
+  resetSyncTables();const db=getDb(),{engine,remote,profileId}=createEngine();
+  const mutationId=sync.enqueueMutation(db,{entityType:"note",entityId:"old-server-delete",operation:"delete",deviceId:DEVICE_ID,profileId,baseVersion:1,payload:{content:"retained",_deletionRecovery:{note:{content:"retained"},attachments:[]}}});
+  await engine.syncOnce();
+  assert.equal(remote.pushCalls.length,0);
+  const pending=sync.listPendingMutations(db,100,profileId).find(row=>row.mutationId===mutationId)!;
+  assert.equal(JSON.parse(pending.payload!).content,"retained");
+});
+
+test("a missing trash-stage ACK version cannot dequeue the stage before permanent deletion",async()=>{
+  resetSyncTables();const db=getDb(),{engine,remote,profileId}=createEngine();
+  const trash=sync.enqueueMutation(db,{entityType:"note",entityId:"bad-trash-ack",operation:"upsert",deviceId:DEVICE_ID,profileId,baseVersion:1,payload:{content:"retained",isTrashed:1}});
+  const permanent=sync.enqueueMutation(db,{entityType:"note",entityId:"bad-trash-ack",operation:"delete",deviceId:DEVICE_ID,profileId,baseVersion:2,payload:{content:"retained",_deletionRecovery:{note:{content:"retained"},attachments:[]}}});
+  // FakeRemote deliberately omits the version; a real trash-stage ACK must supply it.
+  await engine.syncOnce();
+  assert.equal(remote.pushCalls.length,1);
+  const ids=sync.listPendingMutations(db,100,profileId).map(row=>row.mutationId);
+  assert.ok(ids.includes(trash!));assert.ok(ids.includes(permanent!));
 });

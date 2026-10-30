@@ -55,4 +55,12 @@ describe("task completedAt transfer compatibility", () => {
     const parsed = taskBackupFromCsv(csv);
     expect(parsed.data.tasks[0].completedAt).toBe("2025-03-10T00:30:00.000Z");
   });
+  it("round-trips archived status through JSON and CSV without inventing a completion date",() => {
+    const archivedAt="2026-10-13T08:00:00.000Z";
+    const input={...packageWithCompletion,data:{...packageWithCompletion.data,tasks:[{...packageWithCompletion.data.tasks[0],archivedAt,completedAt:null}]}};
+    const normalized=normalizeTaskBackup(input);
+    expect(normalized.data.tasks[0].archivedAt).toBe(archivedAt);
+    const parsed=taskBackupFromCsv(buildTaskCsv(normalized));
+    expect(parsed.data.tasks[0].archivedAt).toBe(archivedAt);expect(parsed.data.tasks[0].completedAt).toBeNull();
+  });
 });

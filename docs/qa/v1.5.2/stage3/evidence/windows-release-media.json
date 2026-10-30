@@ -1,0 +1,15 @@
+{
+  "node": "v20.18.0",
+  "abi": "130",
+  "packageRoot": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\.qa152-windows-release\\win-unpacked",
+  "ffmpeg": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\.qa152-windows-release\\win-unpacked\\resources\\backend\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+  "ffmpegVersion": "ffmpeg version 6.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers\r",
+  "result": "PASS",
+  "sharpJpegBytes": 286,
+  "transcoded": {
+    "bytes": 13075,
+    "sha256": "8176a398941d54db7b4876848380e4bbb4e8e33cc1bf9754643ddd9e198275a0",
+    "codecs": "H.264/AAC"
+  },
+  "boundary": "Actual files copied by desktop builder, run under packaged Electron; media dependencies and transcode. Unsigned unpacked directory; NSIS install/update not accepted."
+}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,6 +9,7 @@ import {
   FileArchive,
   FileJson,
   FileSpreadsheet,
+  FileText,
   ImagePlus,
   Loader2,
   RefreshCw,
@@ -33,9 +35,10 @@ import {
   type TaskArchiveImportResult,
 } from "@/lib/taskDataTransferArchive";
 import { OPEN_TASK_DATA_TRANSFER_EVENT } from "@/lib/taskDataTransferBridge";
+import { exportTaskReport } from "@/lib/taskReportExport";
 import { cn } from "@/lib/utils";
 
-type ExportFormat = "zip" | "json" | "csv";
+type ExportFormat = "zip" | "json" | "csv" | "xlsx" | "md";
 type ImportResult = TaskImportResult | TaskArchiveImportResult;
 
 function formatBytes(bytes: number): string {
@@ -122,6 +125,7 @@ function ResultSummary({ result }: { result: ImportResult }) {
 }
 
 export default function TaskDataTransferBridgeV2() {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<ExportFormat | "import" | null>(null);
   const [progress, setProgress] = useState<TaskTransferProgress | null>(null);
@@ -164,6 +168,10 @@ export default function TaskDataTransferBridgeV2() {
     setError("");
     setProgress(null);
     try {
+      if (format === "xlsx" || format === "md") {
+        await exportTaskReport(format, key => t(key));
+        return;
+      }
       if (format === "zip") {
         const archive = await buildTaskArchive(setProgress);
         await saveTaskTransferBlob(archive.blob, archive.filename);
@@ -183,7 +191,7 @@ export default function TaskDataTransferBridgeV2() {
       setBusy(null);
       setProgress(null);
     }
-  }, []);
+  }, [t]);
 
   const readFile = useCallback(async (file: File | null | undefined) => {
     if (!file) return;
@@ -240,7 +248,7 @@ export default function TaskDataTransferBridgeV2() {
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-tx-primary">待办数据导入导出</h2>
             <p className="mt-1 text-xs leading-5 text-tx-tertiary">
-              完整备份可连同任务图片一起迁移；JSON / CSV 继续用于结构化数据与表格整理。
+              {t("tasks.report.transferHint")}
             </p>
           </div>
           <button
@@ -289,6 +297,23 @@ export default function TaskDataTransferBridgeV2() {
                 </button>
 
                 <div className="grid gap-2 sm:grid-cols-2">
+                  {(["xlsx", "md"] as const).map(format => (
+                    <button
+                      key={format}
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => void handleExport(format)}
+                      className="group flex items-center gap-3 rounded-2xl border border-app-border bg-app-bg p-4 text-left transition-all hover:border-accent-primary/35 hover:bg-accent-primary/[0.035] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                        {busy === format ? <Loader2 size={19} className="animate-spin" /> : format === "xlsx" ? <FileSpreadsheet size={19} /> : <FileText size={19} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-sm font-medium text-tx-primary">{t(`tasks.report.${format}`)} <Download size={13} /></div>
+                        <p className="mt-1 text-xs leading-5 text-tx-tertiary">{t("tasks.report.scope")}</p>
+                      </div>
+                    </button>
+                  ))}
                   <button
                     type="button"
                     disabled={!!busy}

@@ -6,9 +6,11 @@ import path from "node:path";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 const root = path.resolve("..");
 const executable = createRequire(import.meta.url)("electron") as string;
+const appVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version as string;
 export const forbidden = ["PRIVATE_ENCRYPTED_APP_SENTINEL", "test-only-app-encryption-password"];
 type Product = { app: ElectronApplication; page: Page; server: string; directory: string; restart: () => Promise<Page> };
 export const test = base.extend<{ product: Product }>({
@@ -32,7 +34,7 @@ export const test = base.extend<{ product: Product }>({
       delete env.NOWEN_DEV_BACKEND_URL; delete env.NOWEN_LITE_ONLY; delete env.NODE_OPTIONS;
       env.NOWEN_ENCRYPTED_APP_MODE = full ? "full" : "lite";
       if (!full) {
-        backend = spawn(executable, ["--import", path.join(root, "backend/node_modules/tsx/dist/loader.mjs"), path.join(root, "backend/tests/encrypted-notes-app-server.ts")],
+        backend = spawn(executable, ["--import", pathToFileURL(path.join(root, "backend/node_modules/tsx/dist/loader.mjs")).href, path.join(root, "backend/tests/encrypted-notes-app-server.ts")],
           { cwd: root, env: { ...env, ELECTRON_RUN_AS_NODE: "1", PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"] });
         backend.stdout?.on("data", (data) => { output += data.toString(); });
         backend.stderr?.on("data", (data) => { output += data.toString(); });
@@ -75,7 +77,7 @@ export const test = base.extend<{ product: Product }>({
           }
         });
         // UI preferences only; authentication stays on the real product login path.
-        await page.evaluate(() => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", "1.5.0"); });
+        await page.evaluate((version) => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", version); }, appVersion);
         await page.reload();
         if (full) await expect(page.getByRole("button", { name: "在根目录新建", exact: true })).toBeVisible();
         return page;

@@ -1,3 +1,4 @@
+import { assetOrganizationWriteAvailable } from "../sync/assetOrganization";
 /**
  * 文件管理路由（/api/files）
  * ---------------------------------------------------------------------------
@@ -41,6 +42,8 @@ import fs from "fs";
 import path from "path";
 import { getDb } from "../db/schema";
 import { attachmentQueryService } from "../queries";
+import { attachmentDeletionRisk } from "../services/attachment-deletion-safety";
+import { fileExplorerFilters } from "../services/file-explorer-filters";
 import {
   ensureAttachmentsDir,
   getAttachmentsDir,
@@ -60,8 +63,15 @@ import {
   hasPermission,
   getUserWorkspaceRole,
   requireWorkspaceFeature,
+  hasRole,
 } from "../middleware/acl";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
+import { ensureFileSharesTable } from "../services/file-shares";
+import {
+  ensureAttachmentLinkPolicyTable,
+  isAttachmentExternalAccessEnabled,
+  setAttachmentExternalAccessEnabled,
+} from "../services/attachment-link-policy";
 import { isHeifMime, resolveHeifUploadMime } from "../lib/heif-mime";
 import { analyzeModernMedia } from "../lib/modern-media";
 import { recordMediaAnalysis } from "../services/modern-media";
@@ -71,7 +81,19 @@ import {
   type FileAttachmentAccessRow,
 } from "../services/fileAttachmentAccess";
 
+import { hasKnowledgeCapability, resolveResourceKnowledgeAccess } from "../services/knowledgeCapabilities";
+
+import attachmentTrash from "./attachment-trash";
+import { retainAttachmentInTrash } from "../services/attachment-trash";
+import assetOrganization from "./asset-organization.js";
+import assetVisualTools from "./asset-visual-tools";
+import assetAI from "./asset-ai";
+
 const app = new Hono();
+app.route("/organization", assetOrganization);
+app.route("/trash", attachmentTrash);
+app.route("/tools", assetVisualTools);
+app.route("/ai", assetAI);
 
 // ---------------------------------------------------------------------------
 // 共用工具
@@ -91,6 +113,7 @@ type MutableFileRow = FileAttachmentAccessRow & { path?: string; filename?: stri
  * 普通附件继续使用原有笔记 write 权限，避免绕过目录/笔记 ACL。
  */
 function canWriteManagedFile(row: MutableFileRow, userId: string): boolean {
+  if (row.id && getDb().prepare("SELECT 1 FROM attachments WHERE id=? AND trashedAt IS NOT NULL").get(row.id)) return false;
   if (isManualFileManagerUpload(row)) {
     return resolveFileAttachmentAccess(row, userId).canWrite;
   }
@@ -451,14 +474,19 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
     params.push(mime.toLowerCase());
   }
 
+  const explorer = fileExplorerFilters(c.req.query("fileKind"), c.req.query("createdAfter"), c.req.query());
+  if (explorer.error) return c.json({ error: explorer.error, code: explorer.code }, 400);
+  whereParts.push(...explorer.conditions);
+  params.push(...explorer.params);
+
   if (notebookId) {
     whereParts.push("n.notebookId = ?");
     params.push(notebookId);
   }
 
   if (q) {
-    whereParts.push("a.filename LIKE ? COLLATE NOCASE");
-    params.push(`%${q}%`);
+    whereParts.push("(a.filename LIKE ? COLLATE NOCASE OR EXISTS (SELECT 1 FROM asset_descriptions ad WHERE ad.attachmentId=a.id AND ad.description LIKE ? COLLATE NOCASE) OR EXISTS (SELECT 1 FROM asset_tag_relations ar JOIN asset_tags at ON at.id=ar.tagId WHERE ar.attachmentId=a.id AND at.name LIKE ? COLLATE NOCASE))");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
 
   // noteId：本笔记引用过的附件（含自己上传 + 引用别处的）
@@ -755,17 +783,19 @@ app.get("/:id", (c) => {
   const base = db
     .prepare(
       `SELECT a.id, a.filename, a.mimeType, a.size, a.path, a.createdAt, a.hash,
-              a.noteId, a.userId, a.workspaceId,
+              a.noteId, a.userId, a.workspaceId, a.uploadSource, a.folderId,
+              af.name AS folderName,
               n.title AS noteTitle, n.notebookId, n.isTrashed,
               nb.name AS notebookName, nb.icon AS notebookIcon
          FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
          LEFT JOIN notebooks nb ON nb.id = n.notebookId
+         LEFT JOIN attachment_folders af ON af.id = a.folderId
         WHERE a.id = ?`,
     )
-    .get(id) as (FileRow & { userId: string; workspaceId: string | null }) | undefined;
+    .get(id) as (FileRow & FileAttachmentAccessRow) | undefined;
 
-  if (!base) return c.json({ error: "文件不存在" }, 404);
+  if (!base || getDb().prepare("SELECT 1 FROM attachments WHERE id=? AND trashedAt IS NOT NULL").get(id)) return c.json({ error: "文件不存在" }, 404);
 
   // 可见性判定：个人附件仅本人；工作区附件要求该工作区成员资格。
   if (!base.workspaceId) {
@@ -792,7 +822,7 @@ app.get("/:id", (c) => {
     base.workspaceId ?? undefined,
   );
 
-  const references = refRows.map((r) => ({
+  const references = refRows.filter((r) => hasPermission(resolveNotePermission(r.id, userId).permission, "read")).map((r) => ({
     id: r.id,
     title: r.title,
     notebookId: r.notebookId,
@@ -805,25 +835,116 @@ app.get("/:id", (c) => {
 
   return c.json({
     ...toFileOut(base),
+    canManage: base.userId === userId && canWriteManagedFile(base, userId),
+    externalAccessEnabled: isAttachmentExternalAccessEnabled(id),
     references,
     accessUrls: createUserAttachmentAccessUrls(userId, [base]),
   });
 });
 
+// Authorization preflight only: the editor's normal save owns reference indexing.
+app.post("/:id/prepare-insert", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权", code: "UNAUTHORIZED" }, 401);
+  const body = await c.req.json().catch(() => null);
+  if (typeof body?.noteId !== "string" || !body.noteId.trim()) return c.json({ error: "请选择目标笔记", code: "INVALID_NOTE" }, 400);
+  const db = getDb();
+  const note = db.prepare("SELECT id,userId,workspaceId,isTrashed FROM notes WHERE id=?").get(body.noteId) as
+    { id: string; userId: string; workspaceId: string | null; isTrashed: number } | undefined;
+  if (!note || !hasKnowledgeCapability(resolveResourceKnowledgeAccess("note", note.id, userId), "canEdit")) {
+    return c.json({ error: "无权编辑目标笔记", code: "FORBIDDEN" }, 403);
+  }
+  if (note.isTrashed) return c.json({ error: "请先恢复笔记", code: "NOTE_TRASHED" }, 409);
+  const file = db.prepare("SELECT * FROM attachments WHERE id=?").get(c.req.param("id")) as (FileRow & FileAttachmentAccessRow) | undefined;
+  if (!file || db.prepare("SELECT 1 FROM attachments WHERE id=? AND trashedAt IS NOT NULL").get(file.id) || !resolveFileAttachmentAccess(file, userId).canDownload) return c.json({ error: "文件不存在或不可用", code: "FILE_NOT_FOUND" }, 404);
+  if ((file.workspaceId || null) !== (note.workspaceId || null) || (!file.workspaceId && file.userId !== note.userId)) {
+    return c.json({ error: "只能插入与笔记属于同一空间的文件", code: "FILE_SCOPE_MISMATCH" }, 409);
+  }
+  if (!isManualFileManagerUpload(file) && !hasKnowledgeCapability(resolveResourceKnowledgeAccess("note", file.noteId, userId), "canReshare")) {
+    return c.json({ error: "无权将此文件引用到其他笔记", code: "FILE_RESHARE_FORBIDDEN" }, 403);
+  }
+  return c.json({ ...toFileOut(file), primaryNote: null, accessUrls: createUserAttachmentAccessUrls(userId, [file]) });
+});
+
+// Moving files only changes their organization; note bindings and storage paths stay stable.
+app.post("/batch-move", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const body = await c.req.json().catch(() => null);
+  if (!body || !Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > 200
+    || body.ids.some((id: unknown) => typeof id !== "string" || !id.trim())
+    || !(body.folderId === null || (typeof body.folderId === "string" && body.folderId.trim()))) {
+    return c.json({ error: "请提供 1–200 个文件 ID 和目标 folderId（未归档为 null）" }, 400);
+  }
+  const ids = [...new Set<string>(body.ids)];
+  const db = getDb();
+  if(!assetOrganizationWriteAvailable(db,userId)) return c.json({error:"请先完成附件目录同步后再移动文件",code:"ATTACHMENT_FOLDER_SYNC_NOT_READY"},409);
+  const outcome = db.transaction(() => {
+    const folder = body.folderId === null ? null : db.prepare(
+      "SELECT id, name FROM attachment_folders WHERE id = ? AND userId = ?",
+    ).get(body.folderId, userId) as { id: string; name: string } | undefined;
+    if (body.folderId !== null && !folder) return { status: 404 as const, error: "目标文件夹不存在", code: "FOLDER_NOT_FOUND" };
+
+    const rows = ids.map((id) => db.prepare(
+      "SELECT id, noteId, userId, workspaceId, uploadSource, folderId FROM attachments WHERE id = ?",
+    ).get(id) as (FileAttachmentAccessRow & { folderId: string | null }) | undefined);
+    if (rows.some((row) => !row)) return { status: 404 as const, error: "文件不存在", code: "FILE_NOT_FOUND" };
+    if (rows.some((row) => row!.userId !== userId || !canWriteManagedFile(row!, userId))) {
+      return { status: 403 as const, error: "无权移动所选文件", code: "FORBIDDEN" };
+    }
+    const scopes = new Set(rows.map((row) => row!.workspaceId || null));
+    if (scopes.size !== 1 || (folder && rows.some((row) => row!.workspaceId))) {
+      return { status: 409 as const, error: "不能在个人文件夹与工作区之间移动文件", code: "FILE_SCOPE_MISMATCH" };
+    }
+    if (body.expectedFolderIds !== undefined) {
+      if (!body.expectedFolderIds || typeof body.expectedFolderIds !== "object" || Array.isArray(body.expectedFolderIds)
+        || ids.some((id) => !Object.hasOwn(body.expectedFolderIds, id)
+          || !(body.expectedFolderIds[id] === null || typeof body.expectedFolderIds[id] === "string"))) {
+        return { status: 400 as const, error: "无效的来源位置", code: "INVALID_FILE_POSITION" };
+      }
+      if (rows.some((row) => row!.folderId !== body.expectedFolderIds[row!.id!])) {
+        return { status: 409 as const, error: "文件位置已改变，请刷新后重试", code: "FILE_POSITION_CONFLICT" };
+      }
+    }
+    const update = db.prepare("UPDATE attachments SET folderId = ? WHERE id = ?");
+    for (const id of ids) update.run(body.folderId, id);
+    return { status: 200 as const, folderName: folder?.name ?? null };
+  })();
+  if (outcome.status !== 200) return c.json({ error: outcome.error, code: outcome.code }, outcome.status);
+  return c.json({ success: true, moved: ids.length, folderId: body.folderId, folderName: outcome.folderName });
+});
+
+app.patch("/:id/external-access", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const body = await c.req.json().catch(() => null);
+  if (typeof body?.enabled !== "boolean") return c.json({ error: "enabled 必须为布尔值" }, 400);
+  const id = c.req.param("id");
+  const db = getDb();
+  const row = db.prepare(
+    "SELECT id, noteId, userId, workspaceId, uploadSource FROM attachments WHERE id = ?",
+  ).get(id) as FileAttachmentAccessRow | undefined;
+  if (!row) return c.json({ error: "文件不存在" }, 404);
+  if (row.userId !== userId || !canWriteManagedFile(row, userId)) {
+    return c.json({ error: "无权修改此文件的外链设置", code: "FORBIDDEN" }, 403);
+  }
+  ensureAttachmentLinkPolicyTable();
+  ensureFileSharesTable();
+  db.transaction(() => {
+    setAttachmentExternalAccessEnabled(id, body.enabled);
+    if (!body.enabled) {
+      db.prepare("UPDATE file_shares SET isActive = 0, updatedAt = datetime('now') WHERE attachmentId = ?")
+        .run(id);
+    }
+  })();
+  c.header("Cache-Control", "private, no-store");
+  return c.json({ success: true, externalAccessEnabled: body.enabled });
+});
+
 // ---------------------------------------------------------------------------
 // DELETE /api/files/:id
-// 删除文件（DB 行 + 磁盘文件）。
-//
-// 权限：
-//   需对 attachments.noteId 所指笔记有 write 权限；attachments.ts 的 DELETE
-//   保持同款逻辑，这里只是做"文件管理"视角下的同义入口。
-//
-// 注意：
-//   - 如果还有其他笔记正在引用该附件（references 非空 & 非本 primary），
-//     删除后那些笔记里的 <img> 将显示为破图。返回体会带 remainingReferences
-//     让前端按需二次确认或提示。
-//   - 物理文件删不掉不阻塞（权限 / 已不存在），DB 行一定删掉——保持与
-//     attachments.ts 的语义一致。
+// Move unused files to the recycle bin; physical objects and IDs are retained.
+// Permanent deletion is exclusively exposed by /trash/purge with confirmation.
 // ---------------------------------------------------------------------------
 app.delete("/:id", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
@@ -850,20 +971,12 @@ app.delete("/:id", async (c) => {
     return c.json({ error: "无权删除该文件", code: "FORBIDDEN" }, 403);
   }
 
-  // v11 引用计数：若同一物理文件还有别的 attachments 行指向，仅删本行不动磁盘
-  // （理论上 hash dedup 后不会产生这种共享，但老数据 / 并发竞态可能出现）
-  const sameFileCount = db
-    .prepare("SELECT COUNT(*) AS c FROM attachments WHERE path = ? AND id <> ?")
-    .get(row.path, id) as { c: number };
-  if (sameFileCount.c === 0) {
-    try {
-      await deleteAttachmentObject(row.path);
-    } catch {
-      /* 文件删不掉不阻塞，DB 记录一致性优先 */
-    }
-  }
-  db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
-
+  const risk = db.transaction(() => {
+    const risk = attachmentDeletionRisk(id);
+    if (!risk) retainAttachmentInTrash(id, userId);
+    return risk;
+  })();
+  if (risk) return c.json(risk, 409);
   return c.json({ success: true });
 });
 
@@ -892,7 +1005,7 @@ app.patch("/:id", async (c) => {
   const id = c.req.param("id");
   const db = getDb();
 
-  let body: { filename?: unknown };
+  let body: { filename?: unknown; expectedFilename?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -918,6 +1031,10 @@ app.patch("/:id", async (c) => {
     | (FileAttachmentAccessRow & { id: string; filename: string })
     | undefined;
   if (!row) return c.json({ error: "文件不存在" }, 404);
+  if (Object.prototype.hasOwnProperty.call(body, "expectedFilename")
+      && body.expectedFilename !== row.filename) {
+    return c.json({ error: "文件名已变化，请重新预览", code: "FILE_NAME_CONFLICT" }, 409);
+  }
 
   // 权限：本人 + 笔记 write
   if (row.userId !== userId) {
@@ -990,7 +1107,7 @@ app.post("/batch-delete", async (c) => {
   }
 
   const db = getDb();
-  const failed: Array<{ id: string; reason: string }> = [];
+  const failed: Array<{ id: string; reason: string; code?: string; referenceCount?: number }> = [];
 
   // 第一步：把全部 id 拉出来，做权限筛选，得到"可删除集合"+ 物理路径列表
   const placeholders = ids.map(() => "?").join(",");
@@ -1012,53 +1129,27 @@ app.post("/batch-delete", async (c) => {
   }
 
   const deletable: typeof rows = [];
-  for (const row of rows) {
-    if (row.userId !== userId) {
-      failed.push({ id: row.id, reason: "无权删除他人文件" });
-      continue;
-    }
-    if (!canWriteManagedFile(row, userId)) {
-      failed.push({ id: row.id, reason: "无权删除该文件" });
-      continue;
-    }
-    deletable.push(row);
-  }
-
-  // 第二步：单事务批量删 DB 行
-  let deletedCount = 0;
-  if (deletable.length > 0) {
-    const delIds = deletable.map((r) => r.id);
-    const delPlaceholders = delIds.map(() => "?").join(",");
-    const tx = db.transaction((arr: string[]) => {
-      const info = db
-        .prepare(`DELETE FROM attachments WHERE id IN (${delPlaceholders})`)
-        .run(...arr);
-      return Number(info.changes || 0);
-    });
-    deletedCount = tx(delIds);
-
-    // 第三步：删磁盘文件（DB 已经一致；磁盘层错误降级为 failed 项，
-    // 但不会让用户误以为 DB 没删——文件已经从列表里消失了）
-    //
-    // v11 引用计数：本批 DELETE 之后再查一次同 path 是否还有其它 attachments
-    // 行存在（来自本批之外的笔记/用户）。只有 0 引用才真正 unlink；否则
-    // 只删 DB 行不动磁盘，避免误清掉别处仍在用的文件。
-    const stillReferencedStmt = db.prepare(
-      "SELECT 1 FROM attachments WHERE path = ? LIMIT 1",
-    );
-    for (const row of deletable) {
-      const stillReferenced = stillReferencedStmt.get(row.path);
-      if (stillReferenced) continue;
-      try {
-        await deleteAttachmentObject(row.path);
-      } catch (err) {
-        failed.push({
-          id: row.id,
-          reason: `磁盘文件清理失败: ${err instanceof Error ? err.message : String(err)}`,
-        });
+  db.transaction(() => {
+    for (const row of rows) {
+      if (row.userId !== userId) {
+        failed.push({ id: row.id, reason: "无权删除他人文件" });
+        continue;
       }
+      if (!canWriteManagedFile(row, userId)) {
+        failed.push({ id: row.id, reason: "无权删除该文件" });
+        continue;
+      }
+      const risk = attachmentDeletionRisk(row.id);
+      if (risk) {
+        failed.push({ id: row.id, reason: risk.error, code: risk.code, referenceCount: risk.referenceCount });
+        continue;
+      }
+      retainAttachmentInTrash(row.id, userId);
+      deletable.push(row);
     }
-  }
+  })();
+
+  const deletedCount = deletable.length;
 
   return c.json({
     success: true,
@@ -1184,6 +1275,9 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
 
   const scope = resolveFilesScope(c.req.query("workspaceId") || "", userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
+  if (scope.workspaceId && !hasRole(getUserWorkspaceRole(scope.workspaceId, userId), "editor")) {
+    return c.json({ error: "无权向此工作区上传文件", code: "FORBIDDEN" }, 403);
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -1194,6 +1288,11 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   const file = body.file;
   if (!(file instanceof File)) {
     return c.json({ error: "file 字段缺失或非文件" }, 400);
+  }
+  // UTF-8 form fields survive clients/proxies that rewrite non-ASCII multipart filenames.
+  const filename = typeof body.originalFilename === "string" ? body.originalFilename : file.name;
+  if (!filename || filename.length > 255 || /[\\/\x00-\x1f\x7f]/.test(filename)) {
+    return c.json({ error: "文件名无效（最多 255 字符，不含路径或控制字符）" }, 400);
   }
   // folderId：可选，上传到指定文件夹
   const folderId = typeof body.folderId === "string" && body.folderId ? body.folderId : null;
@@ -1206,6 +1305,17 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   let mime = (file.type || "application/octet-stream").toLowerCase();
   if (BLOCKED_MIMES.has(mime)) {
     return c.json({ error: `出于安全考虑，不支持该类型: ${mime}` }, 415);
+  }
+
+  const db = getDb();
+  // 校验 folderId（如果提供）
+  if (folderId) {
+    if(!assetOrganizationWriteAvailable(db,userId)) return c.json({error:"请先完成附件目录同步后再指定上传目录",code:"ATTACHMENT_FOLDER_SYNC_NOT_READY"},409);
+    if (scope.workspaceId) return c.json({ error: "工作区文件不能上传到个人文件夹", code: "FILE_SCOPE_MISMATCH" }, 409);
+    const folder = db
+      .prepare("SELECT id FROM attachment_folders WHERE id = ? AND userId = ?")
+      .get(folderId, userId) as { id: string } | undefined;
+    if (!folder) return c.json({ error: "目标文件夹不存在" }, 404);
   }
 
   const { noteId } = ensureHolderNote(userId, scope.workspaceId);
@@ -1223,37 +1333,30 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   }
 
   mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
-  const ext = pickExt(file.name, mime);
+  const ext = pickExt(filename, mime);
   const monthPath = getUploadMonthPath();
   const storagePath = `${monthPath}/${id}.${ext}`;
 
   // 同 user + 同 workspace 内查 hash；复用原 id，并补写缺失的实体文件。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-  const db = getDb();
 
-  // 校验 folderId（如果提供）
-  if (folderId) {
-    const folder = db
-      .prepare("SELECT id FROM attachment_folders WHERE id = ? AND userId = ?")
-      .get(folderId, userId) as { id: string } | undefined;
-    if (!folder) return c.json({ error: "目标文件夹不存在" }, 404);
-  }
 
   const dedupRow = db
     .prepare(
       scope.workspaceId
-        ? `SELECT id, noteId, mimeType, size, filename, path FROM attachments
-            WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id, noteId, mimeType, size, filename, path FROM attachments
-            WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
+        ? `SELECT id, noteId, userId, workspaceId, uploadSource, mimeType, size, filename, path, folderId, createdAt FROM attachments
+            WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL LIMIT 1`
+        : `SELECT id, noteId, userId, workspaceId, uploadSource, mimeType, size, filename, path, folderId, createdAt FROM attachments
+            WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL LIMIT 1`,
     )
     .get(
       ...(scope.workspaceId
         ? [userId, scope.workspaceId, sha256]
         : [userId, sha256]),
-    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string; path: string } | undefined;
+    ) as (FileAttachmentAccessRow & { id: string; mimeType: string; size: number; filename: string; path: string; folderId: string | null; createdAt: string }) | undefined;
 
   if (dedupRow) {
+    if (!canWriteManagedFile(dedupRow, userId)) return c.json({ error: "无权修改已有文件", code: "FORBIDDEN" }, 403);
     let repaired = false;
     try {
       const object = await checkAttachmentObjectExists(dedupRow.path);
@@ -1280,24 +1383,9 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(mime, dedupRow.id);
       dedupRow.mimeType = mime;
     }
-    // v12：dedup 命中老行时把 uploadSource 升级到 'file_manager'——
-    // 用户这次是从文件管理页主动上传同一份内容，理应进入"我的上传"。
-    // 用 COALESCE 语义：仅当老行还没标过来源时才写，避免把已有的 'file_manager'
-    // 反复 UPDATE（无害但浪费写）；老行已是 'file_manager' 则保持。
-    db.prepare(
-      `UPDATE attachments
-          SET uploadSource = 'file_manager'
-        WHERE id = ? AND (uploadSource IS NULL OR uploadSource = '')`,
-    ).run(dedupRow.id);
-
-    // folderId：dedup 命中时也要更新，否则用户选择文件夹上传已存在文件，
-    // 文件不会出现在目标文件夹中。
-    if (folderId) {
-      db.prepare(
-        `UPDATE attachments SET folderId = ? WHERE id = ? AND (folderId IS NULL OR folderId != ?)`,
-      ).run(folderId, dedupRow.id, folderId);
-    }
-
+    // Preserve uploadSource too: promoting a note attachment to a standalone file
+    // would change its ACL semantics after a later note permission change.
+    // A duplicate is an existing file, not an implicit move. Keep its position.
     recordMediaAnalysis(dedupRow.id, buffer, dedupRow.mimeType);
     return c.json(
       {
@@ -1307,7 +1395,10 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
         size: dedupRow.size,
         filename: dedupRow.filename,
         category: isImage(dedupRow.mimeType) ? "image" : "file",
-        createdAt: new Date().toISOString(),
+        createdAt: dedupRow.createdAt,
+        folderId: dedupRow.folderId,
+        folderName: dedupRow.folderId ? (db.prepare("SELECT name FROM attachment_folders WHERE id = ? AND userId = ?")
+          .get(dedupRow.folderId, userId) as { name: string } | undefined)?.name ?? null : null,
         deduplicated: true,
         ...(repaired ? { repaired: true } : {}),
         accessUrls: createUserAttachmentAccessUrls(userId, [{ id: dedupRow.id, noteId: dedupRow.noteId }]),
@@ -1333,7 +1424,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       id,
       noteId,
       userId,
-      file.name || `${id}.${ext}`,
+      filename,
       mime,
       file.size,
       storagePath,
@@ -1358,7 +1449,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       url: `/api/attachments/${id}`,
       mimeType: mime,
       size: file.size,
-      filename: file.name || `${id}.${ext}`,
+      filename,
       category: isImage(mime) ? "image" : "file",
       createdAt: new Date().toISOString(),
       accessUrls: createUserAttachmentAccessUrls(userId, [{ id, noteId }]),

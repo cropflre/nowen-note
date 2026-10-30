@@ -1,0 +1,45 @@
+name: Windows Direct Release Contract
+
+on:
+  pull_request:
+    branches: [main, release/v1.5.2, release/v1.5.3]
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/windows-direct-release-ci.yml'
+      - 'electron/builder*.config.js'
+      - 'scripts/release.sh'
+      - 'scripts/release-legacy.sh'
+      - 'scripts/release-ci-assets.mjs'
+      - 'scripts/release-github.mjs'
+      - 'scripts/tests/release-github.test.mjs'
+      - 'scripts/tests/release-ci-assets.test.mjs'
+      - 'scripts/tests/release-ci-guard.test.mjs'
+      - 'scripts/tests/release-publisher-contract.test.mjs'
+      - 'scripts/tests/windows-direct-release.test.cjs'
+      - 'scripts/lib/local-windows-publish-policy.cjs'
+      - 'scripts/verify-release-update-assets.mjs'
+      - 'docs/CODE_SIGNING.md'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-release-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Validate release workflow syntax
+        run: node -e "const fs=require('fs');const yaml=require('js-yaml');const d=yaml.load(fs.readFileSync('.github/workflows/release.yml','utf8'));if(!d.jobs?.build)process.exit(1)"
+      - name: Test Windows direct unsigned release guards
+        run: node --test scripts/tests/windows-direct-release.test.cjs
+      - name: Full release update contract tests
+        run: npm run test:update-release

@@ -100,7 +100,7 @@ export async function collectTaskBackup(
 ): Promise<TaskBackupPackage> {
   const [base, tasks] = await Promise.all([
     collectTaskBackupImpl(onProgress),
-    api.getTasks("all"),
+    api.getTasks("history"),
   ]);
   const completedAtById = new Map(tasks.map((task) => [task.id, task.completedAt || null]));
   return normalizeTaskBackup({
@@ -151,6 +151,7 @@ const CSV_HEADERS = [
   "dueDate",
   "dueAt",
   "completedAt",
+  "archivedAt",
   "project",
   "parentPath",
   "repeatRule",
@@ -178,6 +179,7 @@ export function buildTaskCsv(pkg: TaskBackupPackage): string {
     task.dueDate || "",
     task.dueAt || "",
     task.completedAt || "",
+    task.archivedAt || "",
     task.projectSourceId ? projectNames.get(task.projectSourceId) || "" : "",
     task.parentSourceId ? paths.get(task.parentSourceId) || "" : "",
     task.repeatRule,
@@ -199,11 +201,17 @@ export function taskBackupFromCsv(text: string): TaskBackupPackage {
   );
   if (completedAtIndex < 0) return normalizeTaskBackup(base);
 
+  const archivedAtIndex = headers.findIndex((value) => value === "archivedat");
+  const archiveById = new Map<string,string>();
+  const archiveByOrder: string[] = [];
   const idIndex = headers.findIndex((value) => value === "id" || value === "任务id");
   const completedById = new Map<string, string>();
   const completedByOrder: string[] = [];
   for (const values of rows.slice(1)) {
     const value = values[completedAtIndex] || "";
+    const archived = archivedAtIndex < 0 ? "" : values[archivedAtIndex] || "";
+    archiveByOrder.push(archived);
+    if (idIndex >= 0 && values[idIndex]) archiveById.set(values[idIndex],archived);
     completedByOrder.push(value);
     if (idIndex >= 0 && values[idIndex]) completedById.set(values[idIndex], value);
   }
@@ -215,6 +223,7 @@ export function taskBackupFromCsv(text: string): TaskBackupPackage {
       tasks: base.data.tasks.map((task, index) => ({
         ...task,
         completedAt: completedById.get(task.sourceId) ?? completedByOrder[index] ?? null,
+        archivedAt: archiveById.get(task.sourceId) ?? archiveByOrder[index] ?? null,
       })),
     },
   });

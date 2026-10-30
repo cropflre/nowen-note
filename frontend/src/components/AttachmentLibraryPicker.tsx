@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   FileArchive,
@@ -19,6 +19,8 @@ import type { FileItem } from "@/types";
 
 interface AttachmentLibraryPickerProps {
   open: boolean;
+  noteId: string;
+  workspaceId?: string | null;
   onClose: () => void;
   onSelect: (item: FileItem) => void;
 }
@@ -49,6 +51,8 @@ function FileIcon({ mimeType }: { mimeType: string }) {
 
 export default function AttachmentLibraryPicker({
   open,
+  noteId,
+  workspaceId,
   onClose,
   onSelect,
 }: AttachmentLibraryPickerProps) {
@@ -61,38 +65,83 @@ export default function AttachmentLibraryPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [inserting, setInserting] = useState(false);
+  const sessionRef = useRef({ open, noteId, workspaceId });
+  if (sessionRef.current.open !== open || sessionRef.current.noteId !== noteId || sessionRef.current.workspaceId !== workspaceId) {
+    sessionRef.current = { open, noteId, workspaceId };
+  }
+  const insertPendingRef = useRef(false);
+  const select = useCallback(async (item: FileItem) => {
+    if (insertPendingRef.current || loading) return;
+    insertPendingRef.current = true;
+    const session = sessionRef.current;
+    setInserting(true);
+    setError("");
+    try {
+      const checked = await api.files.prepareInsert(item.id, noteId);
+      if (sessionRef.current !== session) return;
+      onSelect(checked);
+    } catch (cause) {
+      if (sessionRef.current === session) setError(cause instanceof Error ? cause.message : t("tiptap.attachmentLibraryLoadFailed"));
+    } finally {
+      insertPendingRef.current = false;
+      setInserting(false);
+    }
+  }, [loading, noteId, onSelect, t]);
+
+  useEffect(() => {
+    if (!open) return;
+    const invalidate = () => {
+      sessionRef.current = { open: false, noteId, workspaceId };
+      requestIdRef.current += 1;
+      setItems([]);
+      onClose();
+    };
+    const events = ["nowen:token-changed", "nowen:server-url-changed", "nowen:workspace-changed", "storage"];
+    for (const event of events) window.addEventListener(event, invalidate);
+    return () => { for (const event of events) window.removeEventListener(event, invalidate); };
+  }, [open, noteId, workspaceId, onClose]);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setItems([]);
+    setPage(1);
     setActiveIndex(0);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open]);
+  }, [open, noteId, workspaceId]);
 
   useEffect(() => {
     if (!open) return;
     const requestId = ++requestIdRef.current;
+    setItems([]);
+    setLoading(true);
     const timer = window.setTimeout(() => {
+      setItems([]);
       setLoading(true);
       setError("");
       api.files
         .list({
           q: query.trim() || undefined,
-          page: 1,
+          workspaceId: workspaceId || "personal",
+          page,
           pageSize: 50,
           sort: "created_desc",
         })
         .then((result) => {
           if (requestId !== requestIdRef.current) return;
           setItems(result.items);
+          setTotal(result.total);
           setActiveIndex(0);
         })
-        .catch((loadError: any) => {
+        .catch((loadError: unknown) => {
           if (requestId !== requestIdRef.current) return;
           console.error("[AttachmentLibraryPicker] load failed:", loadError);
           setItems([]);
           setError(
-            loadError?.message ||
+            (loadError instanceof Error ? loadError.message : "") ||
               t("tiptap.attachmentLibraryLoadFailed", { defaultValue: "附件加载失败" }),
           );
         })
@@ -105,7 +154,7 @@ export default function AttachmentLibraryPicker({
       window.clearTimeout(timer);
       if (requestIdRef.current === requestId) requestIdRef.current += 1;
     };
-  }, [open, query, t]);
+  }, [open, noteId, workspaceId, page, query, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -116,7 +165,7 @@ export default function AttachmentLibraryPicker({
         onClose();
         return;
       }
-      if (loading || items.length === 0) return;
+      if (loading || inserting || items.length === 0) return;
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setActiveIndex((current) => (current + 1) % items.length);
@@ -126,12 +175,12 @@ export default function AttachmentLibraryPicker({
       } else if (event.key === "Enter") {
         event.preventDefault();
         const item = items[activeIndex];
-        if (item) onSelect(item);
+        if (item) void select(item);
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [activeIndex, items, loading, onClose, onSelect, open]);
+  }, [activeIndex, items, loading, inserting, onClose, select, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -194,7 +243,7 @@ export default function AttachmentLibraryPicker({
             <input
               ref={inputRef}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
               placeholder={t("tiptap.attachmentSearchPlaceholder", {
                 defaultValue: "搜索文件名…",
               })}
@@ -221,16 +270,13 @@ export default function AttachmentLibraryPicker({
             <span>{t("tiptap.attachmentPickerHint", { defaultValue: "↑↓ 选择 · Enter 插入" })}</span>
           </div>
 
+          {error && <p role="alert" className="px-5 py-2 text-xs text-red-500">{error}</p>}
           <div
             role="listbox"
             aria-label={resultLabel}
             className="min-h-[260px] overflow-y-auto px-2 pb-3 sm:min-h-[320px] sm:px-3"
           >
-            {error ? (
-              <div className="flex min-h-[240px] items-center justify-center px-6 text-center text-xs text-red-500">
-                {error}
-              </div>
-            ) : loading && items.length === 0 ? (
+            {loading && items.length === 0 ? (
               <div className="flex min-h-[240px] items-center justify-center">
                 <Loader2 size={20} className="animate-spin text-tx-tertiary" />
               </div>
@@ -253,7 +299,8 @@ export default function AttachmentLibraryPicker({
                     role="option"
                     aria-selected={index === activeIndex}
                     onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => onSelect(item)}
+                    disabled={inserting || loading}
+                    onClick={() => void select(item)}
                     className={cn(
                       "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
                       index === activeIndex
@@ -287,6 +334,11 @@ export default function AttachmentLibraryPicker({
                 ))}
               </div>
             )}
+          </div>
+          <div className="flex items-center justify-between border-t border-app-border px-5 py-3 text-xs">
+            <button disabled={loading || inserting || page <= 1} onClick={() => setPage((value) => value - 1)}>{t("assetOrganization.previousPage", { defaultValue: "上一页" })}</button>
+            <span>{page} / {Math.max(1, Math.ceil(total / 50))}{inserting && <Loader2 className="ml-2 inline animate-spin" size={12} />}</span>
+            <button disabled={loading || inserting || page * 50 >= total} onClick={() => setPage((value) => value + 1)}>{t("assetOrganization.nextPage", { defaultValue: "下一页" })}</button>
           </div>
         </div>
       </div>

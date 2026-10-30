@@ -77,6 +77,15 @@ describe("FormatAwareEditorPane", () => {
     expect(resolveNoteEditorKind("html")).toBe("html-preview");
   });
 
+  it("keeps the conversion host mounted when invalidation clears the active plaintext note", async () => {
+    mocks.state.activeNote = { id: "md-note", contentFormat: "markdown" };
+    await render();
+    const pane = document.querySelector('[data-testid="editor-pane"]');
+    mocks.state.activeNote = null;
+    await render();
+    expect(document.querySelector('[data-testid="editor-pane"]')).toBe(pane);
+  });
+
   it("switches note-scoped mode without broadcasting a global preference change", async () => {
     const onPreferenceChange = vi.fn();
     window.addEventListener(EDITOR_MODE_CHANGE_EVENT, onPreferenceChange);

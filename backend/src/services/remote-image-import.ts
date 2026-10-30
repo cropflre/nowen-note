@@ -33,6 +33,8 @@ export class RemoteImageError extends Error {
     message: string,
     readonly code: string,
     readonly status: 400 | 403 | 408 | 413 | 415 | 502,
+    readonly retryAfterMs?: number,
+    readonly hostname?: string,
   ) {
     super(message);
   }
@@ -110,7 +112,7 @@ function filenameFromHeaders(headers: Headers, finalUrl: URL, mimeType: string):
   return sanitizeRemoteImageFilename(candidate, mimeType);
 }
 
-export async function downloadRemoteImage(rawUrl: string): Promise<DownloadedRemoteImage> {
+export async function downloadRemoteImage(rawUrl: string, options?: { beforeRequest: (url: URL) => Promise<void> }): Promise<DownloadedRemoteImage> {
   let current: URL;
   try {
     current = new URL(rawUrl);
@@ -119,13 +121,24 @@ export async function downloadRemoteImage(rawUrl: string): Promise<DownloadedRem
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), getRemoteImageTimeoutMs());
+  let remainingTimeoutMs = getRemoteImageTimeoutMs();
+  let requestStartedAt = Date.now();
+  let timer = setTimeout(() => controller.abort(), remainingTimeoutMs);
   const maxBytes = getRemoteImageMaxBytes();
 
   try {
     let response: Response | null = null;
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
       await assertSafeRemoteUrl(current);
+      clearTimeout(timer);
+      remainingTimeoutMs -= Date.now() - requestStartedAt;
+      if (controller.signal.aborted || remainingTimeoutMs <= 0) {
+        throw new RemoteImageError("网络图片下载超时", "REMOTE_IMAGE_TIMEOUT", 408);
+      }
+      // Host cooldowns do not consume the network timeout, including redirects.
+      await options?.beforeRequest(current);
+      requestStartedAt = Date.now();
+      timer = setTimeout(() => controller.abort(), remainingTimeoutMs);
       response = await fetch(current, {
         redirect: "manual",
         signal: controller.signal,
@@ -135,11 +148,22 @@ export async function downloadRemoteImage(rawUrl: string): Promise<DownloadedRem
         },
       });
 
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("retry-after");
+        const seconds = retryAfter ? Number(retryAfter) : NaN;
+        const delay = Number.isFinite(seconds) ? seconds * 1000
+          : retryAfter ? Date.parse(retryAfter) - Date.now() : NaN;
+        await response.body?.cancel();
+        throw new RemoteImageError("图片来源暂时限流，稍后重试", "REMOTE_IMAGE_RATE_LIMITED", 502,
+          Number.isFinite(delay) ? Math.max(0, delay) : undefined, current.hostname);
+      }
+
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
         if (!location || redirectCount === MAX_REDIRECTS) {
           throw new RemoteImageError("网络图片重定向次数过多", "REMOTE_IMAGE_REDIRECT_LIMIT", 502);
         }
+        await response.body?.cancel();
         current = new URL(location, current);
         continue;
       }

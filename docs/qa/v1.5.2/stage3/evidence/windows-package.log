@@ -1,0 +1,27 @@
+  • electron-builder  version=25.1.8 os=10.0.29683
+  ⨯ Unable to `require`  moduleName=C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs message=Cannot find module 'C:\Users\cropf\.codex\worktrees\release-152-qa-review\electron\builder.config.js'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\resolve.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\config\load.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\out\cli\cli.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\cli.js
+  ⨯ Cannot find module 'C:\Users\cropf\.codex\worktrees\release-152-qa-review\electron\builder.config.js'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\resolve.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\config\load.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\out\cli\cli.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\cli.js  failedTask=build stackTrace=Error: Cannot find module 'C:\Users\cropf\.codex\worktrees\release-152-qa-review\electron\builder.config.js'
+Require stack:
+- C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\resolve.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\out\util\config\load.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\out\cli\cli.js
+- C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\electron-builder\cli.js
+    at resolveModule (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\src\util\resolve.ts:21:11)
+    at readConfig (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\src\util\config\load.ts:24:33)
+    at getConfig (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\src\util\config\config.ts:42:34)
+    at Packager.validateConfig (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\src\packager.ts:331:27)
+    at Packager.build (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-lib\src\packager.ts:362:5)
+    at executeFinally (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\builder-util\src\promise.ts:12:14)

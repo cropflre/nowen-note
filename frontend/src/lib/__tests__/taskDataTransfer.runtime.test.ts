@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMock = vi.hoisted(() => ({
+  archiveTask: vi.fn(),
   getTasks: vi.fn(),
   getTaskProjects: vi.fn(),
   getTaskDependencies: vi.fn(),
@@ -151,5 +152,14 @@ describe("taskDataTransfer runtime", () => {
     await expect(importTaskBackup(source, { duplicateMode: "append" })).rejects.toThrow("已尽量回滚");
     expect(apiMock.deleteTask).toHaveBeenCalledTimes(1);
     expect(apiMock.deleteTask).toHaveBeenCalledWith("created-parent");
+  });
+  it("archives an imported completed tree only after all descendants have been created",async () => {
+    const archivedAt="2026-10-13T08:00:00Z";
+    const source=backup([backupTask({sourceId:"parent",status:"done",isCompleted:1,archivedAt}),backupTask({sourceId:"child",parentSourceId:"parent",status:"done",isCompleted:1,archivedAt})]);
+    let index=0;apiMock.createTask.mockImplementation(async (payload) => task({...payload,id:`created-${++index}`}));
+    apiMock.archiveTask.mockResolvedValue({success:true,affected:2});
+    await importTaskBackup(source,{duplicateMode:"append"});
+    expect(apiMock.archiveTask).toHaveBeenCalledTimes(1);expect(apiMock.archiveTask).toHaveBeenCalledWith("created-1",true);
+    expect(apiMock.archiveTask.mock.invocationCallOrder[0]).toBeGreaterThan(apiMock.createTask.mock.invocationCallOrder.at(-1)!);
   });
 });

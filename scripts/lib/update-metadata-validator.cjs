@@ -98,7 +98,18 @@ function assetNameFromUrl(raw) {
 }
 
 function sha512File(filePath) {
-  return crypto.createHash("sha512").update(fs.readFileSync(filePath)).digest("base64");
+  const descriptor = fs.openSync(filePath, "r");
+  try {
+    const hash = crypto.createHash("sha512");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let size;
+    while ((size = fs.readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, size));
+    }
+    return hash.digest("base64");
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function assertSafeAssetName(assetName, source) {

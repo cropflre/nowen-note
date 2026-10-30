@@ -92,6 +92,11 @@ export const SYNC_ENTITY_CAPABILITIES: EntityCapability[] = [
     localCrud: true, outbox: true, push: true, changeFeed: true,
     pull: true, apply: true, conflictStrategy: true,
   },
+  {
+    entityType: "attachment_organization",
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
+  },
 ];
 
 /**

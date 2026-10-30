@@ -7,6 +7,7 @@ import NoteTabsBar from "@/components/NoteTabsBar";
 import { EditorToolbarHost, EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import TiptapEditor from "@/components/TiptapEditor";
+import PlainTextEditor from "@/components/PlainTextEditor";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import type { NoteEditorHandle, NoteEditorUpdatePayload } from "@/components/editors/types";
 import { useApp, useAppActions, type NoteLoadingState } from "@/store/AppContext";
@@ -535,7 +536,9 @@ function SplitEditorPaneRuntime({
           />
         )}
         {note ? (
-          note.contentFormat === "markdown" ? (
+          note.contentFormat === "plaintext" ? (
+            <PlainTextEditor key={`split-txt-${note.id}`} ref={editorHandleRef} note={note} onUpdate={handleUpdate} editable={editable} />
+          ) : note.contentFormat === "markdown" ? (
             <MarkdownEditor
               key={`split-md-${note.id}`}
               ref={editorHandleRef}

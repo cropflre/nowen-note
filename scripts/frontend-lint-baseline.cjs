@@ -35,6 +35,28 @@ async function main() {
   const baseline = JSON.parse(fs.readFileSync(path.join(root, "eslint-baseline.json"), "utf8"));
   const results = await new ESLint({ cwd: root }).lintFiles(["."]);
   const report = compare(results, root, baseline);
+  if (process.argv.includes("--emit-delta")) {
+    // Diagnostic mode for a controlled baseline refresh. New errors remain failures.
+    // Only exact fingerprints with their occurrence counts can enter a reviewed baseline.
+    const current = new Map();
+    for (const result of results) {
+      const file = path.relative(root, result.filePath).replaceAll("\\", "/");
+      const lines = fs.readFileSync(result.filePath, "utf8").split(/\r?\n/);
+      for (const message of result.messages.filter((entry) => entry.severity === 2 && !entry.fatal)) {
+        const key = fingerprint(file, message, lines[(message.line || 1) - 1] || "");
+        current.set(key, (current.get(key) || 0) + 1);
+      }
+    }
+    const add = {};
+    const remove = {};
+    for (const [key, count] of current) {
+      if (count > (baseline.errors[key] || 0)) add[key] = count - (baseline.errors[key] || 0);
+    }
+    for (const [key, count] of Object.entries(baseline.errors)) {
+      if (count > (current.get(key) || 0)) remove[key] = count - (current.get(key) || 0);
+    }
+    console.log("LINT_BASELINE_DELTA " + JSON.stringify({ add, remove }));
+  }
   for (const message of report.added) {
     console.error(`${message.file}:${message.line || 1}:${message.column || 1} ${message.ruleId || "parse"} ${message.message}`);
   }

@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   CircleOff,
   Container,
   HardDrive,
@@ -225,6 +226,8 @@ function PasswordDialog({
 }
 
 export default function DockerUpdateCenter() {
+  const detailsId = useId();
+  const [expanded, setExpanded] = useState(false);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [status, setStatus] = useState<SystemUpdateStatus | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -267,7 +270,10 @@ export default function DockerUpdateCenter() {
       setStatus(next);
       setHidden(false);
       const active = next.updater.details?.activeJob as UpdateJob | null | undefined;
-      if (active && ["queued", "running"].includes(active.status)) setJob(active);
+      if (active && ["queued", "running"].includes(active.status)) {
+        setJob(active);
+        setExpanded(true);
+      }
     } catch (error) {
       if ((error as ApiError).status === 403) {
         setHidden(true);
@@ -434,131 +440,138 @@ export default function DockerUpdateCenter() {
   return (
     <>
       {createPortal(
-        <div data-nowen-docker-update="true" className="mt-3 space-y-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-              <Container size={14} />
-              Docker 服务端在线升级
+        <div data-nowen-docker-update="true" className="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
+          <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-controls={detailsId} className="flex w-full items-center gap-2 rounded-lg py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
+            <Container size={14} className="shrink-0 text-zinc-500" />
+            <span className="min-w-0 flex-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">Docker 服务端在线升级</span>
+            <span className="max-w-[45%] text-right text-[11px] text-zinc-400 dark:text-zinc-500">
+              {job ? phaseText(job.phase) : !status ? "读取状态…" : !status.deployment.onlineUpdateEligible ? "当前部署不支持" : status.canPreflight ? `可升级至 v${latestVersion}` : "查看升级状态"}
+            </span>
+            <ChevronDown size={14} className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </button>
+
+          <div id={detailsId} hidden={!expanded} className="mt-3 space-y-3">
+            <div className="flex justify-end">
+              <button type="button" onClick={() => void loadStatus()} disabled={loading || !!active} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-200/60 disabled:opacity-40 dark:hover:bg-zinc-700/50" title="刷新升级状态">
+                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              </button>
             </div>
-            <button type="button" onClick={() => void loadStatus()} disabled={loading || !!active} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-200/60 disabled:opacity-40 dark:hover:bg-zinc-700/50" title="刷新升级状态">
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-            </button>
+
+            {!status ? (
+              <div className="flex items-center gap-2 text-xs text-zinc-400"><Loader2 size={13} className="animate-spin" />读取部署状态…</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+                  {summaryRows.map(([label, value]) => (
+                    <React.Fragment key={label}>
+                      <span className="text-zinc-400 dark:text-zinc-500">{label}</span>
+                      <span className="truncate text-right font-mono text-zinc-600 dark:text-zinc-300" title={value}>{value}</span>
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {status.canPreflight && !preflight && !active && (
+                  <button type="button" onClick={beginPreflight} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-primary px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
+                    {loading ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                    预检并备份，准备升级到 v{latestVersion}
+                  </button>
+                )}
+
+                {!status.canPreflight && !active && (
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                    <div className="flex items-start gap-2">
+                      {status.updateAvailable ? <CircleOff size={14} className="mt-0.5 shrink-0 text-amber-500" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />}
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{status.manualGuidance.title}</p>
+                        <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                          {status.blockers.map((item) => <p key={item.code}>{item.message}</p>)}
+                          {status.manualGuidance.steps.map((step, index) => <code key={`${index}-${step}`} className="block break-all rounded bg-zinc-200/60 px-1.5 py-1 font-mono text-[10px] dark:bg-zinc-800">{step}</code>)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {preflight && !preflight.noOp && !active && (
+                  <div className="space-y-3 rounded-xl border border-amber-300/70 bg-amber-50/60 p-3 dark:border-amber-800/70 dark:bg-amber-950/20">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">预检通过，等待最终确认</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-amber-700/90 dark:text-amber-300/80">
+                          将从 v{preflight.currentVersion} 升级到 v{preflight.targetVersion}。失败时自动恢复旧镜像，但不会自动覆盖数据库；完整备份会保留。
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-300">
+                      <span className="text-zinc-400">目标 Digest</span><span className="truncate text-right font-mono">{shortDigest(preflight.updater.targetDigest)}</span>
+                      <span className="text-zinc-400">架构</span><span className="text-right font-mono">{preflight.updater.architecture}</span>
+                      <span className="text-zinc-400">目标镜像大小</span><span className="text-right">{formatBytes(preflight.updater.imageSize)}</span>
+                      <span className="text-zinc-400">升级前备份</span><span className="truncate text-right" title={preflight.backup?.filename}>{preflight.backup?.filename || "—"}</span>
+                      <span className="text-zinc-400">备份大小</span><span className="text-right">{formatBytes(preflight.backup?.size)}</span>
+                    </div>
+                    {(preflight.warnings || []).map((warning) => (
+                      <p key={warning.code} className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">• {warning.message}</p>
+                    ))}
+                    <label className="flex items-start gap-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
+                      <input type="checkbox" checked={riskAccepted} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setRiskAccepted(event.target.checked)} className="mt-0.5 h-3.5 w-3.5 accent-amber-600" />
+                      <span>我理解数据库迁移兼容性目前无法自动证明，自动回滚仅恢复旧镜像，必要时需使用升级前备份人工恢复数据。</span>
+                    </label>
+                    <input
+                      value={confirmVersion}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => setConfirmVersion(event.target.value.trim())}
+                      placeholder={`输入 ${preflight.targetVersion} 确认升级`}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-mono text-xs outline-none focus:border-amber-500 dark:border-amber-800 dark:bg-zinc-950"
+                    />
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setPreflight(null)} disabled={loading} className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">取消</button>
+                      <button type="button" onClick={applyUpdate} disabled={!confirmReady} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                        {loading && <Loader2 size={12} className="animate-spin" />}
+                        立即升级
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {job && (
+                  <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {active ? <Loader2 size={14} className="shrink-0 animate-spin text-accent-primary" /> : job.status === "completed" ? <CheckCircle2 size={14} className="shrink-0 text-emerald-500" /> : <RotateCcw size={14} className="shrink-0 text-amber-500" />}
+                        <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">{phaseText(job.phase)}</span>
+                      </div>
+                      {job.cancellable && active && (
+                        <button type="button" onClick={cancelJob} disabled={loading} className="text-[11px] text-zinc-500 hover:text-red-500">安全取消</button>
+                      )}
+                    </div>
+                    {connectionLost && active && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400">主服务正在重建，连接暂时中断；页面会继续轮询独立更新代理。</p>
+                    )}
+                    {job.error && <p className="text-[11px] leading-relaxed text-red-500">{job.error}</p>}
+                    {job.phase === "rolled_back" && (
+                      <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">旧镜像已恢复。升级前完整备份仍保留；数据未被自动恢复。</p>
+                    )}
+                    <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg bg-zinc-950 p-2 font-mono text-[10px] leading-relaxed text-zinc-300">
+                      {job.logs.slice(-18).map((entry, index) => (
+                        <div key={`${entry.at}-${index}`} className={entry.level === "error" ? "text-red-300" : entry.level === "warn" ? "text-amber-300" : ""}>
+                          <span className="text-zinc-600">{new Date(entry.at).toLocaleTimeString()}</span> {entry.message}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {status.updater.available && status.current.health && (
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 dark:text-zinc-500">
+                    <span className="flex items-center gap-1"><HardDrive size={11} />Schema {status.current.schemaVersion}/{status.current.codeSchemaVersion}</span>
+                    <span>容器健康：{status.current.health}</span>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          {!status ? (
-            <div className="flex items-center gap-2 text-xs text-zinc-400"><Loader2 size={13} className="animate-spin" />读取部署状态…</div>
-          ) : (
-            <>
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-                {summaryRows.map(([label, value]) => (
-                  <React.Fragment key={label}>
-                    <span className="text-zinc-400 dark:text-zinc-500">{label}</span>
-                    <span className="truncate text-right font-mono text-zinc-600 dark:text-zinc-300" title={value}>{value}</span>
-                  </React.Fragment>
-                ))}
-              </div>
-
-              {status.canPreflight && !preflight && !active && (
-                <button type="button" onClick={beginPreflight} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-primary px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
-                  {loading ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-                  预检并备份，准备升级到 v{latestVersion}
-                </button>
-              )}
-
-              {!status.canPreflight && !active && (
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="flex items-start gap-2">
-                    {status.updateAvailable ? <CircleOff size={14} className="mt-0.5 shrink-0 text-amber-500" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />}
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{status.manualGuidance.title}</p>
-                      <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                        {status.blockers.map((item) => <p key={item.code}>{item.message}</p>)}
-                        {status.manualGuidance.steps.map((step, index) => <code key={`${index}-${step}`} className="block break-all rounded bg-zinc-200/60 px-1.5 py-1 font-mono text-[10px] dark:bg-zinc-800">{step}</code>)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {preflight && !preflight.noOp && !active && (
-                <div className="space-y-3 rounded-xl border border-amber-300/70 bg-amber-50/60 p-3 dark:border-amber-800/70 dark:bg-amber-950/20">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <div>
-                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">预检通过，等待最终确认</p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-amber-700/90 dark:text-amber-300/80">
-                        将从 v{preflight.currentVersion} 升级到 v{preflight.targetVersion}。失败时自动恢复旧镜像，但不会自动覆盖数据库；完整备份会保留。
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-300">
-                    <span className="text-zinc-400">目标 Digest</span><span className="truncate text-right font-mono">{shortDigest(preflight.updater.targetDigest)}</span>
-                    <span className="text-zinc-400">架构</span><span className="text-right font-mono">{preflight.updater.architecture}</span>
-                    <span className="text-zinc-400">目标镜像大小</span><span className="text-right">{formatBytes(preflight.updater.imageSize)}</span>
-                    <span className="text-zinc-400">升级前备份</span><span className="truncate text-right" title={preflight.backup?.filename}>{preflight.backup?.filename || "—"}</span>
-                    <span className="text-zinc-400">备份大小</span><span className="text-right">{formatBytes(preflight.backup?.size)}</span>
-                  </div>
-                  {(preflight.warnings || []).map((warning) => (
-                    <p key={warning.code} className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">• {warning.message}</p>
-                  ))}
-                  <label className="flex items-start gap-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-300">
-                    <input type="checkbox" checked={riskAccepted} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setRiskAccepted(event.target.checked)} className="mt-0.5 h-3.5 w-3.5 accent-amber-600" />
-                    <span>我理解数据库迁移兼容性目前无法自动证明，自动回滚仅恢复旧镜像，必要时需使用升级前备份人工恢复数据。</span>
-                  </label>
-                  <input
-                    value={confirmVersion}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => setConfirmVersion(event.target.value.trim())}
-                    placeholder={`输入 ${preflight.targetVersion} 确认升级`}
-                    className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-mono text-xs outline-none focus:border-amber-500 dark:border-amber-800 dark:bg-zinc-950"
-                  />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setPreflight(null)} disabled={loading} className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">取消</button>
-                    <button type="button" onClick={applyUpdate} disabled={!confirmReady} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
-                      {loading && <Loader2 size={12} className="animate-spin" />}
-                      立即升级
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {job && (
-                <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {active ? <Loader2 size={14} className="shrink-0 animate-spin text-accent-primary" /> : job.status === "completed" ? <CheckCircle2 size={14} className="shrink-0 text-emerald-500" /> : <RotateCcw size={14} className="shrink-0 text-amber-500" />}
-                      <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">{phaseText(job.phase)}</span>
-                    </div>
-                    {job.cancellable && active && (
-                      <button type="button" onClick={cancelJob} disabled={loading} className="text-[11px] text-zinc-500 hover:text-red-500">安全取消</button>
-                    )}
-                  </div>
-                  {connectionLost && active && (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400">主服务正在重建，连接暂时中断；页面会继续轮询独立更新代理。</p>
-                  )}
-                  {job.error && <p className="text-[11px] leading-relaxed text-red-500">{job.error}</p>}
-                  {job.phase === "rolled_back" && (
-                    <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">旧镜像已恢复。升级前完整备份仍保留；数据未被自动恢复。</p>
-                  )}
-                  <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg bg-zinc-950 p-2 font-mono text-[10px] leading-relaxed text-zinc-300">
-                    {job.logs.slice(-18).map((entry, index) => (
-                      <div key={`${entry.at}-${index}`} className={entry.level === "error" ? "text-red-300" : entry.level === "warn" ? "text-amber-300" : ""}>
-                        <span className="text-zinc-600">{new Date(entry.at).toLocaleTimeString()}</span> {entry.message}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {status.updater.available && status.current.health && (
-                <div className="flex items-center justify-between text-[10px] text-zinc-400 dark:text-zinc-500">
-                  <span className="flex items-center gap-1"><HardDrive size={11} />Schema {status.current.schemaVersion}/{status.current.codeSchemaVersion}</span>
-                  <span>容器健康：{status.current.health}</span>
-                </div>
-              )}
-            </>
-          )}
-
-          {actionError && <p className="text-[11px] leading-relaxed text-red-500">{actionError}</p>}
+          {actionError && <p className="mt-3 text-[11px] leading-relaxed text-red-500">{actionError}</p>}
         </div>,
         host,
       )}

@@ -1,0 +1,46 @@
+TAP version 13
+# Subtest: attachment audit rejects meta/archive count mismatch before touching live data
+ok 1 - attachment audit rejects meta/archive count mismatch before touching live data
+  ---
+  duration_ms: 19.1841
+  ...
+# Subtest: attachment audit accepts empty and matching local attachment sets
+ok 2 - attachment audit accepts empty and matching local attachment sets
+  ---
+  duration_ms: 34.9311
+  ...
+# Subtest: attachment audit rejects local DB paths missing from full ZIP
+ok 3 - attachment audit rejects local DB paths missing from full ZIP
+  ---
+  duration_ms: 20.5214
+  ...
+# Subtest: object-storage backups do not require remote object paths inside the local ZIP
+ok 4 - object-storage backups do not require remote object paths inside the local ZIP
+  ---
+  duration_ms: 25.0406
+  ...
+# Subtest: staging count and bytes must match archive metadata
+ok 5 - staging count and bytes must match archive metadata
+  ---
+  duration_ms: 2.4976
+  ...
+# Subtest: EBUSY mount-point rename falls back to in-place sync and preserves directory root
+ok 6 - EBUSY mount-point rename falls back to in-place sync and preserves directory root
+  ---
+  duration_ms: 5.3752
+  ...
+# Subtest: post-replace verifier failure rolls live directory contents back
+ok 7 - post-replace verifier failure rolls live directory contents back
+  ---
+  duration_ms: 3.7587
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 344.0068
+

@@ -15,6 +15,10 @@ on:
       - "frontend/src/lib/runtimePrelude.ts"
       - "frontend/src/lib/runtimeCompatibility.ts"
       - "frontend/src/lib/bootSplash.ts"
+      - "frontend/src/lib/authSession.ts"
+      - "frontend/src/lib/__tests__/remoteWebStartup.test.ts"
+      - "frontend/src/lib/__tests__/authSession.test.ts"
+      - "frontend/e2e/fn-connect-startup.spec.ts"
       - "frontend/src/lib/__tests__/iosWebKitStartupContract.test.ts"
       - "frontend/src/lib/__tests__/runtimePrelude.test.ts"
       - "frontend/e2e/ios-webkit-cold-start.spec.ts"
@@ -47,6 +51,10 @@ on:
       - "frontend/src/lib/runtimePrelude.ts"
       - "frontend/src/lib/runtimeCompatibility.ts"
       - "frontend/src/lib/bootSplash.ts"
+      - "frontend/src/lib/authSession.ts"
+      - "frontend/src/lib/__tests__/remoteWebStartup.test.ts"
+      - "frontend/src/lib/__tests__/authSession.test.ts"
+      - "frontend/e2e/fn-connect-startup.spec.ts"
       - "frontend/src/lib/__tests__/iosWebKitStartupContract.test.ts"
       - "frontend/src/lib/__tests__/runtimePrelude.test.ts"
       - "frontend/e2e/ios-webkit-cold-start.spec.ts"
@@ -93,7 +101,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Startup chunking and iOS WebKit contracts
-        run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts src/lib/__tests__/iosWebKitStartupContract.test.ts src/lib/__tests__/runtimePrelude.test.ts
+        run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts src/lib/__tests__/iosWebKitStartupContract.test.ts src/lib/__tests__/runtimePrelude.test.ts src/lib/__tests__/remoteWebStartup.test.ts src/lib/__tests__/authSession.test.ts
       - name: Clipboard paste routing regression
         run: npm run test:run -- src/lib/__tests__/pasteRouting.test.ts src/lib/__tests__/pasteRoutingUserRegression.test.ts
       - name: Note text-first media regression
@@ -102,10 +110,10 @@ jobs:
         run: npm run build:web
       - name: Enforce initial bundle budgets
         run: npm run verify:bundle
-      - name: Install Playwright WebKit for cold-start smoke
+      - name: Install Playwright browsers for cold-start smoke
         run: |
           npm install --no-save --no-package-lock @playwright/test@1.48.2
-          npx playwright install --with-deps webkit
+          npx playwright install --with-deps webkit chromium
       - name: iPhone WebKit cold-start smoke
         run: |
           npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/nowen-vite-preview.log 2>&1 &
@@ -117,6 +125,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:4173/ >/dev/null
           npx playwright test e2e/ios-webkit-cold-start.spec.ts --browser=webkit --reporter=line
+          npx playwright test e2e/fn-connect-startup.spec.ts --browser=chromium --reporter=line
       - name: Verify precompressed artifacts
         run: |
           node --input-type=module <<'NODE'

@@ -8,7 +8,7 @@ import EncryptedBlockCard from "@/components/EncryptedBlockCard";
 import { encryptedBlockFence } from "../blockDocument";
 import { prepareMarkdownEncryptedRegionEdit } from "../blockAuthoring";
 import fixture from "./fixtures/envelope-v1.json";
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", async (importOriginal) => ({ ...await importOriginal<typeof import("react-i18next")>(), useTranslation: () => ({ t: (key: string) => key }) }));
 
 it("the encrypted card has one clickable label and never exposes a copy-data action", () => {
   const host = document.createElement("div"); document.body.append(host);

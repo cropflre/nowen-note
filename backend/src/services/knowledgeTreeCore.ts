@@ -259,6 +259,7 @@ export function createKnowledgeChild(input: {
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
+  contentFormat?: "plaintext";
   sheetData?: unknown;
   excelData?: unknown;
   db?: Database.Database;
@@ -321,9 +322,9 @@ export function createKnowledgeChild(input: {
         throw new KnowledgeTreeError("KNOWLEDGE_TREE_NOTE_CONTAINER_REQUIRED", 400, "根级文档需要先创建文件夹");
       }
       const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : uuid();
-      const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
+      const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
       const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : "normal";
-      const content = input.encryptedContent || (contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
+      const content = input.encryptedContent || (contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
       db.prepare(`
         INSERT INTO notes (
           id, userId, workspaceId, notebookId, title, content, contentText,
@@ -407,7 +408,7 @@ export function createKnowledgeChild(input: {
     ...row,
     title,
     childCount: 0,
-    contentFormat: input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
+    contentFormat: input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
     noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : input.nodeType === "word" ? "word" : undefined,
     access: resolveKnowledgeNodeAccess(row.id, input.actorUserId, db),
   };
@@ -434,8 +435,11 @@ function syncBusinessParent(db: Database.Database, node: NodeRow, treeParentId: 
     if (!notebookContainer) {
       throw new KnowledgeTreeError("KNOWLEDGE_TREE_NOTE_CONTAINER_REQUIRED", 400, "文档必须位于可承载文档的目录中");
     }
-    db.prepare("UPDATE notes SET notebookId = ?, workspaceId = ?, updatedAt = datetime('now') WHERE id = ?")
-      .run(notebookContainer, node.workspaceId, node.resourceId);
+    db.prepare(`
+      UPDATE notes SET notebookId = ?, workspaceId = ?,
+        version = version + CASE WHEN notebookId IS NOT ? OR workspaceId IS NOT ? THEN 1 ELSE 0 END,
+        updatedAt = datetime('now') WHERE id = ?
+    `).run(notebookContainer, node.workspaceId, notebookContainer, node.workspaceId, node.resourceId);
   } else if (node.resourceType === "notebook") {
     db.prepare("UPDATE notebooks SET parentId = ?, updatedAt = datetime('now') WHERE id = ?")
       .run(notebookContainer, node.resourceId);

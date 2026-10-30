@@ -55,6 +55,10 @@ export async function unlockContentV2(value: unknown, passphrase: string, expect
   try { const key = await importKey(raw); return { document: await authenticate(envelope, key), key }; }
   finally { raw.fill(0); }
 }
+/** Read an older document snapshot with the already unlocked root, without replacing the session. */
+export async function readContentV2(value: unknown, key: CryptoKey, expected: ContentIdentityV2): Promise<EncryptedDocumentV2> {
+  return authenticate(checked(value, expected), key);
+}
 export async function updateContentV2(value: unknown, key: CryptoKey, expected: ContentIdentityV2, document: EncryptedDocumentV2): Promise<ContentEnvelopeV2> {
   const envelope = checked(value, expected); const next = validateDocumentV2(document); const bytes = encodeContent(JSON.stringify(next));
   try {

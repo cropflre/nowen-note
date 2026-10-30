@@ -9,14 +9,15 @@ import {
   SYNC_ENTITY_TYPES,
   SYNC_V2_LEGACY_ENTITY_TYPES,
   SYNC_V2_NEGOTIATED_ENTITY_TYPES,
+  SYNC_V2_ASSET_ENTITY_TYPES,
 } from "../src/sync/types.js";
 
 test("Sync V2 capability registry covers the negotiated entity set", () => {
   assert.deepEqual(
     SYNC_ENTITY_CAPABILITIES.map((item) => item.entityType),
-    [...SYNC_V2_NEGOTIATED_ENTITY_TYPES],
+    [...SYNC_V2_ASSET_ENTITY_TYPES],
   );
-  for (const entityType of SYNC_V2_NEGOTIATED_ENTITY_TYPES) {
+  for (const entityType of SYNC_V2_ASSET_ENTITY_TYPES) {
     assert.doesNotThrow(() => assertEntitySyncReady(entityType));
   }
 });

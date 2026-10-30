@@ -103,7 +103,8 @@ export function ensureKnowledgeAccessPolicyTable(
     FROM knowledge_tree_acl
     GROUP BY nodeId;
   `);
-  initializedDatabases.add(db);
+  // Transactional DDL can still roll back after this permission check returns.
+  if (!db.inTransaction) initializedDatabases.add(db);
 }
 
 export function getKnowledgeNodeAccessPolicy(

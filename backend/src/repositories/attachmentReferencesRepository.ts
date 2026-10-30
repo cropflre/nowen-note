@@ -44,8 +44,10 @@ export const attachmentReferencesRepository = {
     for (const id of attachmentIds) {
       try {
         insertOne.run(id, noteId);
-      } catch {
-        // 跳过非法 ID
+      } catch (error) {
+        // Missing legacy attachment IDs remain ignorable; storage/trigger failures
+        // must reach the caller so its content/index transaction can roll back.
+        if ((error as { code?: string }).code !== "SQLITE_CONSTRAINT_FOREIGNKEY") throw error;
       }
     }
   },
@@ -114,8 +116,10 @@ export const attachmentReferencesRepository = {
           'INSERT OR IGNORE INTO attachment_references ("attachmentId", "noteId") VALUES (?, ?)',
           [id, noteId],
         );
-      } catch {
-        // 跳过非法 ID
+      } catch (error) {
+        // Missing legacy attachment IDs remain ignorable; storage/trigger failures
+        // must reach the caller so its content/index transaction can roll back.
+        if ((error as { code?: string }).code !== "SQLITE_CONSTRAINT_FOREIGNKEY") throw error;
       }
     }
   },

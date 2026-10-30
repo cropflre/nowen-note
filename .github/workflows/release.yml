@@ -1,18 +1,43 @@
-# 三平台构建 + SignPath Windows 签名工作流。
+# 三平台构建；GitHub EXE 直发与 Microsoft Store 独立分发。
 #
 # 发布职责约束：
-#   - push tag v*.*.* 构建全部平台；Windows Full/Lite 必须经 SignPath release-signing 后才能成为正式 artifact；
-#   - workflow_dispatch 只使用 test-signing 验证 Windows 签名链路，不会产出正式 Release 资产；
-#   - GitHub Release 仍由 scripts/release.sh 统一创建 Draft、汇总 CI 资产、远端校验后转正式；
+#   - push tag v*.*.* 构建全部平台；Windows Full/Lite 均由同一 tag CI 生成并校验；
+#   - workflow_dispatch 默认仅调试；release-assets 模式在 GitHub 内汇总同 Tag 产物并校验；
+#   - scripts/release.sh 创建 Draft，校对 CI 回执后决定是否转正式；CI 不发布正式版本；
 #   - electron-builder 始终 --publish never，避免多发布者并发写 Release。
 
 name: Build & Release
+run-name: ${{ inputs.mode == 'release-assets' && format('Release assets {0}', inputs.request_id) || github.event.head_commit.message || github.ref_name }}
 
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Debug build or collect existing tag artifacts into Draft
+        type: choice
+        options: [debug, release-assets]
+        default: debug
+      source_run_id:
+        description: Existing release.yml tag-push build run ID (release-assets only)
+        type: string
+      request_id:
+        description: Unique local release request UUID (release-assets only)
+        type: string
+      desktop:
+        description: Collect both macOS architectures
+        type: boolean
+        default: true
+      windows:
+        description: Replace Windows Full/Lite candidates with same-tag CI assets
+        type: boolean
+        default: true
+      linux:
+        description: Collect Linux x64 AppImage and Debian packages
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +45,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'push' || inputs.mode == 'debug'
     strategy:
       fail-fast: false
       matrix:
@@ -66,18 +92,6 @@ jobs:
         shell: bash
         run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
 
-      - name: Check SignPath production configuration
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
-          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
-          SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
-          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
-        run: node scripts/check-signpath-release-config.mjs
-
       # ---------------------------------------------------------------
       # 依赖安装
       # ---------------------------------------------------------------
@@ -88,6 +102,10 @@ jobs:
       - name: Install backend deps
         working-directory: backend
         run: npm ci
+        shell: bash
+
+      - name: Validate desktop image runtime packaging
+        run: npm run test:desktop-native
         shell: bash
 
       - name: Install frontend deps
@@ -131,190 +149,67 @@ jobs:
           echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
         shell: bash
 
-      # ========= Windows Full =========
+      # ========= Windows Direct EXE (no third-party signing) =========
       - name: Build Electron Full (Windows)
         if: matrix.os == 'windows-latest'
         env:
-          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ github.event_name == 'push' && vars.NOWEN_WINDOWS_PUBLISHER_NAME || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --config electron/builder.config.js --win --publish never
         shell: bash
 
-      # ========= 手动 test-signing：只验证 Full，不参与正式发布 =========
-      - name: Stage Windows EXEs for SignPath test
-        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          $target = Join-Path $PWD "signpath-input"
-          New-Item -ItemType Directory -Force -Path $target | Out-Null
-          $files = @(
-            Get-ChildItem -Path "dist-electron" -File -Filter "Nowen-Note-*-setup.exe"
-            Get-ChildItem -Path "dist-electron" -File -Filter "Nowen-Note-*-portable.exe"
-          ) | Sort-Object FullName -Unique
-          if ($files.Count -ne 2) { throw "SignPath test requires exactly setup.exe and portable.exe; found $($files.Count)." }
-          foreach ($file in $files) { Copy-Item $file.FullName (Join-Path $target $file.Name) -Force }
-
-      - name: Upload unsigned Windows EXEs for SignPath test
-        id: upload_signpath_test
-        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nowen-note-win-signpath-input-${{ github.run_id }}
-          path: signpath-input/*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Submit SignPath test signing request
-        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
-          signing-policy-slug: "test-signing"
-          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload_signpath_test.outputs.artifact-id }}
-          parameters: |
-            version: ${{ toJSON(steps.package_version.outputs.version) }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 1800
-          output-artifact-directory: signpath-test-signed
-
-      - name: Verify SignPath test result exists
-        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          $signed = @(Get-ChildItem -Path "signpath-test-signed" -Recurse -File -Filter "*.exe")
-          if ($signed.Count -ne 2) { throw "SignPath test returned $($signed.Count) EXEs, expected 2." }
-          foreach ($file in $signed) {
-            $signature = Get-AuthenticodeSignature $file.FullName
-            if ($null -eq $signature.SignerCertificate -or $signature.Status.ToString() -eq "NotSigned") {
-              throw "SignPath test result is not Authenticode-signed: $($file.Name)"
-            }
-            Write-Host "test-signing: $($file.Name) status=$($signature.Status) subject=$($signature.SignerCertificate.Subject)"
-          }
-
-      - name: Upload SignPath test signed Windows EXEs
-        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nowen-note-win-signpath-test
-          path: signpath-test-signed/**/*.exe
-          if-no-files-found: error
-          retention-days: 14
-
-      # ========= tag 正式发布：Full + Lite 分离签名 =========
       - name: Build Electron Lite (Windows)
         if: matrix.os == 'windows-latest' && github.event_name == 'push'
         env:
-          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
         shell: bash
 
-      - name: Upload unsigned Full Windows artifact for SignPath
-        id: upload_full_unsigned
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nowen-note-win-full-unsigned-signpath
-          path: |
-            dist-electron/*.exe
-            dist-electron/*.blockmap
-            dist-electron/latest.yml
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload unsigned Lite Windows artifact for SignPath
-        id: upload_lite_unsigned
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nowen-note-win-lite-unsigned-signpath
-          path: |
-            dist-electron-lite/*.exe
-            dist-electron-lite/*.blockmap
-            dist-electron-lite/latest-lite.yml
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Submit Full Windows artifact to SignPath release-signing
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}
-          parameters: |
-            version: ${{ toJSON(steps.package_version.outputs.version) }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 10800
-          output-artifact-directory: signed-windows/full
-
-      - name: Submit Lite Windows artifact to SignPath release-signing
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}
-          parameters: |
-            version: ${{ toJSON(steps.package_version.outputs.version) }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 10800
-          output-artifact-directory: signed-windows/lite
-
-      - name: Export signed Windows Authenticode records
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        shell: pwsh
-        run: ./scripts/export-windows-signatures.ps1 -Root signed-windows -Output signed-windows/signatures.json
-
-      - name: Verify signed Windows publisher and required channels
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        env:
-          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-        run: |
-          if [ -z "$NOWEN_WINDOWS_PUBLISHER_NAME" ]; then
-            node scripts/verify-windows-signatures.mjs --report signed-windows/signatures.json --require full,lite --bootstrap-publisher --signing-policy "$SIGNPATH_SIGNING_POLICY_SLUG"
-          else
-            node scripts/verify-windows-signatures.mjs --report signed-windows/signatures.json --require full,lite --publisher "$NOWEN_WINDOWS_PUBLISHER_NAME"
-          fi
-        shell: bash
-
-      - name: Refresh signed Windows blockmaps and updater metadata
+      - name: Stage exact Windows Full and Lite assets
         if: matrix.os == 'windows-latest' && github.event_name == 'push'
         shell: pwsh
         run: |
-          $version = node -p "require('./package.json').version"
-          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/full/latest.yml --asset-dir signed-windows/full --channel full --version $version
-          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/lite/latest-lite.yml --asset-dir signed-windows/lite --channel lite --version $version
-          New-Item -ItemType Directory -Path signed-windows/release -Force | Out-Null
-          Copy-Item signed-windows/full/* signed-windows/release/ -Force
-          Copy-Item signed-windows/lite/* signed-windows/release/ -Force
-          Remove-Item signed-windows/release/signatures.json -ErrorAction SilentlyContinue
+          $ErrorActionPreference = 'Stop'
+          $version = (node -p "require('./package.json').version").Trim()
+          $expected = @(
+            @("dist-electron", "Nowen-Note-$version-setup.exe"),
+            @("dist-electron", "Nowen-Note-$version-portable.exe"),
+            @("dist-electron", "Nowen-Note-$version-setup.exe.blockmap"),
+            @("dist-electron", "latest.yml"),
+            @("dist-electron-lite", "Nowen-Note-Lite-$version-setup.exe"),
+            @("dist-electron-lite", "Nowen-Note-Lite-$version-portable.exe"),
+            @("dist-electron-lite", "Nowen-Note-Lite-$version-setup.exe.blockmap"),
+            @("dist-electron-lite", "latest-lite.yml")
+          )
+          New-Item -ItemType Directory -Path windows-release -Force | Out-Null
+          foreach ($entry in $expected) {
+            $src = Join-Path $entry[0] $entry[1]
+            if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "Missing Windows asset: $src" }
+            Copy-Item -LiteralPath $src -Destination windows-release -Force
+          }
+          if (@(Get-ChildItem windows-release -File).Count -ne $expected.Count) { throw 'Unexpected Windows asset count' }
 
-      - name: Verify signed Windows updater assets locally
+      - name: Verify direct Windows SHA-512 metadata and assets
         if: matrix.os == 'windows-latest' && github.event_name == 'push'
         shell: pwsh
         run: |
-          $version = node -p "require('./package.json').version"
-          node scripts/verify-release-update-assets.mjs local --dir signed-windows/release --version $version
+          $version = (node -p "require('./package.json').version").Trim()
+          node scripts/verify-release-update-assets.mjs local --dir windows-release --version $version
 
-      - name: Upload formal signed Windows artifact
+      - name: Upload validated Windows CI release assets
         if: matrix.os == 'windows-latest' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: nowen-note-win-signed
-          path: signed-windows/release/*
+          name: nowen-note-win-direct
+          path: windows-release/*
           if-no-files-found: error
           retention-days: 14
 
       # ========= macOS =========
+      - name: Test macOS native dependency packaging
+        if: matrix.os == 'macos-latest'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+        shell: bash
+
       - name: Build Electron (macOS x64 / Intel)
         if: matrix.os == 'macos-latest'
         env:
@@ -374,4 +269,40 @@ jobs:
             dist-electron/*.blockmap
             dist-electron/latest*.yml
           if-no-files-found: ignore
+          retention-days: 14
+
+  release-assets:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release-assets' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect same-tag assets and verify Draft in GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_REQUEST_ID: ${{ inputs.request_id }}
+          COLLECT_DESKTOP: ${{ inputs.desktop }}
+          COLLECT_WINDOWS: ${{ inputs.windows }}
+          COLLECT_LINUX: ${{ inputs.linux }}
+        run: node scripts/release-ci-assets.mjs collect
+      - name: Upload CI verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verification-${{ inputs.request_id }}
+          path: ${{ runner.temp }}/nowen-release-verification.json
+          if-no-files-found: error
+          overwrite: true
           retention-days: 14

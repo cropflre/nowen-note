@@ -1,0 +1,21 @@
+{
+  "authenticatedOwnerOnly": true,
+  "activeBefore": true,
+  "syncHttpStatus": 200,
+  "mutationResults": [
+    {
+      "mutationId": "8dbdac25-c202-4f6b-bda4-dc759ad5b6db",
+      "status": "applied"
+    }
+  ],
+  "readAfterStatus": 404,
+  "restoreHttpStatus": 200,
+  "restoreFailures": [
+    {
+      "id": "note:67169888-b508-4c26-986e-2c59abc64953",
+      "code": "TRASH_ITEM_NOT_FOUND",
+      "error": "内容不在当前回收站或无访问权限"
+    }
+  ],
+  "boundary": "Audit of separate Sync V2 delete protocol, not a passing release safety test. No shared editor/anonymous exploit claimed."
+}

@@ -1,0 +1,143 @@
+TAP version 13
+# Subtest: 四类个人实体已纳入同步实体范围
+ok 1 - 四类个人实体已纳入同步实体范围
+  ---
+  duration_ms: 0.4155
+  ...
+# Subtest: 首次同步可写入已删除根容器下的笔记和子目录
+not ok 2 - 首次同步可写入已删除根容器下的笔记和子目录
+  ---
+  duration_ms: 37.0402
+  location: 'C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\backend\\tests\\sync-v2-personal-entities.test.ts:38:377'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "NOTEBOOK_PARENT_NOT_FOUND"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+    code: 'SQLITE_CONSTRAINT_TRIGGER'
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\backend\tests\sync-v2-personal-entities.test.ts:133:10)
+    Test.runInAsyncScope (node:async_hooks:206:9)
+    Test.run (node:internal/test_runner/test:796:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:527:18)
+    Test.postRun (node:internal/test_runner/test:889:19)
+    Test.run (node:internal/test_runner/test:835:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:527:7)
+  ...
+# Subtest: note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+ok 3 - note themeId 双向同步，并兼容不携带 themeId 的旧客户端
+  ---
+  duration_ms: 11.0148
+  ...
+# Subtest: task 本地新增同时进入 Outbox 与 Change Feed
+ok 4 - task 本地新增同时进入 Outbox 与 Change Feed
+  ---
+  duration_ms: 4.2122
+  ...
+# Subtest: task payload 完整携带业务字段，不丢截止日期与优先级
+ok 5 - task payload 完整携带业务字段，不丢截止日期与优先级
+  ---
+  duration_ms: 3.8328
+  ...
+# Subtest: task 删除进入 Outbox，删除操作能同步到其他设备
+ok 6 - task 删除进入 Outbox，删除操作能同步到其他设备
+  ---
+  duration_ms: 14.0591
+  ...
+# Subtest: task 服务端 apply 支持 upsert 与 delete
+ok 7 - task 服务端 apply 支持 upsert 与 delete
+  ---
+  duration_ms: 3.6717
+  ...
+# Subtest: task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+ok 8 - task 服务端在 baseUpdatedAt 不匹配时判冲突，绝不静默覆盖
+  ---
+  duration_ms: 3.2162
+  ...
+# Subtest: task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+ok 9 - task 本地 apply（下行）保留远端 updatedAt 供下次冲突判定
+  ---
+  duration_ms: 3.3185
+  ...
+# Subtest: task 下行时孤儿引用置空而非拒绝写入
+ok 10 - task 下行时孤儿引用置空而非拒绝写入
+  ---
+  duration_ms: 2.788
+  ...
+# Subtest: task_reminder 双向同步且不携带 lastNotifiedAt
+ok 11 - task_reminder 双向同步且不携带 lastNotifiedAt
+  ---
+  duration_ms: 3.4107
+  ...
+# Subtest: task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+ok 12 - task_reminder 缺少所属任务时报缺依赖，供客户端稍后重试
+  ---
+  duration_ms: 2.6805
+  ...
+# Subtest: task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+ok 13 - task_reminder 下行时任务未到达则跳过，下轮 Pull 会补上
+  ---
+  duration_ms: 3.1665
+  ...
+# Subtest: diary 双向同步且 images/media 保持合法 JSON
+ok 14 - diary 双向同步且 images/media 保持合法 JSON
+  ---
+  duration_ms: 3.7223
+  ...
+# Subtest: diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+ok 15 - diary 收到损坏的 JSON 时退化为空数组，不让前端解析崩溃
+  ---
+  duration_ms: 3.0831
+  ...
+# Subtest: diary 同 ID 幂等 upsert，不产生冲突
+ok 16 - diary 同 ID 幂等 upsert，不产生冲突
+  ---
+  duration_ms: 3.7355
+  ...
+# Subtest: mindmap 双向同步且携带完整 data
+ok 17 - mindmap 双向同步且携带完整 data
+  ---
+  duration_ms: 3.5975
+  ...
+# Subtest: mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+ok 18 - mindmap 缺少 baseUpdatedAt 也判冲突，绝不盲目覆盖整份导图
+  ---
+  duration_ms: 3.4418
+  ...
+# Subtest: mindmap base 匹配时正常写入
+ok 19 - mindmap base 匹配时正常写入
+  ---
+  duration_ms: 3.3565
+  ...
+# Subtest: mindmap 工作区导图进入独立 workspace Scope
+ok 20 - mindmap 工作区导图进入独立 workspace Scope
+  ---
+  duration_ms: 3.4226
+  ...
+# Subtest: 仅此设备（无 active profile）时四类实体都不产生 Outbox
+ok 21 - 仅此设备（无 active profile）时四类实体都不产生 Outbox
+  ---
+  duration_ms: 3.353
+  ...
+# Subtest: Pull 应用远端变更不回流 Outbox，避免同步死循环
+ok 22 - Pull 应用远端变更不回流 Outbox，避免同步死循环
+  ---
+  duration_ms: 4.2437
+  ...
+# Subtest: Change Feed 的 sequence 单调递增，保证游标可靠
+ok 23 - Change Feed 的 sequence 单调递增，保证游标可靠
+  ---
+  duration_ms: 11.193
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 22
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 482.5027

@@ -2,7 +2,8 @@ import React, { useCallback, useMemo, useState, useEffect, useRef, useSyncExtern
 import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
 import EncryptedBlockCard from "./EncryptedBlockCard";
 import { createPortal } from "react-dom";
-import { NodeViewWrapper, NodeViewContent, NodeViewProps } from "@tiptap/react";
+import { NodeViewWrapper, NodeViewContent, NodeViewProps, ReactNodeViewRenderer } from "@tiptap/react";
+import type { NodeViewRenderer } from "@tiptap/core";
 import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText, Minimize2, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -54,6 +55,28 @@ export function CodeBlockView(props: NodeViewProps) {
   if (isEncryptedBlockLanguage(props.node.attrs.language)) return <EncryptedCodeBlockView {...props} />;
   return <OrdinaryCodeBlockView {...props} />;
 }
+
+export function createCodeBlockNodeView(): NodeViewRenderer {
+  const render = ReactNodeViewRenderer(CodeBlockView);
+  return props => {
+    const nodeView = render(props);
+    const ignoreMutation = nodeView.ignoreMutation?.bind(nodeView);
+    nodeView.ignoreMutation = mutation => {
+      const content = nodeView.contentDOM;
+      // React moves Tiptap's contentDOM into NodeViewContent after mounting its
+      // wrapper. The mobile childList heuristic otherwise reparses and remounts
+      // this view forever. Keep actual content edits on Tiptap's normal path.
+      if (mutation.type === "childList" && content && nodeView.dom.contains(content)
+        && !content.contains(mutation.target)) {
+        const changed = [...mutation.addedNodes, ...mutation.removedNodes];
+        if (changed.length > 0 && changed.every(node => node === content
+          || (node instanceof HTMLElement && node.hasAttribute("data-node-view-wrapper")))) return true;
+      }
+      return ignoreMutation?.(mutation) ?? false;
+    };
+    return nodeView;
+  };
+}
 function EncryptedCodeBlockView({ node, editor, getPos }: NodeViewProps) {
   const editable = useSyncExternalStore((listener) => subscribeEditorEditable(editor, listener), () => getEditorEditableSnapshot(editor), () => false);
   const source = node.textContent;
@@ -62,7 +85,10 @@ function EncryptedCodeBlockView({ node, editor, getPos }: NodeViewProps) {
     const current = typeof position === "number" ? editor.state.doc.nodeAt(position) : null;
     if (typeof position !== "number" || !editor.isEditable || !current?.eq(node)) throw new Error("Encrypted region changed");
     if (!editor.commands.insertContentAt({ from: position, to: position + node.nodeSize }, { type: "codeBlock", attrs: node.attrs, content: [{ type: "text", text: next }] })) throw new Error("Encrypted region write failed");
-  } : undefined} /></NodeViewWrapper>;
+  } : undefined} />
+    {/* Keep ProseMirror's ciphertext content inside a hidden container. */}
+    <NodeViewContent hidden aria-hidden="true" contentEditable={false} />
+  </NodeViewWrapper>;
 }
 function OrdinaryCodeBlockView(props: NodeViewProps) {
   const { node, updateAttributes, extension, editor, getPos } = props;
@@ -433,17 +459,16 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
 
         {/* 右侧：折叠/展开 + mermaid 切换 + 主题切换 + 复制按钮 */}
         <div className="flex items-center gap-1">
-          {!isMermaid && (
-            <button
-              type="button"
-              onClick={() => setCollapseOverride(!collapsed)}
-              className={CODE_BLOCK_TOOL_BUTTON_CLASS}
-              title={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
-            >
-              {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
-              <span className="hidden sm:inline">{collapsed ? t("codeToolbar.expand") : t("codeToolbar.collapse")}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setCollapseOverride(!collapsed)}
+            className={CODE_BLOCK_TOOL_BUTTON_CLASS}
+            title={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
+            aria-label={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
+          >
+            {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+            <span className="hidden sm:inline">{collapsed ? t("codeToolbar.expand") : t("codeToolbar.collapse")}</span>
+          </button>
           {/* 仅 mermaid 语言显示：源码 / 预览 切换。预览时按钮显示"代码"图标
               （提示点击会切回源码视图），源码时显示"眼睛"图标（提示切回预览） */}
           {isMermaid && (
@@ -571,7 +596,7 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
           {/* 双击预览区进入源码态，便于直接编辑（与脚注/公式 NodeView 交互一致）；
               单击不切换，避免阅读时误触把图变成代码。 */}
           <div
-            className="mermaid-preview-host px-3 py-2 cursor-text"
+            className="mermaid-preview-host relative px-3 py-2 cursor-text"
             contentEditable={false}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -579,7 +604,46 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
             }}
             title={t("codeToolbar.sourceDoubleClick")}
           >
-            <MermaidView source={node.textContent} debounceMs={250} />
+            {collapsed ? (
+              // Keep the ProseMirror contentDOM mounted below while deferring SVG work.
+              <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-app-border bg-app-hover/30 px-3 py-2 text-xs text-tx-secondary">
+                <span className="font-medium">Mermaid</span>
+                <button
+                  type="button"
+                  className="mermaid-preview-collapse-button inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                  title={t("codeToolbar.expandCode")}
+                  aria-label={t("codeToolbar.expandCode")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCollapseOverride(false);
+                  }}
+                >
+                  <Maximize2 size={12} />
+                  {t("codeToolbar.expand")}
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="mermaid-preview-collapse-button absolute left-2 top-2 z-20 inline-flex items-center gap-1 rounded-md border border-app-border bg-app-surface/90 px-2 py-1 text-xs font-medium text-tx-secondary shadow-sm hover:bg-app-hover hover:text-tx-primary"
+                  title={t("codeToolbar.collapseCode")}
+                  aria-label={t("codeToolbar.collapseCode")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCollapseOverride(true);
+                  }}
+                >
+                  <Minimize2 size={12} />
+                  {t("codeToolbar.collapse")}
+                </button>
+                <MermaidView source={node.textContent} debounceMs={250} />
+              </>
+            )}
           </div>
           {/* 隐藏但保留的可编辑内容承载节点；ProseMirror 需要它存在 */}
           <pre

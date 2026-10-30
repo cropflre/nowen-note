@@ -36,7 +36,7 @@ export const encryptedContentV2Migration: Migration = {
   version: 123, name: "encrypted-content-v2-storage",
   up(db) {
     db.exec(`
-      DROP TRIGGER encrypted_notes_insert; DROP TRIGGER encrypted_notes_update; DROP TRIGGER encrypted_notes_conversion_validate;
+      DROP TRIGGER IF EXISTS encrypted_notes_insert; DROP TRIGGER IF EXISTS encrypted_notes_update; DROP TRIGGER IF EXISTS encrypted_notes_conversion_validate;
       CREATE TRIGGER encrypted_notes_insert BEFORE INSERT ON notes WHEN NEW.contentFormat LIKE 'encrypted-%' AND NOT (${validNote})
         BEGIN SELECT RAISE(ABORT,'INVALID_ENCRYPTED_NOTE'); END;
       CREATE TRIGGER encrypted_notes_conversion_validate BEFORE UPDATE ON notes WHEN NEW.contentFormat LIKE 'encrypted-%' AND NOT (${validNote})
@@ -62,7 +62,7 @@ export const encryptedContentV2Migration: Migration = {
       AND json_extract(NEW.content,'$.sourceVersion') IS NEW.version AND ${format('NEW.content')} AND ${sealed('NEW.content', 'payload')}
       AND ${sameHistoryRoot} ELSE 0 END`;
     for (const operation of ["INSERT", "UPDATE"]) db.exec(`
-      DROP TRIGGER encrypted_note_versions_${operation.toLowerCase()};
+      DROP TRIGGER IF EXISTS encrypted_note_versions_${operation.toLowerCase()};
       CREATE TRIGGER encrypted_note_versions_${operation.toLowerCase()} BEFORE ${operation} ON note_versions
       WHEN EXISTS(SELECT 1 FROM notes WHERE id = NEW.noteId AND contentFormat LIKE 'encrypted-%') AND NOT (
         COALESCE(NEW.contentText,'') = '' AND (

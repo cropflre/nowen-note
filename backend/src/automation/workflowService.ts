@@ -1,4 +1,5 @@
 import { getDb } from "../db/schema.js";
+import { createHash } from "node:crypto";
 import { getUserWorkspaceRole, hasRole, isSystemAdmin } from "../middleware/acl.js";
 import { getPluginService } from "../plugins/pluginService.js";
 import { logAudit } from "../services/audit.js";
@@ -9,6 +10,22 @@ import { WorkflowRepository, type WorkflowInput } from "./workflowRepository.js"
 
 function coded(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+/** Optimistic workflow revision shared with MCP previews. */
+export function workflowRevision(record: Pick<WorkflowRecord,
+  "id" | "name" | "description" | "updatedAt" | "enabled" | "workspaceId" | "definitionJson"
+>): string {
+  return createHash("sha256").update(JSON.stringify([
+    record.id, record.name, record.description, record.updatedAt,
+    Boolean(record.enabled), record.workspaceId, record.definitionJson,
+  ])).digest("hex");
+}
+
+function assertWorkflowRevision(record: WorkflowRecord, expected?: string): void {
+  if (expected !== undefined && workflowRevision(record) !== expected) {
+    throw coded("工作流已变化，请重新预览", "AUTOMATION_VERSION_CONFLICT");
+  }
 }
 
 export class WorkflowService {
@@ -63,10 +80,11 @@ export class WorkflowService {
     return { ...this.publicRecord(result.workflow), webhookCredentials: result.webhook };
   }
 
-  update(id: string, userId: string, raw: Omit<WorkflowInput, "definition"> & { definition: unknown }): Record<string, unknown> {
+  update(id: string, userId: string, raw: Omit<WorkflowInput, "definition"> & { definition: unknown; expectedRevision?: string }): Record<string, unknown> {
     const existing = this.repository.get(id);
     if (!existing) throw coded("工作流不存在", "AUTOMATION_NOT_FOUND");
     this.assertManage(existing, userId);
+    assertWorkflowRevision(existing, raw.expectedRevision);
     this.assertWorkspaceManage(raw.workspaceId, userId);
     const definition = validateWorkflowDefinition(raw.definition);
     this.validateActions(definition);
@@ -75,20 +93,22 @@ export class WorkflowService {
     return { ...this.publicRecord(result.workflow), webhookCredentials: result.webhook };
   }
 
-  enable(id: string, userId: string, enabled: boolean): Record<string, unknown> {
+  enable(id: string, userId: string, enabled: boolean, expectedRevision?: string): Record<string, unknown> {
     const record = this.repository.get(id);
     if (!record) throw coded("工作流不存在", "AUTOMATION_NOT_FOUND");
     this.assertManage(record, userId);
+    assertWorkflowRevision(record, expectedRevision);
     if (enabled) this.validateActions(JSON.parse(record.definitionJson) as WorkflowDefinition);
     const updated = this.repository.setEnabled(id, enabled);
     logAudit(userId, "system", enabled ? "workflow_enable" : "workflow_disable", { workflowId: id }, { targetType: "automation", targetId: id });
     return this.publicRecord(updated);
   }
 
-  remove(id: string, userId: string): void {
+  remove(id: string, userId: string, expectedRevision?: string): void {
     const record = this.repository.get(id);
     if (!record) throw coded("工作流不存在", "AUTOMATION_NOT_FOUND");
     this.assertManage(record, userId);
+    assertWorkflowRevision(record, expectedRevision);
     this.repository.remove(id);
     logAudit(userId, "system", "workflow_delete", { workflowId: id }, { targetType: "automation", targetId: id });
   }
@@ -139,7 +159,7 @@ export class WorkflowService {
   private publicRecord(record: WorkflowRecord): Record<string, unknown> {
     const schedule = getDb().prepare("SELECT cronExpression,timezone,nextRunAt,lastRunAt,enabled FROM automation_schedules WHERE workflowId=?").get(record.id);
     const webhook = getDb().prepare("SELECT enabled,lastTriggeredAt,createdAt,secretEncrypted IS NOT NULL AS signatureRequired FROM automation_webhooks WHERE workflowId=?").get(record.id);
-    return { ...record, enabled: record.enabled === 1, ignoreSync: record.ignoreSync === 1, ignoreBulk: record.ignoreBulk === 1,
+    return { ...record, revision: workflowRevision(record), enabled: record.enabled === 1, ignoreSync: record.ignoreSync === 1, ignoreBulk: record.ignoreBulk === 1,
       trigger: JSON.parse(record.triggerConfigJson), definition: JSON.parse(record.definitionJson), schedule: schedule || null, webhook: webhook || null };
   }
 }

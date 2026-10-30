@@ -1,5 +1,11 @@
 export const MOBILE_SYNC_STATUS_CHANGED_EVENT = "nowen:mobile-sync-status-changed";
 export const MOBILE_SYNC_SETTINGS_CHANGED_EVENT = "nowen:mobile-sync-settings-changed";
+export const MOBILE_SYNC_APPLIED_EVENT = "nowen:mobile-sync-applied";
+export interface MobileSyncAppliedDetail {
+  scopeKey: string;
+  noteIds: string[];
+  deletedNoteIds: string[];
+}
 let syncEnabled = false;
 
 export function isMobileSyncEnabled(): boolean { return syncEnabled; }

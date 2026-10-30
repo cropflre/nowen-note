@@ -1,0 +1,9 @@
+  • electron-builder  version=25.1.8 os=10.0.29683
+  • loaded configuration  file=C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs
+  • @electron/rebuild already used by electron-builder, please consider to remove excess dependency from devDependencies
+
+To ensure your native dependencies are always matched electron version, simply add script `"postinstall": "electron-builder install-app-deps" to your `package.json`
+  • skipped dependencies rebuild  reason=npmRebuild is set to false
+  • packaging       platform=win32 arch=x64 electron=33.0.0 appOutDir=.qa152-windows-release\win-unpacked
+  • updating asar integrity executable resource  executablePath=.qa152-windows-release\win-unpacked\Nowen Note QA152.exe
+  • skipping "afterSign" hook as no signing occurred, perhaps you intended "afterPack"?

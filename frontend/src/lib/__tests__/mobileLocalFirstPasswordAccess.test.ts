@@ -37,6 +37,11 @@ function setup(deviceOnly = false) {
   const remoteTree = vi.spyOn(knowledgeTreeApi, "listForWorkspace").mockResolvedValue({ nodes });
   const authorize = vi.spyOn(api, "getNoteSlim").mockResolvedValue(notes[0]);
   const repository = {
+    listLocalTreeDrafts: vi.fn(async () => []),
+    listPersonalTreeOverrides: vi.fn(async () => []),
+    listPersonalTreeFolderDrafts: vi.fn(async () => []),
+    listNotebooksForWorkspace: vi.fn(async () => []),
+    hydrateAuthorizedNote: vi.fn(async (incoming: Note) => incoming),
     notes: { get: vi.fn(async (id: string) => notes.find((item) => item.id === id)) },
     listNotesForWorkspace: vi.fn(async () => notes),
     listNotesWithTags: vi.fn(async () => notes),
@@ -53,7 +58,7 @@ function setup(deviceOnly = false) {
   } as unknown as NativeDatabase;
   if (deviceOnly) localStorage.setItem("nowen-mobile-force-local-mode", "1");
   restore = installMobileLocalFirstBridge(repository, db, "user");
-  return { remoteTree, authorize, repository, nodes, snapshots };
+  return { remoteTree, authorize, repository, nodes, snapshots, db };
 }
 
 beforeEach(() => {
@@ -64,6 +69,134 @@ beforeEach(() => {
 afterEach(() => { restore?.(); restore = undefined; vi.restoreAllMocks(); Reflect.deleteProperty(window, "Capacitor"); });
 
 describe("signed-in Android folder password access", () => {
+  it("opens an explicitly restored ordinary personal body before the server acknowledges its folder restore", async () => {
+    const { repository, remoteTree, authorize } = setup();
+    const owner = { source: "owner", capabilities: { canView: true } } as KnowledgeTreeNode["access"];
+    const parent = { ...folder("public", null), userId: "user", isDeleted: 1, access: owner };
+    const child = { id: "note:ordinary", resourceId: "ordinary", resourceType: "note", parentId: "public",
+      userId: "user", workspaceId: null, isDeleted: 1, sortOrder: 0, access: owner } as KnowledgeTreeNode;
+    remoteTree.mockResolvedValue({ nodes: [parent, child], passwordAuthorizedNotes: [] });
+    vi.mocked(repository.listPersonalTreeOverrides).mockResolvedValue([
+      { ...parent, isDeleted: 0, localLifecycle: "restore" }, { ...child, isDeleted: 0, localLifecycle: "restore" },
+    ]);
+    await expect(api.getNote("ordinary")).resolves.toMatchObject({ id: "ordinary" });
+    expect(authorize).not.toHaveBeenCalled();
+    remoteTree.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(api.getNote("ordinary")).resolves.toMatchObject({ id: "ordinary" });
+  });
+
+  it.each(["move", "shared", "protected", "missing-parent", "malformed", "live-protection"])(
+    "does not let a local restore bypass %s authorization", async (state) => {
+      const { repository, remoteTree, authorize } = setup();
+      const owner = { source: "owner", capabilities: { canView: true } } as KnowledgeTreeNode["access"];
+      const parent = { ...folder("public", null, state === "protected"), userId: "user", isDeleted: 1, access: owner };
+      const child = { id: "note:ordinary", resourceId: "ordinary", resourceType: "note", parentId: "public",
+        userId: "user", workspaceId: null, isDeleted: 1, sortOrder: 0,
+        access: state === "shared" ? { ...owner, source: "inherited" } : owner } as KnowledgeTreeNode;
+      remoteTree.mockResolvedValue({ nodes: state === "missing-parent" ? [child] : [parent, child],
+        passwordAuthorizedNotes: state === "malformed" ? null as never
+          : state === "live-protection" ? [{ noteId: "ordinary", folderIds: ["protected-ancestor"] }] : [] });
+      vi.mocked(repository.listPersonalTreeOverrides).mockResolvedValue([
+        { ...parent, isDeleted: 0, localLifecycle: state === "move" ? undefined : "restore" },
+        { ...child, isDeleted: 0, localLifecycle: state === "move" ? undefined : "restore" },
+      ]);
+      await expect(api.getNote("ordinary")).rejects.toThrow();
+      expect(authorize).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reads a locally created root with live server proofs and after losing the first Push response", async () => {
+    const { repository, remoteTree, snapshots, db, authorize } = setup();
+    const root = { ...note("local-root", "hidden-root"), userId: "user", isTrashed: 0, treeParentId: null };
+    vi.mocked(repository.notes.get).mockResolvedValue(root);
+    vi.mocked(repository.listLocalTreeDrafts).mockResolvedValue([root]);
+    snapshots.set("localTreeDraft:personal:local-root", "null");
+    vi.mocked(db.query).mockImplementation(async (sql, values = []) => sql.includes("sync_outbox") ? [{ id: "queued" }] as never
+      : snapshots.has(String(values[0])) ? [{ value: snapshots.get(String(values[0])) }] as never : []);
+    remoteTree.mockResolvedValue({ nodes: [], passwordAuthorizedNotes: [] });
+    await expect(api.getNote(root.id)).resolves.toMatchObject({ id: root.id });
+    remoteTree.mockRejectedValue(new TypeError("Failed to fetch"));
+    await expect(api.getNote(root.id)).resolves.toMatchObject({ id: root.id });
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("persists an authorized personal tree body before returning and then edits locally", async () => {
+    const incoming = { ...note("hydrate-body", "public"), userId: "user" };
+    vi.spyOn(api, "getNote").mockResolvedValue(incoming);
+    vi.spyOn(api, "getNotebooks").mockResolvedValue([{ id: "public", userId: "user", workspaceId: null }] as never);
+    const remoteUpdate = vi.spyOn(api, "updateNote");
+    const { repository, authorize, remoteTree, nodes } = setup();
+    authorize.mockResolvedValue(incoming);
+    remoteTree.mockResolvedValue({ nodes: [...nodes, { id: `note:${incoming.id}`, resourceType: "note", resourceId: incoming.id,
+      parentId: "public", workspaceId: null, isDeleted: 0, access: { capabilities: { canView: true } } } as KnowledgeTreeNode] });
+    vi.mocked(repository.hydrateAuthorizedNote).mockImplementation(async (value) => {
+      vi.mocked(repository.notes.get).mockResolvedValue(value);
+      return value;
+    });
+    repository.notes.update = vi.fn(async () => ({ id: incoming.id, savedAt: "now" }));
+    await expect(api.getNote(incoming.id)).resolves.toEqual(incoming);
+    expect(repository.hydrateAuthorizedNote).toHaveBeenCalledWith(incoming, expect.objectContaining({ id: "public" }));
+    await api.updateNote(incoming.id, { content: "offline edit" });
+    expect(repository.notes.update).toHaveBeenCalledWith(incoming.id, { content: "offline edit" });
+    expect(remoteUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not persist or return a remote body after its native session is disposed", async () => {
+    const incoming = { ...note("late-body", "public"), userId: "user" };
+    let finish!: (value: Note) => void;
+    const remoteGet = vi.spyOn(api, "getNote").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const { repository, authorize } = setup();
+    authorize.mockResolvedValue(incoming);
+    const read = api.getNote(incoming.id);
+    const rejected = expect(read).rejects.toThrow("会话已改变");
+    await vi.waitFor(() => expect(remoteGet).toHaveBeenCalled());
+    restore?.(); restore = undefined;
+    finish(incoming);
+    await rejected;
+    expect(repository.hydrateAuthorizedNote).not.toHaveBeenCalled();
+  });
+
+  it("opens and saves a server-tree note missing from Native SQLite without creating a duplicate", async () => {
+    const incoming = note("just-created-on-server", "public");
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(incoming);
+    const remoteUpdate = vi.spyOn(api, "updateNote").mockResolvedValue({ ...incoming, title: "updated" });
+    const remoteDelete = vi.spyOn(api, "deleteNote").mockResolvedValue({ success: true });
+    const remoteDuplicate = vi.spyOn(api, "duplicateNote").mockResolvedValue({
+      ...incoming, id: "copy", tags: [], treeNodeId: "tree-copy", treeParentId: null,
+    });
+    const { repository, authorize } = setup();
+    authorize.mockImplementation(async (id: string) => ({ ...incoming, id }));
+
+    await expect(api.getNote(incoming.id)).resolves.toEqual(incoming);
+    expect(authorize).toHaveBeenCalledWith(incoming.id);
+    expect(remoteGet).toHaveBeenCalledWith(incoming.id);
+    expect(repository.notes.get).toHaveBeenCalledWith(incoming.id);
+
+    await expect(api.updateNote(incoming.id, { title: "updated", version: 1 }))
+      .resolves.toMatchObject({ title: "updated" });
+    expect(remoteUpdate).toHaveBeenCalledWith(incoming.id, { title: "updated", version: 1 });
+    await api.deleteNote(incoming.id);
+    expect(remoteDelete).toHaveBeenCalledWith(incoming.id);
+    await api.duplicateNote(incoming.id);
+    expect(remoteDuplicate).toHaveBeenCalledWith(incoming.id);
+  });
+
+  it("fails closed when server authorization rejects a note missing locally", async () => {
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(note("denied-remote", "public"));
+    const { authorize } = setup();
+    authorize.mockRejectedValue(Object.assign(new Error("not found or forbidden"), { status: 404 }));
+
+    await expect(api.getNote("denied-remote")).rejects.toThrow("not found or forbidden");
+    expect(remoteGet).not.toHaveBeenCalled();
+  });
+
+  it("keeps device-only notes local and never queries the remote server", async () => {
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(note("only-remote", "public"));
+    setup(true);
+    await expect(api.getNote("only-remote")).rejects.toThrow("笔记不存在");
+    expect(remoteGet).not.toHaveBeenCalled();
+  });
+
   it("keeps malformed navigation cycles fail-closed even with live confirmation", async () => {
     const { remoteTree, nodes } = setup();
     remoteTree.mockResolvedValue({

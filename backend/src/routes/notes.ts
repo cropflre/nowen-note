@@ -1,4 +1,5 @@
 import { permanentlyDeleteNote } from "../services/trash/noteTrashAdapter.js";
+import encryptedNoteConversionRoutes from "./encrypted-note-conversion.js";
 import { inspectEncryptedNoteConversion } from "../services/encryptedNoteConversionPreflight.js";
 import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
@@ -65,6 +66,7 @@ import { duplicateNote, DuplicateNoteError } from "../services/noteDuplicates";
 import { isValidNoteColorMarkInput, normalizeNoteColorMark } from "../lib/noteColorMark";
 
 const app = new Hono();
+app.route("/:id/encryption", encryptedNoteConversionRoutes);
 const reportedInvalidTiptapNotes = new Set<string>();
 function reportInvalidTiptapNoteOnce(noteId: string, version: number, reason: string): void {
   const key = `${noteId}:${version}:${reason}`;
@@ -331,6 +333,12 @@ app.delete("/trash/empty", (c) => {
 
   const ids = targets.map((r) => r.id);
 
+  for (const id of ids) {
+    if (db.prepare("SELECT 1 FROM attachments WHERE noteId=? AND trashedAt IS NOT NULL LIMIT 1").get(id)) {
+      return c.json({ error: "请先恢复或永久删除这些笔记的文件回收站内容", code: "ATTACHMENT_TRASH_RETAINED" }, 409);
+    }
+  }
+
   // ⚠ 必须在 DELETE FROM notes 之前清理磁盘附件文件：
   // attachments 表的 ON DELETE CASCADE 只会删 DB 行，磁盘 data/attachments/*.png
   // 不会被自动清理。删完 DB 就再也查不到 path 了。
@@ -526,6 +534,14 @@ app.get("/:id", (c) => {
 
   const { permission } = resolveNotePermission(id, userId);
   if (!hasPermission(permission, "read")) {
+    // Keep the public 404 opaque, but distinguish a missing row from ACL denial
+    // in server diagnostics so support can identify sync/permission failures.
+    const exists = !!db.prepare("SELECT 1 FROM notes WHERE id = ?").get(id);
+    console.warn("[notes.get] unavailable", {
+      noteId: id,
+      reason: exists ? "access-denied" : "record-missing",
+      authenticated: Boolean(userId),
+    });
     return c.json({ error: "Note not found or forbidden" }, 404);
   }
 
@@ -684,6 +700,9 @@ app.post("/", async (c) => {
     return c.json({ error: "无效的笔记颜色标记", code: "INVALID_NOTE_COLOR_MARK" }, 400);
   }
   const initialColorMark = body.colorMark === undefined ? null : normalizeNoteColorMark(body.colorMark);
+  if (typeof body.notebookId !== "string" || !body.notebookId.trim()) {
+    return c.json({ error: "创建笔记需要笔记本 ID", code: "NOTEBOOK_ID_REQUIRED" }, 400);
+  }
 
   // 如果指定了 notebookId，必须对其有 write 权限，并从笔记本继承 workspaceId
   let inheritedWorkspaceId: string | null = null;
@@ -719,10 +738,11 @@ app.post("/", async (c) => {
     id = uuid();
   }
   // contentText 由服务端从正文派生，客户端提交值不再作为索引真源。
-  const contentFormat = body.contentFormat === "markdown" ? "markdown"
+  const contentFormat = body.contentFormat === "plaintext" ? "plaintext"
+    : body.contentFormat === "markdown" ? "markdown"
     : body.contentFormat === "html" ? "html"
     : "tiptap-json";
-  const defaultContent = contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
+  const defaultContent = contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
   let initialContent = typeof body.content === "string" ? body.content : defaultContent;
   try {
     initialContent = stabilizePersistedNoteContent(initialContent, contentFormat);
@@ -755,8 +775,12 @@ app.post("/", async (c) => {
   try {
     legacyNoteCreateTx();
   } catch (e: any) {
-    if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
+    if (["SQLITE_CONSTRAINT_PRIMARYKEY", "SQLITE_CONSTRAINT_UNIQUE"].includes(e?.code)
+      && e?.message === "UNIQUE constraint failed: notes.id") {
       return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
+    }
+    if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
+      return c.json({ error: "笔记数据不满足保存约束", code: "NOTE_CONSTRAINT_VIOLATION" }, 400);
     }
     throw e;
   }
@@ -766,7 +790,7 @@ app.post("/", async (c) => {
   // 必须放在 INSERT 之后，attachments.noteId 外键要求 note 行先存在。
   // 短路保证常规无内联图的创建零额外成本。
   let finalContent = initialContent;
-  if (typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
+  if (contentFormat !== "plaintext" && typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, inheritedWorkspaceId);
       if (r.replacedCount > 0) {
@@ -1119,7 +1143,8 @@ app.put("/:id", async (c) => {
   //   - 失败保留原 data URI 不阻断保存；
   //   - 抽取改写后会让 contentText 与 content 体积出现"不对称变化"——但 contentText 是
   //     纯文本不含 base64，本身不受影响，FTS 重排逻辑（notes_au）也不会被打扰。
-  if (typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
+  const imageSourceFormat = body.contentFormat ?? (db.prepare("SELECT contentFormat FROM notes WHERE id = ?").get(id) as { contentFormat: string }).contentFormat;
+  if (imageSourceFormat !== "plaintext" && typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, noteWorkspaceId);
       if (r.replacedCount > 0) {
@@ -1749,8 +1774,8 @@ app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
   }
 });
 
-// 删除笔记（永久）：保留原接口，复用回收站生命周期服务。
-app.delete("/:id", (c) => {
+// 两个永久删除入口都要求先进入回收站；旧入口保留兼容且不会隐式软删。
+app.on("DELETE", ["/:id/permanent", "/:id"], (c) => {
   try {
     permanentlyDeleteNote(c.req.param("id"), c.req.header("X-User-Id") || "");
     return c.json({ success: true });

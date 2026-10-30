@@ -1006,10 +1006,11 @@ export default function DataManager() {
         </p>
 
       </div>
+      {activeSubTab === null && !isMobileLocalMode() && <RemoteImageLocalizationPanel />}
       {activeSubTab === null ? (isAdmin && !isMobileLocalMode() ? (
         <BackupCenter
           migration={<DataTransferCenter onImport={() => setActiveSubTab("import")} onExport={() => setActiveSubTab("export")} />}
-          advanced={<><DesktopDataSafetyCard currentUser={currentUser} /><RemoteImageLocalizationPanel /><DataFileSection />        <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
+          advanced={<><DesktopDataSafetyCard currentUser={currentUser} /><DataFileSection />        <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} className="text-red-500" />
             <h4 className="text-base font-bold text-red-600 dark:text-red-500">{t('dataManager.dangerZone')}</h4>

@@ -72,23 +72,32 @@ function normalizeTiptapNode(node: unknown): { value: unknown; changed: boolean 
   return { value: next, changed };
 }
 
-function stabilizeMarkupImages(content: string): string {
+function stabilizeMarkupImages(content: string, preserveNamedImages = false): string {
+  const stabilize = (source: string) => {
+    // Markdown source is copied to other sites. Keep the named absolute delivery URL,
+    // but never persist a session's short-lived access credentials (DCC-006).
+    if (preserveNamedImages && /^https?:\/\/[^\s?#]+\/api\/attachments\/[0-9a-f-]{36}\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif)(?:[?#]|$)/i.test(source)) {
+      return source.split(/[?#]/)[0];
+    }
+    return stabilizeImageSource(source);
+  };
   let result = content.replace(
     /(<img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']+)(\2)/gi,
     (_match, prefix: string, quote: string, source: string) => (
-      `${prefix}${quote}${stabilizeImageSource(source)}${quote}`
+      `${prefix}${quote}${stabilize(source)}${quote}`
     ),
   );
   result = result.replace(
     /(!\[[^\]]*\]\(\s*<?)([^\s)>]+)(>?\s*(?:["'][^"']*["'])?\s*\))/g,
     (_match, prefix: string, source: string, suffix: string) => (
-      `${prefix}${stabilizeImageSource(source)}${suffix}`
+      `${prefix}${stabilize(source)}${suffix}`
     ),
   );
   return result;
 }
 
 export function stabilizePersistedNoteContent(content: string, contentFormat: string): string {
+  if (contentFormat === "plaintext") return content;
   if (!content) return content;
   if (contentFormat === "tiptap-json") {
     try {
@@ -100,5 +109,5 @@ export function stabilizePersistedNoteContent(content: string, contentFormat: st
       // 格式标记错误的历史正文继续按 Markdown/HTML 图片边界处理。
     }
   }
-  return stabilizeMarkupImages(content);
+  return stabilizeMarkupImages(content, contentFormat === "markdown");
 }

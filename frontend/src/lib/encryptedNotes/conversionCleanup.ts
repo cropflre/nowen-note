@@ -3,8 +3,8 @@ import { clearCachedNoteForEncryptionConversion, getCurrentUserId, inspectCached
 import { getOfflineQueueStorageKey, isOfflineQueueFlushing } from "../offlineQueue";
 import { getYjsPersistenceName } from "../yjsProvider";
 import { markConvertedNote } from "./conversionBarrier";
-import { readEncryptedNoteDocument } from "./noteDocument";
-import { ConversionCleanupError, withConversionCleanupLease } from "./conversionCoordination";
+import { readEncryptedNoteEnvelope } from "./noteDocument";
+import { ConversionCleanupError, withConversionCleanupLease, withHeldConversionLease, type ConversionLease } from "./conversionCoordination";
 
 interface CommittedEncryptedNote {
   id: string; userId: string; version: number; content: string; contentText: string; contentFormat: string;
@@ -17,7 +17,7 @@ export interface ConversionCleanupInput {
   discardLocalCopies: true;
 }
 
-function assertNoPendingWrites(noteId: string, queueKey: string): void {
+export function assertNoPendingConversionWrites(noteId: string, queueKey: string): void {
   if (isOfflineQueueFlushing()) throw new ConversionCleanupError("pending_writes");
   for (const key of [queueKey, "nowen-offline-queue"]) {
     const raw = localStorage.getItem(key);
@@ -46,6 +46,7 @@ function deleteCollaborationDatabase(name: string): Promise<void> {
 export async function cleanupConvertedNoteCopies(
   input: ConversionCleanupInput,
   loadCommitted: () => Promise<CommittedEncryptedNote>,
+  lease?: ConversionLease,
 ) {
   if (input.discardLocalCopies !== true || !input.noteId || !input.userId || !Number.isSafeInteger(input.version) || input.version < 1) {
     throw new ConversionCleanupError("invalid_consent");
@@ -69,10 +70,10 @@ export async function cleanupConvertedNoteCopies(
   window.addEventListener("nowen:server-url-changed", invalidate);
   window.addEventListener("storage", storage);
   try {
-    return await withConversionCleanupLease(input.noteId, async () => {
+    const cleanup = async () => {
       assertScope();
       if (typeof indexedDB.databases !== "function") throw new ConversionCleanupError("unavailable");
-      assertNoPendingWrites(input.noteId, queueKey);
+      assertNoPendingConversionWrites(input.noteId, queueKey);
       inspectDraftIndexForEncryptionConversion();
       if (await inspectCachedNotePresence(input.noteId, input.userId) === null) throw new ConversionCleanupError("unavailable");
       assertScope();
@@ -80,13 +81,13 @@ export async function cleanupConvertedNoteCopies(
       assertScope();
       if (note.id !== input.noteId || note.userId !== input.userId || note.version !== input.version
         || note.content !== input.content || note.contentText !== "") throw new ConversionCleanupError("not_committed");
-      try { readEncryptedNoteDocument(note); } catch { throw new ConversionCleanupError("not_committed"); }
+      try { readEncryptedNoteEnvelope(note); } catch { throw new ConversionCleanupError("not_committed"); }
       markConvertedNote(input.noteId, input.version, queueKey);
       assertScope();
       const collaboration = getYjsPersistenceName(input.noteId, input.userId);
       const databases = await indexedDB.databases();
       assertScope();
-      assertNoPendingWrites(input.noteId, queueKey);
+      assertNoPendingConversionWrites(input.noteId, queueKey);
       // Delete only a known existing database; never open/create a Yjs database.
       if (databases.some((database) => database.name === collaboration)) {
         await deleteCollaborationDatabase(collaboration);
@@ -94,18 +95,19 @@ export async function cleanupConvertedNoteCopies(
       }
       await clearCachedNoteForEncryptionConversion(input.noteId, input.userId, assertScope);
       assertScope();
-      assertNoPendingWrites(input.noteId, queueKey);
+      assertNoPendingConversionWrites(input.noteId, queueKey);
       clearDraftForEncryptionConversion(input.noteId);
       const remaining = await indexedDB.databases();
       assertScope();
-      assertNoPendingWrites(input.noteId, queueKey);
+      assertNoPendingConversionWrites(input.noteId, queueKey);
       if (await inspectCachedNotePresence(input.noteId, input.userId) !== false) throw new ConversionCleanupError("storage_failed");
       assertScope();
       if (localStorage.getItem(`nowen-draft-${input.noteId}`) !== null || remaining.some((database) => database.name === collaboration)) {
         throw new ConversionCleanupError("storage_failed");
       }
       return { noteId: input.noteId, localCleanup: true as const, physicalErasure: "not_verified" as const };
-    });
+    };
+    return await (lease ? withHeldConversionLease(lease, input.noteId, cleanup) : withConversionCleanupLease(input.noteId, cleanup));
   } catch (error) {
     if (error instanceof ConversionCleanupError) throw error;
     throw new ConversionCleanupError("storage_failed");

@@ -1,0 +1,26 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "target",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-target-oiucrs",
+  "base": "http://127.0.0.1:2561",
+  "checks": [],
+  "import": {
+    "success": true,
+    "counts": {
+      "notebooks": 1,
+      "notes": 1,
+      "tags": 0,
+      "noteTags": 0,
+      "attachments": 1,
+      "renamedRoots": 0,
+      "mergedNotebooks": 0,
+      "renamedNotes": 0
+    },
+    "separateDbInitiallyEmpty": true,
+    "restartedBodyVerified": true,
+    "attachmentSha256": "ed845bb90ef4c3ebc366c37770917f8eccf93aa8617c36b07271df414e3ac845"
+  },
+  "result": "PASS"
+}

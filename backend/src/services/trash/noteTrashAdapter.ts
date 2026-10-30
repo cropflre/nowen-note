@@ -1,5 +1,6 @@
+import { SyncError } from "../../sync/errors";
+import { assertPermanentNoteDeletion } from "../../sync/noteDeletion";
 import { getDb } from "../../db/schema.js";
-import { resolveTrashedNotePermission, hasPermission } from "../../middleware/acl.js";
 import { deleteAttachmentFilesByNoteIds } from "../../routes/attachments.js";
 import { noteLinksRepository } from "../../repositories/index.js";
 import { yDestroyDoc } from "../yjs.js";
@@ -12,22 +13,32 @@ import { KnowledgeTreeError } from "../knowledgeTree.js";
 // Shared by the legacy note endpoint and the unified trash lifecycle.
 export function permanentlyDeleteNote(id: string, userId: string, deferReclaim = false): number {
   const db = getDb();
-  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
-  const { permission } = resolveTrashedNotePermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    // editor 不能永久删除，只能放入回收站
-    throw new KnowledgeTreeError("FORBIDDEN", 403, "仅笔记 owner 或工作区管理员可永久删除");
-  }
+  // Hold the SQLite write lock from lifecycle/ACL validation through deletion.
+  const { freedBytesEstimate, removedFiles } = db.transaction(() => deleteTrashedNoteData(id, userId)).immediate();
+  try { yDestroyDoc(id); } catch {}
+  if (!deferReclaim) reclaimSpace(db, { freedBytesEstimate, tag: "notes.delete" });
+  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
+  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
+  try { broadcastNoteDeleted(id, { actorUserId: userId, trashed: false }); } catch {}
+  return freedBytesEstimate;
+}
 
-  const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
-  if (note && note.isLocked === 1) {
-    throw new KnowledgeTreeError("NOTE_LOCKED", 403, "Note is locked");
+function deleteTrashedNoteData(id: string, userId: string): { freedBytesEstimate: number; removedFiles: number } {
+  const db = getDb();
+  try { assertPermanentNoteDeletion(db,id,userId); }
+  catch(error) {
+    if (!(error instanceof SyncError)) throw error;
+    const code=error.code === "SCOPE_FORBIDDEN" ? "FORBIDDEN" : error.code;
+    const status=error.code === "NOTE_NOT_TRASHED" || error.code === "ATTACHMENT_TRASH_RETAINED" ? 409 : 403;
+    throw new KnowledgeTreeError(code,status,error.message);
   }
 
   // ⚠ 先清理磁盘附件物理文件（必须在 DELETE FROM notes 之前，否则 CASCADE 后查不到 path）
   let removedFiles = 0;
   try {
-    removedFiles = deleteAttachmentFilesByNoteIds([id]);
+    // Outbox captures a recoverable body/attachment snapshot before the row disappears.
+    const outgoing = db.prepare("SELECT enabled FROM sync_v2_should_enqueue").get() as {enabled:number}|undefined;
+    if(!outgoing?.enabled) removedFiles = deleteAttachmentFilesByNoteIds([id]);
   } catch (e) {
     console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
   }
@@ -79,20 +90,5 @@ export function permanentlyDeleteNote(id: string, userId: string, deferReclaim =
     console.warn("[notes.delete] prune unused tags failed:", e);
   }
 
-  // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
-  try { yDestroyDoc(id); } catch {}
-
-  // 回收磁盘空间：与"清空回收站"一致的 checkpoint + incremental_vacuum 策略。
-  // 没有这一步，单删笔记永远不会让 .db 主文件缩小（SQLite 默认不归还 free page），
-  // 用户感知就是"删了笔记占用不降"，这是此前的缺陷。
-  if (!deferReclaim) reclaimSpace(db, { freedBytesEstimate, tag: "notes.delete" });
-
-  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
-  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
-
-  // Phase 2: 广播永久删除
-  try {
-    broadcastNoteDeleted(id, { actorUserId: userId, trashed: false });
-  } catch {}
-  return freedBytesEstimate;
+  return { freedBytesEstimate, removedFiles };
 }

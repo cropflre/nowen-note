@@ -28,7 +28,7 @@ const TABLES: Record<EntityType, { table: string; columns: string[]; keys: strin
   note_tag: { table: "note_tags", columns: "scopeKey,workspaceId,noteId,tagId,createdAt".split(","), keys: ["scopeKey", "noteId", "tagId"] },
   favorite: { table: "favorites", columns: "scopeKey,workspaceId,userId,noteId,createdAt".split(","), keys: ["scopeKey", "userId", "noteId"] },
   attachment: { table: "attachments", columns: "id,scopeKey,workspaceId,noteId,userId,filename,mimeType,size,localPath,hash,available,transferStatus,createdAt,updatedAt".split(","), keys: ["scopeKey", "id"], map: "attachments" },
-  task: { table: "tasks", columns: "id,scopeKey,workspaceId,userId,title,description,isCompleted,completedAt,priority,dueDate,dueAt,startDate,noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt".split(","), keys: ["id"], map: "tasks" },
+  task: { table: "tasks", columns: "id,scopeKey,workspaceId,userId,title,description,isCompleted,completedAt,archivedAt,priority,dueDate,dueAt,startDate,noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt".split(","), keys: ["id"], map: "tasks" },
   task_reminder: { table: "task_reminders", columns: "id,taskId,userId,offsetMinutes,enabled,lastNotifiedAt,snoozedUntil,createdAt,updatedAt".split(","), keys: ["id"], map: "taskReminders" },
   diary: { table: "diaries", columns: "id,scopeKey,workspaceId,userId,contentText,mood,images,media,createdAt".split(","), keys: ["id"], map: "diaries" },
   mindmap: { table: "mindmaps", columns: "id,scopeKey,workspaceId,userId,title,data,starred,folderId,createdAt,updatedAt".split(","), keys: ["id"], map: "mindmaps" },

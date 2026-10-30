@@ -62,7 +62,7 @@ export function useTaskTree(tasks: Task[], filter: TaskFilter) {
     setExpandedTaskIds(new Set());
   }, []);
 
-  const isTreeMode = filter === "all";
+  const isTreeMode = filter === "all" || filter === "archived";
 
   // 仅 "all" filter 构建树，其他保持平铺
   const tree = useMemo(() => {

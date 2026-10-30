@@ -2,6 +2,14 @@
 
 本文档描述 Nowen Note 的 WebSocket 实时同步架构，涵盖连接管理、事件分发、删除/回收站同步流程、前端行为以及离线兜底策略。
 
+### Sync V2 / Android Native（release/v1.5.2 开发中）
+
+Android 登录态复用现有 `/ws`：`sync.changed`、连接恢复和前台恢复唤醒同一个 `MobileSyncEngine`，30 秒前台补偿 Pull 处理丢失通知。通知不携带正文，也不替代 Change Feed；Native SQLite Apply 提交后才广播 `nowen:mobile-sync-applied`，刷新列表、知识树和打开正文。Android 不再由 `OfflineSyncRuntime` 启动另一套 Web 离线队列。系统冻结/强杀时不承诺持续后台实时同步。
+
+Desktop uses the embedded backend Sync V2 engine; Android uses its native SQLite engine. Web/mobile browsers still use REST plus IndexedDB/offline queue and are not a unified transactional Local-first implementation. iOS/HarmonyOS equivalence has not been accepted. A note ACK confirms the server revision, not receipt by every device or completion of every attachment transfer.
+
+平台与实体矩阵、根因和执行证据见 [审计](sync-v2-reliability-audit.md) 与 [验收记录](sync-v2-reliability-validation.md)。当前改动仍需通过剩余验收，不能据此宣称生产治理完成。
+
 ---
 
 ## 1. WebSocket 连接模型

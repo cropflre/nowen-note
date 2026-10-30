@@ -1,0 +1,16 @@
+
+> nowen-release-center@0.1.0 test:browser
+> playwright test
+
+[WebServer] (node:74168) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:74171) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/browser/console.spec.ts:3:1 › wizard, durable Dry Run, SSE logs, and server-enforced disabled publication (2.7s)
+  ✓  2 tests/browser/console.spec.ts:37:1 › conflicting version remains blocked and renders a failed Dry Run without dispatch (2.5s)
+  ✓  3 tests/browser/console.spec.ts:53:1 › narrow layout, navigation, dark mode and empty state stay usable (184ms)
+
+  3 passed (6.1s)

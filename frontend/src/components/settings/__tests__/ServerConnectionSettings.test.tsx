@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { rememberServerInstanceId, setServerTransportEndpoint } from "@/lib/serverEndpointState";
+import i18n from "@/i18n";
 const mocks = vi.hoisted(() => ({ native: true, local: false }));
 vi.mock("@/lib/api", () => ({ getServerUrl: () => "https://notes.example.com", isNativeCapacitor: () => mocks.native, SERVER_URL_CHANGED_EVENT: "nowen:server-url-changed" }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isMobileLocalMode: () => mocks.local }));
@@ -9,7 +10,8 @@ import ServerConnectionSettings from "../ServerConnectionSettings";
 let container: HTMLDivElement;
 let root: Root;
 const url = "https://notes.example.com";
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
   localStorage.clear(); mocks.native = true; mocks.local = false;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);

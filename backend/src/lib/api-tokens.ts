@@ -13,6 +13,8 @@ const TOKEN_RAW_BYTES = 32;
 export const API_TOKEN_SCOPES = [
   "tasks:read",
   "tasks:write",
+  "automations:read",
+  "automations:write",
   "notes:read",
   "notes:write",
   "notebooks:read",

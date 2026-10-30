@@ -1,0 +1,32 @@
+# Native personal folder creation validation
+
+2026-10-11, `codex/native-knowledge-tree-offline`, continuing Draft PR [#831](https://github.com/cropflre/nowen-note/pull/831) into `release/v1.5.2`. Creation `61ca1f03`, Snapshot race fix `c3d9b9ff`, baseline `8119a34c`; [previous move/conflict validation](sync-v2-native-tree-writes-validation.en.md), [中文](sync-v2-native-folder-create-validation.md).
+
+## Implemented path
+
+Native clients with a completed personal tree subscription and cached access metadata can create ordinary folders offline at root, under an ordinary folder, or under an existing document. They can create nested folders and Markdown/rich-text notes inside the new folder. Stable resource identities, the notebook, tree projection, creation provenance and both Outbox intents commit in one SQLite transaction. A structural enqueue failure rolls everything back. This uses existing Sync V2 and schema 7 without a parallel protocol or data reset.
+
+The notebook mutation precedes its structural intent. Its base tuple matches the projection produced by server business creation. A root document's hidden compatibility container is soft-deleted and cannot serve as an ordinary legacy creation parent. Create the business resource at root first, then attach it to the document through the existing container-aware move service. Subsequent business renames preserve the existing hidden parent without rerunning the creation guard through UPSERT. New resources still pass the existing parent/scope guards.
+
+Only explicit local personal folder creation provides provisional provenance; the whole native graph never implies ACL. Writes require both the original cached path and the local-intent path to be complete, owner-visible and free of folder passwords, with the latter matching the native graph. A folder with unfinished creation intents may receive nested children. Live tree metadata takes over ACL/password authority; an ACKed folder omitted by a live tree is not reconstructed from provenance. Offline lists and restart recovery retain provenance awaiting that live handover. Missing subscription/proofs, shared and protected paths retain the online entry; storage failures propagate without issuing another creation.
+
+## Local validation
+
+Folders, nested folders and bodies created while the final Snapshot page returns cannot appear in that snapshot. Provenance records the original business mutationId. Only that original still-pending creation exempts snapshot absence from a synthesized remote tombstone; subsequent business updates cannot use old provenance to mask deletion. A real multi-database regression reproduced the false conflict and verified the fix.
+
+- Final related backend tests: 323; unique frontend tests: 257 across 39 files. All pass without skips. New cases cover nested resources and a second independent SQLite client, document parents, reopen/stable mutation identities, creation during full rebuild, complete and structure-only lost ACKs, new writes during Push, 100-row dependency boundaries, atomic rollback, unbound/missing/foreign/protected ancestors, live proof handover and workspace fallback.
+- All eight backend files mapped by the consistency contract separately pass 125 tests without skips; these overlap the first count. Contract gate: 12 invariants, 97 references, eight backend and 20 frontend files.
+- Backend production build/build:tsc and frontend TypeScript/normal production build pass. Lint: 1447 historical errors, zero new errors. Frontend SQLite tests use Node 24; better-sqlite3 uses the repository Electron RunAsNode runtime.
+- Separately inspected [I18n CI](https://github.com/cropflre/nowen-note/actions/runs/38139639518): one of 39 tests fails on the same 16 encryptedConversion keys as [pre-change 8119a34c](https://github.com/cropflre/nowen-note/actions/runs/38137818852). Production index merges the translation module; the existing test fixture omits it. The relevant components and i18n directory are unchanged from the release baseline. Local execution reproduces the failure; this suite is excluded from the 257 count. Keep Draft and do not claim all CI passes.
+
+## Android acceptance
+
+Read-only Pixel_8_API_35 emulator, API 35 / WebView 124.0.6367.219, separate package `com.nowen.note.syncacceptance`. Final APK and server source: `c3d9b9ff`; APK SHA256 `80897d65fd8007a92fda9b7bcc7ff3cb9a9b146aa414600c3c11c502581e6713`. Removing adb reverse proved Android could not reach the isolated server. The production API Bridge created a root folder, nested folder, folder under an existing document and Markdown inside the new folder, with immediate list/body reads. Force-stop/reopen preserved hierarchy, body and every mutationId. Reconnection automatically uploaded the batch; server hierarchy/body and native ACK converged, with empty Outbox and no tree conflicts. The single reconnect-to-confirmed batch sample was 2002 ms, not a folder-write percentile.
+
+The same APK reran folder move/sort, missed-notice polling, reconnection, native keep-local conflict recovery and bidirectional root Markdown/rich-text body/receipt tests. Thirty loopback body samples: HTTP Push→Native API P50/P95/P99 350/378/1161 ms; Native commit→server body+native ACK 339/362/369 ms. Remote folder create/move were single samples of 66/217 ms. These include API/polling overhead and do not represent WAN or the full editor. Final lastError=null; Android crash buffer: zero lines. [Machine record](test-results/sync-v2-native-folder-create-2026-10-11.json).
+
+The connected PJZ110 real phone was not installed or accepted. The isolated server and read-only emulator are stopped. Normal frontend dist and Android packaging assets are restored and exclude the test entry. Second-client reception is proven by the independent SQLite test above, not a second physical Android device. The final-page Snapshot creation race is specifically proven by multi-database tests; the Android driver did not inject that within-page race.
+
+## Boundaries and next phase
+
+Keep the PR Draft. Ordinary personal folder creation and move/sort are enabled. Folder trash/restore and document/mindmap/file moves with body/attachment queues retain existing online paths. Shared/protected folders, full EditorPane/ConflictCenter GUI, real existing-user databases, WAN, attachment bytes, iOS/HarmonyOS, NAS and a production release are unproven. The recommended next phase is personal folder trash/restore with explicit child-body and pending-queue preservation. Do not close #829, merge or release.

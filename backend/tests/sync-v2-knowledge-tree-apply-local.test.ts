@@ -35,7 +35,7 @@ test("tree snapshot apply restores cross-type positions and tombstones without a
   db.prepare(`INSERT INTO knowledge_tree_nodes
     (id, userId, scopeKey, parentId, nodeType, resourceType, resourceId)
     VALUES ('file:attachment-1', 'owner', 'personal:owner', ?, 'file', 'file', 'attachment-1')`).run(note.id);
-  db.prepare("UPDATE knowledge_tree_nodes SET parentId = ?, sortOrder = 7, isExpanded = 0 WHERE id = 'mindmap:map'")
+  db.prepare("UPDATE knowledge_tree_nodes SET parentId = ?, sortOrder = -2147483647, isExpanded = 0 WHERE id = 'mindmap:map'")
     .run(note.id);
   for (const id of ["mindmap:map", "file:attachment-1", note.id, folder.id]) {
     db.prepare("UPDATE knowledge_tree_nodes SET isDeleted = 1, deletedAt = '2026-09-27' WHERE id = ?").run(id);
@@ -68,7 +68,7 @@ test("tree snapshot apply restores cross-type positions and tombstones without a
   const map = db.prepare(`SELECT parentId, sortOrder, isDeleted, isExpanded
     FROM knowledge_tree_nodes WHERE id = 'mindmap:map'`)
     .get() as { parentId: string; sortOrder: number; isDeleted: number; isExpanded: number };
-  assert.deepEqual(map, { parentId: note.id, sortOrder: 7, isDeleted: 1, isExpanded: 0 });
+  assert.deepEqual(map, { parentId: note.id, sortOrder: -2147483647, isDeleted: 1, isExpanded: 0 });
   const restoredFolder = db.prepare("SELECT isDeleted FROM knowledge_tree_nodes WHERE id = ?")
     .get(folder.id) as { isDeleted: number };
   const restoredFile = db.prepare("SELECT parentId FROM knowledge_tree_nodes WHERE id = 'file:attachment-1'")
@@ -107,7 +107,7 @@ test("tree snapshot apply restores cross-type positions and tombstones without a
   const incrementalMap = db.prepare(`SELECT parentId, sortOrder, isDeleted
     FROM knowledge_tree_nodes WHERE id = 'mindmap:map'`)
     .get() as { parentId: string; sortOrder: number; isDeleted: number };
-  assert.deepEqual(incrementalMap, { parentId: note.id, sortOrder: 7, isDeleted: 1 },
+  assert.deepEqual(incrementalMap, { parentId: note.id, sortOrder: -2147483647, isDeleted: 1 },
     "父节点已删除时，保留原父子关系的子节点墓碑仍需能到达本地");
   const feedAfterIncrementalRow = db.prepare("SELECT COUNT(*) AS count FROM sync_changes_v2")
     .get() as { count: number };

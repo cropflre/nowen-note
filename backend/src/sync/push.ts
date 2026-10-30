@@ -2,6 +2,8 @@ import type Database from "better-sqlite3";
 import { SYNC_TABLES } from "./constants";
 import type { SyncOutboxRow } from "./types";
 import type { PushMutationPayload } from "./remote";
+import { runWithOutboxSuppressed } from "./context";
+import { runChangeFeedSuppressed } from "./suppression";
 
 /**
  * Mutation Coalescing。
@@ -63,6 +65,9 @@ export function coalesceMutations(rows: SyncOutboxRow[]): CoalescedMutation[] {
       continue;
     }
 
+    // A terminal note deletion must not erase the explicitly queued trash stage.
+    if (row.entityType === "note" && (row.operation === "delete" || existing.operation === "delete")) continue;
+
     // 被合并的一方要记账：推送成功后这些条目也必须出队，
     // 否则它们会永远留在 Outbox 里反复重试。
     existing.supersededIds.push(existing.mutationId);
@@ -70,9 +75,8 @@ export function coalesceMutations(rows: SyncOutboxRow[]): CoalescedMutation[] {
     existing.operation = row.operation;
     existing.payload = parsePayload(row.payload);
     // baseVersion 保持最早那条：它才代表"这串修改的共同祖先"。
-    if (existing.baseVersion === undefined && row.baseVersion !== null) {
-      existing.baseVersion = row.baseVersion;
-    }
+    // An absent first base means creation. Later local revisions must not turn
+    // that creation into an update of a server entity that does not exist yet.
   }
 
   return order.map((key) => byEntity.get(key) as CoalescedMutation);
@@ -93,6 +97,36 @@ export function markLocalMutationApplied(
     INSERT OR IGNORE INTO ${SYNC_TABLES.appliedMutations} (mutationId, deviceId, appliedAt)
     VALUES (?, ?, datetime('now'))
   `).run(mutationId, deviceId);
+}
+
+/** Called in the acknowledgement transaction, after the sent rows leave Outbox. */
+export function acknowledgeNotePush(
+  db: Database.Database,
+  mutation: CoalescedMutation,
+  version: number | undefined,
+  profileId: string,
+  scopeKey: string,
+  userId: string,
+  workspaceId: string | null,
+): void {
+  if (mutation.entityType !== "note" || mutation.operation !== "upsert"
+    || typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) return;
+
+  // Later batches and edits made while awaiting Push are descendants of this
+  // confirmed write. Their next Push must use the server's version as its base.
+  const remaining = db.prepare(`
+    UPDATE sync_outbox SET baseVersion = ?
+    WHERE profileId = ? AND scopeKey = ? AND entityType = 'note' AND entityId = ?
+      AND status IN ('pending', 'failed')
+  `).run(version, profileId, scopeKey, mutation.entityId);
+  if (remaining.changes > 0) return; // Keep the editor's version while local edits remain.
+
+  // Version acknowledgement is remote state, not a new user edit.
+  runWithOutboxSuppressed(() => runChangeFeedSuppressed(db, () => {
+    db.prepare(`UPDATE notes SET version = ?
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)`)
+      .run(version, mutation.entityId, workspaceId, workspaceId, userId);
+  }));
 }
 
 export function isLocalMutationApplied(

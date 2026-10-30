@@ -1,0 +1,59 @@
+{
+  "feature": {
+    "headRefOid": "7e0c130c2a96614877d14fbce1fb1082affe5306",
+    "number": 858,
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-16T05:16:28Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cropflre/nowen-note/actions/runs/38854891674/job/116824032496",
+        "name": "dependency-preflight",
+        "startedAt": "2026-10-16T05:16:14Z",
+        "status": "COMPLETED",
+        "workflowName": "Development Environment CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-16T05:20:34Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cropflre/nowen-note/actions/runs/38854891603/job/116824031834",
+        "name": "linux-native-portability",
+        "startedAt": "2026-10-16T05:16:13Z",
+        "status": "COMPLETED",
+        "workflowName": "Linux Desktop Native CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-16T05:17:03Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cropflre/nowen-note/actions/runs/38854891606/job/116824031758",
+        "name": "console-contracts",
+        "startedAt": "2026-10-16T05:16:13Z",
+        "status": "COMPLETED",
+        "workflowName": "Release Center CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-16T05:16:28Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/cropflre/nowen-note/actions/runs/38854891590/job/116824031954",
+        "name": "direct-release-contract",
+        "startedAt": "2026-10-16T05:16:13Z",
+        "status": "COMPLETED",
+        "workflowName": "Windows Direct Release Contract"
+      }
+    ],
+    "url": "https://github.com/cropflre/nowen-note/pull/858"
+  },
+  "registration": {
+    "mergeCommit": {
+      "oid": "3f929ffd218414c959544454a85c97ad5639eea3"
+    },
+    "mergedAt": "2026-10-16T04:39:18Z",
+    "number": 859,
+    "state": "MERGED",
+    "url": "https://github.com/cropflre/nowen-note/pull/859"
+  }
+}

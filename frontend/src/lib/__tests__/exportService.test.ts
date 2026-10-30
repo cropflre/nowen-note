@@ -11,6 +11,15 @@ afterEach(() => {
 });
 
 describe("noteContentToExportHtml", () => {
+  it("exports TXT as escaped literal text without applying Markdown, HTML or JSON formatting", () => {
+    for (const content of ["# heading\n**bold**\n\t  ", '<script>alert(1)</script>\nA & B', '{"type":"doc","content":[]}']) {
+      const host = document.createElement("div");
+      host.innerHTML = noteContentToExportHtml(content, "", "plaintext");
+      expect(host.textContent).toBe(content);
+      expect(host.querySelector("script, h1, strong")).toBeNull();
+      expect(host.querySelector("pre")!.style.whiteSpace).toBe("pre-wrap");
+    }
+  });
   it("renders native Markdown notes to HTML for image export", () => {
     const markdown = [
       "# 一级标题",

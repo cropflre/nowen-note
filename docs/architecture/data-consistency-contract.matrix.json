@@ -1,0 +1,513 @@
+{
+  "version": 1,
+  "description": "Regression contract coverage for Nowen Note sync, offline writes and restore. Tests are executed by scripts/data-consistency-contract.mjs and required by the workflow when protected paths change.",
+  "policies": [
+    {
+      "id": "DCC-001",
+      "title": "已同步的声明必须有服务端版本确认",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
+          "case": "requires server revision advancement before a versioned write is considered synced"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "removes successful queued updates only after the server ACK"
+        }
+      ]
+    },
+    {
+      "id": "DCC-002",
+      "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/encrypted-notes-decryption.test.ts", "case": "permanent decryption preserves note identity and favorites (DCC-002)" },
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
+        {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "desktop delete durably retains the last body and attachment bytes until the delete ACK"},
+        { "file": "backend/tests/asset-ai.test.ts", "case": "a database failure rolls back metadata, folders, tags, result records and existing Outbox" },
+        { "file": "backend/tests/asset-ai.test.ts", "case": "desktop sync refuses unsynced AI metadata writes rather than claiming success" },
+        { "file": "backend/tests/asset-visual-tools.test.ts", "case": "batch rename captures existing attachment mutations atomically and rolls back names and Outbox on failure" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folder enqueue failure rolls back the business row and retains existing mutations" },
+        {
+          "file": "backend/tests/task-composer.test.ts",
+          "case": "invalid items, scope forgery, projects and database failures leave no partial writes"
+        },
+        {
+          "file": "backend/tests/sync-v2-personal-entities.test.ts",
+          "case": "task schedule and recurrence survive Outbox, server apply and local apply, including older peers"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
+          "case": "upgrades schema 7 task recurrence and caches confirmed batches without overwriting edits or Outbox"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native task archive rolls back data and Outbox together on a child enqueue failure"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native task note snapshots keep the source and atomically persist an idempotent note"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native personal moves and sorting are atomic, survive reopen and push only structural fields"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "a structural Outbox insert failure rolls back every move in the local batch"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
+          "case": "migrates schema 6 queues without losing mutation identity, retries, versions or resolved history"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
+          "case": "rolls back both queue rebuilds and schema version when the second rebuild fails"
+        },
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "创建笔记进入 Outbox，且 upsert 顺序在其笔记本之后"
+        },
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "修改笔记携带 OLD.version 作为 baseVersion"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncSwitch.test.ts",
+          "case": "keeps edits queued without network traffic across reinitialization, then uploads them on enable"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
+          "case": "native deletion and stop roll back tasks and lifecycle markers when Outbox insertion fails"
+        }
+      ]
+    },
+    {
+      "id": "DCC-003",
+      "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
+      "status": "covered",
+      "checks": [
+        { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "a failed server write preserves the encrypted barrier and does not queue plaintext (DCC-003)" },
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
+        {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native offline trash then permanent delete acknowledges trash before deletion and replays a lost ACK"},
+        { "file": "backend/tests/asset-organization-sync.test.ts", "case": "desktop directory CRUD captures durable organization mutations and converges through real Sync V2 routes" },
+        {
+          "file": "frontend/src/lib/__tests__/taskOfflineApi.test.ts",
+          "case": "keeps an offline task-tree archive across reinitialization and failed replay"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "服务端错误时条目保留在 Outbox，重试次数增长但不删除"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "断网时进入 offline，Outbox 原样保留"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "stop 只停调度，本地数据与 Outbox 一个字不删"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts",
+          "case": "captures an unexpected scheduled sync failure without advancing the cursor or dropping local changes"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/taskOfflineApi.test.ts",
+          "case": "persists an offline series delete through restart, failed replay and stale server refresh"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native recurrence intent stays durable until the server advertises support"
+        }
+      ]
+    },
+    {
+      "id": "DCC-004",
+      "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "an edit during automatic download retains the newer body and creates no attachment (DCC-004)" },
+        { "file": "backend/tests/encrypted-notes-decryption.test.ts", "case": "a history write failure rolls back plaintext, search projections and the temporary permit (DCC-004)" },
+        {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native deletion conflicts preserve both bodies and honor explicit keep-local and keep-remote choices"},
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent asset folder edits preserve both versions and explicit keep-local converges" },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "remote document moves reject stale body metadata without losing the offline edit"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "a remote folder tombstone retains pending native structure and child bodies until an explicit remote choice"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "VERSION_CONFLICT 登记冲突台账并保留本地内容"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "远端变更不覆盖本地未推送的修改，改为登记冲突"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
+          "case": "keeps both local and server snapshots in a bounded conflict vault"
+        }
+      ]
+    },
+    {
+      "id": "DCC-005",
+      "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset binding preserves server-generated negative root positions across native replicas" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset Pull loads final folder dependencies beyond its first change-feed page" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folder Apply failure retains cursor and the complete previous local graph" },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "未知同步实体不能被跳过并推进游标或 ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts",
+          "case": "does not apply, ACK, or advance the cursor for an unknown change-feed entity"
+        }
+      ]
+    },
+    {
+      "id": "DCC-006",
+      "title": "跨账号跨服务端 Outbox 不得串用",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic scan skips notes moved into a workspace after the job was created (DCC-006)" },
+        { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic batches save images past all batch bounds and preserve failed links (DCC-006)" },
+        { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "rejects account changes while decrypting (DCC-006)" },
+        { "file": "backend/tests/attachment-file-share.test.ts", "case": "named image URLs retain bytes, MIME and ACL through upload, deduplication, sharing and revocation (DCC-006)" },
+        { "file": "frontend/src/lib/__tests__/fileShareClipboard.test.ts", "case": "does not silently copy private named images when sharing is denied (DCC-006)" },
+        { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
+        { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },
+        { "file": "backend/tests/asset-ai.test.ts", "case": "confirmation retries are persistent and payload conflicts or revoked access cannot replay results" },
+        { "file": "backend/tests/asset-ai.test.ts", "case": "file scope transfers cannot expose a description from its previous owner or workspace" },
+        { "file": "backend/tests/asset-visual-tools.test.ts", "case": "visual search rejects foreign anchors, scope forgery, nonmembers and unreadable files" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset metadata is invisible to old clients and cannot cross accounts or workspace scopes" },
+        {
+          "file": "frontend/src/lib/__tests__/taskComposerApi.test.ts",
+          "case": "rejects cross-account responses without caching them"
+        },
+        {
+          "file": "backend/tests/sync-v2-identity-outbox.test.ts",
+          "case": "listPendingMutations 严格按 Profile 隔离"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts",
+          "case": "blocks cross-account outbox requests during session reconfiguration"
+        },
+        {
+          "file": "backend/tests/asset-organization.test.ts",
+          "case": "scoped tag uniqueness, viewer rejection and atomic batch tagging preserve asset identity"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileFileScope.test.ts",
+          "case": "rejects Native organization and metadata filters before personal SQL or server calls"
+        },
+        {
+          "file": "backend/tests/asset-note-linking.test.ts",
+          "case": "insertion rejects foreign files, cross-space reuse, read-only and trashed targets without writes"
+        }
+      ]
+    },
+    {
+      "id": "DCC-007",
+      "title": "删除必须以明确的删除操作或墓碑同步",
+      "status": "covered",
+      "checks": [
+        {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "direct Sync delete refuses an active note without changing body, tree, history or attachments"},
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset tombstones reject stale offline resurrection without losing the offline name" },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteOrigin.test.ts",
+          "case": "refuses permanent removal of an active or locked note without losing body, provenance or outbox"
+        },
+        {
+          "file": "backend/tests/knowledge-policy-initialization.test.ts",
+          "case": "rolled-back lazy ACL schema initialization is retried before the next permission check"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/apiDeletionQueueReconciliation.test.ts",
+          "case": "removes a conflicted update after the server acknowledges permanent deletion"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/apiDeletionQueueReconciliation.test.ts",
+          "case": "retains edits when the permanent deletion request cannot reach the server"
+        },
+        {
+          "file": "backend/tests/note-delete-attachments.test.ts",
+          "case": "permanent endpoint"
+        },
+        {
+          "file": "backend/tests/note-delete-attachments.test.ts",
+          "case": "legacy permanent delete remains available for an explicitly trashed note"
+        },
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "删除笔记产生 delete mutation 且带 baseVersion"
+        },
+        {
+          "file": "backend/tests/offline-workspace-sync.test.ts",
+          "case": "incremental feed returns committed updates and durable deletion tombstones"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/syncEngine.snapshotSafety.test.ts",
+          "case": "does not delete local notebooks or tags missing from a remote listing"
+        },
+        {
+          "file": "backend/tests/task-recurrence-delete.test.ts",
+          "case": "a delayed offline update cannot resurrect a deleted occurrence"
+        },
+        {
+          "file": "backend/tests/task-recurrence-delete.test.ts",
+          "case": "a delayed successor cannot recreate a deleted or stopped series"
+        },
+        {
+          "file": "backend/tests/asset-organization.test.ts",
+          "case": "smart folders persist whitelisted filters without moving files and stay private to their owner"
+        },
+        {
+          "file": "backend/tests/attachment-trash.test.ts",
+          "case": "purge requires explicit confirmation, trash state and a fresh backend reference check"
+        }
+      ]
+    },
+    {
+      "id": "DCC-008",
+      "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
+      "status": "covered",
+      "checks": [
+        { "file": "backend/tests/migration-task-version-compatibility.test.ts", "case": "reopens pre-split v134 databases without losing retained app data or Studio history" },
+        { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
+        {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "failed mutation ledger rolls back deletion, cleanup job and knowledge tree atomically"},
+        { "file": "backend/tests/asset-organization-sync.test.ts", "case": "incoming trash visibility cannot reopen a previously public link after restoration" },
+        { "file": "backend/tests/asset-organization-sync.test.ts", "case": "asset migration preserves queue order, failed retry state, conflict history and the feed high-water mark" },
+        {
+          "file": "backend/tests/backup-restore-integrity.test.ts",
+          "case": "attachment audit rejects local DB paths missing from full ZIP"
+        },
+        {
+          "file": "backend/tests/backup-restore-integrity.test.ts",
+          "case": "post-replace verifier failure rolls live directory contents back"
+        },
+        {
+          "file": "backend/tests/backup-restore-corrupt-hotfix.test.ts",
+          "case": "corrupt zip db.sqlite is rejected before touching current database or jwt secret"
+        },
+        {
+          "file": "backend/tests/asset-organization.test.ts",
+          "case": "upgrading an old database preserves attachments and an interrupted migration rolls back"
+        },
+        {
+          "file": "backend/tests/asset-organization.test.ts",
+          "case": "migration is idempotent, relation constraints reject cross-scope rows and snapshots retain metadata"
+        }
+      ]
+    },
+    {
+      "id": "DCC-009",
+      "title": "Android Native 关闭同步后重启仍保留未发出修改",
+      "status": "covered",
+      "checks": [
+        { "file": "frontend/src/lib/__tests__/mobileLocalFirstGuestRuntime.test.ts", "case": "Harmony device-only startup opens the shared local repository without starting sync" },
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folders survive offline restart and converge with nested ancestry on three devices" },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native task archive survives restart and converges with its details on a second device"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncSwitch.test.ts",
+          "case": "keeps edits queued without network traffic across reinitialization, then uploads them on enable"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts",
+          "case": "handles /scopes HTTP 401 before per-scope processing without deleting local writes"
+        },
+        {
+          "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
+          "case": "native recurrence stop survives restart and whole-series deletion converges across three SQLite devices"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileFileScope.test.ts",
+          "case": "rejects Native organization and metadata filters before personal SQL or server calls"
+        }
+      ]
+    },
+    {
+      "id": "DCC-010",
+      "title": "Web 离线队列失败和冲突均不得被误视为同步成功",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "keeps normal server errors retryable"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "preserves a permanent client failure and its local payload instead of dropping it"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.integration.test.ts",
+          "case": "preserves a stale offline edit as one pending conflict without issuing PUT"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/taskOfflineApi.test.ts",
+          "case": "deleting while an offline create is in flight hides its delayed response and queues its server deletion"
+        }
+      ]
+    },
+    {
+      "id": "DCC-011",
+      "title": "逐笔记同步收据以当前修改的版本/Mutation ACK 为依据",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "requires exact local revision before acknowledging a note write"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "preserves pending queue and conflict priority over an older ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "isolates receipt data across account and server scopes"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "requires a matching native mutation receipt instead of global sync time"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "keeps native pending and conflicts ahead of committed ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "does not discard a newer queued edit after a stale in-flight HTTP 200"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx",
+          "case": "never uses global synced state to claim a note has cloud confirmation"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not treat an Electron local SQLite response as a cloud ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not confirm a metadata-only REST response while CRDT body is unresolved"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "stores the actual applied and duplicate versions in an atomic mutation ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps conflict.serverVersion separate from successful applied.version"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "ignores only the known own ACK echo with a newer queued edit, without overwriting local"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps real competing remote modifications as conflicts (not own echoes)"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "refreshes both Markdown and rich-text notes only after new Outbox commits"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "updates the real editor badge after a committed Android edit"
+        }
+      ]
+    },
+    {
+      "id": "DCC-012",
+      "title": "Native independent SQLite clients preserve durable edits across sync failures",
+      "status": "covered",
+      "checks": [
+        {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native permanent deletion retains its recoverable body and attachment metadata in the durable Outbox"},
+        { "file": "frontend/src/lib/__tests__/assetAITransport.test.ts", "case": "Native local mode refuses every new AI transport before making a network request" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent asset folder edits preserve both versions and explicit keep-local converges" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "three independent SQLite clients converge bidirectionally" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "remote document moves reject stale body metadata without losing the offline edit" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "remote permanent deletion preserves offline body" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "offline create survives database close/reopen" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "missing or invalid successful ACK version cannot claim cloud confirmation" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "an old offline update cannot resurrect" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "apply failure rolls back the entire batch" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "successful push replay after client ACK crash" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "overlapping native writes read the latest revision" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent devices preserve both versions" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "two edits committed during a delayed ACK" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "invalid note ACK leaves the durable mutation" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a failed Outbox insertion rolls back note creation" },
+        { "file": "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts", "case": "rejects a late push ACK when the account changes" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "workspace Snapshot pruning preserves pending descendants" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "create then permanent delete between Pulls" },
+        { "file": "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts", "case": "external UI reads wait for an in-progress Apply transaction" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "personal tree creates are readable offline, survive reopen" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "tree create rolls back body, root container and provenance" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "authorized hydration persists a remote body without creation mutations" },
+        { "file": "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts", "case": "retains server checks for protected folders and workspaces" },
+        { "file": "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts", "case": "does not project an ACKed note omitted by the live authorization tree" },
+        { "file": "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts", "case": "reads a locally created root with live server proofs" },
+        { "file": "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts", "case": "does not persist or return a remote body after its native session is disposed" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "negotiated native tree preserves folder-under-document links" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a new native tree subscription rebuilds an existing legacy cursor" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "invalid remote tree rolls back incremental bodies and structure" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native structural Apply rejects foreign scopes" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native structural Apply validates final ancestry" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native tree Snapshot reconciles stale metadata" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native file tree metadata requires its scoped attachment" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native tree subscription completes multiple Snapshot pages" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeSubscription.test.ts", "case": "refuses to silently downgrade a persisted tree subscription" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeSubscription.test.ts", "case": "negotiates the complete existing set" },
+        { "file": "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts", "case": "upgrades schema 5 with structural metadata" },
+        { "file": "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts", "case": "rolls back a failed schema 5 tree migration" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "lost initial tree ACK retains subscription intent" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "REST tree movement emits a committed metadata-only Sync V2 notice" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "offline folder creation atomically persists nested resources" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "offline folder creation rolls back the business row" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "lost creation ACK replays immutable mutations" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "folder creation fails closed for unbound" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a lost structural creation ACK retains the local folder" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "creation dependencies remain ordered" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a folder created during the final Snapshot page" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "creates personal folders through the transaction" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "restores reverse-ordered provisional nested folders" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "does not grant provisional owner access to an ACKed folder" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeSubscription.test.ts", "case": "preserves subscription intent after a lost initial ACK" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "offline folder trash and restore preserve bodies" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "folder lifecycle rolls back the entire local subtree" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "lost folder trash ACK and a restore queued during Push" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent child moves conflict with offline folder trash" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "folder trash rejects missing server capability" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "acknowledged folder trash restores its cohort" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a pre-trash edit from an old device cannot revive" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "a password added after local trash was committed" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "folder trash committed during the final Snapshot page" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "persists folder trash and restores it through the unified trash facade" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "projects durable pending trash into the offline bin" },
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "does not treat a trash authorization rejection as an offline read" },
+        { "file": "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts", "case": "opens an explicitly restored ordinary personal body before the server acknowledges its folder restore" },
+        { "file": "backend/tests/knowledge-tree-root-documents.test.ts", "case": "moving folders and documents into root documents retains hidden containers" }
+      ]
+    }
+  ]
+}

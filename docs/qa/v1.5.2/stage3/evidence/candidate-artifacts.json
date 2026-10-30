@@ -1,0 +1,49 @@
+{
+  "codeSha": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "upstreamSha": "65eda826fefe3e481cbbf19ed261a77f0123c6b6",
+  "builtArtifacts": [
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\android\\app\\build\\outputs\\apk\\debug\\app-debug.apk",
+      "sha256": "d36f6d939d833da4794b73b8ce37af6dfa6310841e15053966a58125e188115a",
+      "bytes": 25576880
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\.qa152-windows\\win-unpacked\\Nowen Note QA152.exe",
+      "sha256": "78df8dba85fe11637b7194e8e8b3447c2df690d16eaef3e65799385c2fddffef",
+      "bytes": 188789760
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\backend\\dist\\index.js",
+      "sha256": "1adbeb89cd122b49ab50ffa7a946aa3641b815ccaa7b22370d5539d8c847c1f3",
+      "bytes": 7109380
+    },
+    {
+      "path": "C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\frontend\\dist\\index.html",
+      "sha256": "548da22d43f948d47c3e512a7b60167aee91eade2309813ea14d4c943113c8b3",
+      "bytes": 20381
+    }
+  ],
+  "apkIdentity": {
+    "version": 3,
+    "artifactType": {
+      "type": "APK",
+      "kind": "Directory"
+    },
+    "applicationId": "com.nowen.note.qa152",
+    "variantName": "debug",
+    "elements": [
+      {
+        "type": "SINGLE",
+        "filters": [],
+        "attributes": [],
+        "versionCode": 10508,
+        "versionName": "1.5.2-qa.d7e0f9f6",
+        "outputFile": "app-debug.apk"
+      }
+    ],
+    "elementType": "File",
+    "minSdkVersionForDexing": 23
+  },
+  "packagedBackendEqualsBuild": true,
+  "packagedFrontendEqualsBuild": true
+}

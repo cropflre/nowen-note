@@ -7,6 +7,32 @@ afterEach(() => {
 });
 
 describe("Android native Sync V2 crash containment", () => {
+  it("handles /scopes HTTP 401 before per-scope processing without deleting local writes", async () => {
+    const db = {
+      query: vi.fn().mockResolvedValue([]),
+      run: vi.fn().mockResolvedValue({ changes: 1 }),
+      transaction: vi.fn(),
+    };
+    const onAuthRequired = vi.fn();
+    const engine = new MobileSyncEngine({
+      db: db as never, attachments: {} as never, serverUrl: "https://notes.example.com",
+      token: "expired", userId: "u1", profileId: "p1", deviceId: "d1", onAuthRequired,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: "UNAUTHORIZED" }), { status: 401 }),
+    ));
+    engine.start();
+    await engine.syncOnce();
+    expect(onAuthRequired).toHaveBeenCalledOnce();
+    expect(db.run).toHaveBeenCalledWith(
+      "UPDATE sync_profiles SET authStatus='auth_required',updatedAt=? WHERE id=?",
+      [expect.any(String), "p1"],
+    );
+    expect(db.transaction).not.toHaveBeenCalled();
+    engine.stop();
+    vi.unstubAllGlobals();
+  });
+
   it("captures an unexpected scheduled sync failure without advancing the cursor or dropping local changes", async () => {
     vi.useFakeTimers();
     const failure = new Error("SQLITE_BUSY");

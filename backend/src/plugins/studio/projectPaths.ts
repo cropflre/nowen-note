@@ -110,6 +110,9 @@ export class PluginStudioProjectPaths {
       if (stat.isSymbolicLink()) {
         throw new PluginStudioError("Studio 项目不允许符号链接", "PLUGIN_STUDIO_SYMLINK_REJECTED");
       }
+      if (stat.isFile() && stat.nlink !== 1) {
+        throw new PluginStudioError("Studio 项目不允许硬链接", "PLUGIN_STUDIO_HARDLINK_REJECTED");
+      }
       if (index < segments.length - 1 && !stat.isDirectory()) {
         throw new PluginStudioError("项目文件路径无效", "PLUGIN_STUDIO_INVALID_PATH");
       }
@@ -120,6 +123,52 @@ export class PluginStudioProjectPaths {
     const stat = fs.lstatSync(this.root, { throwIfNoEntry: false });
     if (!stat?.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(this.root) !== this.root) {
       throw new PluginStudioError("Studio 项目根目录不安全", "PLUGIN_STUDIO_UNSAFE_ROOT");
+    }
+  }
+
+  readFileBuffer(projectId: string, input: string): Buffer {
+    const absolutePath = this.resolveFile(projectId, input);
+    const expected = fs.lstatSync(absolutePath, { bigint: true });
+    let descriptor: number;
+    try {
+      descriptor = fs.openSync(absolutePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    } catch (error: any) {
+      if (error.code === "ELOOP") {
+        throw new PluginStudioError("Studio 项目不允许符号链接", "PLUGIN_STUDIO_SYMLINK_REJECTED");
+      }
+      throw error;
+    }
+    try {
+      const opened = fs.fstatSync(descriptor, { bigint: true });
+      const requireSameFile = () => {
+        this.resolveFile(projectId, input);
+        const current = fs.lstatSync(absolutePath, { bigint: true });
+        const handle = fs.fstatSync(descriptor, { bigint: true });
+        if (!handle.isFile() || handle.nlink !== 1n || expected.dev !== handle.dev || expected.ino !== handle.ino
+          || current.dev !== handle.dev || current.ino !== handle.ino || handle.size !== opened.size
+          || handle.mtimeNs !== opened.mtimeNs) {
+          throw new PluginStudioError("项目文件在读取期间发生变化，请重试", "PLUGIN_STUDIO_FILE_CHANGED");
+        }
+      };
+      requireSameFile();
+      if (opened.size > BigInt(PLUGIN_STUDIO_MAX_FILE_BYTES)) {
+        throw new PluginStudioError("单个项目文件不能超过 2 MiB", "PLUGIN_STUDIO_FILE_TOO_LARGE");
+      }
+      // Read the verified handle, never reopen the path after the identity check.
+      const buffer = Buffer.alloc(Number(opened.size) + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const read = fs.readSync(descriptor, buffer, length, buffer.length - length, length);
+        if (!read) break;
+        length += read;
+      }
+      requireSameFile();
+      if (length !== Number(opened.size)) {
+        throw new PluginStudioError("项目文件在读取期间发生变化，请重试", "PLUGIN_STUDIO_FILE_CHANGED");
+      }
+      return buffer.subarray(0, length);
+    } finally {
+      fs.closeSync(descriptor);
     }
   }
 

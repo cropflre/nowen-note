@@ -42,6 +42,9 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe("due time helpers", () => {
+  it("repairing a corrupt date clears an unusable old time instead of retaining NaN",()=>{
+    expect(buildDueDatePatch(makeTask({dueDate:"NaN-NaN-NaN",dueAt:"NaN-T00:00:00"}),"2026-10-20")).toEqual({dueDate:"2026-10-20",dueAt:null});
+  });
   it("extracts the HH:mm value from dueAt", () => {
     expect(getDueTimeValue("2026-06-17T17:05:00")).toBe("17:05");
     expect(getDueTimeValue("2026-06-17T08:30")).toBe("08:30");

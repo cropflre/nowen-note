@@ -3,6 +3,7 @@ export const LEGACY_NOTEBOOK_TREE_SORT_KEY = "nowen.notebookTree.sort";
 export const NOTE_WORKSPACE_LAYOUT_KEY = "nowen-note-workspace-layout";
 
 const FUNCTIONAL_NOTE_LIST_VIEWS = new Set([
+  "all",
   "favorites",
   "tag",
   "search",

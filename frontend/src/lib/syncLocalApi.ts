@@ -25,6 +25,7 @@ export const SYNC_CONFLICT_ENTITY_TYPES = [
   "task_reminder",
   "diary",
   "mindmap",
+  "attachment_organization",
 ] as const;
 
 export interface SyncProfileSummary {
@@ -300,6 +301,11 @@ export function disableSync(): Promise<{
   message: string;
 }> {
   return request("/settings/disable", { method: "POST" });
+}
+
+/** Only the Android Native adapter handles this local SQLite endpoint. */
+export function fetchNoteSyncReceipt(noteId: string): Promise<import("./mobileNoteSyncReceipt").NativeNoteSyncReceipt> {
+  return request(`/receipts/${encodeURIComponent(noteId)}`);
 }
 
 export function fetchSyncDiagnostics(): Promise<SyncDiagnostics> {

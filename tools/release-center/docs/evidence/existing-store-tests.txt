@@ -1,0 +1,25 @@
+
+> nowen-note@1.5.1 test:microsoft-store
+> node --test scripts/tests/microsoft-store-config.test.cjs scripts/tests/microsoft-store-updater.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs
+
+✔ Verified Partner Center identity is available without GitHub Variables (26.234458ms)
+✔ An incorrect variable override must fail closed (140.508ms)
+✔ Store-only target is AppX; never uploads NSIS or publishes to GitHub (31.307583ms)
+✔ Store runtime is detected by real Electron process.windowsStore, never by env spoofing (0.083542ms)
+✔ existing NSIS Full/Lite builder targets are unchanged (1.208667ms)
+✔ Store package never checks GitHub or invokes NSIS installer (2.961791ms)
+✔ Direct Windows installer remains on its previous updater policy (1.503042ms)
+✔ Portable Windows variant still blocks desktop auto-updater (0.502791ms)
+✔ full desktop updater uses stable no-space artifact names (1.120708ms)
+✔ lite updater stays on an isolated latest-lite channel (0.194333ms)
+✔ Windows and macOS use manual browser download policy (0.293583ms)
+✔ release URL targets the detected stable version (0.127458ms)
+✔ manual download notice is prepended exactly once (0.049625ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 246.160875

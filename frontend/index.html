@@ -193,6 +193,7 @@
 
         var diagnostics = {
           startedAt: new Date().toISOString(),
+          stage: "resources",
           origin: window.location.origin || "",
           pathname: safePathname(window.location.pathname),
           userAgent: navigator.userAgent || "",
@@ -212,7 +213,31 @@
         window.__NOWEN_BOOT_READY__ = false;
         window.__NOWEN_BOOT_FAILED__ = false;
 
+        var bootLanguage = navigator.language || "zh-CN";
+        try { bootLanguage = localStorage.getItem("i18nextLng") || bootLanguage; } catch (e) {}
+        var bootEnglish = /^en/i.test(bootLanguage);
+
+        window.__NOWEN_REPORT_BOOT_STAGE__ = function (stage) {
+          if (window.__NOWEN_BOOT_READY__ && stage !== "ready") return;
+          diagnostics.stage = stage;
+          diagnostics.stageChangedAt = new Date().toISOString();
+        };
+
         function diagnosticText() {
+          diagnostics.elapsedMs = Date.now() - Date.parse(diagnostics.startedAt);
+          // Record only script/style resource timings, never API URLs or credentials.
+          try {
+            diagnostics.resources = window.performance.getEntriesByType("resource")
+              .filter(function (entry) { return /\.(js|css)(\?|$)/.test(entry.name); })
+              .slice(-20).map(function (entry) {
+                return {
+                  url: safeUrl(entry.name),
+                  durationMs: Math.round(entry.duration),
+                  transferSize: entry.transferSize,
+                  responseStatus: entry.responseStatus
+                };
+              });
+          } catch (e) {}
           try { return JSON.stringify(diagnostics, null, 2); }
           catch (e) { return "Nowen Note boot diagnostics unavailable"; }
         }
@@ -293,6 +318,31 @@
           }
         }
 
+        function showSlowBoot() {
+          if (window.__NOWEN_BOOT_READY__ || window.__NOWEN_BOOT_FAILED__) return;
+          diagnostics.slowAt = new Date().toISOString();
+          var splash = document.getElementById("app-boot-splash");
+          if (!splash) return;
+          var title = splash.querySelector(".app-boot-title");
+          var subtitle = splash.querySelector(".app-boot-subtitle");
+          var reload = document.getElementById("app-boot-reload");
+          var copy = document.getElementById("app-boot-copy");
+          if (title) title.textContent = bootEnglish ? "Still loading" : "仍在加载";
+          if (subtitle) subtitle.textContent = bootEnglish
+            ? "Remote access may take longer. The app will open automatically when ready."
+            : "远程访问可能需要更长时间，加载完成后会自动进入。";
+          if (reload) {
+            reload.style.display = "inline-flex";
+            reload.textContent = bootEnglish ? "Reload" : "刷新重试";
+            reload.onclick = function () { window.location.reload(); };
+          }
+          if (copy) {
+            copy.style.display = "inline-flex";
+            copy.textContent = bootEnglish ? "Copy diagnostics" : "复制诊断信息";
+            copy.onclick = copyDiagnostics;
+          }
+        }
+
         window.__NOWEN_REPORT_BOOT_ERROR__ = function (source, error, fatal) {
           diagnostics.errors.push({
             at: new Date().toISOString(),
@@ -305,6 +355,7 @@
         window.__NOWEN_MARK_BOOT_READY__ = function () {
           window.__NOWEN_BOOT_READY__ = true;
           window.__NOWEN_BOOT_FAILED__ = false;
+          window.__NOWEN_REPORT_BOOT_STAGE__("ready");
         };
 
         window.addEventListener("error", function (event) {
@@ -331,15 +382,18 @@
           splash.classList.add("app-boot-splash--visible");
         }, 260);
 
+        // NAS relays can still be downloading modules at 12s. Keep the loading surface
+        // alive, with recovery actions, and reserve failure for a bounded 60s deadline.
+        window.__NOWEN_BOOT_SLOW_TIMER__ = window.setTimeout(showSlowBoot, 12000);
         window.__NOWEN_BOOT_TIMER__ = window.setTimeout(function () {
-          if (window.__NOWEN_BOOT_READY__) return;
+          if (window.__NOWEN_BOOT_READY__ || window.__NOWEN_BOOT_FAILED__) return;
           diagnostics.errors.push({
             at: new Date().toISOString(),
             source: "boot-timeout",
-            message: "Application did not become ready within 12 seconds"
+            message: "Application did not become ready within 60 seconds (stage: " + diagnostics.stage + ")"
           });
           showBootFailure("BOOT_TIMEOUT");
-        }, 12000);
+        }, 60000);
       })();
     </script>
   </head>

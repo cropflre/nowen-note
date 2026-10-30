@@ -1,0 +1,15 @@
+TAP version 13
+# Subtest: Linux actual filesystem rejects traversal, symlinks, hardlinks and check/open swaps
+ok 1 - Linux actual filesystem rejects traversal, symlinks, hardlinks and check/open swaps
+  ---
+  duration_ms: 3.160905
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 64.318557

@@ -41,8 +41,12 @@ function isLoopbackUrl(url: string): boolean {
 function getServerScope(): string {
   let server = "";
   try { server = localStorage.getItem("nowen-server-url") || ""; } catch { /* ignore */ }
-  const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
-    ? window.location.origin
+  // SSR, Electron bootstrap and headless Native sync runners can expose a
+  // partial window without Location. Do not turn a missing browser origin into
+  // a faux NETWORK_UNAVAILABLE error before the first /sync/v2/scopes request.
+  const location = typeof window !== "undefined" ? window.location : undefined;
+  const origin = typeof location?.origin === "string" && location.origin.startsWith("http")
+    ? location.origin
     : "";
   const isDesktop = typeof window !== "undefined" && !!(window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop;
 

@@ -1,0 +1,13 @@
+✔ Official Registry root validator accepts one active Ed25519 HTTPS root (3.413875ms)
+✔ Official Registry root validator fails closed on missing release roots (0.540333ms)
+✔ Official Registry root validator rejects private and non-Ed25519 keys (17.459ms)
+✔ Official Registry root validator requires HTTPS and one active root per source (0.309834ms)
+✔ Official Registry root validator allows historical revoked roots beside one active root (4.8445ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 66.774167

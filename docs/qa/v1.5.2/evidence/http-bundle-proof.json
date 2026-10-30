@@ -1,0 +1,96 @@
+{
+  "base": "http://127.0.0.1:8691",
+  "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+  "kind": "Built hardened backend on loopback with isolated fixture DB; no installer or UI proof",
+  "headerSpoof": {
+    "status": 401,
+    "body": {
+      "error": "未授权，请先登录",
+      "code": "UNAUTHENTICATED"
+    }
+  },
+  "login": {
+    "ownerStatus": 200,
+    "otherStatus": 200
+  },
+  "crossUser": {
+    "status": 403,
+    "body": {
+      "error": "仅笔记 owner 或工作区管理员可永久删除",
+      "code": "FORBIDDEN"
+    }
+  },
+  "ownerDelete": {
+    "status": 200,
+    "body": {
+      "success": true
+    }
+  },
+  "readAfterDelete": {
+    "status": 404,
+    "body": {
+      "error": "Note not found or forbidden"
+    }
+  },
+  "restore": {
+    "status": 200,
+    "body": {
+      "succeededIds": [],
+      "noteIds": [],
+      "failures": [
+        {
+          "id": "note:qa-http-live",
+          "code": "TRASH_ITEM_NOT_FOUND",
+          "error": "内容不在当前回收站或无访问权限"
+        }
+      ]
+    }
+  },
+  "openapiLegacyExport": {
+    "status": 404,
+    "body": {
+      "raw": "404 Not Found"
+    }
+  },
+  "exportCreate": {
+    "status": 202,
+    "body": {
+      "job": {
+        "id": "aaac303c-4769-478f-a09d-42adcc30eca7",
+        "state": "building",
+        "current": 0,
+        "total": 1,
+        "message": "正在生成完整目录与附件清单",
+        "warnings": 0
+      }
+    }
+  },
+  "exportReady": {
+    "status": 200,
+    "state": "ready"
+  },
+  "exportDownloaded": {
+    "status": 200,
+    "bytes": 3185,
+    "sha256": "0c9c4aff738ebf15e115b97e8d63753eb35dde823c2a81ffa2587bf557944a07",
+    "files": [
+      "QA/",
+      "notes/",
+      "notes/qa-soft-note/",
+      "notes/qa-soft-note/content.md",
+      "notes/qa-soft-note/meta.json",
+      "QA/QA Export.md",
+      "notebooks.json",
+      "tree.json",
+      "notes.json",
+      "attachments.json",
+      "tags.json",
+      "note_tags.json",
+      "warnings.json",
+      "manifest.json",
+      "metadata.json"
+    ],
+    "markdownContent": "# audit body"
+  },
+  "exportReimport": "NOT_TESTED"
+}

@@ -83,7 +83,8 @@ export default function AIChatReliabilityShell(props: Props) {
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [contextCollapsed, setContextCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(CONTEXT_COLLAPSED_KEY) === "1";
+    const saved = window.localStorage.getItem(CONTEXT_COLLAPSED_KEY);
+    return saved === null ? window.innerWidth < 768 : saved === "1";
   });
   const originalAskRef = useRef(api.aiAsk);
 
@@ -181,9 +182,9 @@ export default function AIChatReliabilityShell(props: Props) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
-      <section className="shrink-0 border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="mr-1 flex min-w-0 items-center gap-2">
+          <div className="mr-1 hidden min-w-0 items-center gap-2 md:flex">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
               <Activity size={14} />
             </div>
@@ -193,7 +194,7 @@ export default function AIChatReliabilityShell(props: Props) {
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl bg-app-hover/70 p-1 sm:flex-none">
+          <div className="flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:w-auto">
             {MODE_OPTIONS.map((item) => {
               const Icon = item.icon;
               const disabled = item.id === "current-note" && !activeNote?.id;
@@ -205,14 +206,14 @@ export default function AIChatReliabilityShell(props: Props) {
                   onClick={() => setMode(item.id)}
                   title={item.description}
                   className={cn(
-                    "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition",
+                    "flex min-w-0 flex-1 md:flex-none items-center justify-center gap-1.5 rounded-lg px-2 md:px-2.5 py-1.5 text-[11px] font-medium transition",
                     mode === item.id
                       ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border"
                       : "text-tx-tertiary hover:text-tx-primary",
                     disabled && "cursor-not-allowed opacity-40",
                   )}
                 >
-                  <Icon size={12} />
+                  <Icon size={12} className="hidden md:block" />
                   <span className="truncate">{item.label}</span>
                 </button>
               );
@@ -286,7 +287,7 @@ export default function AIChatReliabilityShell(props: Props) {
                     <span className="shrink-0 text-[10px] text-tx-tertiary">完成一次问答后可查看检索诊断</span>
                   )}
                 </div>
-                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] [overflow-wrap:anywhere] gap-x-3 gap-y-1.5">
                   <span className="text-tx-tertiary">本次范围</span>
                   <span>{currentMode.label}{activeNote?.title && mode === "current-note" ? ` · ${activeNote.title}` : ""}</span>
                   <span className="text-tx-tertiary">对话模型</span>

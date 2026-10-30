@@ -1,0 +1,36 @@
+TAP version 13
+# /Users/cropflre/Documents/ugit/nowen-note/backend/src/db/test-db-guard.ts:12
+#     throw new Error(
+#           ^
+# Error: [test-db-isolation] Refusing to open a test database outside the system temporary directory: /Users/cropflre/Documents/ugit/nowen-note/backend/data/nowen-note.db
+#     at assertSafeTestDatabasePath (/Users/cropflre/Documents/ugit/nowen-note/backend/src/db/test-db-guard.ts:12:11)
+#     at db (/Users/cropflre/Documents/ugit/nowen-note/backend/src/db/schema.ts:11:1)
+#     at Object.<anonymous> (/Users/cropflre/Documents/ugit/nowen-note/backend/src/db/schema.ts:154:10)
+#     at Module._compile (node:internal/modules/cjs/loader:1484:14)
+#     at Object.transformer (/Users/cropflre/Documents/ugit/nowen-note/backend/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1104)
+#     at Module.load (node:internal/modules/cjs/loader:1295:32)
+#     at Module._load (node:internal/modules/cjs/loader:1111:12)
+#     at c._load (node:electron/js2c/node_init:2:16955)
+#     at Module.require (node:internal/modules/cjs/loader:1318:19)
+#     at require (node:internal/modules/helpers:179:18)
+# Node.js v20.18.0
+# Subtest: /Users/cropflre/Documents/ugit/nowen-note/backend/tests/extension-platform-v2.test.ts
+not ok 1 - /Users/cropflre/Documents/ugit/nowen-note/backend/tests/extension-platform-v2.test.ts
+  ---
+  duration_ms: 296.968542
+  location: '/Users/cropflre/Documents/ugit/nowen-note/backend/tests/extension-platform-v2.test.ts:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 298.892833

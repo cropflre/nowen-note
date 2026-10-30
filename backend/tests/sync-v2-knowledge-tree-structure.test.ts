@@ -115,6 +115,16 @@ test("tree structure apply detects concurrent moves and rejects unsafe parents",
   assert.equal(result.results[0].code, "INVALID_PAYLOAD",
     "旧实体协议不能在客户端链路完成前推送知识树节点");
 
+  // The root-document container makes newly allocated root positions negative.
+  db.prepare("UPDATE knowledge_tree_nodes SET sortOrder = -2147483647 WHERE id = 'mindmap:map'").run();
+  const signed = { ...payload(note.id, -2147483646), ...current, baseSortOrder: -2147483647 };
+  for (const sortOrder of [0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => apply(db, input({ ...signed, sortOrder })),
+      (error: { code: string }) => error.code === "INVALID_PAYLOAD");
+  }
+  apply(db, input(signed));
+  assert.equal(read().sortOrder, -2147483646);
+
   db.prepare("DELETE FROM mindmaps WHERE id = 'map'").run();
   apply(db, { userId: "owner", workspaceId: null, entityId: "mindmap:map", operation: "delete" });
   assert.equal(db.prepare("SELECT 1 FROM knowledge_tree_nodes WHERE id = 'mindmap:map'").get(), undefined);

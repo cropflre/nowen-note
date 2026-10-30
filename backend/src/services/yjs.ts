@@ -1,3 +1,4 @@
+import { syncReferences } from "../lib/attachmentRefs";
 import { assertEncryptedBlockCollaborationAllowed } from "../lib/encryptedBlockWrites.js";
 /**
  * Phase 3: Y.js CRDT 服务端
@@ -262,6 +263,16 @@ function schedulePersistToNotesTable(room: RoomState) {
 }
 
 function persistToNotesTable(room: RoomState) {
+  const version = room.baseVersion, bumpedAt = room.lastVersionBumpAt;
+  try { getDb().transaction(() => persistNoteContent(room)).immediate(); }
+  catch (error) {
+    room.baseVersion = version;
+    room.lastVersionBumpAt = bumpedAt;
+    throw error;
+  }
+}
+
+function persistNoteContent(room: RoomState) {
   const db = getDb();
   assertEncryptedBlockCollaborationAllowed(db, room.noteId);
   const ytext = room.doc.getText("content");
@@ -334,6 +345,7 @@ function persistToNotesTable(room: RoomState) {
       });
       return;
     }
+    syncReferences(db, room.noteId, markdown);
     room.baseVersion = oldVersion + 1;
     room.lastVersionBumpAt = now;
     logNoteWrite({
@@ -368,6 +380,7 @@ function persistToNotesTable(room: RoomState) {
       });
       return;
     }
+    syncReferences(db, room.noteId, markdown);
     logNoteWrite({
       noteId: room.noteId,
       source: "live-autosave",
@@ -629,6 +642,15 @@ export function yDestroyDoc(noteId: string) {
 }
 
 /** 调试：当前房间状态 */
+export function canRetireRoomForEncryption(noteId: string, version: number, content: string, format: string): boolean {
+  const room = rooms.get(noteId);
+  if (!room) return true;
+  // Only a settled Markdown room whose complete text matches the stored source.
+  // Never flush, cancel a pending write, or infer rich-text content from Y.Text.
+  return room.refCount === 0 && !room.persistTimer && room.baseVersion === version
+    && format === "markdown" && room.doc.share.get("content")?.toString() === content;
+}
+
 export function getYjsStats() {
   return {
     rooms: rooms.size,

@@ -82,6 +82,8 @@ export const automationEventCaptureMiddleware: MiddlewareHandler = async (c, nex
   const pathname = new URL(c.req.url).pathname;
   const match = pathname.match(/^\/api\/(notes|notebooks|tags|tasks|attachments|diary|mindmaps)(\/.*)?$/);
   if (!match) return next();
+  // Composer publishes per-task events inside its atomic creation transaction.
+  if (match[1] === "tasks" && match[2] === "/ai-batch-create") return next();
   let body: Record<string, unknown> = {};
   if (method !== "DELETE") body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
   await next();

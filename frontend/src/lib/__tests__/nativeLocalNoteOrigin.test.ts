@@ -66,6 +66,19 @@ function engine() {
 }
 
 describe("persisted provenance for unsent native notes", () => {
+  it("refuses permanent removal of an active or locked note without losing body, provenance or outbox", async () => {
+    for (const [id, isTrashed, isLocked, code] of [
+      ["local", 0, 0, "NOTE_NOT_TRASHED"],
+      ["locked", 1, 1, "NOTE_LOCKED"],
+    ] as const) {
+      await repository.notes.create({ id, notebookId: "public", content: "retained draft", isTrashed, isLocked });
+      const before = await db.query("SELECT * FROM sync_outbox");
+      await expect(repository.notes.remove(id)).rejects.toMatchObject({ code });
+      expect((await repository.notes.get(id))?.content).toBe("retained draft");
+      expect(await marker(unsentLocalNoteKey("personal", id))).toBe("1");
+      expect(await db.query("SELECT * FROM sync_outbox")).toEqual(before);
+    }
+  });
   it("persists a local creation through restart and edits, but does not infer origin from version or outbox", async () => {
     await repository.notes.create({ id: "local", notebookId: "public" });
     await repository.notes.update("local", { title: "edited offline" });
@@ -84,7 +97,7 @@ describe("persisted provenance for unsent native notes", () => {
     await expect(repository.notes.create({ id: "local", notebookId: "public" })).rejects.toThrow("outbox rejected");
     expect(await repository.notes.get("local")).toBeNull(); expect(await marker()).toBeUndefined();
     sqlite.run("DROP TRIGGER reject_outbox");
-    await repository.notes.create({ id: "local", notebookId: "public" }); await repository.notes.remove("local");
+    await repository.notes.create({ id: "local", notebookId: "public", isTrashed: 1 }); await repository.notes.remove("local");
     expect(await marker()).toBeUndefined();
     await repository.notes.create({ id: "local", notebookId: "public", isTrashed: 1 }); await repository.emptyTrash();
     expect(await marker()).toBeUndefined();

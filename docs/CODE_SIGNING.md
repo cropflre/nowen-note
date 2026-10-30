@@ -1,59 +1,25 @@
-# Code signing policy
+# Windows distribution and code-signing policy
 
-Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+## Channels
 
-## Project and roles
+- **GitHub Direct EXE (NSIS and Portable)**: Windows Full/Lite EXE packages are currently **unsigned**. The user may see Windows SmartScreen and "Unknown publisher". This does not mean malicious software, but users should verify the GitHub project and release provenance before running an installer. They do not inherit any Microsoft Store signature.
+- **Microsoft Store AppX**: a completely separate build and Partner Center submission. Microsoft Store will sign the accepted Store package and manage Store-version updates after certification. The Store package does not sign the GitHub EXEs.
+- **macOS / Android / Linux**: existing platform-specific signing, packaging and release mechanisms are unchanged.
 
-- Project: **Nowen Note**
-- Source repository: `https://github.com/cropflre/nowen-note`
-- Authors: [cropflre](https://github.com/cropflre)
-- Reviewers: [cropflre](https://github.com/cropflre)
-- Approvers: [cropflre](https://github.com/cropflre)
+## GitHub Direct release integrity gates
 
-Only release artifacts built by GitHub Actions from committed source code in this repository may be submitted for SignPath Foundation signing. Local unsigned Windows Full/Lite packages must not become formal GitHub Release assets.
+The release workflow builds Windows Full/Lite from one Git tag. The release publisher keeps a Draft release until:
+1. Windows CI provides the exact eight expected Full/Lite executables, NSIS blockmaps, and `latest*.yml` metadata.
+2. The builder metadata version and SHA-512 update fields validate locally.
+3. Local Windows release candidates are replaced by artifacts downloaded from the same Git commit / tag workflow.
+4. Remote metadata and release assets pass verification.
 
-Code signing processes build artifacts only and do not send user notes, attachments, accounts, tokens, AI conversations, or self-hosted service data to SignPath.
+The workflow always uses `electron-builder --publish never` and does not publish a formal GitHub Release by itself. The existing Windows Direct in-app updater still opens a release page for manually installing updates; this change does not enable unsigned unattended updates.
 
-## Formal Windows release boundary
+**Integrity metadata is not a substitute for signed publisher identity.** A separate future Authenticode solution requires an explicit product decision and new release safeguards.
 
-`electron-builder --publish never` → GitHub Actions artifact → SignPath → Authenticode/CN verification → rebuild `.blockmap` and `latest*.yml` integrity fields → updater validation → Draft GitHub Release → remote validation → publish.
+## No third-party signing dependency
 
-Full and Lite use separate SignPath Artifact Configurations:
+The active Windows GitHub publishing pipeline no longer requires a third-party signing account, token, organization ID, artifact configuration, or signer-common-name bootstrap. Microsoft Store's publisher identity is used only by the Store AppX channel.
 
-- `.signpath/artifact-configurations/windows-full.xml`
-- `.signpath/artifact-configurations/windows-lite.xml`
-
-Both configurations restrict signing to the exact top-level setup/portable executables and require the package version parameter.
-
-## Required GitHub Actions configuration
-
-Repository Secret:
-
-- `SIGNPATH_API_TOKEN`
-
-Repository Variables used by production signing:
-
-- `SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG`
-- `SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG`
-
-Optional overrides (the repository has safe defaults for the currently approved SignPath organization/project/policy):
-
-- `SIGNPATH_ORGANIZATION_ID`
-- `SIGNPATH_PROJECT_SLUG`
-- `SIGNPATH_SIGNING_POLICY_SLUG`
-
-`NOWEN_WINDOWS_PUBLISHER_NAME` must be copied from the real `SignerCertificate` common name of the first approved SignPath release-signed candidate. Do not guess it.
-It is required for formal artifact verification and publication, but not for the first production signing request. Bootstrap accepts only the `release-signing` policy and valid Full/Lite signatures with the same CN; it never uses a test certificate.
-
-## First signed bridge release
-
-Existing Windows installations that were unsigned or used a different publisher identity should not be expected to silently cross the publisher boundary through the in-app updater.
-
-For the first SignPath-signed bridge release:
-
-1. Build and sign a candidate through GitHub Actions + SignPath.
-2. When the publisher variable is absent, the tag workflow reads the returned artifacts using `Get-AuthenticodeSignature`, validates Full/Lite signatures, and prints the detected common name/thumbprints. It deliberately fails before metadata refresh or formal artifact upload; any Release must remain Draft.
-3. Set the GitHub Repository Variable `NOWEN_WINDOWS_PUBLISHER_NAME` to that exact common name. Rerun the entire Windows build/signing job (not just the failed verification step), so both installers embed the confirmed updater publisher identity.
-4. Require an exact CN match on every signed executable and publish only after signed updater metadata validation passes. Never publish bootstrap candidates or substitute a test-signing CN.
-5. Ask existing Windows users to manually install this bridge release.
-6. Publish a second version with the same signer identity and verify in-app update from the bridge release.
+The Microsoft Store implementation is under development in a separate PR. Refer to its dedicated release documentation once integrated.

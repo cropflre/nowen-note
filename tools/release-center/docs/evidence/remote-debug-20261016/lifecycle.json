@@ -1,0 +1,20 @@
+{
+  "taskId": "119fdb1e-9a61-4146-8716-361ac5507559",
+  "runId": 38851856910,
+  "sourceSha": "f1066e49386200780d85ee651775895b513f71ca",
+  "workflowSha": "f1066e49386200780d85ee651775895b513f71ca",
+  "serviceRestartRecovered": true,
+  "duplicateRequestSameTask": true,
+  "formalPublishStatus": 404,
+  "sseIncludesActualRun": true,
+  "at": "2026-10-16T04:42:05.580Z",
+  "checkedAt": "2026-10-16T05:22:55.623Z",
+  "dispatchIntentCount": 1,
+  "dispatchAcceptedCount": 1,
+  "cancelledVerification": {
+    "id": "26f0e3e7-6742-4feb-9169-19cc91b9d77f",
+    "state": "cancelled"
+  },
+  "sourceState": "succeeded",
+  "sourceRunConclusion": "success"
+}

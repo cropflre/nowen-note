@@ -349,8 +349,17 @@ function parseRecoveryArtifact(
   };
 }
 
+// Picker files and native bridge blobs can use a different realm's constructor.
+// Use their Blob interface rather than instanceof, which would treat them as buffers.
+function isBlobData(data: NativeAttachmentData | string): data is Blob {
+  return typeof data !== "string"
+    && "size" in data
+    && typeof data.size === "number"
+    && typeof data.slice === "function";
+}
+
 function dataSize(data: NativeAttachmentData): number {
-  if (data instanceof Blob) return data.size;
+  if (isBlobData(data)) return data.size;
   return data.byteLength;
 }
 
@@ -373,7 +382,7 @@ async function hashAccountId(accountId: string): Promise<string> {
 async function* inputChunks(
   data: NativeAttachmentData,
 ): AsyncGenerator<Uint8Array, void, void> {
-  if (data instanceof Blob) {
+  if (isBlobData(data)) {
     for (let offset = 0; offset < data.size; offset += IO_CHUNK_BYTES) {
       const part = data.slice(offset, Math.min(offset + IO_CHUNK_BYTES, data.size));
       yield new Uint8Array(await part.arrayBuffer());
@@ -428,7 +437,7 @@ function base64ToBytes(encoded: string): Uint8Array {
 }
 
 async function chunkDataToBytes(data: string | Blob): Promise<Uint8Array> {
-  if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
+  if (isBlobData(data)) return new Uint8Array(await data.arrayBuffer());
   return base64ToBytes(data);
 }
 
@@ -469,7 +478,7 @@ async function readFileByChunks(
         if (
           chunk == null
           || (typeof chunk.data === "string" && chunk.data.length === 0)
-          || (chunk.data instanceof Blob && chunk.data.size === 0)
+          || (isBlobData(chunk.data) && chunk.data.size === 0)
         ) {
           finish();
           return;

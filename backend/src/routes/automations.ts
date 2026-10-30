@@ -7,7 +7,7 @@ const router = new Hono();
 const userId = (c: any) => c.req.header("X-User-Id") || "";
 function errorResponse(c: any, error: unknown) {
   const coded = error as Error & { code?: string };
-  const status = coded.code === "RESOURCE_FORBIDDEN" ? 403 : coded.code?.includes("NOT_FOUND") ? 404 : 400;
+  const status = coded.code === "RESOURCE_FORBIDDEN" ? 403 : coded.code === "AUTOMATION_VERSION_CONFLICT" ? 409 : coded.code?.includes("NOT_FOUND") ? 404 : 400;
   return c.json({ error: coded.message || String(error), code: coded.code || "AUTOMATION_ERROR" }, status as any);
 }
 
@@ -38,16 +38,16 @@ router.put("/:id", async (c) => {
   try { return c.json(getWorkflowService().update(c.req.param("id"), userId(c), await c.req.json())); }
   catch (error) { return errorResponse(c, error); }
 });
-router.delete("/:id", (c) => {
-  try { getWorkflowService().remove(c.req.param("id"), userId(c)); return c.json({ success: true }); }
+router.delete("/:id", async (c) => {
+  try { const body = await c.req.json().catch(() => ({})); getWorkflowService().remove(c.req.param("id"), userId(c), body.expectedRevision); return c.json({ success: true }); }
   catch (error) { return errorResponse(c, error); }
 });
-router.post("/:id/enable", (c) => {
-  try { return c.json(getWorkflowService().enable(c.req.param("id"), userId(c), true)); }
+router.post("/:id/enable", async (c) => {
+  try { const body = await c.req.json().catch(() => ({})); return c.json(getWorkflowService().enable(c.req.param("id"), userId(c), true, body.expectedRevision)); }
   catch (error) { return errorResponse(c, error); }
 });
-router.post("/:id/disable", (c) => {
-  try { return c.json(getWorkflowService().enable(c.req.param("id"), userId(c), false)); }
+router.post("/:id/disable", async (c) => {
+  try { const body = await c.req.json().catch(() => ({})); return c.json(getWorkflowService().enable(c.req.param("id"), userId(c), false, body.expectedRevision)); }
   catch (error) { return errorResponse(c, error); }
 });
 router.post("/:id/run", (c) => {

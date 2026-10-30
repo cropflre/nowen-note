@@ -58,6 +58,12 @@ describe("note list create menu", () => {
   async function pick(label: string) {
     await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === label)!.click());
   }
+  it("creates a blank TXT note through the normal tree node and persisted plaintext format", async () => {
+    await renderMenu();
+    await pick("纯文本文档（TXT）");
+    expect(mock.create).toHaveBeenCalledWith({ parentId: "folder", nodeType: "note", title: "未命名 TXT", contentFormat: "plaintext" });
+    expect(mock.actions.setActiveNote).toHaveBeenCalledWith(note);
+  });
   it("matches tree menu labels, icons, colors and grouping", async () => {
     await renderMenu();
     const listMenu = document.querySelector('[role="menu"]')!.innerHTML;

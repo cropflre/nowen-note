@@ -10,33 +10,15 @@ function getCopy() {
     : { label: "AI profile", empty: "No AI profiles" };
 }
 
-function findAIChatHeader(): HTMLElement | null {
-  const roots = Array.from(document.querySelectorAll<HTMLElement>("div.flex.h-full.bg-app-bg"));
-  for (const root of roots) {
-    const children = Array.from(root.children) as HTMLElement[];
-    if (children.length < 2) continue;
-    const sidebar = children[0];
-    const main = children[1];
-    if (sidebar.tagName !== "ASIDE" || !sidebar.className.includes("border-r")) continue;
-    if (!main.className.includes("flex-col") || !main.className.includes("flex-1")) continue;
-    const header = Array.from(main.children).find((child) => {
-      const element = child as HTMLElement;
-      return element.className.includes("border-b") && element.className.includes("justify-between");
-    }) as HTMLElement | undefined;
-    if (header) return header;
-  }
-  return null;
-}
-
 function ensureHost(): HTMLElement | null {
-  const header = findAIChatHeader();
+  const header = document.querySelector<HTMLElement>("[data-ai-chat-header]");
   if (!header) return null;
   const existing = header.querySelector<HTMLElement>("[data-nowen-ai-profile-switcher-host]");
   if (existing) return existing;
 
   const host = document.createElement("div");
   host.setAttribute("data-nowen-ai-profile-switcher-host", "1");
-  host.className = "ml-auto mr-1 min-w-0 shrink";
+  host.className = "col-span-2 row-start-2 ml-auto mr-1 min-w-0 shrink md:col-auto md:row-auto";
   const actions = header.lastElementChild;
   if (actions) header.insertBefore(host, actions);
   else header.appendChild(host);

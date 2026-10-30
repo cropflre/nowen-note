@@ -1,0 +1,43 @@
+name: Webhook Settings Regression CI
+
+on:
+  push:
+    branches:
+      - "release/v1.5.2"
+    paths:
+      - "frontend/src/components/automation/TaskDigestSettings.tsx"
+      - "frontend/src/lib/taskDigestApi.ts"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/__tests__/TaskDigestSettings.test.tsx"
+      - ".github/workflows/issue-819-webhook-settings-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/components/automation/TaskDigestSettings.tsx"
+      - "frontend/src/lib/taskDigestApi.ts"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/__tests__/TaskDigestSettings.test.tsx"
+      - ".github/workflows/issue-819-webhook-settings-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - name: Webhook binding management regressions
+        run: npx vitest run src/components/__tests__/TaskDigestSettings.test.tsx --reporter=verbose
+      - name: Typecheck
+        run: npx tsc -b --pretty false

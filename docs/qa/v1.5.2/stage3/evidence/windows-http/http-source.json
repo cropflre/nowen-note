@@ -1,0 +1,26 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "source",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-source-FOKAFZ",
+  "base": "http://127.0.0.1:13072",
+  "checks": [
+    "JWT spoof/cross-user/locked denied; both active delete routes preserve body, history, tree, file and Outbox across restart",
+    "trash and restore return the original body",
+    "explicit permanent delete only succeeds after trash; removed data remains absent after restart",
+    "downloaded backup reimported into separate fresh DB and attachment directory; restarted API body readback and physical byte hashes verified"
+  ],
+  "markdownJob": {
+    "bytes": 3755,
+    "sha256": "876a1abf31f6d9542bbe2e1eeed0fb36d3cc6e1b8ea9d99ed949172957e47ced",
+    "state": "ready",
+    "downloadedAndParsed": true
+  },
+  "backup": {
+    "bytes": 3702,
+    "sha256": "64460433723d58d8215d0844d98d4ddeb644ab4dc93366ddae100d9370a09612",
+    "attachmentSha256": "ed845bb90ef4c3ebc366c37770917f8eccf93aa8617c36b07271df414e3ac845"
+  },
+  "result": "PASS"
+}

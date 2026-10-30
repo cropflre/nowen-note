@@ -16,6 +16,7 @@
 import crypto from "crypto";
 import { getDb } from "../db/schema";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import { isAttachmentExternalAccessEnabled } from "../services/attachment-link-policy";
 import {
   isManualFileManagerUpload,
   resolveFileAttachmentAccess,
@@ -144,7 +145,8 @@ export function verifyAttachmentAccessScope(
   const scope = parseAttachmentAccessScope(rawScope);
   if (!scope) {
     // 仅为极少数历史集成保留显式兼容开关，默认拒绝不可复核的旧 scope。
-    if (process.env.ATTACHMENT_ALLOW_LEGACY_SIGNED_SCOPE === "true") return { valid: true };
+    if (process.env.ATTACHMENT_ALLOW_LEGACY_SIGNED_SCOPE === "true"
+      && isAttachmentExternalAccessEnabled(attachmentId)) return { valid: true };
     return { valid: false, reason: "unsupported_scope" };
   }
 
@@ -186,6 +188,9 @@ export function verifyAttachmentAccessScope(
   }
 
   if (scope.kind === "share") {
+    if (!isAttachmentExternalAccessEnabled(attachmentId)) {
+      return { valid: false, reason: "file_external_access_disabled", accessKind: scope.kind };
+    }
     const share = db
       .prepare("SELECT noteId, isActive, expiresAt FROM shares WHERE id = ?")
       .get(scope.subjectId) as
@@ -201,6 +206,9 @@ export function verifyAttachmentAccessScope(
   }
 
   // 笔记本发布：必须仍处于启用、未过期状态，且目标笔记仍位于发布目录树中。
+  if (!isAttachmentExternalAccessEnabled(attachmentId)) {
+    return { valid: false, reason: "file_external_access_disabled", accessKind: scope.kind };
+  }
   // 锁定笔记、回收站笔记和已删除目录不允许通过旧签名继续访问。
   try {
     const publication = db.prepare(`

@@ -12,6 +12,627 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.5.3 - 2026-10-23
+
+### ✨ 新增
+
+- **favorites**: support searching favorite notes (8dbbf7d)
+- **calendar**: add mainland China holiday layer (#848) (c8bf442)
+- simplify remote image localization to one-click personal scan (e877bb4)
+- **notes**: support permanent decryption (#875) (0b6eeb7)
+- **ui**: document PushPlus localized JSON webhook setup (61d9cc4)
+- **webhook**: format PushPlus task digest JSON in Chinese (98a6ece)
+- **studio**: fail-closed stacked PR ancestry and release base guard (7042155)
+- **studio**: add opt-in synthetic live-model integration smoke without production data (26b07df)
+- **studio**: show recent AI conversation turns during iterative app editing (8b02cd2)
+- **studio**: integrate AI planner and reversible version history into no-code editor (003c4d3)
+- **studio**: add AI draft review, conversational edits and revision restore panel (9365af5)
+- **studio**: expose authenticated preview and revision history endpoints (a4ad7e5)
+- **studio**: safe model-backed AppSpec drafts with record-preserving validation (9181b6f)
+- **studio**: list and restore owned app revisions safely (eb5634d)
+- **studio**: snapshot committed personal AppSpec revisions with SQLite triggers (8520587)
+- **studio**: add private app library and create entry (bdb174b)
+- **studio**: wire personal app routes, authenticated API and app navigation (8f3645a)
+- **studio**: implement no-code template editor, preview and runnable personal apps (fbf8adc)
+- **studio**: add AppSpec templates and isolation regression tests (ae9e68a)
+- **studio**: expose authenticated personal app API and fix E2E mutation race (1b60f70)
+- **studio**: validate and persist personal AppSpec with revision guards (4abf8b7)
+- **studio**: add user-owned AppSpec storage migration (f93e78f)
+- **apps**: consolidate plugin management in apps (6334c16)
+- **extensions**: add resource-scoped V3 inspectors (9914b80)
+- **extensions**: add V3 dashboards and scoped plugin data (2ae023a)
+- **extensions**: enable V3 apps on the real 1.5.3 host (da6d3bb)
+- **extensions**: add gated V3 app runtime and browser acceptance (cb2ca1f)
+- **extensions**: wire V3 package handling into existing plugin lifecycle (f1d39fd)
+- **extensions**: define V3 manifest and hashed UI asset package validator (627fbe2)
+- **extensions**: add V3 application registry and bridge safety foundations (78ccd31)
+- **release-center**: isolated candidate build safety contracts (#864) (47f63df)
+- **harmony**: align native app with Android frontend (a019344)
+- **release-center**: add gated formal candidate publication (e3cd86c)
+
+### 🐛 修复
+
+- **ci**: isolate share management test databases (28876c5)
+- **release**: use GitHub desktop builds in one-shot publishing (194eb8c)
+- **editor**: persist image rotation and restore direct controls (9f134f4)
+- **navigation**: restore All Notes in the primary rail (c181d16)
+- **i18n**: localize automation workflow interface (60a0a52)
+- **settings**: clarify sync status and connection actions (08b0224)
+- **markdown**: generate shareable image links with file extensions (072725c)
+- **ci**: allow WAL snapshot sidecar during integrity check and clean root-owned tmp volume (a993dd2)
+- **tasks**: resolve MCP reminder and scheduling issues (#871) (24f7bbe)
+- **pushplus**: verify provider code rather than HTTP status alone (d1e39dc)
+- **webhook**: adapt PushPlus digest delivery and check provider acceptance (87f751a)
+- **ci**: recognize merged Studio stages and validate release ancestry (30f2ec2)
+- **plugin**: narrow persisted widget size before enum membership check (8636973)
+- **sync-v2**: tolerate bootstrap windows without Location in auth scope checks (ce9ab3c)
+- **ci**: interpolate GitHub expressions and authenticate release ancestry checks (85fc9fc)
+- **studio**: redact unknown upstream failures and validate AI request payloads (1e47f42)
+- **studio**: fail closed for malformed AI preview requests (fbdced8)
+- **studio**: make editor back navigation return to the app library (9ba655d)
+- **studio**: recognize nested Studio routes under proxy base paths (9a8b079)
+- **studio**: provide explicit accessible names for template choices (8cf9010)
+- **studio**: translate installed extensions section in both locales (efe428d)
+- **desktop**: prepare and verify macOS ffmpeg for each target architecture (6283de3)
+- **release-center**: use canonical npm tarball URLs for desktop builds (f4aec87)
+- **release-center**: align Android candidate version and regression guard (48d8b39)
+- **knowledge-tree**: keep nested note drags stable (581a00b)
+- **editor**: prevent mobile code block DOM remount loops (9e0a605)
+- **editor**: keep slash menu active across plugin reconfiguration (5f0f77c)
+- **i18n**: add missing slash block labels and descriptions (c36e25d)
+- **editor**: align slash keyboard selection with grouped menu order (ab5b9d9)
+- **mobile**: preserve foreign-realm attachment file bytes (583f0b6)
+- **android**: clarify server TLS and protocol connection failures (78f5a04)
+- **dev**: preserve Vite base configuration in development (09535cd)
+- **extensions**: close V3 resource, version and replay validation gaps (797e8f8)
+- respect task digest timezone in webhook timestamps (#867) (8024170)
+- **release-center**: Phase 2B fail-closed CI and atomic formal reservation (#862) (7246db9)
+- **macos**: prepare target sharp runtime and isolate banner loading (ae71c5d)
+- **desktop**: validate sharp runtime dependencies before packaging (da48e7e)
+
+### ♻️ 重构
+
+- **shares**: streamline management layout and actions (6b0b6e5)
+- **plugin**: validate untrusted plugin messages and dashboard preferences without explicit any (8ebf43d)
+- **studio**: share exact privacy-constrained model messages with live diagnostics (466db81)
+
+### 📝 文档
+
+- **skills**: add the Nowen UI design skill (7672e90)
+- **qa**: explicit v1.5.3 studio production-vs-device acceptance matrix (ac87bee)
+- **task-digest**: explain PushPlus JSON setup and delivery verification (d9a8032)
+- **studio**: document P2 provider smoke, data safety and release rollback (92be40c)
+- **qa**: record verified three-platform release-center candidate evidence (669c313)
+- **studio**: document AI privacy, no-code preview and version restore boundaries (986fd83)
+- **studio**: describe no-code AppSpec P0 and rollback limitations (dd3b17b)
+- **macos**: record verified 1.5.2 hotfix package replacement (e26169d)
+- **skills**: streamline AI maintainer guidance (3c6737e)
+- **fpk**: simplify app description for v1.5.2 (6c6ff22)
+- **readme**: refresh bilingual v1.5.2 highlights and release availability (adfef95)
+
+### ✅ 测试
+
+- **release**: close candidate CI and Windows portability gaps (718a5d5)
+- **studio**: restart production container and recover WAL snapshot in isolated volume (533dc77)
+- **studio**: production REST smoke for auth, CAS, privacy, restart and snapshot recovery (fa62dc1)
+- **task-digest**: initialize isolated SQLite before timestamp suite imports (a0b5b0a)
+- **pushplus**: use numeric mock-clock timestamp for Node types (6b0eecd)
+- **pushplus**: cover endpoint safety, localization and provider errors (9fa4ea6)
+- **pushplus**: verify Chinese digest and deadline delivery over HTTPS (ec223ba)
+- **studio**: preserve mock schema isolation without unused destructuring (55d42cc)
+- **release**: await committed plugin completion and clear baseline lint violations (e52debd)
+- **sync-v2**: cover partial-window auth scope without browser Location (52ae484)
+- **sync-v2**: surface durable mobile sync errors for failing multi-device fixtures (f726e87)
+- **studio**: exercise WAL backup, v133→v134 migration, disk restoration and history (ef3b27e)
+- **studio**: verify real HTTP provider contract, privacy and error redaction (5c3347e)
+- **studio**: assert AI provider payload excludes all user record values (e0442f7)
+- **studio**: exercise AI accept, saved revisions and rollback in browser (153aeab)
+- **studio**: validate AI drafts, version rollback, ownership and P0 migrations (1b0f96b)
+- **studio**: cover real no-code app creation in browser and CI (9baf03f)
+- **release-center**: provide a loadable sharp packaging fixture (a91f889)
+- **extensions**: correct V3 example ZIP file count (2505dc1)
+- **extensions**: cover V3 install contract and expose gated app registry (3bfabb8)
+- **release-center**: formal GitHub Release lifecycle safety and recovery (#863) (186e231)
+
+### 🤖 CI
+
+- **studio**: run production RC on release branch changes and cancel superseded builds (f4c79ce)
+- **studio**: production Docker runtime acceptance on disposable volumes (18166a5)
+- **task-digest**: run PushPlus and timezone delivery regression tests (972cd8d)
+- **studio**: add fail-closed P3 release gate comparing base vs candidate Sync V2 (487d620)
+- **studio**: enforce provider wire and backup restore contracts in V3 foundation (02ed82c)
+- **studio**: retry transient npm network resets for browser acceptance (7ddc569)
+- **extensions**: isolate database imports in V3 foundation tests (0affc5e)
+- **extensions**: verify V3 foundation and V2 UI gate regressions (e275f23)
+- **release-center**: register isolated candidate workflow on main (#865) (ab2e294)
+- **release**: collect and verify desktop assets on GitHub (bea1fe8)
+
+### 🔧 其他
+
+- **ui**: improve task project discovery and settings presentation (1b1a211)
+- **studio**: reconcile overlapping release fixes before P0 branch update (a5da58e)
+- **harmony**: prepare AppGallery listing assets and release notes (3b7579f)
+
+## v1.5.2 - 2026-10-16
+
+### ✨ 新增
+
+- **settings**: surface MCP dashboard within existing token permission management tab (7ace8b1)
+- **ui**: add native MCP connection dashboard with scoped capability guide and copyable configs (af524e3)
+- **mcp-p2**: opt-in loopback-only authenticated stateless Streamable HTTP transport (eb277af)
+- **mcp-p2**: preview-confirm personal workflow CRUD with safe defaults and diagnostics (cca9b5b)
+- **mcp-p2**: client endpoints for workflow CRUD enable disable and run history (fd60811)
+- **api-token**: enforce per-owner personal workflow CRUD and confirmation boundaries (cb59a9f)
+- **automation**: expose stable revisions and stale-write checks for MCP workflow mutations (abae0e8)
+- **mcp-p2**: add personal automation PAT scopes and readable token permission labels (010313c)
+- **mcp**: add preview-confirm individual personal task ordering with stale-write protection (2e4d712)
+- **mcp**: register seven P1 file manager and task-to-note tools (897f90f)
+- **mcp**: expose P1 personal file organizer and idempotent task-to-note previews with confirmed apply (a747ba9)
+- **mcp**: add personal file-manager folders, guarded moves, trash restore and task note snapshot API client (ab1058e)
+- **api-token**: safely authorize task-to-note snapshots with personal task and notebook grants (1b65a68)
+- **api-token**: isolate P1 personal file-manager folder, move, rename and trash recovery endpoints (b20b64e)
+- **mcp**: add explicit preview-confirm knowledge tree CRUD with optimistic revisions (5455a06)
+- **mcp**: define deterministic tree mutation revisions and precondition payloads (0a49192)
+- **mcp**: protect scoped knowledge-tree writes and validate entire descendant subtree (815c778)
+- **mcp**: add knowledge tree CRUD requests with optimistic precondition payloads (0c279c4)
+- **api-token**: safely authorize personal knowledge-tree CRUD with subtree grants and preview preconditions (6cd5bd3)
+- **mcp**: expose scoped knowledge tree, subtask creation and project assignment (0116481)
+- **mcp**: add knowledge tree read API client (21ba0b2)
+- **mcp**: enforce local notebook whitelist on knowledge-tree reads (c8062da)
+- **mcp**: filter mixed knowledge-tree nodes by nearest authorized notebook (ddc4c94)
+- **api-token**: provide notebook-grant-filtered read-only knowledge tree (45a3b32)
+- **mcp**: support personal task parent and project fields (142ad78)
+- **mcp**: validate personal subtask and project links inside scoped MCP (28ed6c6)
+- **api-token**: allow personal subtasks and personal task project links after ownership checks (5e41c6f)
+- **mcp**: expose personal task projects, task edits, archiving and safe note organization (0ccd7c9)
+- **mcp**: add personal task project and archive API clients (a773458)
+- **mcp**: scope personal project and task archive requests (e9a10e5)
+- **api-token**: authorize only personal task projects and safe task archive via PAT (8abaef6)
+- **release-center**: add channel tracking and immutable handoff plans (4e805e3)
+- **release-center**: add isolated debug console and artifact verification (5ec624c)
+- **app**: integrate AI capture and mobile layout improvements (3a9250f)
+- **files**: add confirmed AI organization and metadata semantic search (36da7dd)
+- **files**: add scoped visual search and transactional batch rename (35ffb9d)
+- **store**: pin verified public Nowen Note Partner Center identity and build AppX candidate on PR (e05b45a)
+- **ui**: show Microsoft Store-managed updates in About, no false NSIS toggles (7b71a69)
+- **store**: isolate Microsoft Store updates and expose safe store-updates action (f81831f)
+- **store**: add isolated Partner Center AppX packaging and channel guards (6b95d34)
+- **files**: synchronize personal attachment folders and locations (f90ed38)
+- **files**: retain assets in a recoverable server recycle bin (d9314f8)
+- **files**: authorize existing attachments before note insertion (c79c747)
+- **files**: add scoped asset tags and smart folders (76959f1)
+- **files**: add explorer navigation masonry and scoped upload queue (250242a)
+- **files**: add folder moves and public link controls (#837) (d8582e8)
+- **editor**: add plain text notes (#835) (afa8b64)
+- **tasks**: export task reports and selected subtrees to Excel and Markdown (#836) (1eac6d1)
+- **tasks**: add context menu actions across task views (944f17d)
+- **tasks**: 今日完成清单、任务树归档与详情存笔记 (86936f9)
+- **images**: expose image-level progress, personal scan and prominent entry (6dc47b3)
+- **images**: update persistent image-level job progress (0ff79a0)
+- **images**: initialize per-image progress counters (1bd7568)
+- **images**: add scoped personal scan and image operation counters (a607a6b)
+- **tasks**: add AI task composer with atomic confirmation (36f1634)
+- **deploy**: add optional Caddy HTTPS deployment (56abe96)
+- **sharing**: 支持管理员统一分享页横幅 (#739) (ac787f3)
+- **appearance**: 支持目录大小、分享页宽度与图标名称搜索 (#739) (59522c3)
+- **tags**: add cross-platform sidebar tag search (#833) (27df776)
+- **sync**: persist native personal folder trash and restore cohorts (93d45de)
+- **sync**: persist native personal folder creation and ordered structure intents (61ca1f0)
+- **sync**: persist native personal folder moves and recover structural conflicts (053b2ae)
+- **sync**: receive negotiated personal tree structure on native clients (a732b22)
+- **encryption**: convert existing notes with preserved history (d95d378)
+- **shares**: copy share link with newly set password without persisting plaintext (cd1bd4d)
+- **ui**: expose manual Chinese typography actions on desktop and mobile (d31d1a5)
+- **typography**: add atomic Markdown and rich-text editor commands (a97d591)
+- **typography**: add guarded CJK typography transforms (d17f48f)
+- **ui**: show scoped note sync receipts without global false positives (4ff8809)
+- **sync**: persist per-note ACK in Android SQLite transaction (41ce754)
+- **sync**: track browser note revisions and server-confirmed versions (bba5536)
+- **sync**: introduce scoped per-note receipt primitives and regression tests (8bce07c)
+- **folder-sync**: safely reorganize existing notes while importing new files into nested folders (#813) (90e2c2b)
+- **folder-sync**: opt-in preserved hierarchy with existing-note organization protocol (#813) (0cbe4b9)
+- **folder-sync**: reconcile already-synced notes into hierarchy without content overwrite (#813) (92173b6)
+- **folder-sync**: import text and attachments into nested notebooks atomically (#813) (0d609ac)
+- **folder-sync**: deterministic safe child notebook hierarchy with knowledge-tree registration (#813) (117394e)
+- **ai-ui**: display server-managed AI network proxy status (#815) (6419524)
+- **ai**: expose credential-free outbound proxy status for all clients (#815) (d46cbc3)
+- **ai**: route chat, model discovery and embedding through opt-in proxy (#815) (15b5dc2)
+- **ai**: isolate optional server-side outbound proxy with local-address bypass (#815) (bd030d7)
+- **task-digest**: expose existing webhook update and removal APIs (#819) (18a29c4)
+- **sync**: explain one-sided knowledge-tree baseline conflicts safely (5f6ea31)
+- **editor**: restore reading viewport in Markdown and rich text (#817) (1cc25c7)
+- **editor**: save local per-note reading positions (#817) (11876fe)
+- **ui**: choose daily backup timezone and preview next run (#816) (714f325)
+- **backup**: expose timezone settings to API and i18n (#816) (a10db05)
+- **backup**: calculate daily schedule in explicit IANA time zone (#816) (a078f17)
+
+### 🐛 修复
+
+- **sync**: enforce recoverable trash-before-delete lifecycle (6442657)
+- **mcp-p2**: report actual HTTP transport in diagnostics (bafe6a4)
+- **mcp-p2**: require both explicit write mode and opt-in for HTTP gateway (b6dc282)
+- **mcp-p2**: allow backend-authorized personal automation PAT requests with notebook scope enabled (19d936c)
+- **automation**: accept optimistic revisions on workflow enable disable and delete (025dfef)
+- **mcp-p1**: guard task snapshot against same-second title and description edits (e144ced)
+- **mcp**: require explicit file destination, preflight folder cycles and bound task previews (40b2b11)
+- **api-token**: route trash list before generic file ID matcher (0c7af02)
+- **mcp-p1**: use actual nested /api/files/trash router instead of nonexistent endpoint (280bcee)
+- **tasks**: validate optional optimistic task and order preconditions before PUT mutation (405d24c)
+- **mcp**: allow folder moves without forcing a rename (deca247)
+- **files**: type optional optimistic filename precondition (047bdb1)
+- **mcp**: use default personal files scope instead of unsupported workspaceId query (8f20057)
+- **tasks**: revalidate snapshot task revision before committing note (22a8a5d)
+- **files**: atomically validate trash timestamps before restoring files (8de53ee)
+- **files**: reject stale MCP file rename based on original filename (5c14933)
+- **files**: enforce optional folder optimistic preconditions within transaction (24ac32d)
+- **mcp**: reject destructive tree changes that contain unsupported mixed resource types (204668d)
+- **mcp**: require explicit opt-in for plugin execution, workflows, webhooks and backups (b0fab91)
+- **mcp**: prefer PAT directly and fail closed on invalid token or missing explicit credentials (edb7dbd)
+- **mcp**: remove implicit admin/admin123 credentials from MCP entrypoint (7f9139a)
+- **mcp**: preserve scope across tombstone restore and refresh recovered descendants (a9e9eaf)
+- **mcp**: resolve deleted descendants through authorized notebook ancestors only for recycle-bin access (0baadb2)
+- **api-token**: allow scoped tombstone recovery without expanding normal notebook grants (57d9abf)
+- **mcp**: block AI chat side effects while in read-only mode (0c8c54b)
+- **knowledge-tree**: enforce optional optimistic snapshot checks on MCP operations (a8943c4)
+- **api-token**: require subtree revisions and optimistic previews on knowledge-tree writes (e255b1a)
+- **api-token**: correct knowledge tree mutation route matching (49051af)
+- **mcp**: disable permanent deletion and require preview version plus explicit trash confirmation (a3903dc)
+- **mobile**: pin patched Capacitor 8.4.3 and sync native projects (1ea0c10)
+- **mcp**: apply local read-only to all API writes and scope attachment reads (8b8ae6c)
+- **mcp**: enforce read-only independently of notebook whitelist (9ff024c)
+- **ci**: preload database isolation for extension RC1 tests (130c9bc)
+- **files**: exclude trashed Live Photo companions and stale media caches (33ebcc0)
+- **release-center**: allow bounded slow artifact downloads and add console CI (7e0c130)
+- **editor**: make Markdown slash commands reliable (#853) (7dcc450)
+- **daily-records**: open native date picker from shortcut (a0f6578)
+- **notifications**: hide navigation entry by default (fb1f558)
+- **editor**: preserve first save ACK after deferred initialization (64bef96)
+- **test**: preserve i18next initialization in attachment math suite (65eace3)
+- **test**: preserve i18next exports in editor preview suite (7f1ff30)
+- **build**: split emoji catalog from application entry (b39a922)
+- **ci**: isolate backend suites and refresh frontend regression contracts (6ee1a42)
+- **test**: isolate DCC databases and invoke Vitest through Node (6296b6e)
+- **store**: remove AppX capabilities option unsupported in electron-builder 25.1.8 (13a66dc)
+- **windows**: remove inherited Lite publisher identity for unsigned Direct builds (918148a)
+- **store**: prepare packaged runtime before optional local AppX build (e5322b5)
+- **sync**: preserve signed tree positions during asset binding (d1dbc10)
+- **calendar**: align local dates and prevent mobile picker layout shifts (2de512b)
+- **files**: index references before reporting collaborative save (021e92c)
+- **files**: roll back collaborative saves on reference storage failure (bed917c)
+- **files**: update reverse references with collaborative note saves (7e67875)
+- **files**: require attachment identity in upload dedup result (e70bef1)
+- **files**: address Phase B review and portable acceptance (57129e7)
+- **files**: reject read-only workspace uploads before holder creation (ec761c9)
+- **files**: preserve asset locations and guard destructive operations (499a4f5)
+- **startup**: 优化慢速 NAS 网关启动体验并加固登录超时 (e677037)
+- **sdk**: share authentication and guard account transitions (3e83b46)
+- **editor**: prevent attachment menu from being clipped by toolbar (5e30b1d)
+- **settings**: temporarily disable plugin management entry (1c7b141)
+- **tasks**: repair recurrence deletion and invalid-date blank screens (d5c4371)
+- **tasks**: keep task headers horizontal in narrow layouts (7271c9a)
+- **db**: tolerate missing encrypted content triggers during v123 migration (0d48a64)
+- **editor**: recover pasted image sources before sanitization (f35af3c)
+- **ci**: align native sync fixture with recurrence schema and fix frontend lint/i18n mocks (6881991)
+- **tasks**: support archive conflict status in shared task creator (df63e03)
+- **tasks**: repair composer merge typecheck in frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts (1985402)
+- **tasks**: repair composer merge typecheck in backend/src/routes/tasks.ts (8965e4e)
+- **tasks**: close task time block TaskRow interface (b6edff2)
+- **tasks**: enforce archived task read-only contract across secondary APIs (bf48830)
+- **i18n**: define translated remote image protection labels (5eabbe8)
+- **images**: make interrupted jobs retryable after restart (b9d818c)
+- **images**: type the personal-note batch scope (d6361a0)
+- **tasks**: recheck ownership when replaying AI batches (c6af450)
+- **sync**: version document moves without losing offline edits (91973d5)
+- **android**: preserve active notes on permanent delete requests (98d1ddf)
+- **acl**: retry lazy policy schema after transaction rollback (d7e0f9f)
+- **sync**: reconcile explicit permanent deletion only after successful ACK (85538be)
+- **release**: harden note deletion and Studio files, repair regression contracts (56f901f)
+- **automation**: isolate corrupt event JSON and guard workflow execution (f0f937a)
+- **editor**: constrain AI writing assistant to mobile viewport (#832) (aa49e2f)
+- **sync**: reopen retained owned bodies before folder restore ACK (7d167b4)
+- **sync**: retain pending folder creates across snapshot rebuilds (c3d9b9f)
+- **sync**: hold native folder tombstones before cascading business deletion (78a0e1a)
+- **tree**: preserve hidden root containers when moving child nodes (5428b6d)
+- **sync**: notify committed tree moves and retain pending native subscriptions (0e5b2e7)
+- **sync**: persist personal native tree creates and authorized missing bodies (f691574)
+- **sync**: connect native realtime Pull and protect recovery transactions (4588de4)
+- **sync**: preserve native edits across deletion and acknowledgement races (421d37e)
+- **i18n**: preserve base encrypted password policy labels during Sync Receipt merge (7e47480)
+- **shares**: handle password-copy errors without new any lint violations (fec2ff3)
+- **ci**: refresh audited frontend ESLint baseline on v1.5.2 (#826) (5ef3136)
+- **cjk**: clear five new eslint violations without changing matching semantics (481331b)
+- **i18n**: localize AI task responses and preserve Chinese command grammar (#825) (040c428)
+- **android-sync**: ignore proven own pull echo while newer note mutation is pending (b7cf295)
+- **android-sync**: invalidate receipts after local commit and persist applied version (d858ff5)
+- **encryption**: accept six-character passwords and hide block ciphertext (0ce3ebc)
+- **typography**: protect Nowen links/frontmatter and speed up large-note scans (408f6a5)
+- **typography**: protect Unicode email local parts and isolate undo history (4160268)
+- **typography**: use shared translations and typed ProseMirror marks (9cff2f0)
+- **sync**: prevent import batch self-conflicts (#820) (c66a446)
+- **sync**: do not call metadata-only CRDT writes cloud confirmed (d8bacc6)
+- **sync**: never mistake Electron local REST writes for cloud ACK (34d7186)
+- **sync**: preserve in-flight queued edits and acknowledge exact versions (fc1bcc5)
+- **sync**: preserve local notebooks and tags absent from remote snapshots (890bdaa)
+- **note-list**: restore native desktop drag sorting inside animated cards (#814) (1d786e7)
+- **electron**: pass sanitized folder hierarchy reconciliation marker through preload IPC (#813) (d11cefd)
+- **folder-sync**: protect manually relocated notes and block unsafe cross-workspace hierarchy moves (#813) (82fc7f6)
+- **folder-sync**: return explicit 409 when a managed folder was manually moved or deleted (#813) (48e2cc6)
+- **folder-sync**: declare hierarchy index acknowledgement in Electron bridge type (#813) (14afe29)
+- **deps**: use patched Undici 6.28.1 LTS for AI proxy (#815) (eb88213)
+- **task-digest**: mask secret webhook path segments in bound destination list (#819) (9de9f72)
+- **settings**: constrain modal to viewport and independently scroll sidebar/content (#819) (7fd9d6c)
+- **task-digest**: show push destinations with edit and confirmed unbind (#819) (47c2ea5)
+- **sync-ui**: show unresolved tree dependency errors beside selected item (1aa7311)
+- **sync-ui**: handle unopened tree conflict details safely (b4a2cb7)
+- **sync-ui**: show tree structure differences and disable incomplete-side decisions (3d4beb6)
+- **sync**: skip unsafe bulk resolution of knowledge-tree structure conflicts (36ccff9)
+- **sync-ui**: open conflict details directly below the clicked entry (e57362c)
+- **markdown**: preserve ordered list start numbers in preview (7214483)
+- **backup**: persist IANA timezone and schedule daily jobs accordingly (#816) (56651af)
+- **ui**: display user last login in browser timezone (#818) (f1bc7ca)
+- **android-sync**: detect NodeBao HTML fallback and reject malformed scope payloads (ce19b1a)
+- **android-sync**: refresh Sync V2 credentials across NodeBao proxy and handle scopes 401 (1f38bca)
+- **mobile**: read server-tree notes before native snapshot catches up (30bce38)
+- **sync**: preserve notes on ambiguous 404 and normalize UTC mobile timestamps (9377cdc)
+- **ai**: distinguish chat and embedding models (#810) (735d274)
+- **embedding**: improve index diagnostics and retries (#812) (5c72204)
+- **editor**: restore Mermaid code block folding in source and inline preview (7146045)
+
+### ♻️ 重构
+
+- **mcp**: preserve stdio entry with shared scope middleware (f18e418)
+- **mcp**: share fetch scope enforcement between stdio and HTTP transports (f49fa26)
+- **mcp**: instantiate independent server per transport and register P2 tools (1d74176)
+- **windows**: remove signer variables and replace SignPath release contract tests (d7db84c)
+
+### 📝 文档
+
+- **mcp-p2**: document safe Streamable HTTP deployment and workflow management scopes (b08660a)
+- **mcp**: document P1 personal file organizer and task-to-note safety workflow (7a8943f)
+- **mcp**: document dangerous-tool opt-in and safer default behavior (1a532a7)
+- **mcp**: document P0 preview-confirm contract, restricted restore and credential hardening (1c61ae7)
+- **mcp**: describe v1.5.2 expanded tools and security boundaries (99d5769)
+- **release-center**: record real desktop builds and artifact verification (3a22459)
+- align official site, downloads and help navigation (en) (6fe3367)
+- align official site, downloads and help navigation (zh) (2af2f8b)
+- **readme**: publish https://nowen.cn as official site (en) (6ca9b5f)
+- **readme**: set https://nowen.cn as active official website (zh) (af7f68f)
+- **qa**: preserve existing DCC matrix formatting (1e0f801)
+- **files**: record Phase A merge and CI baseline evidence (25c1625)
+- **files**: record authorized A and B integration follow-up (bf1a5d7)
+- **qa**: archive isolated sync validation and correct final-code coverage (f7db1f3)
+- **qa**: verify archived hashes after release branch integration (f07fbe1)
+- **qa**: archive hardening acceptance and remaining Sync V2 deletion gate (5d2e5a4)
+- **qa**: retain raw review logs and download fixture (3bd897d)
+- **qa**: archive v1.5.2 independent release review evidence (d008d9b)
+- **skills**: 完善 AI 维护者工作流程与验收规范 (65eda82)
+- **sync**: update folder creation snapshot and final Android evidence (c260199)
+- **sync**: record native offline folder creation and Android recovery acceptance (c892f5e)
+- **sync**: record native folder writes and conflict recovery acceptance (8119a34)
+- **sync**: record native tree pull and Android recovery acceptance (2459497)
+- **sync**: audit Sync V2 platform paths and data safety gaps (bd26fab)
+- **shares**: explain safe copy-link-and-password behavior (2b0e7dc)
+- **pr**: require data-consistency risk review for persistence and sync changes (114e99f)
+- **architecture**: define verifiable local-save, sync ACK, conflict and backup consistency contract (b7af90a)
+- **sync**: establish machine-readable data consistency regression matrix (3bd1330)
+- **folder-sync**: explain opt-in preserved hierarchy, migration and safety boundaries (#813) (dd38eee)
+- **ai**: describe Docker AI outbound proxy and local-model bypass (#815) (218ad27)
+- **fpk**: add v1.5.1 release notes to app description (a290f77)
+- **readme**: update English v1.5.1 highlights and Docker tags (606cca7)
+- **readme**: announce v1.5.1 and refresh deployment examples (3e346d9)
+
+### ✅ 测试
+
+- **mcp-p2**: verify remote stateless HTTP tool discovery works beyond initialize (b34dd38)
+- **mcp-p2**: real stdio SDK workflow preview create enable stale rejection and diagnostics (efaab11)
+- **mcp-p2**: verify Host header using raw HTTP request instead of normalized fetch (24bba0b)
+- **mcp-p2**: integrate workflow PAT ownership, optimistic revisions and delete confirmation (7fc57b0)
+- **mcp-p2**: verify stateless HTTP protocol handshake and fail-closed gateway boundaries (1900522)
+- **mcp**: reject implicit root destination for file moves (d63c362)
+- **mcp**: exercise optimistic personal task reordering through real SDK client (e60ba48)
+- **mcp**: cover confirmed personal file trash restore through stdio client (78ed140)
+- **api-token**: assert purge protection against actually mounted file trash route (66b91a9)
+- **api-token**: cover P1 personal file-manager isolation, destructive endpoint denial and task snapshots (785066f)
+- **mcp**: exercise P1 personal file move and task snapshot through real stdio SDK (9eca252)
+- **mcp**: verify dangerous plugin actions are blocked by default over stdio (7002e7b)
+- **mcp**: exercise real stdio SDK client with preview, token scope and read-only protections (c887fa3)
+- **mcp**: assert stale rename rejection and remove integration debug output (9519d9b)
+- **mcp**: prevent scope expansion during tombstone recovery (bceb425)
+- **mcp**: diagnose tombstone visibility after real tree delete (dae8202)
+- **mcp**: show missing tombstone IDs in restore integration failure (4986313)
+- **mcp**: clone HTTP response for assertion diagnostics without consuming JSON (dd90a52)
+- **mcp**: integration-test knowledge tree CRUD, restricted PAT and subtree conflicts (e6b9acc)
+- **mcp**: include knowledge tree revision coverage in npm test (8a34d4a)
+- **mcp**: verify subtree revision detects concurrent nested changes (70af5ab)
+- **api-token**: ensure subtask creation cannot reference foreign or team parents (63bb0c8)
+- **api-token**: cover personal project access and knowledge tree filtering (61dc951)
+- **mcp**: cover mixed knowledge tree notebook isolation (f3947a5)
+- **mcp**: cover read-only mode without notebook whitelist (bc90005)
+- **files**: wait for initial editor before AI navigation (3d7fed5)
+- **store**: reject unsupported electron-builder 25 AppX options at contract stage (440a630)
+- **release**: protect unsigned Direct Windows artifacts and release validation gates (1c36d2f)
+- **store**: mock Electron app lifecycle listener in direct-Windows regression (f45b72c)
+- **store**: simulate Electron Store runtime and assert no GitHub updater or NSIS installation (8e1a7e7)
+- **files**: cover organization feed in protocol regressions (625a295)
+- **files**: include files facade in native voice fixture (d35ea48)
+- **tasks**: repair integration mocks and native sync fixtures (0105842)
+- **tasks**: preserve archive and recurrence migration assertions; use partial i18n mocks (8825be0)
+- **images**: assert non-admin entry and image-level UI progress (39e56b8)
+- **images**: cover cancellation image progress without external HTTP (297a52a)
+- **images**: cover personal scope and image counters (f4cc2c8)
+- **automation**: await background cleanup before asserting active runs (99dbdef)
+- **automation**: drain sequential workflow runs during corruption regression (a7e4135)
+- **sync**: reference executable folder restore access coverage (bf10529)
+- **sync**: inspect retained trash bodies below the editor gate (0b8fd5c)
+- **i18n**: include encrypted conversion runtime translations (108dd16)
+- **sync**: verify native tree creation and recovery on Android (1b5b0c7)
+- **sync**: align audio fixtures with mutation ACK revisions (856d42b)
+- **sync**: add isolated Android recovery acceptance and measured latency (6b4c594)
+- **sync**: preserve typed SQL mock call arguments without unused vars (006db1d)
+- **lint**: use typed fixtures in Sync Receipt regression tests (d6dcbd1)
+- **markdown**: await signed image preview and note scope updates (be3d4cb)
+- **attachments**: assert unsigned URLs stay blocked until signed mapping (c13139b)
+- **shares**: cover copying only the newly reset access password (d4673e1)
+- **shares**: verify password copy appears only within successful modal session (0b4b59f)
+- **shares**: guard ephemeral copy-password lifetime and credential reset (a9449b3)
+- **ui**: verify actual SyncStatusBadge reacts to committed Android edits (2e953f4)
+- **android-sync**: narrow optional SQL parameter arrays in TS acceptance tests (e6d10fb)
+- **android-sync**: correct TypeScript mock signatures for receipt integration (fb886ea)
+- **sync**: align Android regressions with executable DCC title verification (17827a1)
+- **sync**: make Android receipt, ACK version and own-echo protections DCC-011 required (3ea71a8)
+- **ui**: stale Android ACK switches to pending after committed write event (89e0698)
+- **android-sync**: verify committed note edits invalidate stale receipts on both formats (b273866)
+- **android-sync**: applied/duplicate ACK versions and own-echo conflict negatives (8a29c0b)
+- **typography**: protect math in rich text and nested straight quotes (39ff8dc)
+- **typography**: avoid Tiptap auto trailing paragraph in undo fixture (228bb87)
+- **typography**: run focused CI and use static translation keys (281f1fa)
+- **typography**: exercise protected spans, contextual punctuation and atomic undo (0b8123b)
+- **ui**: require per-note evidence before showing cloud-confirmed status (f318f93)
+- **sync**: cover stale in-flight ACK against newer queued edit (d3ca0a1)
+- **sync**: gate per-note receipt semantics with DCC-011 and CI (7aca473)
+- **android-sync**: update mode-switch transport mock for shared auth-refresh fetch (3e62b30)
+- **contract**: verify invariants and execute existing cross-platform safety regression suites (b790f2b)
+- **note-list**: keep i18n plugin exports when mocking card translations (#814) (f856eed)
+- **note-list**: verify native desktop drag events survive animated note card (#814) (6c55790)
+- **electron**: prevent stripping hierarchy status from preload bridge (#813) (58963a0)
+- **folder-sync**: verify nested rename migration and reject manual-note-move overwrites (#813) (bc3996c)
+- **folder-sync**: ensure old synced notes are organized exactly once without reupload (#813) (72a8675)
+- **folder-sync**: ensure manually moved notes are protected and assertions are typed (#813) (8a41b4e)
+- **folder-sync**: cover nested notebook trees, idempotence and flat-to-tree migration (#813) (2a1950d)
+- **ai**: verify proxy CONNECT routing, bypass and safe configuration (#815) (26d784f)
+- **task-digest**: cover edit, revoke, masking and shared Webhook safeguards (#819) (fa527a2)
+- **sync**: reproduce 28 tree conflicts, inline inspection and safe controls (25bf656)
+- **markdown**: cover ordered list numbering separated by attachment links (b4cc76c)
+- **editor**: emulate visible scroll panes in jsdom (#817) (942a395)
+- **editor**: verify real viewport restoration and per-note isolation (#817) (d93505e)
+- **time**: assert local day rollover through shared formatter (#818) (3737151)
+- **ci**: include timezone regression for user last login (#818) (36b64d9)
+- **mobile**: type complete remote duplicate response (a9fc2ef)
+- **editor**: stabilize locale for CodeBlockView.maxscript.test.tsx (563e43c)
+- **editor**: stabilize locale for CodeBlockView.indent.test.tsx (ca4bd64)
+- **editor**: stabilize locale for CodeBlockView.mermaid-collapse.test.tsx (33a4a10)
+- **editor**: cover Mermaid source, preview, and read-only folding (ad2b2da)
+
+### 📦 构建
+
+- **store**: add explicit AppX package and isolated store contract test scripts (f259eb6)
+
+### 🤖 CI
+
+- **mcp-p2**: include native MCP connection settings frontend typecheck (f3862a2)
+- **mcp-p2**: include stdio workflow CRUD integration tests (42d3043)
+- **mcp-p2**: run automation token ownership regression on branch pushes (1d46e81)
+- **mcp-p2**: expose opt-in HTTP launcher and run gateway security tests (eea762c)
+- **mcp**: trigger P1 regression on file and task service changes (4a0d2b8)
+- **mcp**: run P1 file organizer and task-to-note protocol integration test (0cbee91)
+- **mcp**: include real SDK stdio protocol smoke test (47dabdb)
+- **mcp**: execute real knowledge-tree route security integration tests (5380999)
+- **mcp**: trigger PAT regression workflow when scope tests change (585ee25)
+- **mcp**: run backend PAT resource-scope regression alongside MCP tests (8f16706)
+- **mcp**: build MCP and run scope, note-format and startup regression tests (fad7ee3)
+- **release-center**: register isolated debug workflow (#859) (3f929ff)
+- **store**: enforce generated AppX runFullTrust manifest rather than invalid capabilities key (053ceaa)
+- **windows**: drop SignPath and publish validated same-tag Direct EXE artifacts (aadbe46)
+- **store**: type-check desktop Store UX and keep AppX artifacts outside public Releases (1b4024c)
+- **store**: isolated manual AppX packaging, manifest identity check and publish gate (b6c5f83)
+- **tasks**: validate AI composer against archive and Native regressions (d1b523d)
+- **tasks**: run lifecycle API, offline and note snapshot regressions (b9b039b)
+- **automation**: gate malformed event and workflow regressions (1ea917a)
+- **cjk**: enforce lint for new typography implementation modules (57f8d14)
+- retrigger PR #821 checks against updated release/v1.5.2 (6c438f8)
+- **shares**: gate password-copy session and modal integration tests (cb02640)
+- **sync**: add cross-platform data consistency contract gate on safety-critical changes (740d419)
+- **note-list**: guard desktop manual drag sort interactions (#814) (bc28972)
+- **folder-sync**: run hierarchy IPC regressions when preload contract changes (#813) (acd02dd)
+- **folder-sync**: verify hierarchy, existing-note migration and frontend/Electron contracts (#813) (0a7d90f)
+- **ai**: verify authenticated HTTP CONNECT proxy and frontend types (#815) (6be6771)
+- **settings**: verify editable push bindings and settings layout (#819) (d655341)
+- **sync**: guard inline conflict viewer and tree baseline actions (3ab8753)
+- **markdown**: run ordered-list regression when preview tests change (462f42b)
+- **editor**: include live scroll restore integration regression (#817) (b6fb150)
+- **editor**: verify saved per-note reading positions (#817) (9da284e)
+- **backup**: verify daily timezone scheduler, legacy retention, and UI (#816) (1c16af8)
+- **android**: run Native Sync V2 proxy/auth regressions on 1.5.2 (28fe2ed)
+- **mobile**: test local-first and server-tree compatibility on 1.5.2 (5cdd138)
+- **editor**: run Mermaid code block folding regression tests (c60794b)
+
+### 🔧 其他
+
+- **release-center**: prepare isolated 1.5.2 debug candidate (f1066e4)
+- **signing**: delete retired SignPath manifests, implementation and tests (8b32eae)
+- **backend**: 同步 package-lock.json 版本号至 1.5.1 (c8501ac)
+- **sync**: remove unused local deletion import after retention guard (854ec25)
+
+## 未发布 / Unreleased
+
+- **macOS / #861**：为 Intel 与 Apple Silicon 构建补齐匹配后端 sharp 版本的目标架构依赖，打包前后校验原生库版本与 Mach-O 架构；分享横幅按需加载图片处理库，避免其加载失败阻断后端启动。Prepare target-specific sharp/libvips packages for both macOS architectures, validate native versions and Mach-O headers before and after packing, and load banner processing on demand. 本地回归、GitHub 双架构构建和包内运行检查通过，已替换 1.5.2 macOS 分发资产；Intel 真机安装验收待完成。Local regressions, GitHub builds and packaged-runtime checks passed; v1.5.2 macOS assets replaced, with Intel hardware installation acceptance still pending. [验证记录 / Validation](./docs/qa/issue-861-macos-sharp.md)。
+
+- **maintenance / Release Center Phase 2B**：新增既有正式 Tag 构建接管、Windows Full/Lite 与三平台内容复核、独立凭据的 Draft/审批/发布源码，加入写入意图对账与防覆盖约束。写开关默认关闭，测试按要求延后，正式构建编排仍待实现，不能视为可发布。Add source implementation for legacy formal-run import, complete desktop verification and gated Draft/approval/publication with durable write reconciliation; runtime acceptance and new formal build orchestration remain pending. [源码与未验收记录](./docs/qa/v1.5.2/release-center-phase2b.md)。
+
+- **maintenance / 发布流程**：将同 Tag 的 macOS、Windows CI 产物汇总与远端更新校验移至 GitHub Runner；本地仅轮询进度并核对绑定请求和资产清单的小型回执，保留 Draft/最终发布门禁，修正提前显示“发布成功”。Move same-tag desktop asset collection and remote updater verification to GitHub; keep local receipt checks and Draft/final publication gates, and report success only after verification. 尚未进行真实 Actions 发布联调，见 [维护者说明](./docs/releases/github-release-assets.md)。
+
+- **maintenance / Release Center Phase 3**：新增 Store、Docker Hub 与 NAS 渠道观察、历史记录、固定 Commit 的分发交接计划/JSON 导出和未核实的人工回执；修复 Store 已发布记录被待审修订遮蔽、提交 ID 校验和窄屏输入布局。完成隔离夹具的单元/API、浏览器与构建回归，修复 RC1 CI 测试入口的数据库隔离预加载；保持实际分发禁用，等待 Phase 2 正式审批与内容校验，未进行真实平台联调。Add channel observations, immutable handoff plans and unverified manual receipts; fix published Store status precedence, submission ID validation, narrow layout and RC1 test DB setup. Local unit/API, browser and build checks passed with isolated fixtures; actual distribution stays disabled and live provider integration remains pending. [实现与验证记录](./docs/qa/v1.5.2/release-center-phase3.md)。
+
+- **maintenance / Release Center**：新增独立本机发布控制台的预检、Dry Run、调试任务和产物下载复核；校验 archive、逐文件摘要与更新元数据，持久化仅调试验收记录；修复 macOS 发布版本同步及版本标签不一致。已通过真实 Windows/macOS/Linux 调试构建与 16 个文件下载校验，新增独立控制台 CI 和有界慢速下载支持。Add an isolated local release console with preflight, dry runs, debug tasks, artifact/hash/updater validation and debug-only acceptance; repair macOS version synchronization and align lockfile version labels. Real desktop debug builds and all 16 files passed verification; add console CI and bounded slow downloads. Draft 与正式发布尚未实现，设备安装和人工验收未完成；drafts, formal publishing, device installation and human acceptance remain pending. [验证记录 / Validation](./docs/qa/v1.5.2/release-center-remote-debug.md)。
+
+- **Markdown / #853**：修复斜杠菜单在编辑器更新阶段读取布局而失效的问题，支持 `/H1`、`/code`、`/tab` 等筛选、键盘和触控选择；补齐视口避让、代码与只读保护、取消及撤销，修复标题后继续输入位置错误和代码块插入吞掉邻近文字的问题。Repair Markdown slash commands with safe cursor measurement, searchable keyboard/touch actions, viewport placement, code/read-only guards and undo; preserve the typing position and surrounding text. [使用说明 / Usage](./docs/user/markdown-slash-commands.md) · [验证记录 / Validation](./docs/qa/v1.5.2/markdown-slash-menu.md)。尚未发布。Unreleased.
+
+- **daily records / date picker**：修复点击“选择日期”文字仅聚焦而不弹出日历的问题；显式触发原生选择器，并扩大原生日历图标点击区域。Open the native date picker when clicking anywhere on the daily-records date shortcut, with full native-indicator hit coverage.
+
+- **editor / files AI**：修复富文本编辑器延迟初始化后首个保存确认可能覆盖较新输入的问题；加密浏览器夹具对齐正式保存确认逻辑，并验证延迟回包、服务端持久化和重载解锁。文件 AI 弹窗复用公共 ID 生成函数，减少对启动补丁的依赖。Initialize rich-text synchronization when the deferred editor becomes ready, preserve newer input across the first save ACK, strengthen encrypted persistence tests, and use the shared ID fallback in file AI dialogs.
+
+- **files / Phase E**：新增可编辑的 AI 分类、标签和文件描述预览，用户确认后整批原子执行并支持持久化幂等重试；复用已有 Embedding 配置进行分批文本元数据语义检索，普通搜索增加标签和描述匹配。Add explicitly confirmed AI organization and on-demand metadata semantic search without sending file contents. SQLite v130 与 PostgreSQL 存储迁移；Native 与启用桌面同步的整理写入明确拒绝，可选图片语义未启用。已通过 #856 合并到 release/v1.5.2，尚未发布，见 [使用说明](./docs/user/file-ai-organization.md) 与 [验收记录](./docs/qa/files-assets-center-v2/phase-e.md)。
+
+- **files / Phase D4**：新增当前权限范围内的分批相似图片搜索，以及预览确认、原名称冲突校验和整批事务回滚的编号重命名；保留附件身份、下载地址、字节和引用。Add local visual comparison and transactional numbered batch rename with explicit scan coverage and stale-name protection. Native 两项操作暂不支持；无迁移或 Sync V2 协议变化，独立分支待验收，尚未合并或发布，见 [使用说明](./docs/user/file-visual-organization.md) 和 [实际验收](./docs/qa/files-assets-center-v2/phase-d-visual-tools.md)。
+- **AI 快记 / AI capture**：新增“写想法 → 帮我整理 → 保存笔记”的默认流程，支持直接保存原文、草稿保留和失败重试；项目资料、自动匹配的文件夹 Skill、个人指令及插件提示词收进可选设置。Add a simple idea-to-note flow with editable drafts, original capture, retained retries and optional project sources / reusable writing templates. 保存复用现有笔记 API 与离线适配；生成遵循空间、权限、密码和加密边界。Reuse existing note persistence and offline adapters, with scoped and protected-source checks. [使用说明 / Usage](./docs/user/ai-capture-collaboration.md)。尚未发布。Unreleased.
+
+- **mobile / H5**：针对 #834 的移动端反馈，优化文件中心、AI 问答和用户管理的窄屏布局：双列紧凑文件卡片、可滚动面包屑、覆盖式会话抽屉、独立模型选择行、用户操作换行及短屏弹窗滚动，保留触控下限与桌面布局；每日记录的日期选择固定于快捷栏右侧，避免横向挤出与焦点边框裁切，并压缩手机端标题和留白。Improve compact file grids, scrollable breadcrumbs, overlay conversation navigation, model selection, user actions and short-screen dialogs while preserving touch targets and desktop layout; keep the daily-records date picker visible beside independently scrolling shortcuts and compact its mobile header. [验证与边界 / Validation and scope](./docs/qa/v1.5.2/mobile-h5-layout.md)。尚未发布；真机和软键盘验收待完成。Unreleased; device and software-keyboard acceptance remains pending.
+
+- **calendar / mobile**：修复移动端选择日记日期后内容横向偏移；区分按修改日期筛选的笔记日历与按发布时间浏览的瞬间日历，统一本地日期、月份边界和瞬间时间显示，避免凌晨记录的徽章与筛选结果不一致。Fix touch date-picker layout shifts, distinguish note modified dates from moment published dates, and align local-day filtering, month bounds and displayed times. 不重写导入历史时间；手机重复登录的现场原因仍待核查，见 [验证记录](./docs/qa/v1.5.2/calendar-mobile-recovery.md)。Imported timestamps are preserved; repeated sign-in in the reported phone environment remains unconfirmed.
+
+- **files / Phase D3**：新增个人附件目录和文件位置的协商同步；离线操作原子入队、独立版本冲突、ACK 重试与删除墓碑保护。Add negotiated personal folder/location sync across desktop SQLite, Native SQLite and the server, preserving attachment identities and conflict history. SQLite v129 / Native schema v12；独立分支待验收，尚未合并或发布，见 [说明](./docs/user/file-folder-sync.md) 与 [验收](./docs/qa/files-assets-center-v2/phase-d-folder-sync.md)。
+- **files / Phase D1–D2**：已有文件插入增加空间与权限预检，并修复协同保存时漏更新附件反向引用；新增服务端文件回收站、原位置恢复及显式永久删除。Add authorized existing-file reuse, transactional collaborative reference indexing and a server recycle bin with recoverable IDs and explicit purge. SQLite v128 / PostgreSQL migration included; Native recycle-bin operations are explicitly unsupported. 已合并到 `release/v1.5.2`，尚未发布，见 [使用说明](./docs/user/file-recycle-bin.md) 与 [实际验收](./docs/qa/files-assets-center-v2/phase-d-trash.md)。目录多端同步由独立 D3 模块验收；相似图片与进一步整理体验仍属后续 D 模块。
+
+- **files / Phase C**：独立功能分支新增附件标签、批量添加 / 移除标签、标签搜索与组合筛选、保存为智能文件夹，以及可访问范围内的相同内容文件展示；不移动或复制原文件。SQLite v127 增量迁移保留附件身份与引用，提供 PostgreSQL 存储迁移；Native 元数据同步尚未支持并明确拒绝。Add scoped asset tags, additive batch tagging, saved smart folders, attribute filters and accessible identical-file discovery without changing attachment identity, location or bytes. SQLite schema v127 and PostgreSQL storage migration included; Native metadata synchronization is unavailable. 尚未合并或发布，见 [使用说明 / Usage](./docs/user/file-asset-organization.md) 与 [验收 / Acceptance](./docs/qa/files-assets-center-v2/phase-c.md)。
+
+- **startup / NAS**：改善 FN ID 等慢速远程入口的启动体验：12 秒后提示继续加载，60 秒后才报告超时，资源就绪后自动进入；登录续期与响应读取增加 8 秒超时，超时保留凭据并丢弃迟到响应；诊断补充启动阶段和脱敏资源耗时。Improve slow NAS gateway startup with a loading notice at 12s, a 60s timeout and automatic recovery; bound token refresh/body reads to 8s without clearing credentials on timeout or persisting late responses, and add sanitized startup diagnostics. FN ID 真机验收仍待完成，见 [验证说明](./docs/fn-connect-startup-compatibility.md)。FN ID device acceptance is still pending.
+
+- **sdk**：修复浏览器默认 fetch 绑定，开放登录、两步验证和 Token 管理；普通请求与附件共用认证状态，阻止切账号、迟到登录响应和 401 重试使用错误身份；对齐日记时间线与 Token 验证的真实接口类型（#803）。Bind browser fetch, expose login/2FA/token management, share authentication across REST and attachments, prevent stale responses or retries from crossing accounts, and align diary/verification contracts. SDK 调用方需调整旧接口类型，新包尚未发布；SDK consumers must update the affected types; no new package has been published.
+
+- **tasks**：循环任务明确区分仅删除本次、终止后续循环和删除整个系列，展示包含历史、归档及子任务的影响范围；持久化删除与终止意图，补齐 Web 离线队列、Native 原子写入、旧服务端协商和多设备同步回归，防止迟到更新复活已删除任务；规范化 SQLite 日期时间并阻止 NaN 日期生成，旧异常日期不再使任务中心白屏。Distinguish occurrence deletion, recurrence termination and whole-series deletion, with affected-range confirmation, durable lifecycle intents, offline/Native atomic writes, server capability checks and multi-device regressions; normalize SQLite timestamps and prevent invalid recurrence dates from blanking the task center. 安装包与真实设备验收待完成，见 `docs/qa/v1.5.2/task-recurrence-deletion.md`。
+
+- **files**：文件管理支持单个 / 批量移动到文件夹或未归档，保留附件身份与笔记引用；增强中文上传文件名兼容，新增当前服务实例的逐文件公开外链开关，关闭时撤销旧文件分享并拒绝分享 / 发布页的公开读取，本人预览与下载继续按权限工作（#837）。Add single/batch folder moves, Unicode upload-name compatibility and per-file public-link controls on the serving instance, while preserving attachment identity, note references and authorized owner access. [边界与验证 / Scope and validation](./docs/file-management-837.md).
+
+- **tasks**：任务中心新增导出入口，支持 Excel `.xlsx` 和 Markdown 报告，保留当前空间任务的状态、描述、层级和递归进度（#836）；任务及子任务右键菜单支持仅导出所选子树，包含已完成与已归档任务，超长 Excel 单元格明确提示改用 Markdown，避免静默截断。Export a space or selected task subtree with status, descriptions, hierarchy and recursive progress to Excel or Markdown, including completed and archived tasks, with explicit handling of Excel cell limits.
+
+- **editor**：新增独立 TXT 纯文本笔记（#835），提供目录树、列表和标签栏创建入口，按原文保存 Markdown/HTML/JSON 和空白，支持纯文本编辑、UTF-8 `.txt` 导出及 Nowen 备份恢复，复用现有权限与离线同步。Add plain text notes with literal editing, UTF-8 TXT export, backup round trips and existing permission/offline-sync workflows.
+
+- **editor**：修复网页图文粘贴时 `srcset`、协议相对地址和懒加载图片地址在清洗前丢失的问题；恢复的图片进入远程本地化流程，本地附件地址保持稳定，并保留 Word/WPS 的 RTF 图片占位。无法恢复的图片提示改为“未能粘贴”，不再断言原网页未加载完成。Recover webpage image sources before sanitization and remote localization, preserve local attachment URLs and Word/WPS RTF placeholders, and report unavailable images without assuming the source page was still loading.
+
+- **tasks**：新增按设备时区统计的今日完成清单、已完成任务树的归档与恢复，以及将最新任务详情和独立附件保存为笔记；补齐离线队列、Native 原子写入、同步字段和任务备份兼容回归。Add a local-day completion list, reversible completed-task-tree archiving, and independent note snapshots of task drafts and attachments, with offline, Native transaction, sync and backup regressions.
+
+- **deployment**：新增可选 Caddy HTTPS Compose 模板，自动配置公开地址、持久化证书并取消主应用端口映射；补齐 Nginx / NAS 反代指引和部署验收步骤。Add an optional Caddy HTTPS Compose overlay with a public origin, persistent certificates, no direct application port mapping, and deployment/acceptance documentation.
+- **tasks / AI**：任务中心新增 AI 智能待办助手，支持自然语言生成、可编辑预览、多选和事务批量确认；服务端校验日期、项目权限和重复规则，以持久化幂等记录防止重试重复创建，复用用户 AI 设置和现有同步触发器。AI Task Composer adds editable drafts and atomic, idempotent batch confirmation with scoped duplicate checks, date/recurrence validation, existing AI settings and task sync.
+
+- **data safety**：HTTP 永久删除笔记必须先进入回收站且具备管理权限；旧 DELETE 入口保留但拒绝活动笔记，SDK/MCP/CLI 使用显式永久端点，Android Native 也拒绝活动/锁定笔记，失败导入清理先软删。HTTP permanent deletion requires trash membership and management permission; Native deletion rejects active/locked notes. SDK/MCP/CLI use the explicit endpoint; failed Android import cleanup trashes first. Sync V2 独立删除协议仍有发版门禁，见 `docs/qa/v1.5.2/stage3/`；the separate Sync V2 delete protocol remains a release blocker.
+- **sync / acl**：永久删除成功 ACK 才清理冲突队列，拒绝和断网保留草稿；修复权限表初始化在事务回滚后仍被缓存的问题。Reconcile deletion queues only after successful ACKs and retry lazy ACL initialization after rollback.
+- **plugins**：Plugin Studio 拒绝硬链接，并以校验过身份的文件句柄读取/导出，阻止检查与打开之间的链接替换读取。Reject Studio hard links and read/export through verified file handles; deployment directory permissions remain part of the trust boundary.
+- **fixes**：修复登录地址自动聚焦后恢复显示为空、创建笔记约束错误被误报 ID 冲突，以及过时的测试初始化/Mock/源码契约。Fix restored login addresses under autofocus and misleading note-creation constraint errors; update test initialization, mocks and contracts without removing behavior checks.
+
+- **sync**：普通个人文件夹支持 Native 离线移入回收站和按删除批次恢复，保留子文档正文、原有队列与稳定 mutationId；并发子树变化进入冲突处理，旧设备正文不能隐式复活仍在回收站的目录。恢复上传前，无密码 owner 父链中的正文可立即打开，并继续执行真实 ACL/密码校验。Persist native personal folder trash/restore atomically with deletion cohorts, durable bodies, stable intents and lifecycle-aware receipts; protect against concurrent subtree changes and stale-device resurrection. Retained ordinary owned bodies reopen before restore ACK without bypassing live ACL or folder-password checks.
+- **sync**：普通个人文件夹支持 Native 离线新建、嵌套创建和已有文档下创建，业务/结构 Outbox 同事务落库并依赖有序重放；新文件夹内可继续创建文档，重启与丢失 ACK 保留资源身份，快照重建期间新建目录不会误记为远端删除。Persist native personal folder creation/nesting and document parents atomically, replay ordered business/structure intents across restarts and lost ACKs, and preserve creations made during Snapshot rebuilding. 验收见 `docs/sync-v2-native-folder-create-validation.md`。
+- **sync**：个人普通文件夹的移动、批量移动与排序可先事务保存到 Native SQLite/Outbox，支持重启后上传和结构冲突选择；schema 7 无损升级队列，远端目录墓碑先保留本机位置与子正文。Persist ordinary personal folder moves and sorting atomically, replay after restart, and recover structural conflicts without cascading over retained child bodies. Document/mindmap/file moves and folder trash/restore retain their existing online paths. 验收见 `docs/sync-v2-native-tree-writes-validation.md`。
+- **sync**：Native 个人空间协商接收完整知识树结构，事务保存跨文档父子关系、移动与删除；升级重建订阅、首次 ACK 丢失保留基线。REST 树修改提交后唤醒 Pull，并修复移入根文档时隐藏容器校验失败。Receive negotiated personal tree structure on native clients, retain subscription intent across lost ACKs, notify after REST commits, and preserve hidden containers during root-document moves.
+- **android**：个人知识树根级和普通文件夹内的 Markdown/富文本可先保存到本机并进入现有 Sync V2；将已授权的个人远端正文持久化，保护重启和后续离线编辑。Persist personal native tree documents and authorized missing bodies before subsequent offline edits; full shared/protected tree synchronization remains incomplete.
+- **sync**：保护 Native 离线编辑、删除冲突和迟到 ACK；重试保留 mutationId，避免旧更新复活已删除笔记。Protect durable native edits, deletion conflicts and late ACKs without changing mutation identity.
+- **android**：复用 WebSocket 唤醒 Sync V2 Pull，提交后刷新界面，并通过前台周期 Pull 补偿丢失通知。Wake native Pull on notices/reconnect and refresh UI after committed Apply.
+- **sync**：修复同页创建后删除、工作区 Snapshot 清理和冲突后继续编辑的数据保护问题。Protect pending descendants, attachment bytes and newer local edits during recovery.
+- 验收范围与未完成平台见 `docs/sync-v2-reliability-validation.md`；这些改动尚未正式发布。See the validation record for evidence and remaining acceptance gaps; these changes are not released.
+
+- **appearance / sharing**：知识树新增本设备文字与图标大小档位，分享页新增管理员控制的标准、宽屏和全宽设置；笔记图标复用完整离线 emoji 库并支持具体名称搜索（#739）。Add local knowledge tree display sizes, administrator-controlled shared page widths, and offline emoji name search.
+
+- **sharing**：新增管理员统一设置的分享页顶部横幅，支持图片裁切、预览、关闭和删除，默认关闭并适配窄屏（#739）。Add an optional site-wide shared page banner with image cropping, preview, removal and responsive display.
+
 ## v1.5.1 - 2026-10-08
 
 ### ✨ 新增

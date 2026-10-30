@@ -1,3 +1,4 @@
+import { NowenAuth } from "./auth.js";
 import type { NowenConfig } from "./types.js";
 
 export type AttachmentCategory = "image" | "file";
@@ -120,44 +121,15 @@ function toBlob(file: UploadAttachmentParams["file"], mimeType: string): Blob {
  */
 export class NowenAttachmentClient {
   private readonly baseUrl: string;
-  private readonly username: string;
-  private readonly password: string;
+  private readonly auth: NowenAuth;
   private readonly timeout: number;
   private readonly fetchImpl: typeof fetch;
-  private token: string | null = null;
-  private loginPromise: Promise<void> | null = null;
 
-  constructor(config: NowenConfig) {
+  constructor(config: NowenConfig, auth = new NowenAuth(config)) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.username = config.username;
-    this.password = config.password;
+    this.auth = auth;
     this.timeout = config.timeout || 30_000;
-    this.fetchImpl = config.fetch || globalThis.fetch;
-  }
-
-  private async login(): Promise<void> {
-    const response = await this.fetchImpl(`${this.baseUrl}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: this.username, password: this.password }),
-      signal: AbortSignal.timeout(this.timeout),
-    });
-    if (!response.ok) {
-      throw new Error(`登录失败 (${response.status}): ${await response.text()}`);
-    }
-    const payload = await response.json() as { token?: string };
-    if (!payload.token) throw new Error("登录响应缺少 token");
-    this.token = payload.token;
-  }
-
-  private async ensureAuth(): Promise<void> {
-    if (this.token) return;
-    if (!this.loginPromise) {
-      this.loginPromise = this.login().finally(() => {
-        this.loginPromise = null;
-      });
-    }
-    await this.loginPromise;
+    this.fetchImpl = config.fetch || globalThis.fetch.bind(globalThis);
   }
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {
@@ -175,13 +147,14 @@ export class NowenAttachmentClient {
     initFactory: (token: string) => RequestInit,
     query?: Record<string, QueryValue>,
   ): Promise<T> {
-    await this.ensureAuth();
+    const token = await this.auth.ensureToken();
     const url = this.buildUrl(path, query);
-    let response = await this.fetchImpl(url, initFactory(this.token!));
+    this.auth.assertToken(token);
+    let response = await this.fetchImpl(url, initFactory(token));
     if (response.status === 401) {
-      this.token = null;
-      await this.ensureAuth();
-      response = await this.fetchImpl(url, initFactory(this.token!));
+      const retryToken = await this.auth.retryToken(token);
+      this.auth.assertToken(retryToken);
+      response = await this.fetchImpl(url, initFactory(retryToken));
     }
     if (!response.ok) {
       throw new Error(`附件 API 请求失败 (${response.status}): ${await response.text()}`);
@@ -237,6 +210,7 @@ export class NowenAttachmentClient {
   }
 
   async attachToNote(params: AttachToNoteParams): Promise<Record<string, unknown>> {
+    const identityRevision = this.auth.getIdentityRevision();
     const [attachment, note] = await Promise.all([
       this.getAttachment(params.attachmentId),
       this.authorizedJson<Record<string, any>>(
@@ -248,6 +222,7 @@ export class NowenAttachmentClient {
         }),
       ),
     ]);
+    this.auth.assertIdentityRevision(identityRevision);
 
     const contentFormat = String(note.contentFormat || "markdown");
     if (contentFormat !== "markdown") {
@@ -276,19 +251,22 @@ export class NowenAttachmentClient {
 
     return this.authorizedJson<Record<string, unknown>>(
       `/api/notes/${encodeURIComponent(params.noteId)}`,
-      (token) => ({
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: nextContent,
-          contentFormat: "markdown",
-          version: Number(note.version) || 1,
-        }),
-        signal: AbortSignal.timeout(this.timeout),
-      }),
+      (token) => {
+        this.auth.assertIdentityRevision(identityRevision);
+        return {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: nextContent,
+            contentFormat: "markdown",
+            version: Number(note.version) || 1,
+          }),
+          signal: AbortSignal.timeout(this.timeout),
+        };
+      },
     );
   }
 }

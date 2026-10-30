@@ -131,6 +131,7 @@ export function stabilizeNoteContentForPersistence(
   content: string,
   contentFormat?: NoteContentFormat,
 ): string {
+  if (contentFormat === "plaintext") return content;
   if (isEncryptedNoteFormat(contentFormat)) {
     readEncryptedNoteEnvelope({ content, contentFormat });
     return content;

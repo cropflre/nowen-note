@@ -31,7 +31,8 @@ export function ensureKnowledgeDenyTable(db: Database.Database = getDb()): void 
     CREATE INDEX IF NOT EXISTS idx_knowledge_tree_denials_user
       ON knowledge_tree_denials(userId, nodeId);
   `);
-  initializedDatabases.add(db);
+  // Transactional DDL can still roll back after this permission check returns.
+  if (!db.inTransaction) initializedDatabases.add(db);
 }
 
 export function findNearestKnowledgeDenial(

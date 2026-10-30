@@ -1,0 +1,20 @@
+
+> nowen-release-center@0.1.0 test:browser
+> playwright test
+
+[WebServer] (node:27811) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 7 tests using 1 worker
+
+(node:27812) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/browser/channels.spec.ts:6:1 › channels expose real service states, immutable JSON handoff and explicitly unverified receipts (845ms)
+  ✓  2 tests/browser/channels.spec.ts:58:1 › channel errors and missing formal source never create a plan or enable distribution (430ms)
+  ✓  3 tests/browser/channels.spec.ts:77:1 › late channel reads cannot replace the newly selected version, including SSE reloads (917ms)
+  ✓  4 tests/browser/console.spec.ts:3:1 › wizard, durable Dry Run, SSE logs, and server-enforced disabled publication (2.6s)
+  ✓  5 tests/browser/console.spec.ts:37:1 › conflicting version remains blocked and renders a failed Dry Run without dispatch (2.5s)
+  ✓  6 tests/browser/console.spec.ts:53:1 › narrow layout, navigation, dark mode and empty state stay usable (193ms)
+  ✓  7 tests/browser/console.spec.ts:75:1 › archive verification and explicit debug acceptance survive page reload without enabling publication (2.6s)
+
+  7 passed (10.9s)

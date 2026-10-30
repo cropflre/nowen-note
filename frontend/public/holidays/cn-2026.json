@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "region": "CN",
+  "year": 2026,
+  "revision": 1,
+  "sourceUrl": "https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html",
+  "days": {
+    "2026-01-01": {
+      "type": "holiday",
+      "name": "newYear"
+    },
+    "2026-01-02": {
+      "type": "holiday",
+      "name": "newYear"
+    },
+    "2026-01-03": {
+      "type": "holiday",
+      "name": "newYear"
+    },
+    "2026-01-04": {
+      "type": "makeup-workday",
+      "name": "newYear"
+    },
+    "2026-02-14": {
+      "type": "makeup-workday",
+      "name": "springFestival"
+    },
+    "2026-02-15": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-16": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-17": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-18": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-19": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-20": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-21": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-22": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-23": {
+      "type": "holiday",
+      "name": "springFestival"
+    },
+    "2026-02-28": {
+      "type": "makeup-workday",
+      "name": "springFestival"
+    },
+    "2026-04-04": {
+      "type": "holiday",
+      "name": "qingming"
+    },
+    "2026-04-05": {
+      "type": "holiday",
+      "name": "qingming"
+    },
+    "2026-04-06": {
+      "type": "holiday",
+      "name": "qingming"
+    },
+    "2026-05-01": {
+      "type": "holiday",
+      "name": "labourDay"
+    },
+    "2026-05-02": {
+      "type": "holiday",
+      "name": "labourDay"
+    },
+    "2026-05-03": {
+      "type": "holiday",
+      "name": "labourDay"
+    },
+    "2026-05-04": {
+      "type": "holiday",
+      "name": "labourDay"
+    },
+    "2026-05-05": {
+      "type": "holiday",
+      "name": "labourDay"
+    },
+    "2026-05-09": {
+      "type": "makeup-workday",
+      "name": "labourDay"
+    },
+    "2026-06-19": {
+      "type": "holiday",
+      "name": "dragonBoat"
+    },
+    "2026-06-20": {
+      "type": "holiday",
+      "name": "dragonBoat"
+    },
+    "2026-06-21": {
+      "type": "holiday",
+      "name": "dragonBoat"
+    },
+    "2026-09-20": {
+      "type": "makeup-workday",
+      "name": "nationalDay"
+    },
+    "2026-09-25": {
+      "type": "holiday",
+      "name": "midAutumn"
+    },
+    "2026-09-26": {
+      "type": "holiday",
+      "name": "midAutumn"
+    },
+    "2026-09-27": {
+      "type": "holiday",
+      "name": "midAutumn"
+    },
+    "2026-10-01": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-02": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-03": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-04": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-05": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-06": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-07": {
+      "type": "holiday",
+      "name": "nationalDay"
+    },
+    "2026-10-10": {
+      "type": "makeup-workday",
+      "name": "nationalDay"
+    }
+  }
+}

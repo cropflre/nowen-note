@@ -31,9 +31,9 @@ function seedConflict(noteId: string): void {
   });
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -99,11 +99,48 @@ describe("API deletion queue reconciliation", () => {
 
   it("removes a conflicted update after the server acknowledges permanent deletion", async () => {
     seedConflict("note-delete");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ success: true })));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
 
     await api.deleteNote("note-delete");
 
     expect(getQueue()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://sync-test.local/api/notes/note-delete/permanent");
+  });
+
+  it.each([409, 503])("preserves a conflicted edit when permanent deletion returns %s", async (status) => {
+    seedConflict("note-refused");
+    const before = getQueue();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: false, code: "NOTE_NOT_TRASHED" }, status));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deleteNote("note-refused")).rejects.toMatchObject({ status });
+
+    expect(getQueue()).toEqual(before);
+    expect(fetchMock.mock.calls.every((call) => call[1]?.method === "DELETE")).toBe(true);
+  });
+
+  it.each([{ success: false }, {}])("retains edits without an explicit successful deletion ACK %j", async (body) => {
+    seedConflict("note-unconfirmed");
+    const before = getQueue();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    await api.deleteNote("note-unconfirmed");
+
+    expect(getQueue()).toEqual(before);
+  });
+
+  it("retains edits when the permanent deletion request cannot reach the server", async () => {
+    seedConflict("note-offline");
+    const before = getQueue();
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deleteNote("note-offline")).rejects.toThrow("Failed to fetch");
+
+    expect(getQueue()).toEqual(before);
+    expect(fetchMock.mock.calls.every((call) => call[1]?.method === "DELETE")).toBe(true);
   });
 
   it("uses one workspace-scoped request and removes only conflicts returned by empty trash", async () => {

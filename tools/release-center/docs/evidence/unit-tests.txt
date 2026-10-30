@@ -1,0 +1,50 @@
+
+> nowen-release-center@0.1.0 test
+> tsx --test tests/*.test.ts
+
+✔ debug manifest uses existing updater validation and records per-file size, arch and SHA-256 (19.627958ms)
+✔ missing installer, corrupted SHA, and Store packages block artifact staging (4.79825ms)
+✔ builder diagnostics are excluded and stale-version binaries cannot enter the manifest (5.299ms)
+✔ repeated clicks reuse the same task before and after completion; one active task per DB (5.979708ms)
+✔ formal publish, missing debug confirmation, and stale plans are rejected server-side (2.581584ms)
+✔ preflight failure and moving branch prevent dispatch (2.416125ms)
+✔ restart after ambiguous dispatch only reconciles the persisted task, without repeating a write (3.024ms)
+✔ server recovery also preserves queued dry runs and audit history (2.661334ms)
+✔ partial platform failure fails the overall task and retains successful artifacts (2.538875ms)
+✔ workflow success with missing or expired artifacts cannot pass (2.484583ms)
+✔ only a successful run with every selected platform artifact can succeed (2.579542ms)
+✔ cancellation and timeout retain exclusion until GitHub confirms the remote run ended (3.279958ms)
+✔ cancel while preflight is in flight must not subsequently dispatch (2.332709ms)
+✔ API 429/401 after dispatch preserve recoverability and apply backoff (3.278667ms)
+✔ definitive dispatch rejection releases task without claiming a build exists (3.844209ms)
+✔ wrong remote workflow SHA fails closed instead of attaching unrelated work (3.805375ms)
+✔ logs and errors are redacted before persistence (5.230709ms)
+✔ second service cannot claim the same database while owner process is alive (2.058042ms)
+✔ expired artifacts cannot satisfy the selected platform set (2.6485ms)
+✔ large logs explicitly preserve both ends, redact secrets, and support incremental audit reads (2.983791ms)
+✔ redacted errors preserve valid task JSON and remain readable after persistence (2.328917ms)
+✔ REST pagination follows every page and reads artifact digest without claiming verification (9.211083ms)
+✔ dispatch endpoint is hard-coded to the dedicated debug workflow (0.171125ms)
+✔ rate-limit and expired-token errors retain actionable status and retry guidance (0.537292ms)
+✔ job log redirects do not forward GitHub Authorization and reject arbitrary hosts (0.324167ms)
+✔ correlation rejects duplicate remote runs and does not select a different task (1.611541ms)
+✔ loopback API requires a server-side session and rejects cross-site / forged-host mutations (53.939666ms)
+✔ input rejects commands, duplicate/unknown platforms, invalid SemVer and channel mismatch (0.668041ms)
+✔ version consistency includes lockfile root and packages entry (0.591ms)
+✔ preflight pins SHA and validates the exact audited workflow (11.945083ms)
+✔ duplicate tag or published release blocks execution without any write (1.519625ms)
+✔ inconsistent package files block debug and absent workflow cannot silently fall back (0.962625ms)
+✔ expired token and rate limits remain unknown and block candidate execution (0.43ms)
+✔ prerelease plans can dry run but cannot dispatch unsupported updater channels (0.435ms)
+✔ unexpected transport errors never expose the server credential in plan checks (0.218583ms)
+✔ actual process crash and restart reclaim stale worker and attach once without redispatch (156.524792ms)
+✔ debug workflow only supports dispatch, read-only contents, no secrets or publishers (1.37825ms)
+✔ matrix execution selects exactly the requested platforms; input is never interpolated into shell (3.147792ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 229.794667

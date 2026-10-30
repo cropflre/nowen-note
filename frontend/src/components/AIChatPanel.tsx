@@ -36,11 +36,14 @@ import remarkGfm from "remark-gfm";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { withAbortableAiFetch } from "@/lib/abortableAiAsk";
 import { cn } from "@/lib/utils";
+import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useApp } from "@/store/AppContext";
 import AIKnowledgeScopePicker from "@/components/AIKnowledgeScopePicker";
 import PluginPromptPicker from "@/components/PluginPromptPicker";
+import { openAICollaboration } from "@/lib/aiCollaboration";
 import { taskDigestApi } from "@/lib/taskDigestApi";
+import { parseAiTaskIntent } from "@/lib/aiTaskIntent";
 
 interface ChatReference {
   id: string;
@@ -154,7 +157,12 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  useEffect(() => registerMobileBackHandler("sheet", () => {
+    if (!sidebarOpen || window.innerWidth >= 768) return false;
+    setSidebarOpen(false);
+    return true;
+  }), [sidebarOpen]);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [conversationSidebarWidth, setConversationSidebarWidth] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_CONVERSATION_SIDEBAR_WIDTH;
@@ -235,7 +243,9 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   useEffect(() => scrollToBottom(), [messages, scrollToBottom]);
 
   const handleSelectConversation = useCallback(async (conversationId: string) => {
-    if (isLoading || conversationId === currentConvId) return;
+    if (isLoading) return;
+    if (window.innerWidth < 768) setSidebarOpen(false);
+    if (conversationId === currentConvId) return;
     setCurrentConvId(conversationId);
     setMessages([]);
     setHistoryLoading(true);
@@ -252,6 +262,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   const handleNewConversation = useCallback(async () => {
     if (isLoading) return;
     try {
+      if (window.innerWidth < 768) setSidebarOpen(false);
       const result = await api.aiConversations.create();
       setConversations((previous) => [result.conversation, ...previous]);
       setCurrentConvId(result.conversation.id);
@@ -352,38 +363,35 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     let stopped = false;
 
     try {
-      // 只读任务工具：直接取服务端真实统计，不让大模型猜测任务数据。
-      // 写入任务必须通过显式授权的 MCP 工具或任务中心完成。
-      const taskQuery = /(?:今天|今日).*(?:待办|任务)|(?:待办|任务).*(?:今天|今日)/.test(args.question)
-        || args.question.trim() === "/待办";
-      const createCommand = new RegExp("^/待办[ ]+创建[ ]+(.{1,300})$").exec(args.question.trim());
-      const completeCommand = new RegExp("^/待办[ ]+完成[ ]+([a-zA-Z0-9-]+)$").exec(args.question.trim());
-      if (createCommand || completeCommand) {
-        const title = createCommand ? createCommand[1].trim() : completeCommand![1];
+      // Keep task command recognition separate from translatable UI copy.
+      // Every task write still requires explicit user confirmation.
+      const taskIntent = parseAiTaskIntent(args.question);
+      if (taskIntent?.kind === "create" || taskIntent?.kind === "complete") {
+        const creating = taskIntent.kind === "create";
+        const title = creating ? taskIntent.title : taskIntent.taskId;
         const approved = await confirmDialog({
-          title: createCommand ? "确认创建个人任务" : "确认完成个人任务",
-          description: createCommand ? `新任务：${title}` : `任务 ID：${title}`,
-          confirmText: createCommand ? "创建任务" : "标记完成",
-          cancelText: "取消",
+          title: t(creating ? "aiChatTask.createTitle" : "aiChatTask.completeTitle"),
+          description: t(creating ? "aiChatTask.newTask" : "aiChatTask.taskId", { title }),
+          confirmText: t(creating ? "aiChatTask.createConfirm" : "aiChatTask.completeConfirm"),
+          cancelText: t("common.cancel"),
         });
         if (!approved) {
-          finalContent = "已取消，本次没有修改任务。";
-        } else if (createCommand) {
+          finalContent = t("aiChatTask.cancelled");
+        } else if (creating) {
           const task = await taskDigestApi.createPersonalTask(title);
-          finalContent = `已创建个人待办：**${title}**（ID：${task.id}）。`;
+          finalContent = t("aiChatTask.created", { title, id: task.id });
         } else {
           await taskDigestApi.completePersonalTask(title);
-          finalContent = `任务 \`${title}\` 已标记完成。`;
+          finalContent = t("aiChatTask.completed", { title });
         }
         setMessages((previous) => previous.map((message) =>
           message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
-      } else if (taskQuery) {
-        const mode = /(?:完成|总结|进度|晚上|晚间)/.test(args.question) ? "evening" : "morning";
-        const digest = await taskDigestApi.preview(mode);
-        finalContent = [`### ${digest.date} · ${mode === "morning" ? "今日待办" : "今日进度"}`,
+      } else if (taskIntent?.kind === "digest") {
+        const digest = await taskDigestApi.preview(taskIntent.mode);
+        finalContent = [`### ${digest.date} · ${t(taskIntent.mode === "morning" ? "aiChatTask.todayTasks" : "aiChatTask.todayProgress")}`,
           digest.summary,
-          ...digest.tasks.map((task) => `- ${task.title}${task.dueAt ? `（${task.dueAt}）` : ""}`),
-          "数据来源：Nowen Note 个人任务（实时读取）。"].join("\n\n");
+          ...digest.tasks.map((task) => `- ${task.title}${task.dueAt ? t("aiChatTask.dueAt", { dueAt: task.dueAt }) : ""}`),
+          t("aiChatTask.dataSource")].join("\n\n");
         setMessages((previous) => previous.map((message) =>
           message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
       } else {
@@ -836,12 +844,15 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   }, [clampConversationSidebarWidth]);
 
   return (
-    <div ref={panelRef} className="flex h-full min-w-0 max-w-full bg-app-bg">
-      <aside className={cn(
-        "flex shrink-0 flex-col overflow-hidden border-r border-app-border bg-app-surface/45",
+    <div ref={panelRef} className="relative flex h-full min-h-0 min-w-0 max-w-full bg-app-bg" onKeyDown={(event) => { if (event.key === "Escape" && window.innerWidth < 768) setSidebarOpen(false); }}>
+      {sidebarOpen && <button aria-label={t("aiChat.collapseSidebar")} className="absolute inset-0 z-20 bg-black/30 md:hidden" onClick={() => setSidebarOpen(false)} />}
+      <aside aria-label={t("aiChat.conversations")} className={cn(
+        "absolute inset-y-0 left-0 z-30 max-w-[calc(100%-2.5rem)] shrink-0 flex-col overflow-hidden border-r border-app-border bg-app-surface md:static md:max-w-none md:bg-app-surface/45",
+        sidebarOpen ? "flex" : "hidden",
         !sidebarResizing && "transition-[width] duration-200",
       )} style={{ width: sidebarOpen ? conversationSidebarWidth : 0 }}>
-        <div className="flex items-center justify-between px-3 pb-2 pt-3">
+        <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-3">
+          <button type="button" aria-label={t("aiChat.collapseSidebar")} className="rounded p-1 text-tx-tertiary md:hidden" onClick={() => setSidebarOpen(false)}><X size={14} /></button>
           <div>
             <div className="text-xs font-semibold text-tx-primary">{t("aiChat.conversations")}</div>
             <div className="mt-0.5 text-[10px] text-tx-tertiary">{t("aiChatUi.conversationCount", { count: conversations.length })}</div>
@@ -997,31 +1008,33 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-h-14 items-center justify-between border-b border-app-border bg-app-surface/70 px-4 py-2.5 md:px-6">
-          <div className="flex items-center gap-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div data-ai-chat-header className="grid grid-cols-[minmax(0,1fr)_auto] md:flex shrink-0 min-h-12 min-w-0 items-center justify-between gap-1 border-b border-app-border bg-app-surface/70 px-2 py-1.5 md:min-h-14 md:px-6 md:py-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-1 md:gap-2">
             <button
               type="button"
               onClick={() => setSidebarOpen((value) => !value)}
+              aria-expanded={sidebarOpen}
               title={sidebarOpen ? t("aiChat.collapseSidebar") : t("aiChat.expandSidebar")}
               className="rounded-lg p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
             >
               <Menu size={14} />
             </button>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 shadow-sm shadow-violet-500/20">
+            <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-xl md:flex bg-gradient-to-br from-violet-500 to-indigo-500 shadow-sm shadow-violet-500/20">
               <Bot size={14} className="text-white" />
             </div>
             <div className="min-w-0">
               <div className="max-w-96 truncate text-sm font-semibold text-tx-primary">
                 {currentConversation?.title || t("aiChat.title")}
               </div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-tx-tertiary">
+              <div className="mt-0.5 flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10px] text-tx-tertiary">
                 <span>{t("aiChat.title")}</span>
                 {stats && <><span>·</span><span>{t("aiChat.statsNotes", { count: stats.noteCount })}</span></>}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-1">
+            <button type="button" onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="rounded-lg p-1.5 text-accent-primary hover:bg-app-hover"><Sparkles size={14} /></button>
             <button
               type="button"
               onClick={() => void handleNewConversation()}
@@ -1053,11 +1066,11 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
         </div>
 
         <ScrollArea
-          className="min-h-0 min-w-0 flex-1 bg-app-bg"
+          className="min-h-0 min-w-0 flex-1 bg-app-bg [&>[data-radix-scroll-area-viewport]>div]:!block"
           scrollbarClassName="w-3 bg-app-surface/70"
           thumbClassName="bg-tx-tertiary/50 hover:bg-tx-secondary/70"
         >
-          <div className="mx-auto w-full min-w-0 max-w-4xl space-y-7 px-5 py-6 md:px-8 md:py-8">
+          <div className="mx-auto w-full min-w-0 max-w-4xl space-y-4 px-3 py-3 md:space-y-7 md:px-8 md:py-8">
             {historyLoading && !messages.length && (
               <div className="flex items-center justify-center py-8 text-tx-tertiary">
                 <Loader2 size={16} className="animate-spin" />
@@ -1065,15 +1078,15 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             )}
 
             {!historyLoading && !messages.length && (
-              <div className="flex flex-col items-center justify-center py-10 text-center md:py-16">
-                <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-500 shadow-lg shadow-violet-500/15">
+              <div className="flex flex-col items-center justify-center py-4 text-center md:py-16">
+                <div className="mb-3 flex h-10 w-10 md:mb-5 md:h-14 md:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-500 shadow-lg shadow-violet-500/15">
                   <Sparkles size={24} className="text-white" />
                 </div>
                 <p className="mb-1 text-base font-semibold text-tx-primary">{t("aiChat.empty")}</p>
-                <p className="mb-6 max-w-sm text-xs leading-5 text-tx-tertiary">{t("aiChat.emptyHint")}</p>
+                <p className="mb-3 md:mb-6 max-w-sm text-xs leading-5 text-tx-tertiary">{t("aiChat.emptyHint")}</p>
 
                 {stats && stats.noteCount > 0 && (
-                  <div className="mb-6 w-full max-w-md">
+                  <div className="mb-3 md:mb-6 w-full max-w-md">
                     <div className="mb-3 grid grid-cols-3 gap-2">
                       <div className="flex flex-col items-center rounded-xl border border-app-border bg-app-surface px-2 py-2.5">
                         <BookOpen size={16} className="mb-1 text-indigo-500/70" />
@@ -1094,7 +1107,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                   </div>
                 )}
 
-                <div className="mb-6 w-full max-w-md">
+                <div className="mb-3 md:mb-6 w-full max-w-md">
                   <button
                     type="button"
                     onClick={() => setShowTools((value) => !value)}
@@ -1466,10 +1479,10 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
           </div>
         </ScrollArea>
 
-        <div className="shrink-0 border-t border-app-border bg-app-surface/80 px-4 py-3 backdrop-blur md:px-6 md:py-4">
+        <div className="shrink-0 border-t border-app-border bg-app-surface/80 px-2 py-2 backdrop-blur md:px-6 md:py-4">
           <div className="mx-auto max-w-4xl rounded-2xl border border-app-border bg-app-bg shadow-sm transition-shadow focus-within:border-accent-primary/40 focus-within:shadow-md focus-within:shadow-accent-primary/5">
             <div className="flex min-h-8 flex-wrap items-center gap-2 border-b border-app-border/70 px-3 py-1.5 text-[10px]">
-              <div className="flex min-w-0 items-center gap-1.5 text-tx-tertiary">
+              <div className="flex min-w-0 max-w-full items-center gap-1.5 text-tx-tertiary">
                 <Database size={11} className="shrink-0 text-accent-primary" />
                 <span className="shrink-0">{t("aiChat.knowledgeScope")}</span>
                 <AIKnowledgeScopePicker
@@ -1510,7 +1523,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 placeholder={t("aiChat.placeholder")}
                 rows={1}
                 disabled={isLoading}
-                className="max-h-32 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 text-tx-primary outline-none placeholder:text-tx-tertiary disabled:opacity-70"
+                className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 text-tx-primary outline-none placeholder:text-tx-tertiary disabled:opacity-70"
                 onInput={(event) => {
                   const target = event.target as HTMLTextAreaElement;
                   target.style.height = "auto";

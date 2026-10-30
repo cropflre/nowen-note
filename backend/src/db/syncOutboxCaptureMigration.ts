@@ -272,7 +272,13 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
           operation, baseVersion, payload, status, retryCount, createdAt
         )
         SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
-          'note', OLD.id, 'delete', OLD.version, NULL,
+          'note', OLD.id, 'delete', OLD.version,
+          json_set(${notePayload("OLD")}, '$._deletionRecovery', json_object(
+            'note', json(${notePayload("OLD")}),
+            'attachments', json((SELECT json_group_array(json_object('id',a.id,'path',a.path,'filename',a.filename,'mimeType',a.mimeType,'size',a.size,'noteId',a.noteId)) FROM attachments a WHERE a.noteId=OLD.id)),
+            'history', json((SELECT json_group_array(json_object('id',h.id,'content',h.content,'contentFormat',h.contentFormat,'contentText',h.contentText,'version',h.version)) FROM note_versions h WHERE h.noteId=OLD.id)),
+            'tree', json((SELECT json_group_array(json_object('id',t.id,'parentId',t.parentId,'sortOrder',t.sortOrder,'scopeKey',t.scopeKey)) FROM knowledge_tree_nodes t WHERE t.resourceType='note' AND t.resourceId=OLD.id))
+          )),
           'pending', 0, datetime('now')
         WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
 
@@ -347,7 +353,13 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
           ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
-          'note', OLD.id, 'delete', OLD.version, NULL,
+          'note', OLD.id, 'delete', OLD.version,
+          json_set(${notePayload("OLD")}, '$._deletionRecovery', json_object(
+            'note', json(${notePayload("OLD")}),
+            'attachments', json((SELECT json_group_array(json_object('id',a.id,'path',a.path,'filename',a.filename,'mimeType',a.mimeType,'size',a.size,'noteId',a.noteId)) FROM attachments a WHERE a.noteId=OLD.id)),
+            'history', json((SELECT json_group_array(json_object('id',h.id,'content',h.content,'contentFormat',h.contentFormat,'contentText',h.contentText,'version',h.version)) FROM note_versions h WHERE h.noteId=OLD.id)),
+            'tree', json((SELECT json_group_array(json_object('id',t.id,'parentId',t.parentId,'sortOrder',t.sortOrder,'scopeKey',t.scopeKey)) FROM knowledge_tree_nodes t WHERE t.resourceType='note' AND t.resourceId=OLD.id))
+          )),
           'pending', 0, datetime('now')
         );
       END;

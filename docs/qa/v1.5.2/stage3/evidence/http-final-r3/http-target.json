@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "mode": "target",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-target-qN5vRk",
+  "base": "http://127.0.0.1:3877",
+  "checks": [],
+  "result": "FAIL",
+  "error": {
+    "message": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '# QA body\\n[fixture](/api/attachments/64e2f996-48ab-4b03-ba56-25b3f026e1e6)'\n- '# QA body ^blk_9187de02-7e3d-4f9b-bf5c-feb51b687280\\n' +\n-   '[fixture](/api/attachments/64e2f996-48ab-4b03-ba56-25b3f026e1e6) ^blk_3d54d0ef-5d8d-4aab-a2a8-c082092c8380'",
+    "stack": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n+ actual - expected\n\n+ '# QA body\\n[fixture](/api/attachments/64e2f996-48ab-4b03-ba56-25b3f026e1e6)'\n- '# QA body ^blk_9187de02-7e3d-4f9b-bf5c-feb51b687280\\n' +\n-   '[fixture](/api/attachments/64e2f996-48ab-4b03-ba56-25b3f026e1e6) ^blk_3d54d0ef-5d8d-4aab-a2a8-c082092c8380'\n    at <anonymous> (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\http-release-acceptance.mjs:140:48)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"
+  }
+}

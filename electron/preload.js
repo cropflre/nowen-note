@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("updater:check");
   },
 
+  /** Store 专用固定入口，无法由网页决定外部 URL */
+  openMicrosoftStoreUpdates() {
+    return ipcRenderer.invoke("updater:open-store");
+  },
+
   /** 下载完成后由用户触发安装 */
   quitAndInstall() {
     return ipcRenderer.invoke("updater:quit-and-install");
@@ -504,6 +509,10 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       if (typeof result.skipped === "boolean") safe.skipped = result.skipped;
       if (typeof result.noteId === "string") safe.noteId = result.noteId;
       if (typeof result.attachmentId === "string") safe.attachmentId = result.attachmentId;
+      // Idempotent hierarchy reconciliation acknowledgement, scoped to the current sync root.
+      if (typeof result.hierarchyTarget === "string" && /^[A-Za-z0-9_-]{1,128}:[A-Za-z0-9_-]{6,80}$/.test(result.hierarchyTarget)) {
+        safe.hierarchyTarget = result.hierarchyTarget;
+      }
       if (typeof result.error === "string") safe.error = result.error.slice(0, 1000);
       return ipcRenderer.invoke("folder-sync:mark-upload-result", folderId, relativePath, safe);
     },

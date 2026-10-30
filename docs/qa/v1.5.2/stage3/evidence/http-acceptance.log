@@ -1,0 +1,14 @@
+node:internal/modules/cjs/loader:1643
+      throw new ERR_INVALID_ARG_VALUE('filename', filename,
+            ^
+
+TypeError [ERR_INVALID_ARG_VALUE]: The argument 'filename' must be a file URL object, file URL string, or absolute path string. Received 'backend\\package.json'
+    at createRequire (node:internal/modules/cjs/loader:1643:13)
+    at <anonymous> (C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\http-release-acceptance.mjs:17:17)
+    at ModuleJob.run (node:internal/modules/esm/module_job:234:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:473:24)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:138:5) {
+  code: 'ERR_INVALID_ARG_VALUE'
+}
+
+Node.js v20.18.0

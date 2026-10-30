@@ -1,0 +1,23 @@
+adb.exe: error: listener 'tcp:47832' not found
+node:internal/errors:984
+  const err = new Error(message);
+              ^
+
+Error: Command failed: C:\Users\cropf\AppData\Local\Android\Sdk\platform-tools\adb.exe -s 3B1F5GE5MS12B4GT reverse --remove tcp:47832
+adb.exe: error: listener 'tcp:47832' not found
+
+    at genericNodeError (node:internal/errors:984:15)
+    at wrappedFn (node:internal/errors:538:14)
+    at checkExecSyncError (node:child_process:891:11)
+    at execFileSync (node:child_process:927:15)
+    at adb (file:///C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note/scripts/.qa152-device-driver.mjs:13:26)
+    at file:///C:/Users/cropf/.codex/worktrees/release-152-qa-review/nowen-note/scripts/.qa152-device-driver.mjs:49:3 {
+  status: 1,
+  signal: null,
+  output: [ null, '', "adb.exe: error: listener 'tcp:47832' not found\r\n" ],
+  pid: 32648,
+  stdout: '',
+  stderr: "adb.exe: error: listener 'tcp:47832' not found\r\n"
+}
+
+Node.js v20.20.2

@@ -86,7 +86,8 @@ function AttachmentPreview({ item }: { item: TaskAttachmentItem }) {
   return null;
 }
 
-export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" | "title" | "description"> }) {
+export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" | "title" | "description" | "archivedAt"> }) {
+  const readOnly = !!task.archivedAt;
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<TaskAttachmentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +114,7 @@ export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" 
   }, [load, task.id]);
 
   const uploadFiles = useCallback(async (files: File[]) => {
-    if (files.length === 0) return;
+    if (readOnly || files.length === 0) return;
     setUploading(true);
     try {
       for (const file of files) await uploadTaskAttachment(file, task.id);
@@ -123,7 +124,7 @@ export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" 
     } finally {
       setUploading(false);
     }
-  }, [load, task.id]);
+  }, [load, task.id, readOnly]);
 
   const isReferenced = (id: string) => {
     const needle = `/task-attachments/${id}`;
@@ -131,6 +132,7 @@ export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" 
   };
 
   const remove = async (item: TaskAttachmentItem) => {
+    if (readOnly) return;
     if (isReferenced(item.id)) {
       toast.error("该附件仍被任务标题或详情引用，请先移除正文中的对应图片后再删除");
       return;
@@ -169,7 +171,7 @@ export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" 
         )}
         <button
           type="button"
-          disabled={uploading}
+          disabled={uploading || readOnly}
           onClick={() => inputRef.current?.click()}
           className="ml-auto inline-flex items-center gap-1 rounded-md border border-app-border px-2 py-1 text-[11px] text-tx-secondary transition-colors hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50"
         >
@@ -248,7 +250,7 @@ export default function TaskAttachmentSection({ task }: { task: Pick<Task, "id" 
                   <button
                     type="button"
                     title="删除"
-                    disabled={deletingId === item.id}
+                    disabled={readOnly || deletingId === item.id}
                     onClick={() => void remove(item)}
                     className="rounded p-1.5 text-tx-tertiary hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
                   >

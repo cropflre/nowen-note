@@ -48,6 +48,30 @@ Markdown 源文应写入 `content`，并显式设置 `contentFormat: "markdown"`
 
 ---
 
+## 浏览器登录与两步验证
+
+```typescript
+const client = new NowenClient({ baseUrl: "https://notes.example.com" });
+const result = await client.login(username, password);
+if (result.requires2FA) {
+  // code 是用户输入的动态验证码或一次性备用码。
+  await client.verifyTwoFactor(result.ticket, code);
+}
+const { user } = await client.verifyToken();
+```
+
+`login()`、`verifyTwoFactor()` 自动设置 Token。笔记和附件请求（包括 `client.attachments`）使用同一登录态；切换账号会先清除旧 Token，等待两步验证期间不能发送业务请求。无凭据的客户端可以用 `setToken(token)` 恢复宿主保存的 Token，用 `getToken()` 读取当前 Token，用 `setToken(null)` 清除登录态。
+
+`setToken()` 同时清除自动登录凭据，外部 Token 失效后必须由宿主重新认证，不会回退到旧账号。使用用户名密码自动登录时，如果服务端要求两步验证，业务方法会抛出公开导出的 `TwoFactorRequiredError`，其中 `error.result` 包含 `ticket`、`username` 和 `requires2FA`；完成验证后再重试业务操作。账号切换期间返回的旧登录响应和旧请求的 401 不会替换新 Token 或以新账号自动重试；附件关联中途切换账号也会停止写入。
+
+## 日记时间线与接口兼容
+
+`listDiaries({ cursor, limit })` 调用 `/api/diary/timeline`，返回 `{ items, hasMore, nextCursor }`；下一页传入 `nextCursor`。日记正文是 `contentText`，媒体是 `media`（`{ id, type }[]`）和兼容的图片 ID 数组 `images`。`verifyToken()` 返回 `{ user }`。
+
+旧的 `listDiaries({ month })`、数组返回类型、日记 `date/content/weather` 字段，以及 `verifyToken()` 的 `valid/userId/username` 声明与服务端不一致，调用方升级后需按上述真实契约调整。这些修复尚未发布新的 SDK 包。
+
+---
+
 ## 笔记内容格式
 
 SDK 支持以下格式：

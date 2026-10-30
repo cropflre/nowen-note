@@ -29,7 +29,7 @@ function createFakeDb() {
         folders.push({id,userId,name,parentId,createdAt,updatedAt});return {changes:1};
       }
       if(normalized.startsWith("UPDATE attachments SET folderId=?,updatedAt=?")){
-        assignments.set(String(values[2]),String(values[0]));return {changes:1};
+        assignments.set(String(values[2]),values[0] == null ? null : String(values[0]));return {changes:1};
       }
       if(normalized.startsWith("UPDATE attachments SET folderId=NULL")){
         const folderId=String(values[2]);
@@ -37,6 +37,11 @@ function createFakeDb() {
         return {changes:1};
       }
       if(normalized.startsWith("UPDATE mobile_local_attachment_folders SET parentId=NULL"))return {changes:0};
+      if(normalized.startsWith("UPDATE mobile_local_attachment_folders SET parentId=?")){
+        const folder=folders.find((item)=>item.id===values[2]);
+        if(folder)folder.parentId=values[0] as string|null;
+        return {changes:folder?1:0};
+      }
       if(normalized.startsWith("DELETE FROM mobile_local_attachment_folders")){
         const id=String(values[0]);const index=folders.findIndex((folder)=>folder.id===id);
         if(index>=0)folders.splice(index,1);return {changes:index>=0?1:0};
@@ -69,6 +74,15 @@ function createFakeDb() {
       if(normalized.startsWith("SELECT id,folderId FROM attachments")){
         return [...assignments].map(([id,folderId])=>({id,folderId})) as T[];
       }
+      if(normalized.startsWith("SELECT id FROM attachments WHERE folderId=?")){
+        return [...assignments].filter(([,folderId])=>folderId===values[0]).map(([id])=>({id})) as T[];
+      }
+      if(normalized.startsWith("SELECT id FROM mobile_local_attachment_folders WHERE parentId=?")){
+        return folders.filter((folder)=>folder.parentId===values[0]).map(({id})=>({id})) as T[];
+      }
+      if(normalized.startsWith("SELECT id FROM attachments WHERE id=?")){
+        return (assignments.has(String(values[0])) ? [{id:String(values[0])}] : []) as T[];
+      }
       return [] as T[];
     },
     async transaction<T>(work:(tx:NativeDatabase)=>Promise<T>){return work(db);},
@@ -81,6 +95,7 @@ const originalFiles={
   list:api.files.list,
   get:api.files.get,
   upload:api.files.upload,
+  move:api.files.move,
 };
 const originalFolders={...api.attachmentFolders};
 let restore:(()=>void)|null=null;
@@ -90,11 +105,34 @@ afterEach(()=>{
   api.files.list=originalFiles.list;
   api.files.get=originalFiles.get;
   api.files.upload=originalFiles.upload;
+  api.files.move=originalFiles.move;
   api.attachmentFolders={...originalFolders};
   vi.restoreAllMocks();
 });
 
 describe("mobile local attachment folder bridge",()=>{
+  it("moves and unarchives local files without remote requests and rejects a missing selection",async()=>{
+    const nested = createFakeDb();
+    restore=installMobileLocalAttachmentFolderBridge(nested.db,"android-local-user");
+    const parent=await api.attachmentFolders.create("parent");
+    const child=await api.attachmentFolders.create("child",parent.id);
+    await expect(api.attachmentFolders.move(parent.id,child.id)).rejects.toMatchObject({code:"FOLDER_CYCLE"});
+    await expect(api.attachmentFolders.remove(parent.id)).rejects.toMatchObject({code:"FOLDER_NOT_EMPTY"});
+    await api.attachmentFolders.move(child.id,null);
+    expect(nested.folders.find((folder)=>folder.id===child.id)?.parentId).toBeNull();
+    restore();
+    const {db,assignments}=createFakeDb();
+    const fetchSpy=vi.spyOn(globalThis,"fetch");
+    restore=installMobileLocalAttachmentFolderBridge(db,"android-local-user");
+    const folder=await api.attachmentFolders.create("中文文件夹");
+    await expect(api.files.move(["file-1","missing"],folder.id)).rejects.toThrow("文件不存在");
+    expect(assignments.get("file-1")).toBeNull();
+    await expect(api.files.move(["file-1"],folder.id)).resolves.toMatchObject({moved:1,folderName:"中文文件夹"});
+    expect(assignments.get("file-1")).toBe(folder.id);
+    await api.files.move(["file-1"],null);
+    expect(assignments.get("file-1")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
   it("persists folders and upload assignment locally without fetch",async()=>{
     const {db,assignments}=createFakeDb();
     const baseItem={
@@ -118,6 +156,9 @@ describe("mobile local attachment folder bridge",()=>{
     expect(listed.items[0]).toMatchObject({folderId:folder.id,folderName:"资料"});
     expect((await api.attachmentFolders.list()).folders[0]).toMatchObject({id:folder.id,fileCount:1});
 
+    await expect(api.attachmentFolders.remove(folder.id)).rejects.toMatchObject({code:"FOLDER_NOT_EMPTY"});
+    expect(assignments.get("file-1")).toBe(folder.id);
+    await api.files.move(["file-1"],null);
     await api.attachmentFolders.remove(folder.id);
     expect(assignments.get("file-1")).toBeNull();
     expect((await api.attachmentFolders.list()).folders).toEqual([]);

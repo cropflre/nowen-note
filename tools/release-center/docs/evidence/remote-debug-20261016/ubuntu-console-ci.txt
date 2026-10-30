@@ -1,0 +1,94 @@
+console-contracts	Run npm test	2026-10-16T05:16:21.6778258Z ##[group]Run npm test
+console-contracts	Run npm test	2026-10-16T05:16:21.6778622Z ^[[36;1mnpm test^[[0m
+console-contracts	Run npm test	2026-10-16T05:16:21.6847073Z shell: /usr/bin/bash -e {0}
+console-contracts	Run npm test	2026-10-16T05:16:21.6847437Z ##[endgroup]
+console-contracts	Run npm test	2026-10-16T05:16:21.8387749Z
+console-contracts	Run npm test	2026-10-16T05:16:21.8388495Z > nowen-release-center@0.1.0 test
+console-contracts	Run npm test	2026-10-16T05:16:21.8389032Z > tsx --test tests/*.test.ts
+console-contracts	Run npm test	2026-10-16T05:16:21.8389269Z
+console-contracts	Run npm test	2026-10-16T05:16:22.1704843Z ✔ debug manifest uses existing updater validation and records per-file size, arch and SHA-256 (23.502263ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.1771421Z ✔ missing installer, corrupted SHA, and Store packages block artifact staging (10.377673ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.1881196Z ✔ builder diagnostics are excluded and stale-version binaries cannot enter the manifest (9.47898ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7033281Z ✔ repeated clicks reuse the same task before and after completion; one active task per DB (61.788479ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7096989Z ✔ formal publish, missing debug confirmation, and stale plans are rejected server-side (13.135971ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7113596Z ✔ preflight failure and moving branch prevent dispatch (8.443042ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7217201Z ✔ restart after ambiguous dispatch only reconciles the persisted task, without repeating a write (15.483792ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7256426Z ✔ server recovery also preserves queued dry runs and audit history (11.919011ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7296055Z ✔ partial platform failure fails the overall task and retains successful artifacts (12.370379ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7325696Z ✔ workflow success with missing or expired artifacts cannot pass (12.332258ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7333626Z ✔ only a successful run with every selected platform artifact can succeed (36.70347ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7371136Z ✔ cancellation and timeout retain exclusion until GitHub confirms the remote run ended (17.948759ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7400394Z ✔ cancel while preflight is in flight must not subsequently dispatch (16.317566ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7403643Z ✔ API 429/401 after dispatch preserve recoverability and apply backoff (16.545847ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7404987Z ✔ definitive dispatch rejection releases task without claiming a build exists (12.608755ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7406296Z ✔ wrong remote workflow SHA fails closed instead of attaching unrelated work (10.146558ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7407336Z ✔ logs and errors are redacted before persistence (16.260321ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7408388Z ✔ second service cannot claim the same database while owner process is alive (115.432003ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7412995Z ✔ expired artifacts cannot satisfy the selected platform set (9.4739ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7414447Z ✔ large logs explicitly preserve both ends, redact secrets, and support incremental audit reads (23.751133ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7428681Z ✔ redacted errors preserve valid task JSON and remain readable after persistence (7.611027ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7430886Z ✔ unknown persisted task modes cannot fall through to a workflow dispatch (7.774525ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7508197Z ✔ artifact download uses fixed REST path and never forwards Authorization to signed storage (51.257785ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7529975Z ✔ untrusted download redirects and quota overflow fail closed (15.182787ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7531378Z ✔ download cancellation stops a streaming body and signed URLs are redacted (4.39758ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7532758Z ✔ the task deadline stops a stalled storage stream before the archive timeout (34.723849ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7534910Z ✔ REST pagination follows every page and reads artifact digest without claiming verification (19.567974ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7536347Z ✔ dispatch endpoint is hard-coded to the dedicated debug workflow (0.521147ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7537658Z ✔ rate-limit and expired-token errors retain actionable status and retry guidance (1.76996ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7539037Z ✔ job log redirects do not forward GitHub Authorization and reject arbitrary hosts (2.895509ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7540824Z ✔ correlation rejects duplicate remote runs and does not select a different task (0.95892ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7755171Z ✔ loopback API requires a server-side session and rejects cross-site / forged-host mutations (217.822751ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.7986867Z ✔ input rejects commands, duplicate/unknown platforms, invalid SemVer and channel mismatch (2.124619ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8003036Z ✔ version consistency includes lockfile root and packages entry (1.018058ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8004291Z ✔ preflight pins SHA and validates the exact audited workflow (30.531525ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8005365Z ✔ duplicate tag or published release blocks execution without any write (5.877195ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8006526Z ✔ inconsistent package files block debug and absent workflow cannot silently fall back (5.342739ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8007652Z ✔ expired token and rate limits remain unknown and block candidate execution (1.634377ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8008871Z ✔ prerelease plans can dry run but cannot dispatch unsupported updater channels (1.694758ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8010023Z ✔ unexpected transport errors never expose the server credential in plan checks (0.591812ms)
+console-contracts	Run npm test	2026-10-16T05:16:22.8014744Z ✔ candidate commits with missing or changed artifact protocols cannot dispatch debug builds (3.598627ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.3839631Z ✔ actual process crash and restart reclaim stale worker and attach once without redispatch (460.960943ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.4339393Z ✔ verification is durable, idempotent, scoped to source SHA and permits only debug acceptance (372.130109ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.4341036Z ✔ a failed or non-debug source cannot request verification or be accepted (9.042248ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.4342330Z ✔ expired or foreign-run artifacts fail before download and preserve the original build (36.696935ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.5996259Z ✔ partial validation failure retains the completed platform and prevents acceptance (165.541165ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.6241875Z ✔ cancelling a download waits for local shutdown, frees exclusion and never cancels the source Run (23.34181ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.6748468Z ✔ verification timeouts stop the download and do not mark any artifact verified (52.456072ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9375663Z ✔ service restart resumes interrupted read-only verification without redispatch or losing source evidence (262.540527ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9454628Z ✔ queued verification can be cancelled before any download starts (12.134179ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9611876Z ✔ real ZIP archive validates archive digest, manifest, every file and updater metadata (209.737987ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9612856Z ✔ missing or mismatched archive digest is rejected before extraction (14.490522ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9613618Z ✔ manifest provenance, portable file SHA and update SHA-512 are independently verified (386.34883ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9614291Z ✔ unlisted files, missing manifests and duplicate entries cannot be marked verified (152.411823ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9614920Z ✔ ZIP traversal, symlinks and decompression quotas fail without executing any file (16.449538ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9615547Z ✔ already cancelled verification never extracts or runs the hashing worker (6.825718ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9616348Z ✔ Linux verification accepts the actual x86_64 AppImage and amd64 Debian names (86.879472ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9617407Z ✔ debug workflow only supports dispatch, read-only contents, no secrets or publishers (1.967954ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9618377Z ✔ matrix execution selects exactly the requested platforms; input is never interpolated into shell (6.005795ms)
+console-contracts	Run npm test	2026-10-16T05:16:23.9618983Z ℹ tests 59
+console-contracts	Run npm test	2026-10-16T05:16:23.9619267Z ℹ suites 0
+console-contracts	Run npm test	2026-10-16T05:16:23.9619526Z ℹ pass 59
+console-contracts	Run npm test	2026-10-16T05:16:23.9619783Z ℹ fail 0
+console-contracts	Run npm test	2026-10-16T05:16:23.9620039Z ℹ cancelled 0
+console-contracts	Run npm test	2026-10-16T05:16:23.9620261Z ℹ skipped 0
+console-contracts	Run npm test	2026-10-16T05:16:23.9620431Z ℹ todo 0
+console-contracts	Run npm test	2026-10-16T05:16:23.9620632Z ℹ duration_ms 2030.055578
+console-contracts	Type-check and build the console	2026-10-16T05:16:23.9803888Z ##[group]Run npm run build
+console-contracts	Type-check and build the console	2026-10-16T05:16:23.9804141Z ^[[36;1mnpm run build^[[0m
+console-contracts	Type-check and build the console	2026-10-16T05:16:23.9860149Z shell: /usr/bin/bash -e {0}
+console-contracts	Type-check and build the console	2026-10-16T05:16:23.9860388Z ##[endgroup]
+console-contracts	Type-check and build the console	2026-10-16T05:16:24.0685788Z
+console-contracts	Type-check and build the console	2026-10-16T05:16:24.0686884Z > nowen-release-center@0.1.0 build
+console-contracts	Type-check and build the console	2026-10-16T05:16:24.0687280Z > tsc --noEmit && vite build
+console-contracts	Type-check and build the console	2026-10-16T05:16:24.0687424Z
+console-contracts	Type-check and build the console	2026-10-16T05:16:26.5073068Z ^[[36mvite v6.4.4 ^[[32mbuilding for production...^[[36m^[[39m
+console-contracts	Type-check and build the console	2026-10-16T05:16:26.5639290Z transforming...
+console-contracts	Type-check and build the console	2026-10-16T05:16:27.9503553Z ^[[32m✓^[[39m 1711 modules transformed.
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0392045Z rendering chunks...
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0444720Z computing gzip size...
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0512525Z ^[[2mdist/^[[22m^[[32mindex.html                 ^[[39m^[[1m^[[2m  0.46 kB^[[22m^[[1m^[[22m^[[2m │ gzip:  0.30 kB^[[22m
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0513618Z ^[[2mdist/^[[22m^[[2massets/^[[22m^[[35mindex-B70B3d_J.css  ^[[39m^[[1m^[[2m 29.31 kB^[[22m^[[1m^[[22m^[[2m │ gzip:  6.06 kB^[[22m
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0514697Z ^[[2mdist/^[[22m^[[2massets/^[[22m^[[36mindex-Dn8P6arO.js   ^[[39m^[[1m^[[2m225.45 kB^[[22m^[[1m^[[22m^[[2m │ gzip: 70.11 kB^[[22m
+console-contracts	Type-check and build the console	2026-10-16T05:16:28.0515496Z ^[[32m✓ built in 1.52s^[[39m
+console-contracts	Browser contracts (mock GitHub boundary, no dispatch)	2026-10-16T05:16:50.7598871Z ##[group]Run npm run test:browser
+console-contracts	Browser contracts (mock GitHub boundary, no dispatch)	2026-10-16T05:17:00.7246921Z   4 passed (9.4s)

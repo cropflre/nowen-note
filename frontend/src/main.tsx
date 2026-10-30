@@ -37,6 +37,7 @@ import "./space-actions.css";
 import "./settings-switches.css";
 import "./sidebar-search-experience.css";
 import "./mobile-knowledge-tree-compact.css";
+import "./knowledge-tree-display-size.css";
 import "./siyuan-rich-text-callout.css";
 import "./knowledge-tree-markdown-drop.css";
 import "./inline-comments.css";
@@ -72,7 +73,9 @@ import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDro
 import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
 import { installUgreenCredentialedFetch } from "./lib/ugreenRemoteAccess";
-import { observeBootSplashReadiness } from "./lib/bootSplash";
+import { observeBootSplashReadiness, reportBootStage } from "./lib/bootSplash";
+
+reportBootStage("runtime");
 
 const App = React.lazy(() => import("./App"));
 const PublicNotebookView = React.lazy(() => import("./components/PublicNotebookView"));
@@ -209,6 +212,7 @@ let applicationRendered = false;
 
 function renderApplication() {
   if (applicationRendered) return;
+  reportBootStage("rendering");
   applicationRendered = true;
   try {
     const root = document.getElementById("root");

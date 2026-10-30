@@ -7,9 +7,8 @@ function envFlag(name: string): boolean {
 }
 
 /**
- * V2.1 is developed on release/v1.5.0 behind fail-closed gates. The product version stays 1.5.0;
- * plugins that require engines.nowen >=1.6.0 remain incompatible until the actual release version
- * advances. These flags only expose implementation paths for controlled development and tests.
+ * V2.1 capabilities remain opt-in and retain their >=1.6.0 compatibility contract.
+ * Feature flags do not override the actual host version.
  */
 export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFeatureFlags> {
   const extensionsV21 = envFlag("NOWEN_EXTENSIONS_V21");

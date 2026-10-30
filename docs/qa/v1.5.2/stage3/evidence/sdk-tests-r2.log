@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: NowenClient uploads and lists attachments through the public REST contract
+ok 1 - NowenClient uploads and lists attachments through the public REST contract
+  ---
+  duration_ms: 14.1971
+  ...
+# Subtest: attachToNote inserts Markdown and preserves optimistic-lock version
+ok 2 - attachToNote inserts Markdown and preserves optimistic-lock version
+  ---
+  duration_ms: 0.9457
+  ...
+# Subtest: SDK declarations expose note contentFormat contracts
+ok 3 - SDK declarations expose note contentFormat contracts
+  ---
+  duration_ms: 2.3571
+  ...
+# Subtest: NowenClient creates and updates Markdown source content
+ok 4 - NowenClient creates and updates Markdown source content
+  ---
+  duration_ms: 12.9553
+  ...
+# Subtest: SDK keeps trash and explicit permanent deletion separate, including its deprecated alias
+ok 5 - SDK keeps trash and explicit permanent deletion separate, including its deprecated alias
+  ---
+  duration_ms: 13.3443
+  ...
+# Subtest: SDK propagates active-note refusal without silently moving the note to trash
+ok 6 - SDK propagates active-note refusal without silently moving the note to trash
+  ---
+  duration_ms: 0.6112
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 87.6035

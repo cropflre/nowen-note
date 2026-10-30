@@ -1,0 +1,13 @@
+
+> nowen-release-center@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v6.4.4 building for production...
+transforming...
+✓ 1710 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.46 kB │ gzip:  0.29 kB
+dist/assets/index-D3V1IbPT.css   28.97 kB │ gzip:  5.99 kB
+dist/assets/index-DLiJWWkI.js   219.71 kB │ gzip: 68.66 kB
+✓ built in 805ms

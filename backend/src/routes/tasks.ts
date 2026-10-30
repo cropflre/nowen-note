@@ -1,9 +1,16 @@
+import { generateNextRepeatedTask } from "../lib/taskRecurrence";
+import { invalidTaskDateField } from "../lib/taskDates";
+import { localDayCompletionFilter, validTaskTimezone } from "../lib/taskLifecycle";
+import { guardTaskRecurrenceWrite, removeTaskOccurrences, taskRemovalRows, type TaskRemovalMode } from "../lib/taskRecurrenceDeletion";
+import { saveTaskNoteSnapshot, TaskSnapshotError } from "../services/taskNoteSnapshot";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { callAIChat } from "../services/ai-client";
 import { getUserAISettings } from "../services/user-ai-settings";
 import crypto from "crypto";
+import { bodyLimit } from "hono/body-limit";
+import { batchInputSchema, createComposerBatch, TaskComposerError } from "../services/task-composer.js";
 import {
   getUserWorkspaceRole,
   canManageResource,
@@ -55,6 +62,7 @@ function isInvalidTaskDateRange(
 }
 
 const tasks = new Hono();
+tasks.get("/recurrence/capabilities", (c) => c.json({taskRecurrenceLifecycle:"v1"}));
 
 // ---------------------------------------------------------------------------
 // Phase 2/Y3: 工作区 scope 解析
@@ -103,6 +111,7 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
   const params: any[] = [];
   if (scope.scope === "workspace") {
     sql = `SELECT tasks.*, users.username AS creatorName,
+                  (SELECT parent.title FROM tasks parent WHERE parent.id=tasks.parentId) AS parentTitle,
                   (SELECT COUNT(*) FROM task_reminders tr
                    WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
@@ -111,6 +120,7 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
     params.push(scope.workspaceId);
   } else {
     sql = `SELECT tasks.*, users.username AS creatorName,
+                  (SELECT parent.title FROM tasks parent WHERE parent.id=tasks.parentId) AS parentTitle,
                   (SELECT COUNT(*) FROM task_reminders tr
                    WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
            FROM tasks LEFT JOIN users ON users.id = tasks.userId
@@ -133,6 +143,9 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
     sql += ` AND projectId IS NULL`;
   }
 
+  if (filter === "archived") sql += " AND archivedAt IS NOT NULL";
+  else if (filter !== "history" && filter !== "completed-today") sql += " AND archivedAt IS NULL";
+
   if (filter === "today") {
     sql += ` AND ${taskTodayConditionSql()}`;
   } else if (filter === "week") {
@@ -145,8 +158,50 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
 
   sql += ` ORDER BY isCompleted ASC, priority DESC, sortOrder ASC, tasks.createdAt DESC`;
 
-  const rows = db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params) as any[];
+  if (filter === "completed-today") {
+    const timezone = validTaskTimezone(c.req.query("timezone"));
+    if (!timezone) return c.json({ error: "Invalid timezone" }, 400);
+    return c.json(rows.filter(localDayCompletionFilter(timezone)).sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)));
+  }
   return c.json(rows);
+});
+
+tasks.patch("/:id/archive", requireWorkspaceFeature("tasks"), async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body.archived !== "boolean") return c.json({ error: "archived must be boolean" }, 400);
+  const result = db.transaction(() => {
+    const root = db.prepare("SELECT * FROM tasks WHERE id=?").get(c.req.param("id")) as any;
+    if (!root) return { error: "任务不存在", status: 404 as const };
+    if (!canManageResource(root.userId, root.workspaceId, userId)) return { error: "无权归档任务", status: 403 as const };
+    if (root.parentId) return { error: "请从顶层任务归档或恢复整个任务树", status: 409 as const };
+    const ids = collectDescendantIds(db, [root.id]);
+    const rows = ids.map((id) => db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as any);
+    if (rows.some((task) => task.workspaceId !== root.workspaceId || !canManageResource(task.userId, task.workspaceId, userId))) {
+      return { error: "无权归档部分子任务", status: 403 as const };
+    }
+    const pending = rows.filter((task) => !task.isCompleted).length;
+    if (body.archived && pending) return { error: `仍有 ${pending} 项任务未完成`, code: "TASK_TREE_NOT_COMPLETED", status: 409 as const };
+    const archivedAt = body.archived ? (root.archivedAt || new Date().toISOString()) : null;
+    const update = db.prepare("UPDATE tasks SET archivedAt=?,updatedAt=? WHERE id=? AND archivedAt IS NOT ?");
+    const updatedAt = new Date().toISOString();
+    for (const id of ids) update.run(archivedAt, updatedAt, id, archivedAt);
+    return { success: true, affected: ids.length };
+  })();
+  if ("error" in result) return c.json(result, result.status!);
+  return c.json(result);
+});
+
+tasks.post("/:id/note", requireWorkspaceFeature("tasks"), async (c) => {
+  try {
+    const note = await saveTaskNoteSnapshot(c.req.header("X-User-Id")!, c.req.param("id"), await c.req.json());
+    return c.json(note, 201);
+  } catch (error) {
+    if (error instanceof TaskSnapshotError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
+  }
 });
 
 // 获取任务统计（必须在 /:id 之前注册）
@@ -172,7 +227,7 @@ tasks.get("/stats/summary", requireWorkspaceFeature("tasks"), (c) => {
       SUM(CASE WHEN ${taskOverdueConditionSql()} THEN 1 ELSE 0 END)                     AS overdue,
       SUM(CASE WHEN isCompleted = 0 AND ${taskWeekConditionSql()} THEN 1 ELSE 0 END)    AS week
     FROM tasks
-    WHERE ${whereSql}
+    WHERE ${whereSql} AND archivedAt IS NULL
   `).get(whereArg) as any;
 
   const total     = row.total     ?? 0;
@@ -181,7 +236,12 @@ tasks.get("/stats/summary", requireWorkspaceFeature("tasks"), (c) => {
   const overdue   = row.overdue   ?? 0;
   const week      = row.week      ?? 0;
 
-  return c.json({ total, completed, pending: total - completed, today, overdue, week });
+  const timezone = validTaskTimezone(c.req.query("timezone"));
+  if (!timezone) return c.json({ error: "Invalid timezone" }, 400);
+  const history = db.prepare(`SELECT isCompleted,completedAt,archivedAt FROM tasks WHERE ${whereSql}`).all(whereArg) as any[];
+  return c.json({ total, completed, pending: total - completed, today, overdue, week,
+    completedToday: history.filter(localDayCompletionFilter(timezone)).length,
+    archived: history.filter((task) => task.archivedAt).length });
 });
 
 // ---------------------------------------------------------------------------
@@ -226,8 +286,8 @@ tasks.put("/reorder/batch", (c) => {
 
     const placeholders = ids.map(() => "?").join(",");
     const rows = db.prepare(
-      `SELECT id, userId, workspaceId, parentId FROM tasks WHERE id IN (${placeholders})`,
-    ).all(...ids) as Array<{ id: string; userId: string; workspaceId: string | null; parentId: string | null }>;
+      `SELECT id, userId, workspaceId, parentId, archivedAt FROM tasks WHERE id IN (${placeholders})`,
+    ).all(...ids) as Array<{ id: string; userId: string; workspaceId: string | null; parentId: string | null; archivedAt: string | null }>;
 
     if (rows.length !== ids.length) {
       return c.json({ error: "Task not found", code: "TASK_NOT_FOUND" }, 404);
@@ -236,6 +296,7 @@ tasks.put("/reorder/batch", (c) => {
       return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
     }
 
+    if (rows.some((row) => row.archivedAt)) return c.json({error:"请先恢复已归档任务",code:"TASK_ARCHIVED"},409);
     const parentKey = rows[0].parentId ?? "";
     const workspaceKey = rows[0].workspaceId ?? "";
     if (rows.some((row) => (row.parentId ?? "") !== parentKey || (row.workspaceId ?? "") !== workspaceKey)) {
@@ -287,14 +348,14 @@ tasks.get("/:id", (c) => {
 // Promise 分支内部还必须是 void 才被视作 "无返回"）不兼容，tsc 会在 tasks.post("/", ...)
 // 的这一行报 TS2769 "No overload matches this call"。统一 async/await 后，所有分支都
 // 走同一条 Promise 路径，返回类型收敛为 Promise<Response>，类型校验即通过。
-tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id")!;
+class TaskCreateError extends Error {
+  constructor(public payload: { error: string; code?: string }, public status: 400 | 403 | 404 | 409) { super(payload.error); }
+}
 
-  const scope = resolveTaskScope(c, userId);
-  if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
-
-  const body: any = await c.req.json();
+// The normal endpoint and AI batch share the same creation validation and SQL.
+function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
+  const invalidDate = invalidTaskDateField(body);
+  if (invalidDate) throw new TaskCreateError({error:`Invalid ${invalidDate}`,code:"INVALID_TASK_DATE"},400);
   const id = crypto.randomUUID();
   const { title, priority = 2, dueDate = null, dueAt = null, startDate = null, noteId = null, parentId = null } = body;
   const description = typeof body.description === "string" ? body.description : "";
@@ -307,18 +368,18 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   try {
     repeatEndCount = normalizeRepeatEndCount(body.repeatEndCount);
   } catch {
-    return c.json({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
+    throw new TaskCreateError({ error: "repeatEndCount must be an integer between 1 and 999", code: "INVALID_REPEAT_END_COUNT" }, 400);
   }
 
   const VALID_REPEAT = ["none", "daily", "weekly", "monthly", "yearly", "custom"];
   if (!VALID_REPEAT.includes(repeatRule)) {
-    return c.json({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
+    throw new TaskCreateError({ error: "Invalid repeatRule", code: "INVALID_REPEAT_RULE" }, 400);
   }
   if (repeatRule === "none") {
     repeatEndCount = null;
   }
-  if (repeatRule !== "none" && repeatRule !== "custom" && repeatInterval < 1) {
-    return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
+  if (repeatRule !== "none" && repeatRule !== "custom" && (!Number.isSafeInteger(Number(repeatInterval)) || Number(repeatInterval) < 1)) {
+    throw new TaskCreateError({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
   }
   // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
   // TASK-RECURRENCE-CUSTOM-01-RV1: 增强校验
@@ -326,42 +387,40 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   if (repeatRule === "custom") {
     const rj = body.repeatRuleJson;
     if (!rj || typeof rj !== "object" || !rj.frequency || !rj.interval) {
-      return c.json({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
+      throw new TaskCreateError({ error: "repeatRuleJson required for custom repeat", code: "INVALID_REPEAT_RULE" }, 400);
     }
     const vErr = validateRepeatRuleJson(rj);
-    if (vErr) return c.json({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
+    if (vErr) throw new TaskCreateError({ error: vErr, code: "INVALID_REPEAT_RULE" }, 400);
     // 去重 weekdays
     if (rj.weekdays) rj.weekdays = [...new Set(rj.weekdays)].sort((a, b) => (a as number) - (b as number));
     repeatRuleJson = JSON.stringify(rj);
   }
   if (repeatRule !== "none" && !dueDate && !dueAt) {
-    return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
+    throw new TaskCreateError({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
   }
 
   if (isInvalidTaskDateRange(startDate, dueDate, dueAt)) {
-    return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
+    throw new TaskCreateError({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
   }
 
   if (!title || !title.trim()) {
-    return c.json({ error: "Title is required" }, 400);
+    throw new TaskCreateError({ error: "Title is required" }, 400);
   }
 
   // 父任务继承：子任务必须与父任务在同一 scope。
-  let effectiveWorkspaceId: string | null = scope.workspaceId;
+  let effectiveWorkspaceId: string | null = workspaceId;
   if (parentId) {
     const parent = db
-      .prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
-      .get(parentId) as { userId: string; workspaceId: string | null } | undefined;
-    if (!parent) return c.json({ error: "父任务不存在" }, 404);
+      .prepare("SELECT userId, workspaceId, archivedAt FROM tasks WHERE id = ?")
+      .get(parentId) as { userId: string; workspaceId: string | null; archivedAt: string | null } | undefined;
+    if (!parent) throw new TaskCreateError({ error: "父任务不存在" }, 404);
     if (!canReadTask(parent, userId)) {
-      return c.json({ error: "无权在该父任务下创建子任务", code: "FORBIDDEN" }, 403);
+      throw new TaskCreateError({ error: "无权在该父任务下创建子任务", code: "FORBIDDEN" }, 403);
     }
     if (effectiveWorkspaceId !== parent.workspaceId) {
-      return c.json(
-        { error: "子任务必须与父任务在同一工作区", code: "SCOPE_MISMATCH" },
-        400,
-      );
+      throw new TaskCreateError({ error: "子任务必须与父任务在同一工作区", code: "SCOPE_MISMATCH" }, 400);
     }
+    if (parent.archivedAt) throw new TaskCreateError({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
     effectiveWorkspaceId = parent.workspaceId;
   }
 
@@ -369,23 +428,28 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const status = body.status || "todo";
   const VALID_STATUSES = ["todo", "doing", "blocked", "done"];
   if (!VALID_STATUSES.includes(status)) {
-    return c.json({ error: "Invalid status, must be one of: todo, doing, blocked, done", code: "INVALID_STATUS" }, 400);
+    throw new TaskCreateError({ error: "Invalid status, must be one of: todo, doing, blocked, done", code: "INVALID_STATUS" }, 400);
   }
 
   // Validate projectId belongs to same scope
   if (projectId) {
     const project = db.prepare("SELECT userId, workspaceId FROM task_projects WHERE id = ?").get(projectId) as any;
-    if (!project) return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 400);
+    if (!project) throw new TaskCreateError({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 400);
     if (effectiveWorkspaceId && project.workspaceId !== effectiveWorkspaceId) {
-      return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
+      throw new TaskCreateError({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
     }
     if (!effectiveWorkspaceId && (project.userId !== userId || project.workspaceId !== null)) {
-      return c.json({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
+      throw new TaskCreateError({ error: "Project scope mismatch", code: "PROJECT_SCOPE_MISMATCH" }, 400);
     }
   }
 
   const effectiveIsCompleted = status === "done" ? 1 : 0;
-  const effectiveCompletedAt = effectiveIsCompleted ? new Date().toISOString() : null;
+  let effectiveCompletedAt = effectiveIsCompleted ? new Date().toISOString() : null;
+  if (effectiveIsCompleted && Object.prototype.hasOwnProperty.call(body,"completedAt")) {
+    if (body.completedAt === null) effectiveCompletedAt = null;
+    else if (typeof body.completedAt === "string" && Number.isFinite(Date.parse(body.completedAt))) effectiveCompletedAt = new Date(body.completedAt).toISOString();
+    else throw new TaskCreateError({ error: "Invalid completion time", code: "INVALID_COMPLETED_AT" }, 400);
+  }
 
   const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
   const repeatSequenceIndex = repeatRule === "none" ? null : 1;
@@ -396,7 +460,36 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, effectiveCompletedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
 
   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-  return c.json(task, 201);
+  return task as Record<string, unknown>;
+}
+
+tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const scope = resolveTaskScope(c, userId);
+  if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
+  const body = await c.req.json();
+  try { return c.json(createTaskRecord(getDb(), userId, scope.workspaceId, body), 201); }
+  catch (error) {
+    if (error instanceof TaskCreateError) return c.json(error.payload, error.status);
+    throw error;
+  }
+});
+
+tasks.post("/ai-batch-create", bodyLimit({ maxSize: 256000, onError: c => c.json({ code: "REQUEST_TOO_LARGE", error: "Request too large" }, 413) }), requireWorkspaceFeature("tasks"), async c => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ code: "UNAUTHENTICATED", error: "Authentication required" }, 401);
+  const scope = resolveTaskScope(c, userId);
+  if (scope.error) return c.json({ code: "FORBIDDEN", error: scope.error }, 403);
+  const parsed = batchInputSchema.safeParse(await c.req.json().catch(error => { if (error instanceof SyntaxError) return null; throw error; }));
+  if (!parsed.success) return c.json({ code: "INVALID_TASK_INPUT", error: "Invalid task input" }, 400);
+  try {
+    const result = createComposerBatch(userId, scope.workspaceId, parsed.data, task => createTaskRecord(getDb(), userId, scope.workspaceId, task));
+    return c.json(result, result.replayed ? 200 : 201);
+  } catch (error) {
+    if (error instanceof TaskCreateError) return c.json(error.payload, error.status);
+    if (error instanceof TaskComposerError) return c.json({ code: error.code, error: error.message, details: error.details }, error.status);
+    return c.json({ code: "TASK_BATCH_FAILED", error: "No tasks were created. Retry this batch." }, 500);
+  }
 });
 
 // 更新任务
@@ -411,11 +504,26 @@ tasks.put("/:id", (c) => {
   return c.req.json().then((body: any) => {
     const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
     if (!existing) return c.json({ error: "Task not found" }, 404);
+    if (Object.prototype.hasOwnProperty.call(body, "expectedUpdatedAt")
+      && body.expectedUpdatedAt !== existing.updatedAt) {
+      return c.json({ error: "Task changed since preview", code: "TASK_VERSION_CONFLICT" }, 409);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "expectedSortOrder")
+      && body.expectedSortOrder !== existing.sortOrder) {
+      return c.json({ error: "Task order changed since preview", code: "TASK_ORDER_CONFLICT" }, 409);
+    }
 
     if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
       return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
     }
+    const invalidDate = invalidTaskDateField(body,existing);
+    if (invalidDate) return c.json({error:`Invalid ${invalidDate}`,code:"INVALID_TASK_DATE"},400);
 
+    if (existing.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
+    if (body.parentId) {
+      const parent = db.prepare("SELECT archivedAt FROM tasks WHERE id=?").get(body.parentId) as any;
+      if (parent?.archivedAt) return c.json({ error: "不能移动到已归档任务", code: "TASK_ARCHIVED" }, 409);
+    }
     const title = body.title ?? existing.title;
     const priority = body.priority ?? existing.priority;
     const dueDate = body.dueDate !== undefined ? body.dueDate : existing.dueDate;
@@ -431,6 +539,8 @@ tasks.put("/:id", (c) => {
 
     // Repeat fields
     const repeatRule = body.repeatRule !== undefined ? body.repeatRule : (existing.repeatRule || "none");
+    try { guardTaskRecurrenceWrite(db,existing,repeatRule); }
+    catch (error) { return c.json({ error: (error as Error).message, code: "TASK_RECURRENCE_STOPPED" }, 409); }
     const repeatInterval = body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeatInterval ?? 1);
     const repeatEndDate = body.repeatEndDate !== undefined ? body.repeatEndDate : (existing.repeatEndDate ?? null);
     let repeatEndCount: number | null;
@@ -449,7 +559,7 @@ tasks.put("/:id", (c) => {
     if (repeatRule === "none") {
       repeatEndCount = null;
     }
-    if (repeatRule !== "none" && repeatRule !== "custom" && (repeatInterval ?? 0) < 1) {
+    if (repeatRule !== "none" && repeatRule !== "custom" && (!Number.isSafeInteger(Number(repeatInterval)) || Number(repeatInterval) < 1)) {
       return c.json({ error: "repeatInterval must be >= 1", code: "INVALID_REPEAT_INTERVAL" }, 400);
     }
     // TASK-RECURRENCE-CUSTOM-01: 解析自定义循环规则
@@ -576,68 +686,6 @@ tasks.put("/:id", (c) => {
 // 切换完成状态（快捷操作）
 // Y3: 切换完成状态视作"编辑"——走 canManageResource。
 /** TASK-RECURRENCE-CUSTOM-01: 从自定义规则计算下一次日期 */
-function nextDateFromCustomRule(baseDate: Date, rule: any): Date | null {
-  const freq = rule.frequency;
-  const interval = Math.max(1, Number(rule.interval) || 1);
-
-  if (freq === "day") {
-    const next = new Date(baseDate);
-    next.setDate(next.getDate() + interval);
-    return next;
-  }
-
-  if (freq === "week") {
-    const weekdays: number[] = rule.weekdays || []; // 0=Sun, 1=Mon, ..., 6=Sat
-    if (weekdays.length === 0) {
-      // 无指定星期 → 简单加 N 周
-      const next = new Date(baseDate);
-      next.setDate(next.getDate() + 7 * interval);
-      return next;
-    }
-    // 找下一个匹配的星期几
-    const sorted = [...weekdays].sort((a, b) => a - b);
-    const curDay = baseDate.getDay();
-    // 先找本周内下一个
-    for (const d of sorted) {
-      if (d > curDay) {
-        const next = new Date(baseDate);
-        next.setDate(next.getDate() + (d - curDay));
-        return next;
-      }
-    }
-    // 没找到 → 下一周的第 一个
-    const next = new Date(baseDate);
-    next.setDate(next.getDate() + (7 * interval) - curDay + sorted[0]);
-    return next;
-  }
-
-  // TASK-RECURRENCE-CUSTOM-01-RV1: 修复月末/闰年溢出
-  // 先 setDate(1) 防止 setMonth 溢出到下下月
-  if (freq === "month") {
-    const monthDay = Number(rule.monthDay) || baseDate.getDate();
-    const next = new Date(baseDate);
-    next.setDate(1); // 防止溢出：31 日 setMonth 会跳过短月
-    next.setMonth(next.getMonth() + interval);
-    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-    next.setDate(Math.min(monthDay, lastDay));
-    return next;
-  }
-
-  if (freq === "year") {
-    const yearMonth = Number(rule.yearMonth) || (baseDate.getMonth() + 1);
-    const yearDay = Number(rule.yearDay) || baseDate.getDate();
-    const next = new Date(baseDate);
-    next.setDate(1); // 防止溢出：2 月 29 日 setFullYear 到非闰年会跳月
-    next.setFullYear(next.getFullYear() + interval);
-    next.setMonth(yearMonth - 1);
-    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-    next.setDate(Math.min(yearDay, lastDay));
-    return next;
-  }
-
-  return null;
-}
-
 // TASK-RECURRENCE-CUSTOM-01-RV1: 校验自定义循环规则字段
 const VALID_FREQS = ["day", "week", "month", "year"];
 function normalizeRepeatEndCount(value: unknown): number | null {
@@ -652,7 +700,7 @@ function normalizeRepeatEndCount(value: unknown): number | null {
 function validateRepeatRuleJson(rj: any): string | null {
   if (!rj || typeof rj !== "object") return "repeatRuleJson must be an object";
   if (!VALID_FREQS.includes(rj.frequency)) return "frequency must be day/week/month/year";
-  if (!rj.interval || Number(rj.interval) < 1) return "interval must be >= 1";
+  if (!Number.isSafeInteger(Number(rj.interval)) || Number(rj.interval) < 1) return "interval must be an integer >= 1";
   if (rj.weekdays !== undefined) {
     if (!Array.isArray(rj.weekdays)) return "weekdays must be an array";
     for (const w of rj.weekdays) {
@@ -674,95 +722,6 @@ function validateRepeatRuleJson(rj: any): string | null {
   return null;
 }
 
-function getRepeatOccurrenceCount(db: any, groupId: string): number {
-  const row = db.prepare(
-    "SELECT COUNT(*) AS count FROM tasks WHERE id = ? OR repeatGroupId = ?"
-  ).get(groupId, groupId) as { count: number } | undefined;
-  return row?.count ?? 0;
-}
-
-/** Generate next repeated task. Returns the new task or null. */
-function generateNextRepeatedTask(db: any, task: any): any {
-  if (!task.repeatRule || task.repeatRule === "none" || task.repeatNextGeneratedId) return null;
-  const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
-  if (!baseDateStr) return null;
-  const groupId = task.repeatGroupId || task.id;
-
-  const maxCount = task.repeatEndCount === null || task.repeatEndCount === undefined
-    ? null
-    : Number(task.repeatEndCount);
-  const currentSequenceIndex = task.repeatSequenceIndex === null || task.repeatSequenceIndex === undefined
-    ? getRepeatOccurrenceCount(db, groupId)
-    : Number(task.repeatSequenceIndex);
-  if (maxCount !== null && Number.isFinite(maxCount) && maxCount >= 1) {
-    if (currentSequenceIndex >= maxCount) return null;
-  }
-  const nextSequenceIndex = Number.isFinite(currentSequenceIndex) && currentSequenceIndex >= 1
-    ? currentSequenceIndex + 1
-    : getRepeatOccurrenceCount(db, groupId) + 1;
-
-  const parts = baseDateStr.split("-").map(Number);
-  const base = new Date(parts[0], parts[1] - 1, parts[2]);
-  let next: Date | null = null;
-
-  if (task.repeatRule === "custom") {
-    let rule: any = null;
-    try { rule = JSON.parse(task.repeatRuleJson || "{}"); } catch {}
-    if (!rule || !rule.frequency) return null;
-    next = nextDateFromCustomRule(base, rule);
-  } else {
-    const interval = task.repeatInterval || 1;
-    switch (task.repeatRule) {
-      case "daily": next = new Date(base); next.setDate(next.getDate() + interval); break;
-      case "weekly": next = new Date(base); next.setDate(next.getDate() + 7 * interval); break;
-      case "monthly":
-        next = new Date(base); next.setMonth(next.getMonth() + interval);
-        if (next.getDate() !== base.getDate()) next.setDate(0);
-        break;
-      case "yearly":
-        next = new Date(base); next.setFullYear(next.getFullYear() + interval);
-        if (next.getDate() !== base.getDate()) next.setDate(0);
-        break;
-      default: return null;
-    }
-  }
-
-  if (!next) return null;
-
-  if (task.repeatEndDate) {
-    const endParts = task.repeatEndDate.split("-").map(Number);
-    const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
-    if (next > endDate) return null;
-  }
-
-  const yyyy = next.getFullYear();
-  const mm = String(next.getMonth() + 1).padStart(2, "0");
-  const dd = String(next.getDate()).padStart(2, "0");
-  const nextDateStr = `${yyyy}-${mm}-${dd}`;
-  let nextDueAt: string | null = null;
-  let nextDueDate = nextDateStr;
-  if (task.dueAt) {
-    const timePart = task.dueAt.split("T")[1] || "00:00:00";
-    nextDueAt = `${nextDateStr}T${timePart}`;
-  }
-
-  const newId = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, completedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
-    VALUES (?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(newId, task.userId, task.workspaceId, task.title, task.description || "", task.priority, nextDueDate, nextDueAt, null, task.noteId, task.parentId, task.projectId, 'todo', task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id, task.repeatEndCount ?? null, nextSequenceIndex, task.repeatRuleJson);
-
-  db.prepare("UPDATE tasks SET repeatNextGeneratedId = ? WHERE id = ?").run(newId, task.id);
-
-  const reminders = db.prepare("SELECT * FROM task_reminders WHERE taskId = ?").all(task.id) as any[];
-  for (const r of reminders) {
-    const rId = crypto.randomUUID();
-    db.prepare("INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))").run(rId, newId, r.userId, r.offsetMinutes, r.enabled);
-  }
-
-  return db.prepare("SELECT * FROM tasks WHERE id = ?").get(newId);
-}
-
 tasks.patch("/:id/toggle", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
@@ -775,6 +734,7 @@ tasks.patch("/:id/toggle", (c) => {
     return c.json({ error: "无权修改该任务", code: "FORBIDDEN" }, 403);
   }
 
+  if (task.archivedAt) return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
   const newStatus = task.isCompleted ? 0 : 1;
   const newTaskStatus = newStatus === 1 ? "done" : "todo";
   const completedAt = newStatus === 1 ? new Date().toISOString() : null;
@@ -788,48 +748,28 @@ tasks.patch("/:id/toggle", (c) => {
 
 // 删除任务
 // Y3: 删除走 canManageResource；children 靠外键 ON DELETE CASCADE 自动清理。
-tasks.delete("/:id", (c) => {
+function removeOccurrences(c: Context, mode: TaskRemovalMode) {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
-
-  const task = db.prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?").get(id) as
-    | { userId: string; workspaceId: string | null }
-    | undefined;
-  if (!task) return c.json({ error: "Task not found" }, 404);
-
-  if (!canManageResource(task.userId, task.workspaceId, userId)) {
-    return c.json({ error: "无权删除该任务", code: "FORBIDDEN" }, 403);
-  }
-
-  // Collect all descendants (children, grandchildren, etc.)
-  const idsToDelete = collectDescendantIds(db, [id]);
-  const ph = idsToDelete.map(() => "?").join(",");
-
-  // Clean up all dependencies referencing deleted tasks (including descendants)
-  taskDependenciesRepository.deleteByTaskIds(idsToDelete);
-
-  // Delete root task (children cascade via ON DELETE CASCADE)
-  db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
-  return c.json({ success: true });
-});
-
-/** 安全清理任务依赖：表不存在或清理失败不阻断删除 */
-function safeDeleteTaskDependencies(db: any, ids: string[]) {
-  if (!ids || ids.length === 0) return;
-  try {
-    const tableExists = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='task_dependencies'"
-    ).get();
-    if (!tableExists) {
-      console.warn("[tasks.batch] task_dependencies table not found, skipping");
-      return;
+  return db.transaction(() => {
+    const task = db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as any;
+    if (!task) return c.json({ error: "Task not found" }, 404);
+    const rows = taskRemovalRows(db,task,mode);
+    if (!canManageResource(task.userId,task.workspaceId,userId) || rows.some(row => row.workspaceId !== task.workspaceId || !canManageResource(row.userId,row.workspaceId,userId))) {
+      return c.json({ error: "无权操作部分任务", code: "FORBIDDEN" }, 403);
     }
-    taskDependenciesRepository.deleteByTaskIds(ids);
-  } catch (err) {
-    console.warn("[tasks.batch] failed to cleanup task_dependencies:", err);
-  }
+    if (mode !== "stop") taskDependenciesRepository.deleteByTaskIds(rows.map(row => row.id));
+    const ids = removeTaskOccurrences(db,task,mode);
+    return c.json({ success: true, affected: ids.length, ids });
+  })();
 }
+tasks.patch("/:id/recurrence/stop", (c) => removeOccurrences(c,"stop"));
+tasks.delete("/:id", (c) => {
+  const mode = c.req.query("mode") || "single";
+  if (mode !== "single" && mode !== "series") return c.json({ error: "Invalid deletion mode" }, 400);
+  return removeOccurrences(c,mode);
+});
 
 // batch: complete / delete multiple tasks
 tasks.post("/batch", async (c) => {
@@ -868,6 +808,10 @@ tasks.post("/batch", async (c) => {
     }
 
     const ph = allowedIds.map(() => "?").join(",");
+    // Reject mixed archived/active completion atomically; archived trees stay read-only.
+    if (action === "complete" && db.prepare(`SELECT 1 FROM tasks WHERE id IN (${ph}) AND archivedAt IS NOT NULL LIMIT 1`).get(...allowedIds)) {
+      return c.json({ error: "请先恢复已归档任务", code: "TASK_ARCHIVED" }, 409);
+    }
     if (action === "complete") {
       const tasksBefore = db.prepare("SELECT * FROM tasks WHERE id IN (" + ph + ")").all(...allowedIds) as any[];
       const toComplete = tasksBefore.filter((t) => t.isCompleted === 0);
@@ -891,16 +835,14 @@ tasks.post("/batch", async (c) => {
       console.log(`${logPrefix} complete success: affected=${toComplete.length}, generated=${generatedCount}`);
       return c.json({ success: true, affected: toComplete.length, generatedCount });
     } else {
-      const idsToDelete = collectDescendantIds(db, allowedIds);
-      console.log(`${logPrefix} delete: allowedIds=${allowedIds.length}, idsToDelete=${idsToDelete.length}`);
-
-      safeDeleteTaskDependencies(db, idsToDelete);
-
-      const dph = allowedIds.map(() => "?").join(",");
-      db.prepare("DELETE FROM tasks WHERE id IN (" + dph + ")").run(...allowedIds);
-
-      console.log(`${logPrefix} delete success: affected=${allowedIds.length}`);
-      return c.json({ success: true, affected: allowedIds.length });
+      return db.transaction(() => {
+        const roots = allowedIds.map(id => db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as any);
+        if (roots.some(root => taskRemovalRows(db,root,"single").some(row => !canManageResource(row.userId,row.workspaceId,userId)))) {
+          return c.json({error:"无权删除部分子任务",code:"FORBIDDEN"},403);
+        }
+        for (const root of roots) if (db.prepare("SELECT 1 FROM tasks WHERE id=?").get(root.id)) removeTaskOccurrences(db,root,"single");
+        return c.json({ success: true, affected: allowedIds.length });
+      })();
     }
   } catch (err: any) {
     const errMsg = err?.message || String(err);

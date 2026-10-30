@@ -1,0 +1,84 @@
+✔ channel input rejects shell syntax, prerelease, extra fields and arbitrary adapter selection (7.620708ms)
+✔ local reads do not query providers; refresh is concurrent-deduplicated, cached and audited (4.654792ms)
+✔ missing Partner Center token does not make any Store request or claim publication (1.957708ms)
+✔ Partner Center 401 is an error observation and never a publication (2.100166ms)
+✔ Partner Center 403 is an error observation and never a publication (1.8155ms)
+✔ Partner Center 429 is an error observation and never a publication (1.9525ms)
+✔ Store rejects mismatched id (1.886083ms)
+✔ Store rejects mismatched packageIdentityName (1.890791ms)
+✔ Store rejects mismatched publisherName (1.882375ms)
+✔ Store Published is reported as available only for the exact package version (1.832333ms)
+✔ Store CertificationFailed is reported as error only for the exact package version (1.744958ms)
+✔ Store NewProviderStatus is reported as unknown only for the exact package version (1.704ms)
+✔ Store ignores other package versions and refuses a mismatched submission ID (2.459083ms)
+✖ an already published Store version wins over a matching pending revision and blocks overwrite (3.905ms)
+✖ Store cannot swap two otherwise valid submission IDs in the returned bodies (1.853125ms)
+✔ Docker 404 is not_found, never available (1.61625ms)
+✔ Docker 429 is error, never available (1.582042ms)
+✔ Docker missing digest cannot authorize overwrite; wrong tag cannot impersonate the version (2.183ms)
+✔ provider timeout, oversize and invalid JSON remain explicit errors with credentials redacted (8.425042ms)
+✔ a refreshed failure is current while historical success remains visible (3.189583ms)
+✔ plan fixes published Release and annotated Tag SHA, isolates AppX and pins NAS image digest (2.183959ms)
+✔ unpublished or mismatched source is refused ({"draft":true}) (1.703959ms)
+✔ unpublished or mismatched source is refused ({"prerelease":true}) (1.50275ms)
+✔ unpublished or mismatched source is refused ({"tag_name":"v1.5.20"}) (1.603333ms)
+✔ unpublished or mismatched source is refused ({"published_at":null}) (1.752791ms)
+✔ unpublished or mismatched source is refused ({"id":-1}) (1.826292ms)
+✔ missing Tag, invalid Commit and cyclic annotated tags are refused (5.108834ms)
+✔ Store handoff refuses wrong-sha artifact source (2.670542ms)
+✔ Store handoff refuses wrong-workflow artifact source (1.87675ms)
+✔ Store handoff refuses failed artifact source (2.011875ms)
+✔ Store handoff refuses expired artifact source (1.975416ms)
+✔ Store handoff refuses duplicate artifact source (2.241791ms)
+✔ Store handoff refuses exe-only artifact source (1.919959ms)
+✔ NAS missing exact-version packages or digest is a visible blocker (2.817042ms)
+✔ duplicate plan clicks converge, key-content conflicts reject, receipts require confirmation and remain unverified (2.549042ms)
+✔ observations and audit roll back together on failed persistence and can be retried (1.808375ms)
+✔ prior database upgrades additively; new process recovers plans, observations and receipts without network or duplication (67.2885ms)
+✔ all channel HTTP routes enforce session/origin/mutation header; publishing remains absent (50.850584ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 36
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 347.449958
+
+✖ failing tests:
+
+test at tests/channels.test.ts:1:5376
+✖ an already published Store version wins over a matching pending revision and blocks overwrite (3.905ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'pending'
+  - 'available'
+
+      at TestContext.<anonymous> (/Users/cropflre/Documents/ugit/nowen-note/tools/release-center/tests/channels.test.ts:109:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'pending',
+    expected: 'available',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/channels.test.ts:1:5905
+✖ Store cannot swap two otherwise valid submission IDs in the returned bodies (1.853125ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  'pending' !== 'error'
+
+      at TestContext.<anonymous> (/Users/cropflre/Documents/ugit/nowen-note/tools/release-center/tests/channels.test.ts:116:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'pending',
+    expected: 'error',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

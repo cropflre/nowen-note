@@ -1,4 +1,5 @@
 import { assertConversionAttachments, convertedNoteVersion, assertConversionNote, isConversionNoteSafe, withConversionWriteLease } from "./encryptedNotes/conversionBarrier";
+import { sameConversionContent } from "./encryptedNotes/noteDocument";
 import { openDB, type IDBPDatabase, type DBSchema } from "idb";
 import type { Note, NoteListItem, Notebook, Tag } from "@/types";
 
@@ -319,6 +320,18 @@ export async function inspectCachedNotePresence(id: string, userId: string): Pro
   const connection = await pending;
   const present = (await connection.getKey("notes", id)) !== undefined;
   return pending === dbPromise ? present : null;
+}
+
+/** Read-only conversion check: an unconfirmed cached detail must never be discarded. */
+export async function inspectCachedNoteSource(note: Note): Promise<boolean | null> {
+  const pending = dbPromise; const identity = currentCacheIdentity;
+  if (!pending || !identity || currentUserId !== note.userId) return null;
+  const cached = await (await pending).get("notes", note.id);
+  if (pending !== dbPromise || identity !== currentCacheIdentity || currentUserId !== note.userId) return null;
+  if (!cached) return true;
+  if (cached.version > note.version) return false;
+  if (cached.__detailCached === false && !cached.content) return true;
+  return sameConversionContent(cached.content, note.content, note.contentFormat) && cached.contentFormat === note.contentFormat && cached.title === note.title;
 }
 
 /** Strict conversion cleanup, limited to the already initialized account cache. */

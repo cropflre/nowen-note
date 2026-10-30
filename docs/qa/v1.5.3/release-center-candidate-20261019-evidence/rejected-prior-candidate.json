@@ -1,0 +1,15 @@
+{
+  "runId": 39187727685,
+  "sha": "a91f88953aba8bd67a5ade48f0e58752e77e54b2",
+  "candidateAccepted": false,
+  "findings": [
+    {
+      "package": "Nowen-Note-1.5.3-x64.zip",
+      "binary": "ffmpeg",
+      "architectures": [
+        "arm64"
+      ],
+      "expected": "x64"
+    }
+  ]
+}

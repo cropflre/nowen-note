@@ -175,7 +175,7 @@ interface NotebookPlan {
   create: boolean;
 }
 
-const KNOWN_CONTENT_FORMATS = new Set(["markdown", "tiptap-json", "html"]);
+const KNOWN_CONTENT_FORMATS = new Set(["markdown", "tiptap-json", "html", "plaintext"]);
 
 function isSafeZipPath(filePath: string): boolean {
   if (!filePath || /\.\./.test(filePath)) return false;
@@ -795,7 +795,9 @@ export async function importNowenPackageV2(zipBuffer: Buffer, params: ImportPara
       const newId = noteIdMap.get(oldId)!;
       const notebookId = notebookPlan.idMap.get(meta.notebookId) || fallbackRootId;
       if (!notebookId) throw new Error(`No target notebook for note ${oldId}`);
-      const rewritten = rewriteIdReferences(content, attachmentIdMap, noteIdMap);
+      const rewritten = meta.contentFormat === "plaintext"
+        ? { content, unmappedAttachmentIds: [] }
+        : rewriteIdReferences(content, attachmentIdMap, noteIdMap);
       for (const attachmentId of rewritten.unmappedAttachmentIds) {
         warnings.push({ type: "attachment_ref_unmapped", id: attachmentId, message: `Attachment ${attachmentId} was not restored` });
       }

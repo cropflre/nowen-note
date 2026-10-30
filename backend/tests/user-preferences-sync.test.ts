@@ -60,6 +60,7 @@ test("reads legacy flat preference rows and upgrades them on the next partial wr
   assert.equal(before.status, 200);
   assert.equal(before.json.noteTitleAsAppTitle, true);
   assert.equal(before.json.readingDensity, "compact");
+  assert.deepEqual(before.json.hiddenNavigationModules, ["notifications"]);
   assert.equal(before.json.revision, 1);
   assert.equal(before.json.userId, USER_ID);
 
@@ -189,7 +190,7 @@ test("syncs code block collapse policy per account and rejects invalid values", 
 
 test("syncs navigation visibility preferences and rejects unknown module ids", async () => {
   const before = await requestJson("GET");
-  assert.deepEqual(before.json.hiddenNavigationModules, []);
+  assert.deepEqual(before.json.hiddenNavigationModules, ["notifications"]);
   assert.deepEqual(before.json.hiddenTaskCenterModules, []);
 
   const saved = await requestJson("PUT", {
@@ -232,16 +233,22 @@ test("syncs navigation module order, appends future/default modules, and rejects
 
 
 test("persists notification entry visibility per account and supports restoring it", async () => {
-  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, []);
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, ["notifications"]);
 
   const hidden = await requestJson("PUT", { hiddenNavigationModules: ["tasks", "notifications"] });
   assert.equal(hidden.status, 200);
   assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, ["tasks", "notifications"]);
-  assert.deepEqual((await requestJson("GET", undefined, OTHER_ID)).json.hiddenNavigationModules, []);
+  assert.deepEqual((await requestJson("GET", undefined, OTHER_ID)).json.hiddenNavigationModules, ["notifications"]);
 
   const shown = await requestJson("PUT", { hiddenNavigationModules: ["tasks"] });
   assert.equal(shown.status, 200);
   assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, ["tasks"]);
+
+  const allShown = await requestJson("PUT", { hiddenNavigationModules: [] });
+  assert.equal(allShown.status, 200);
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, []);
+  await requestJson("PUT", { readingDensity: "compact" });
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, []);
 });
 
 test("syncs journal lock-on-entry preference per account", async () => {

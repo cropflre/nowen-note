@@ -1,3 +1,6 @@
+import { formatLocalDateKey } from "./dailyRecords";
+import { parseServerTime } from "./dateTime";
+
 export interface MonthCell {
   date: number;
   dateKey: string;
@@ -40,9 +43,9 @@ export function getMonthGrid(year: number, month: number): MonthCell[] {
 export function groupDiariesByDate(items: { createdAt?: string | null }[]): Map<string, typeof items> {
   const map = new Map<string, typeof items>();
   for (const item of items) {
-    const raw = item.createdAt || "";
-    const dateKey = raw.slice(0, 10);
-    if (!dateKey) continue;
+    const date = parseServerTime(item.createdAt);
+    if (!date) continue;
+    const dateKey = formatLocalDateKey(date);
     const arr = map.get(dateKey) || [];
     arr.push(item);
     map.set(dateKey, arr);

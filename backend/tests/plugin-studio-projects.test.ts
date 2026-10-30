@@ -214,3 +214,99 @@ test("projects use explicit export/import while preserving the file sandbox", as
     f.close();
   }
 });
+
+test("project reads, writes and exports reject hard links to files outside the project", async () => {
+  const f = fixture();
+  try {
+    const owner = { userId: "studio-owner", isAdmin: false };
+    const project = f.service.createProject(owner, { name: "Hard Link Boundary" });
+    const outside = path.join(f.root, "outside.json");
+    fs.writeFileSync(outside, '{"fixtureSecret":"outside"}');
+    fs.linkSync(outside, path.join(f.projectRoot, project.id, "hard.json"));
+    assert.equal(fs.statSync(outside).nlink, 2);
+    assertStudioCode(() => f.service.readFile(owner, project.id, "hard.json"), "PLUGIN_STUDIO_HARDLINK_REJECTED");
+    assertStudioCode(() => f.service.writeFile(owner, project.id, {
+      path: "hard.json", content: "{}", expectedRevision: 1,
+    }), "PLUGIN_STUDIO_HARDLINK_REJECTED");
+    await assert.rejects(() => f.service.exportProject(owner, project.id),
+      (error: any) => error.code === "PLUGIN_STUDIO_HARDLINK_REJECTED");
+    assert.equal(fs.readFileSync(outside, "utf8"), '{"fixtureSecret":"outside"}');
+  } finally {
+    f.close();
+  }
+});
+
+test("project reads refuse a link swapped in between path validation and file opening", (context) => {
+  const f = fixture();
+  try {
+    const owner = { userId: "studio-owner", isAdmin: false };
+    const project = f.service.createProject(owner, { name: "Check Open Boundary" });
+    const target = path.join(f.projectRoot, project.id, "race.json");
+    const outside = path.join(f.root, "outside.json");
+    fs.writeFileSync(target, "{}");
+    fs.writeFileSync(outside, '{"fixtureSecret":"outside"}');
+    const open = fs.openSync;
+    let swapped = false;
+    context.mock.method(fs, "openSync", (file: any, ...args: any[]) => {
+      if (file === target && !swapped) {
+        swapped = true;
+        fs.unlinkSync(target);
+        fs.symlinkSync(outside, target, "file");
+      }
+      return (open as any)(file, ...args);
+    });
+    assert.throws(() => f.service.readFile(owner, project.id, "race.json"),
+      (error: any) => ["PLUGIN_STUDIO_SYMLINK_REJECTED", "PLUGIN_STUDIO_FILE_CHANGED"].includes(error.code));
+    assert.equal(swapped, true);
+  } finally {
+    context.mock.restoreAll();
+    f.close();
+  }
+});
+
+test("project files below a directory junction or symlink cannot read outside bytes", () => {
+  const f = fixture();
+  try {
+    const owner = { userId: "studio-owner", isAdmin: false };
+    const project = f.service.createProject(owner, { name: "Directory Boundary" });
+    const outside = path.join(f.root, "outside-dir");
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "secret.json"), '{"fixtureSecret":"outside"}');
+    fs.symlinkSync(outside, path.join(f.projectRoot, project.id, "escape"), process.platform === "win32" ? "junction" : "dir");
+    assertStudioCode(() => f.service.readFile(owner, project.id, "escape/secret.json"), "PLUGIN_STUDIO_SYMLINK_REJECTED");
+  } finally {
+    f.close();
+  }
+});
+
+test("project reads reject a parent directory replaced while opening the file", (context) => {
+  const f = fixture();
+  try {
+    const owner = { userId: "studio-owner", isAdmin: false };
+    const project = f.service.createProject(owner, { name: "Parent Swap Boundary" });
+    const parent = path.join(f.projectRoot, project.id, "src");
+    const moved = path.join(f.projectRoot, project.id, "original-src");
+    const outside = path.join(f.root, "outside-dir");
+    fs.mkdirSync(parent);
+    fs.mkdirSync(outside);
+    const target = path.join(parent, "index.json");
+    fs.writeFileSync(target, "{}");
+    fs.writeFileSync(path.join(outside, "index.json"), '{"fixtureSecret":"outside"}');
+    const open = fs.openSync;
+    let swapped = false;
+    context.mock.method(fs, "openSync", (file: any, ...args: any[]) => {
+      if (file === target && !swapped) {
+        swapped = true;
+        fs.renameSync(parent, moved);
+        fs.symlinkSync(outside, parent, process.platform === "win32" ? "junction" : "dir");
+      }
+      return (open as any)(file, ...args);
+    });
+    assert.throws(() => f.service.readFile(owner, project.id, "src/index.json"),
+      (error: any) => ["PLUGIN_STUDIO_SYMLINK_REJECTED", "PLUGIN_STUDIO_FILE_CHANGED"].includes(error.code));
+    assert.equal(swapped, true);
+  } finally {
+    context.mock.restoreAll();
+    f.close();
+  }
+});

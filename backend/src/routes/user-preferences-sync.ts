@@ -85,7 +85,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   codeBlockCollapseMode: "long",
   noteTheme: "default",
   noteListTitleOnly: false,
-  hiddenNavigationModules: [],
+  hiddenNavigationModules: ["notifications"],
   navigationModuleOrder: ["notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"],
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,

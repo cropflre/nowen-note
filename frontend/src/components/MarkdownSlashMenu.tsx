@@ -9,9 +9,12 @@
  *
  * 仅在当前"一行中、光标前的片段是 /[\w\u4e00-\u9fff]*、且该片段起点是行首或空格之后"时激活。
  */
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import ReactDOM from "react-dom";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { StateEffect } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
+import { isolateHistory } from "@codemirror/commands";
 import {
   Bold,
   CheckSquare,
@@ -272,13 +275,17 @@ export const emptySlashState: SlashState = {
 function detectSlash(view: EditorView): SlashState {
   const { state } = view;
   const sel = state.selection.main;
-  if (!sel.empty) return emptySlashState;
+  if (!sel.empty || state.selection.ranges.length !== 1 || state.readOnly
+    || !state.facet(EditorView.editable) || !view.hasFocus || view.composing) return emptySlashState;
   const pos = sel.from;
   const line = state.doc.lineAt(pos);
   const before = state.doc.sliceString(line.from, pos);
   // 匹配行内最后一个 `/xxx`
   const m = before.match(/(?:^|\s)(\/[\w\u4e00-\u9fff\u3400-\u4dbf]*)$/);
   if (!m) return emptySlashState;
+  for (let node = syntaxTree(state).resolveInner(pos, -1); node; node = node.parent!) {
+    if (["FencedCode", "CodeBlock", "InlineCode"].includes(node.name)) return emptySlashState;
+  }
   const token = m[1];
   const from = pos - token.length;
   const coords = view.coordsAtPos(from);
@@ -292,28 +299,38 @@ function detectSlash(view: EditorView): SlashState {
   };
 }
 
-/**
- * 创建 CM6 扩展：在每次视图更新时检测 slash，并通过回调通知 React 侧。
- * 返回 `[extension, keyHandler]`：
- *   - extension：注册到 EditorState
- *   - keyHandler：键盘事件（上下/回车/Esc）的侦听函数，外部组件通过 addEventListener 使用
- */
-export function createSlashPlugin(
-  onChange: (state: SlashState) => void,
-) {
-  return ViewPlugin.define((view) => {
-    // 初始就同步一次
-    onChange(detectSlash(view));
-    return {
-      update(u: ViewUpdate) {
-        if (u.docChanged || u.selectionSet || u.viewportChanged) {
-          onChange(detectSlash(u.view));
-        }
-      },
-      destroy() {
+const dismissSlash = StateEffect.define<null>();
+
+/** 坐标只能在 CM6 测量阶段读取，不能在插件 update 中读取布局。 */
+export function createSlashPlugin(onChange: (state: SlashState) => void) {
+  return ViewPlugin.fromClass(class {
+    dismissed = false;
+    destroyed = false;
+    constructor(readonly view: EditorView) { this.measure(); }
+    measure() {
+      this.view.requestMeasure({
+        key: this,
+        read: () => this.dismissed || this.destroyed ? emptySlashState : detectSlash(this.view),
+        write: (state) => { if (!this.destroyed) onChange(state); },
+      });
+    }
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet) this.dismissed = false;
+      if (update.transactions.some(tr => tr.effects.some(effect => effect.is(dismissSlash)))) {
+        this.dismissed = true;
         onChange(emptySlashState);
-      },
-    };
+      }
+      if (update.docChanged || update.selectionSet || update.geometryChanged || update.focusChanged || update.transactions.length) this.measure();
+    }
+    destroy() { this.destroyed = true; onChange(emptySlashState); }
+  }, {
+    eventHandlers: {
+      scroll() { this.measure(); },
+      focus() { this.measure(); },
+      blur() { onChange(emptySlashState); },
+      compositionstart() { onChange(emptySlashState); },
+      compositionend() { this.measure(); },
+    },
   });
 }
 
@@ -332,6 +349,12 @@ interface SlashMenuProps {
 export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view, onClose }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 288, maxHeight: 288 });
+  const close = useCallback(() => {
+    if (view && view.dom.isConnected) view.dispatch({ effects: dismissSlash.of(null) });
+    onClose();
+  }, [view, onClose]);
 
   const filtered = useMemo(() => {
     if (!state.active) return [];
@@ -343,6 +366,45 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
       return item.keywords.some((k) => k.toLowerCase().includes(q));
     });
   }, [items, state.active, state.query]);
+
+  useLayoutEffect(() => {
+    if (!state.active || !state.coords || !filtered.length) return;
+    const place = () => {
+      const viewport = window.visualViewport;
+      const x = viewport?.offsetLeft ?? 0, y = viewport?.offsetTop ?? 0;
+      const width = Math.min(288, (viewport?.width ?? window.innerWidth) - 16);
+      const bottom = y + (viewport?.height ?? window.innerHeight) - 8;
+      const coords = state.coords!;
+      const below = Math.max(0, bottom - coords.bottom - 6);
+      const above = Math.max(0, coords.top - y - 14);
+      const height = Math.min(288, menuRef.current?.scrollHeight || 288);
+      const flip = below < height && above > below;
+      const maxHeight = Math.min(288, Math.max(0, bottom - y - 8), flip ? above : below);
+      setPosition({
+        top: Math.max(y + 8, Math.min(bottom - Math.min(height, maxHeight), flip ? coords.top - 6 - Math.min(height, maxHeight) : coords.bottom + 6)),
+        left: Math.max(x + 8, Math.min(coords.left, x + (viewport?.width ?? window.innerWidth) - width - 8)),
+        width, maxHeight,
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+    };
+  }, [state.active, state.coords, filtered.length]);
+
+  useEffect(() => {
+    if (!state.active) return;
+    const outside = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) close();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    return () => document.removeEventListener("pointerdown", outside, true);
+  }, [state.active, close]);
 
   // 查询变化后索引复位
   useEffect(() => {
@@ -357,20 +419,24 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
 
   const execute = useCallback(
     (item: MdSlashItem) => {
-      if (!view) return;
+      if (!view || !view.dom.isConnected || view.composing || view.state.readOnly || !view.state.facet(EditorView.editable)) return;
+      const current = detectSlash(view);
+      if (!current.active || current.from !== state.from || current.query !== state.query) return;
       // 1) 删除用户输入的 "/xxx"
       const endPos = state.from + 1 + state.query.length;
       view.dispatch({
         changes: { from: state.from, to: endPos, insert: "" },
+        annotations: isolateHistory.of("before"),
       });
       // 2) 执行命令
       try {
         item.run(view);
       } finally {
-        onClose();
+        view.dispatch({ annotations: isolateHistory.of("after") });
+        close();
       }
     },
-    [view, state.from, state.query, onClose],
+    [view, state.from, state.query, close],
   );
 
   // 键盘处理：注入 CM6 的 dom keydown
@@ -380,14 +446,14 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
       if (!state.active) return;
       // 中文输入法确认候选词时也会触发 Enter。监听器与 CodeMirror 位于同一节点，
       // 需要阻断同节点后续监听器，避免回车被编辑器处理为换行并关闭菜单。
-      const isImeComposing = e.isComposing || view.composing;
+      const isImeComposing = e.isComposing || e.keyCode === 229 || view.composing;
       if (isImeComposing) {
         if (e.key === "Enter") e.stopImmediatePropagation();
         return;
       }
       if (filtered.length === 0) {
         if (e.key === "Escape") {
-          onClose();
+          close();
           e.preventDefault();
         }
         return;
@@ -400,27 +466,26 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
         setActiveIndex((i) => (i - 1 + filtered.length) % filtered.length);
       } else if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        execute(filtered[activeIndex]);
+        execute(filtered[activeIndex] ?? filtered[0]);
       } else if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        close();
       }
     };
     const dom = view.dom;
     dom.addEventListener("keydown", handler, true);
     return () => dom.removeEventListener("keydown", handler, true);
-  }, [state.active, filtered, activeIndex, view, execute, onClose]);
+  }, [state.active, filtered, activeIndex, view, execute, close]);
 
   if (!state.active || !state.coords || filtered.length === 0) return null;
 
-  // 浮层定位：优先显示在当前字符下方，屏幕底部不够时则上移
-  const top = state.coords.bottom + 6;
-  const left = state.coords.left;
-
   return ReactDOM.createPortal(
     <div
-      className="fixed z-[200] w-72 max-h-72 overflow-y-auto rounded-lg border border-app-border bg-app-surface shadow-xl text-sm"
-      style={{ top, left }}
+      ref={menuRef}
+      role="listbox"
+      aria-label="Markdown /"
+      className="fixed z-[200] overflow-y-auto overscroll-contain rounded-lg border border-app-border bg-app-surface shadow-xl text-sm"
+      style={position}
       // 不 stealFocus：用户还在 CM6 里输入
       onMouseDown={(e) => e.preventDefault()}
     >
@@ -428,8 +493,10 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
         {filtered.map((item, idx) => (
           <div
             key={item.id}
+            role="option"
+            aria-selected={idx === activeIndex}
             data-idx={idx}
-            className={`flex items-start gap-2 px-3 py-1.5 cursor-pointer ${
+            className={`flex items-start gap-2 px-3 py-2 min-h-11 cursor-pointer ${
               idx === activeIndex ? "bg-app-hover" : ""
             }`}
             onMouseEnter={() => setActiveIndex(idx)}
@@ -437,7 +504,7 @@ export const MarkdownSlashMenu: React.FC<SlashMenuProps> = ({ state, items, view
           >
             <div className="mt-0.5 text-tx-secondary shrink-0">{item.icon}</div>
             <div className="flex-1 min-w-0">
-              <div className="text-tx-primary font-medium leading-5 truncate">{item.label}</div>
+              <div className="text-tx-primary font-medium leading-5 truncate">{item.label} <span className="text-[11px] text-tx-tertiary font-normal">/{item.id}</span></div>
               {item.description && (
                 <div className="text-[11px] text-tx-tertiary leading-4 truncate">
                   {item.description}

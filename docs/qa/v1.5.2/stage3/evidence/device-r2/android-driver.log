@@ -1,0 +1,61 @@
+{
+  "device": "3B1F5GE5MS12B4GT",
+  "package": "com.nowen.note.qa152",
+  "offlineImmediateRead": true,
+  "forceStopRecovery": true,
+  "nativeOfflineFolderTrash": true,
+  "offlineUnifiedTrashList": true,
+  "pendingChildBodyPreserved": true,
+  "trashMutationIdentitySurvivesRestart": true,
+  "automaticFolderTrashPush": true,
+  "nativeOfflineFolderRestore": true,
+  "restoreIncludesDeletedAncestors": true,
+  "restoreMutationIdentitySurvivesRestart": true,
+  "automaticFolderRestorePush": true,
+  "lifecycleReceiptInvalidation": true,
+  "sourceCommit": "d7e0f9f65db67365462fda0b87fa1fbf18285a2d",
+  "nativeOfflineFolderCreate": true,
+  "nestedOfflineFolderCreate": true,
+  "offlineFolderUnderDocument": true,
+  "noteInsideOfflineFolder": true,
+  "folderCreationMutationIdentitySurvivesRestart": true,
+  "folderCreationOfflineListRecovery": true,
+  "automaticFolderCreationPush": true,
+  "nativeFolderCreationMs": 1693,
+  "knowledgeTreeRootCreate": true,
+  "readWriteThroughProductionApiBridge": true,
+  "negotiatedPersonalTreePull": true,
+  "remoteFolderUnderDocument": true,
+  "remoteTreeMove": true,
+  "structureForceStopRecovery": true,
+  "nativeSchemaVersion": 7,
+  "nativeOfflineTreeMoveAndSort": true,
+  "pendingTreeForceStopRecovery": true,
+  "automaticStructurePush": true,
+  "nativeConcurrentMoveKeepLocal": true,
+  "missingTreeNoticePoll": true,
+  "remoteFolderCreateMs": 262,
+  "remoteTreeMoveMs": 248,
+  "offlineNetworkIsolation": "adb reverse removed; HTTP server unreachable from Android",
+  "markdownAndRichText": true,
+  "missingNoticePoll": true,
+  "reconnect": true,
+  "httpPushToNativePull": {
+    "samples": 30,
+    "p50Ms": 270,
+    "p95Ms": 402,
+    "p99Ms": 433
+  },
+  "nativeCommitToServerAndAck": {
+    "samples": 30,
+    "p50Ms": 359,
+    "p95Ms": 402,
+    "p99Ms": 492
+  },
+  "errors": [
+    {
+      "lastError": null
+    }
+  ],
+  "boundary": "Loopback adb reverse; actual Android Native SQLite, production API Bridge personal folder creation/nesting/document parents and note creation inside the new folder, tree move/sort, personal folder subtree trash/restore through the unified trash API with pending child body preservation, lifecycle receipt invalidation (retained trashed bodies are inspected via Native Repository; production API reads resume after restore), Outbox restart recovery, automatic Push and concurrent move keep-local via the Native conflict service. Full ConflictCenter GUI, EditorPane, protected/shared ACL, attachment bytes and full production JWT middleware are not accepted here."
+}

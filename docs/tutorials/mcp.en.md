@@ -377,6 +377,14 @@ node /absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 
 If it stays running without crashing, the script can start. Press `Ctrl+C` to stop it.
 
+## Personal tasks, deadlines and reminders
+
+`tasks:read` permits task queries and `nowen_list_task_reminders`. `tasks:write` permits task/subtask creation, updates, completion and `nowen_create_task_reminder`. Both restricted and unrestricted tokens can access only their owner's personal tasks; shared workspace tasks and global reminder delivery endpoints remain unavailable.
+
+Create a task with `nowen_create_task` or `nowen_create_subtask`, supplying `dueDate: "2026-10-21"` and optionally `dueAt: "2026-10-21T09:30"`. Then call `nowen_create_task_reminder` with its task ID, `offsetMinutes: 30` and `timezoneOffsetMinutes: -480` for a UTC+8 user. The offset follows JavaScript `getTimezoneOffset()` and should reflect the deadline's timezone. The two writes return separate results: if reminder creation fails, retain the task and retry only the reminder. Device notification permission is still required.
+
+Task and note results label database UTC metadata such as `createdAt` and `updatedAt` with `Z`: `01:30Z` is `09:30` in UTC+8. `dueDate` and `dueAt` retain local calendar semantics without UTC conversion. `nowen_update_task` accepts a new `dueAt` or `null` to clear the time.
+
 ## Security
 
 - Run local MCP code only from trusted sources.

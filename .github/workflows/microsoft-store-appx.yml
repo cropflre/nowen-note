@@ -1,0 +1,117 @@
+name: Microsoft Store AppX (isolated)
+
+on:
+  pull_request:
+    branches: [release/v1.5.2]
+    paths:
+      - 'electron/**'
+      - 'frontend/src/components/DesktopUpdateCenterCore.tsx'
+      - 'frontend/src/lib/desktopBridge.ts'
+      - 'frontend/src/lib/updateExperience.ts'
+      - 'scripts/tests/microsoft-store-config.test.cjs'
+      - '.github/workflows/microsoft-store-appx.yml'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check Store-only JavaScript files
+        run: |
+          node --check electron/storeChannel.js
+          node --check electron/builder.store.config.js
+          node --check electron/storeIdentity.js
+          node --check electron/updater.js
+          node --check electron/preload.js
+      - name: Store/NSIS packaging isolation and runtime tests
+        run: npm run test:microsoft-store
+      - name: Install frontend dependencies for Store UI type-check
+        working-directory: frontend
+        run: npm ci
+      - name: Type-check Store-aware desktop settings
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+
+  store-package:
+    # Partner Center identity is verified and public: build the first candidate on PR.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: contracts
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Validate Partner Center identity before heavy build
+        shell: pwsh
+        run: |
+          node -e "const c=require('./electron/builder.store.config.js'); if(c.win.target[0].target!=='appx'||c.publish!==null) process.exit(1); console.log('Partner Center identity and isolated appx target validated')"
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Prepare embedded runtime
+        run: npm run fetch:node
+      - name: Build backend and frontend
+        run: npm run build:all
+      - name: Rebuild Windows x64 native modules for Electron
+        run: npm run rebuild:native
+      - name: Package Store AppX (never publish to GitHub Releases)
+        run: npx electron-builder --config electron/builder.store.config.js --win appx --publish never
+      - name: Verify AppX manifest and prevent accidental EXE upload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName System.IO.Compression
+          $files = @(Get-ChildItem -Path dist-electron-store -File -Filter '*.appx')
+          if ($files.Count -ne 1) { throw "Expected exactly one Store .appx, found $($files.Count)" }
+          if (@(Get-ChildItem -Path dist-electron-store -File -Filter '*.exe').Count -gt 0) {
+            throw 'Store output contains an EXE: NSIS/portable must not be mixed into Store submissions.'
+          }
+          $package = [System.IO.Compression.ZipFile]::OpenRead($files[0].FullName)
+          try {
+            $entry = $package.GetEntry('AppxManifest.xml')
+            if (-not $entry) { throw 'AppxManifest.xml missing' }
+            $reader = [System.IO.StreamReader]::new($entry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() }
+            finally { $reader.Dispose() }
+            $identity = $manifest.Package.Identity
+            $expectedName = (node -p "require('./electron/storeIdentity.js').STORE_IDENTITY.identityName").Trim()
+            $expectedPublisher = (node -p "require('./electron/storeIdentity.js').STORE_IDENTITY.publisher").Trim()
+            if ($identity.Name -cne $expectedName) { throw 'Identity.Name mismatch' }
+            if ($identity.Publisher -cne $expectedPublisher) { throw 'Identity.Publisher mismatch' }
+            $version = (node -p "require('./package.json').version").Trim()
+            if (-not $identity.Version.StartsWith("$version.")) { throw "Version mismatch: $($identity.Version)" }
+            if (-not $manifest.Package.Applications.Application) { throw 'No packaged desktop application' }
+            # Electron full-trust Desktop Bridge apps require this restricted capability.
+            # electron-builder 25.1.8 emits it by default; appx.capabilities is NOT
+            # accepted by the schema of that pinned release.
+            $trust = @($manifest.SelectNodes("//*[local-name()='Capability' and @Name='runFullTrust']"))
+            if ($trust.Count -eq 0) { throw 'runFullTrust capability missing from generated AppX manifest' }
+            Write-Host "Verified Store package: $($files[0].Name), version=$($identity.Version), identity=$($identity.Name), runFullTrust=yes"
+          } finally { $package.Dispose() }
+      - name: Upload Store submission candidate (workflow artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-store-appx
+          path: dist-electron-store/*.appx
+          if-no-files-found: error
+          retention-days: 7

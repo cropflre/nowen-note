@@ -1,4 +1,5 @@
 import type { Task } from "@/types";
+import { getDateValue, parseTaskDate } from "./taskDateUtils";
 // TASK-RECURRENCE-LUNAR-01: 农历转换
 import { getNextLunarYearDate } from "./lunarUtils";
 
@@ -17,6 +18,8 @@ export function isRepeatingTask(task: Task): boolean {
 function nextDateFromCustomRule(base: Date, rule: any): Date | null {
   const freq = rule.frequency;
   const interval = Math.max(1, Number(rule.interval) || 1);
+  if (!Number.isSafeInteger(Number(rule.interval)) || Number(rule.interval) < 1) return null;
+  if (freq === "week" && rule.weekdays !== undefined && (!Array.isArray(rule.weekdays) || rule.weekdays.some((day: unknown) => !Number.isInteger(day) || Number(day) < 0 || Number(day) > 6))) return null;
 
   // TASK-RECURRENCE-LUNAR-01: 农历年循环
   if (rule.calendar === "lunar") {
@@ -91,11 +94,12 @@ export function getNextRepeatDate(task: Task): string | null {
     return null;
   }
 
-  const baseDateStr = task.dueAt ? task.dueAt.split("T")[0] : task.dueDate;
+  const dueValue = task.dueAt || task.dueDate;
+  if (!parseTaskDate(dueValue)) return null;
+  const baseDateStr = getDateValue(dueValue);
   if (!baseDateStr) return null;
 
-  const parts = baseDateStr.split("-").map(Number);
-  const base = new Date(parts[0], parts[1] - 1, parts[2]);
+  const base = new Date(`${baseDateStr}T00:00:00`);
   let next: Date | null = null;
 
   if (task.repeatRule === "custom") {
@@ -104,7 +108,8 @@ export function getNextRepeatDate(task: Task): string | null {
     if (!rule || !rule.frequency) return null;
     next = nextDateFromCustomRule(base, rule);
   } else {
-    const interval = task.repeatInterval ?? 1;
+    const interval = Number(task.repeatInterval ?? 1);
+    if (!Number.isSafeInteger(interval) || interval < 1) return null;
     switch (task.repeatRule) {
       case "daily":
         next = new Date(base);
@@ -129,15 +134,15 @@ export function getNextRepeatDate(task: Task): string | null {
     }
   }
 
-  if (!next) return null;
+  if (!next || !Number.isFinite(next.getTime()) || next.getFullYear() < 1 || next.getFullYear() > 9999) return null;
 
   if (task.repeatEndDate) {
-    const endParts = task.repeatEndDate.split("-").map(Number);
-    const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+    if (!parseTaskDate(task.repeatEndDate)) return null;
+    const endDate = new Date(`${getDateValue(task.repeatEndDate)}T00:00:00`);
     if (next > endDate) return null;
   }
 
-  const yyyy = next.getFullYear();
+  const yyyy = String(next.getFullYear()).padStart(4,"0");
   const mm = String(next.getMonth() + 1).padStart(2, "0");
   const dd = String(next.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
@@ -169,7 +174,7 @@ export function buildNextRepeatedTaskPatch(task: Task): Partial<Task> | null {
   };
 
   if (task.dueAt) {
-    const timePart = task.dueAt.split("T")[1] || "00:00:00";
+    const timePart = task.dueAt.trim().replace(" ","T").split("T")[1] || "00:00:00";
     patch.dueAt = `${nextDate}T${timePart}`;
     patch.dueDate = nextDate;
   } else {

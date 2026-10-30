@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "85538be19fa9e167f4dec60b295486d4b56c18d1",
+  "mode": "source",
+  "node": "v20.18.0",
+  "abi": "130",
+  "directory": "C:\\Users\\cropf\\AppData\\Local\\Temp\\nowen-152-http-source-i5qn2P",
+  "base": "http://127.0.0.1:11162",
+  "checks": [],
+  "result": "FAIL",
+  "error": {
+    "message": "Expected values to be strictly equal:\n\n500 !== 403\n",
+    "stack": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n500 !== 403\n\n    at <anonymous> (C:\\Users\\cropf\\.codex\\worktrees\\release-152-qa-review\\nowen-note\\docs\\qa\\v1.5.2\\stage3\\scripts\\http-release-acceptance.mjs:85:14)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)"
+  }
+}

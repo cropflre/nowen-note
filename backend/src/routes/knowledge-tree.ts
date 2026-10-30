@@ -6,6 +6,7 @@ import { getDb } from "../db/schema.js";
 import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 import { getUserWorkspaceRole, hasRole, isFeatureEnabled, isSystemAdmin, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
+import { notifySyncChanged } from "../sync/notify";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { resolvePasswordAuthorizedNotes, resolveUnlockedFolderNodeIds, signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
@@ -33,6 +34,25 @@ import {
 
 const app = new Hono();
 
+// REST tree writes also enter the durable V2 feed. Wake subscribed devices only
+// after a successful request has committed; Pull retains authorization/filtering.
+app.use("*", async (c, next) => {
+  if (!["POST","PUT","PATCH","DELETE"].includes(c.req.method)) return next();
+  const db = getDb();
+  const before = Number((db.prepare("SELECT MAX(sequence) AS sequence FROM sync_changes_v2").get() as {sequence:number|null}).sequence || 0);
+  await next();
+  if (c.res.status < 200 || c.res.status >= 300) return;
+  const changed = db.prepare(`SELECT DISTINCT userId,workspaceId FROM sync_changes_v2
+    WHERE sequence > ? AND entityType='knowledge_tree_node'`).all(before) as Array<{userId:string;workspaceId:string|null}>;
+  const sent = new Set<string>();
+  for (const row of changed) {
+    const key = row.workspaceId ? `workspace:${row.workspaceId}` : `personal:${row.userId}`;
+    if (sent.has(key)) continue;
+    sent.add(key);
+    notifySyncChanged(db,row.userId,row.workspaceId ? key : "personal");
+  }
+});
+
 function userIdOf(c: any): string {
   return c.req.header("X-User-Id") || "";
 }
@@ -51,6 +71,56 @@ function mapError(c: any, error: unknown): Response {
   }
   console.error("[knowledge-tree] request failed:", error);
   return c.json({ error: "知识树操作失败", code: "KNOWLEDGE_TREE_FAILED" }, 500);
+}
+
+/**
+ * Optional optimistic preconditions for MCP writes. Existing UI callers without
+ * preview fields retain their legacy behavior; MCP always supplies them.
+ * The synchronous service mutations run immediately after this comparison.
+ */
+function verifyTreePreconditions(
+  c: any,
+  nodeId: string,
+  body: Record<string, unknown>,
+  subtree = false,
+): Response | null {
+  if (!["expectedUpdatedAt", "expectedTitle", "expectedParentId", "expectedChildCount",
+        "expectedSubtreeRevision"].some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+    return null;
+  }
+  const required = ["expectedUpdatedAt", "expectedTitle", "expectedParentId", "expectedChildCount"];
+  if (required.some((key) => !(key in body)) || (subtree && !body.expectedSubtreeRevision)) {
+    return c.json({ error: "缺少完整的目录预览版本", code: "MCP_PREVIEW_REQUIRED" }, 409);
+  }
+  const nodes = listKnowledgeTree({ userId: userIdOf(c), workspaceId: workspaceIdOf(c), includeDeleted: true });
+  const node = nodes.find((item) => item.id === nodeId);
+  if (!node || node.updatedAt !== body.expectedUpdatedAt || node.title !== body.expectedTitle
+    || node.parentId !== body.expectedParentId || node.childCount !== body.expectedChildCount) {
+    return c.json({ error: "目录状态发生变化，请重新预览", code: "MCP_TREE_VERSION_CONFLICT" }, 409);
+  }
+  if (subtree) {
+    const byId = new Map(nodes.map((item) => [item.id, item]));
+    const visited = new Set<string>([nodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const entry of nodes) {
+        if (entry.parentId && visited.has(entry.parentId) && !visited.has(entry.id)) {
+          visited.add(entry.id);
+          changed = true;
+        }
+      }
+    }
+    const digest = createHash("sha256").update(JSON.stringify(Array.from(visited).sort().map((id) => {
+      const entry = byId.get(id)!;
+      return [entry.id, entry.parentId, entry.resourceType, entry.resourceId,
+        entry.title, entry.updatedAt, entry.isDeleted, entry.childCount];
+    }))).digest("hex");
+    if (digest !== body.expectedSubtreeRevision) {
+      return c.json({ error: "子目录内容发生变化，请重新预览", code: "MCP_TREE_VERSION_CONFLICT" }, 409);
+    }
+  }
+  return null;
 }
 
 function broadcastDeletedKnowledgeNotes(affectedNodeIds: string[], actorUserId: string): void {
@@ -304,6 +374,10 @@ app.post("/nodes", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const nodeType = body.nodeType;
+    if (typeof body.parentId === "string" && body.parentId) {
+      const conflict = verifyTreePreconditions(c, body.parentId, body);
+      if (conflict) return conflict;
+    }
     if (!["folder", "note", "markdown", "word", "mindmap", "sheet", "excel"].includes(nodeType)) {
       return c.json({ error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" }, 400);
     }
@@ -325,6 +399,7 @@ app.post("/nodes", async (c) => {
       title: typeof body.title === "string" ? body.title : "",
       sheetData: body.sheetData,
       excelData: body.excelData,
+      contentFormat: body.contentFormat === "plaintext" ? "plaintext" : undefined,
     });
     return c.json(node, 201);
   } catch (error) {
@@ -339,6 +414,8 @@ app.patch("/nodes/:nodeId", async (c) => {
     const access = resolveKnowledgeNodeAccess(nodeId, userIdOf(c), db);
     const body = await c.req.json().catch(() => ({}));
     const title = typeof body.title === "string" ? body.title.trim() : undefined;
+    const conflict = verifyTreePreconditions(c, nodeId, body);
+    if (conflict) return conflict;
     const isExpanded = typeof body.isExpanded === "boolean" || body.isExpanded === 0 || body.isExpanded === 1
       ? Number(Boolean(body.isExpanded))
       : undefined;
@@ -390,6 +467,8 @@ app.patch("/nodes/:nodeId", async (c) => {
 app.put("/nodes/:nodeId/move", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
+    const conflict = verifyTreePreconditions(c, c.req.param("nodeId"), body, true);
+    if (conflict) return conflict;
     const node = moveKnowledgeNode({
       actorUserId: userIdOf(c),
       nodeId: c.req.param("nodeId"),
@@ -429,8 +508,11 @@ app.put("/reorder", async (c) => {
   }
 });
 
-app.delete("/nodes/:nodeId", (c) => {
+app.delete("/nodes/:nodeId", async (c) => {
   try {
+    const body = await c.req.json().catch(() => ({}));
+    const conflict = verifyTreePreconditions(c, c.req.param("nodeId"), body, true);
+    if (conflict) return conflict;
     const mode = c.req.query("mode") === "promote" ? "promote" : "subtree";
     const actorUserId = userIdOf(c);
     const nodeId = c.req.param("nodeId");
@@ -473,6 +555,8 @@ app.post("/batch/delete", async (c) => {
 app.post("/nodes/:nodeId/restore", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
+    const conflict = verifyTreePreconditions(c, c.req.param("nodeId"), body, true);
+    if (conflict) return conflict;
     return c.json(restoreKnowledgeNode({
       actorUserId: userIdOf(c),
       nodeId: c.req.param("nodeId"),

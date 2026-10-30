@@ -1,3 +1,5 @@
+import { isTaskCompletedToday } from "@/components/tasks/taskLifecycle";
+import { taskRemovalIds } from "./taskRecurrenceRemoval";
 import type {
   Habit,
   HabitCheckin,
@@ -14,7 +16,9 @@ type OpBase = { id: string; entityId: string; queuedAt: number; retryCount: numb
 type Op =
   | (OpBase & { kind: "task.create"; data: Partial<Task> })
   | (OpBase & { kind: "task.update"; data: Partial<Task> })
-  | (OpBase & { kind: "task.delete" })
+  | (OpBase & { kind: "task.archive"; archived: boolean })
+  | (OpBase & { kind: "task.delete"; mode?: "single" | "series"; groupId?: string })
+  | (OpBase & { kind: "task.stop"; groupId: string })
   | (OpBase & { kind: "habit.create"; data: { title: string; icon?: string; color?: string; sortOrder?: number } })
   | (OpBase & { kind: "habit.update"; data: Partial<Habit> })
   | (OpBase & { kind: "habit.archive"; archived: boolean })
@@ -30,17 +34,21 @@ type State = {
   checkins: HabitCheckinListItem[];
   queue: Op[];
   idMap: Record<string, string>;
+  removedTaskIds: string[];
+  seriesActions: Record<string,"stop" | "series">;
   updatedAt: number;
 };
 
 type Options = { getServerUrl: () => string; getWorkspaceId: () => string; getScopeKey?: () => string };
 type NativeApi = {
   getTasks: (filter?: TaskFilter, noteId?: string, projectId?: string) => Promise<Task[]>;
+  archiveTask?: (id: string, archived?: boolean) => Promise<{ success: boolean; affected: number }>;
   getTaskStats: () => Promise<TaskStats>;
   createTask: (data: Partial<Task>) => Promise<Task>;
   updateTask: (id: string, data: Partial<Task>) => Promise<TaskResult>;
   toggleTask: (id: string) => Promise<TaskResult>;
-  deleteTask: (id: string) => Promise<unknown>;
+  deleteTask: (id: string, mode?: "single" | "series") => Promise<unknown>;
+  stopTaskRecurrence?: (id: string) => Promise<{ success: boolean; affected: number }>;
   getHabits: (includeArchived?: boolean, checkinDate?: string) => Promise<Habit[]>;
   getHabitStats: (includeArchived?: boolean, checkinDate?: string) => Promise<HabitStats>;
   getHabitCheckinLog: (params?: { from?: string; to?: string; includeArchived?: boolean }) => Promise<HabitCheckinListItem[]>;
@@ -60,6 +68,7 @@ const MAX_RETRY = 10;
 const blank = (): State => ({
   version: 2, tasks: [], taskStats: null, habits: [], habitStats: null,
   checkins: [], queue: [], idMap: {}, updatedAt: 0,
+  removedTaskIds: [], seriesActions: {},
 });
 
 function storage(): Storage | null {
@@ -124,9 +133,13 @@ const due = (task: Task) => dateKey(task.dueAt || task.dueDate);
 export function filterOfflineTasks(tasks: Task[], filter: TaskFilter = "all", noteId?: string, projectId?: string): Task[] {
   const start = today();
   const end = plusDays(start, 6);
-  return tasks.filter((task) => {
+  const parentTitles = new Map(tasks.map((task) => [task.id,task.title]));
+  return tasks.map((task) => ({...task,parentTitle:(task.parentId ? parentTitles.get(task.parentId) : null) || task.parentTitle || null})).filter((task) => {
     if (noteId && task.noteId !== noteId) return false;
     if (projectId && task.projectId !== projectId) return false;
+    if (filter === "archived") return !!task.archivedAt;
+    if (filter === "completed-today") return isTaskCompletedToday(task);
+    if (filter !== "history" && task.archivedAt) return false;
     const key = due(task);
     if (filter === "completed") return completed(task);
     if (filter === "today") return !completed(task) && key === start;
@@ -136,7 +149,8 @@ export function filterOfflineTasks(tasks: Task[], filter: TaskFilter = "all", no
   });
 }
 
-export function deriveOfflineTaskStats(tasks: Task[]): TaskStats {
+export function deriveOfflineTaskStats(history: Task[]): TaskStats {
+  const tasks = history.filter((task) => !task.archivedAt);
   const start = today();
   const end = plusDays(start, 6);
   let done = 0, todayCount = 0, overdue = 0, week = 0;
@@ -148,7 +162,7 @@ export function deriveOfflineTaskStats(tasks: Task[]): TaskStats {
     if (!isDone && key && key < start) overdue += 1;
     if (!isDone && key && key >= start && key <= end) week += 1;
   }
-  return { total: tasks.length, completed: done, pending: tasks.length - done, today: todayCount, overdue, week };
+  return { total: tasks.length, completed: done, pending: tasks.length - done, today: todayCount, overdue, week, completedToday: history.filter((task) => isTaskCompletedToday(task)).length, archived: history.filter((task) => task.archivedAt).length };
 }
 
 function upsert<T extends { id: string }>(items: T[], item: T): T[] {
@@ -252,12 +266,31 @@ function overlayTasks(server: Task[], cached: Task[], queue: Op[], options: Opti
       const current = tasks.find((task) => task.id === operation.entityId)
         || cached.find((task) => task.id === operation.entityId);
       if (current) tasks = upsert(tasks, { ...current, ...operation.data } as Task);
+    } else if (operation.kind === "task.archive") {
+      const ids = descendants(tasks,operation.entityId);
+      tasks = tasks.map((task) => ids.has(task.id) ? {...task,archivedAt:operation.archived ? new Date(operation.queuedAt).toISOString() : null} : task);
     } else if (operation.kind === "task.delete") {
-      const ids = descendants(tasks, operation.entityId);
+      const ids = taskRemovalIds(tasks,operation.entityId,operation.mode || "single",operation.groupId);
       tasks = tasks.filter((task) => !ids.has(task.id));
+    } else if (operation.kind === "task.stop") {
+      const ids = taskRemovalIds(tasks,operation.entityId,"stop",operation.groupId);
+      tasks = tasks.map(task => ids.has(task.id) ? {...task,repeatRule:"none",repeatGroupId:operation.groupId,repeatEndDate:null,repeatEndCount:null,repeatRuleJson:null} : task);
     }
   }
   return tasks;
+}
+
+function applyTaskLifecycle(tasks: Task[], state: State): Task[] {
+  const removed = new Set<string>();
+  for (const id of state.removedTaskIds) for (const child of taskRemovalIds(tasks,id,"single")) removed.add(child);
+  return tasks.filter(task => !removed.has(task.id) && state.seriesActions[task.repeatGroupId || task.id] !== "series")
+    .map(task => state.seriesActions[task.repeatGroupId || task.id] === "stop" ? {...task,repeatRule:"none" as const,repeatEndDate:null,repeatEndCount:null,repeatRuleJson:null} : task);
+}
+function markTaskRemoval(state: State, id: string, mode: "single" | "stop" | "series", groupId: string): State {
+  const ids = taskRemovalIds(state.tasks,id,mode,groupId);
+  const next = {...state,removedTaskIds:mode === "stop" ? state.removedTaskIds : [...new Set([...state.removedTaskIds,...ids])],
+    seriesActions:mode === "single" ? state.seriesActions : {...state.seriesActions,[groupId]:state.seriesActions[groupId] === "series" ? "series" as const : mode}};
+  return {...next,tasks:applyTaskLifecycle(next.tasks.map(task => mode === "stop" && ids.has(task.id) ? {...task,repeatGroupId:groupId} : task),next)};
 }
 
 function overlayHabits(server: Habit[], cached: Habit[], queue: Op[], options: Options): Habit[] {
@@ -366,8 +399,10 @@ export function installTaskOfflineApi(api: any, options: Options) {
 
   const native: NativeApi = {
     getTasks: api.getTasks.bind(api), getTaskStats: api.getTaskStats.bind(api),
+    archiveTask: typeof api.archiveTask === "function" ? api.archiveTask.bind(api) : undefined,
     createTask: api.createTask.bind(api), updateTask: api.updateTask.bind(api),
     toggleTask: api.toggleTask.bind(api), deleteTask: api.deleteTask.bind(api),
+    stopTaskRecurrence: api.stopTaskRecurrence?.bind(api),
     getHabits: api.getHabits.bind(api), getHabitStats: api.getHabitStats.bind(api),
     getHabitCheckinLog: api.getHabitCheckinLog.bind(api), createHabit: api.createHabit.bind(api),
     updateHabit: api.updateHabit.bind(api), archiveHabit: api.archiveHabit.bind(api),
@@ -393,6 +428,8 @@ export function installTaskOfflineApi(api: any, options: Options) {
         tasks: Array.isArray(value.tasks) ? value.tasks : [], habits: Array.isArray(value.habits) ? value.habits : [],
         checkins: Array.isArray(value.checkins) ? value.checkins : [], queue: Array.isArray(value.queue) ? value.queue : [],
         idMap: value.idMap && typeof value.idMap === "object" ? value.idMap : {},
+        removedTaskIds: Array.isArray(value.removedTaskIds) ? value.removedTaskIds : [],
+        seriesActions: value.seriesActions && typeof value.seriesActions === "object" ? value.seriesActions : {},
       };
     } catch { return blank(); }
   };
@@ -431,6 +468,7 @@ export function installTaskOfflineApi(api: any, options: Options) {
       .map((value) => value.parentId === local ? { ...value, parentId: task.id } : value), task),
     queue: state.queue.map((item) => {
       const entityId = item.entityId === local ? task.id : item.entityId;
+      if ((item.kind === "task.stop" || item.kind === "task.delete") && item.groupId === local) return {...item,entityId,groupId:task.id};
       if ((item.kind === "task.create" || item.kind === "task.update") && item.data.parentId === local) {
         return { ...item, entityId, data: { ...item.data, parentId: task.id } };
       }
@@ -459,10 +497,21 @@ export function installTaskOfflineApi(api: any, options: Options) {
       if (result.generatedTask) next = { ...next, tasks: upsert(next.tasks, result.generatedTask) };
       return next;
     }
+    if (operation.kind === "task.archive") {
+      if (!native.archiveTask) throw new Error("后端尚不支持任务归档，请升级后重试");
+      await native.archiveTask(id,operation.archived);
+      const remote = await native.getTasks("history");
+      return {...state,tasks:remote};
+    }
     if (operation.kind === "task.delete") {
-      try { await native.deleteTask(id); } catch (error) { if (statusOf(error) !== 404) throw error; }
-      const ids = descendants(state.tasks, operation.entityId); ids.add(id);
+      try { await (operation.mode === "series" ? native.deleteTask(id,"series") : native.deleteTask(id)); } catch (error) { if (statusOf(error) !== 404) throw error; }
+      const ids = taskRemovalIds(state.tasks,id,operation.mode || "single",operation.groupId); ids.add(operation.entityId);
       return { ...state, tasks: state.tasks.filter((task) => !ids.has(task.id)) };
+    }
+    if (operation.kind === "task.stop") {
+      if (!native.stopTaskRecurrence) throw new Error("后端尚不支持终止循环，请升级后重试");
+      await native.stopTaskRecurrence(id);
+      return {...state,tasks:await native.getTasks("history")};
     }
     if (operation.kind === "habit.create") return remapHabit(state, operation.entityId, await native.createHabit(operation.data));
     if (operation.kind === "habit.update") return { ...state, habits: upsert(state.habits, await native.updateHabit(id, operation.data)) };
@@ -479,14 +528,28 @@ export function installTaskOfflineApi(api: any, options: Options) {
     if (!online()) return;
     if (flushing) return flushing;
     flushing = (async () => {
+      const flushScope = suffix();
       for (let count = 0; count < 200; count += 1) {
         let state = read();
         const operation = state.queue[0];
         if (!operation || operation.blocked) break;
         try {
           state = await run(operation, state);
-          write({ ...state, queue: state.queue.filter((item) => item.id !== operation.id) }, true);
+          if (flushScope !== suffix()) return;
+          const latest = read();
+          const remapped = new Map(state.queue.map(item => [item.id,item]));
+          const queue = latest.queue.filter(item => item.id !== operation.id).map(item => remapped.get(item.id) || item);
+          const removedTaskIds = [...new Set([...state.removedTaskIds,...latest.removedTaskIds].flatMap(id => [id,resolve(state,id)]))];
+          const seriesActions = {...state.seriesActions,...latest.seriesActions};
+          for (const [group,action] of Object.entries(seriesActions)) seriesActions[resolve(state,group)] = action;
+          if (operation.kind === "task.create" && latest.removedTaskIds.includes(operation.entityId)) {
+            const id = resolve(state,operation.entityId);
+            queue.push({id:newId("task-op"),kind:"task.delete",entityId:id,mode:seriesActions[id] === "series" ? "series" : "single",groupId:id,queuedAt:Date.now(),retryCount:0});
+          }
+          state = {...state,removedTaskIds,seriesActions,queue};
+          write({ ...state, tasks:applyTaskLifecycle(overlayTasks(state.tasks,latest.tasks,queue,options),state) }, true);
         } catch (error) {
+          if (flushScope !== suffix()) return;
           state = read();
           const current = state.queue.find((item) => item.id === operation.id);
           if (!current) continue;
@@ -504,16 +567,41 @@ export function installTaskOfflineApi(api: any, options: Options) {
   api.getTasks = async (filter?: TaskFilter, noteId?: string, projectId?: string) => {
     if (online()) await flush();
     try {
-      const remote = await native.getTasks("all");
+      const remote = await native.getTasks("history");
       const state = read();
-      const tasks = overlayTasks(remote, state.tasks, state.queue, options);
+      const tasks = applyTaskLifecycle(overlayTasks(remote, state.tasks, state.queue, options),state);
       write({ ...state, tasks });
       return filterOfflineTasks(tasks, filter, noteId, projectId);
     } catch (error) {
       const state = read();
       if (!state.updatedAt && !state.tasks.length && !state.queue.length) throw error;
-      return filterOfflineTasks(overlayTasks(state.tasks, state.tasks, state.queue, options), filter, noteId, projectId);
+      return filterOfflineTasks(applyTaskLifecycle(overlayTasks(state.tasks, state.tasks, state.queue, options),state), filter, noteId, projectId);
     }
+  };
+
+  api.archiveTask = async (inputId: string, archived = true) => {
+    const requestScope = suffix();
+    if (online()) await flush();
+    if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+    let state = read(); const id = resolve(state,inputId);
+    if (online() && !localId(id) && native.archiveTask) {
+      try {
+        const result = await native.archiveTask(id,archived);
+        if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+        const ids = descendants(state.tasks,id);
+        write({...read(),tasks:state.tasks.map((task) => ids.has(task.id) ? {...task,archivedAt:archived ? new Date().toISOString() : null} : task)});
+        return result;
+      } catch (error) { if (!retryable(error)) throw error; }
+    }
+    if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+    state = read(); const root = state.tasks.find((task) => task.id === id || task.id === inputId);
+    if (!root || root.parentId) throw new Error("请从顶层任务归档或恢复");
+    const ids = descendants(state.tasks,root.id);
+    if (archived && state.tasks.some((task) => ids.has(task.id) && !task.isCompleted)) throw new Error("仍有未完成任务");
+    const queuedAt = Date.now();
+    const tasks = state.tasks.map((task) => ids.has(task.id) ? {...task,archivedAt:archived ? new Date(queuedAt).toISOString() : null} : task);
+    enqueue({...state,tasks},{id:newId("task-op"),kind:"task.archive",entityId:root.id,archived,queuedAt,retryCount:0});
+    return {success:true,affected:ids.size};
   };
 
   api.getTaskStats = async () => {
@@ -552,6 +640,7 @@ export function installTaskOfflineApi(api: any, options: Options) {
     }
     state = read(); const resolved = resolve(state, inputId);
     const current = state.tasks.find((task) => task.id === inputId || task.id === resolved) || optimisticTask(resolved, data, options);
+    if (current.archivedAt) throw new Error("请先恢复已归档任务");
     const task = { ...current, ...data, updatedAt: new Date().toISOString() } as Task;
     enqueue({ ...state, tasks: upsert(state.tasks, task) }, {
       id: newId("task-op"), kind: "task.update", entityId: task.id, data, queuedAt: Date.now(), retryCount: 0,
@@ -571,6 +660,7 @@ export function installTaskOfflineApi(api: any, options: Options) {
     }
     state = read(); const current = state.tasks.find((task) => task.id === inputId || task.id === resolve(state, inputId));
     if (!current) throw new Error("离线缓存中找不到该任务");
+    if (current.archivedAt) throw new Error("请先恢复已归档任务");
     const done = !completed(current);
     const data: Partial<Task> = { isCompleted: done ? 1 : 0, status: done ? "done" : "todo", completedAt: done ? new Date().toISOString() : null };
     const task = { ...current, ...data, updatedAt: new Date().toISOString() };
@@ -580,16 +670,47 @@ export function installTaskOfflineApi(api: any, options: Options) {
     return { task, generatedTask: null };
   };
 
-  api.deleteTask = async (inputId: string) => {
-    const state = read(); const id = resolve(state, inputId); const ids = descendants(state.tasks, id); ids.add(inputId);
+  api.stopTaskRecurrence = async (inputId: string) => {
+    const requestScope = suffix();
+    let state = read(); const id = resolve(state,inputId);
+    if (online() && !localId(id) && native.stopTaskRecurrence) {
+      try {
+        const result = await native.stopTaskRecurrence(id);
+        if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+        state = read(); const root = state.tasks.find(task => task.id === id);
+        const groupId = root?.repeatGroupId || id;
+        write(markTaskRemoval(state,id,"stop",groupId));
+        return result;
+      } catch (error) { if (!retryable(error)) throw error; }
+    }
+    if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+    state = read(); const root = state.tasks.find(task => task.id === id);
+    if (!root) throw new Error("离线缓存中找不到该任务");
+    const groupId = root.repeatGroupId || id;
+    const ids = taskRemovalIds(state.tasks,id,"stop",groupId);
+    enqueue(markTaskRemoval(state,id,"stop",groupId),
+      {id:newId("task-op"),kind:"task.stop",entityId:id,groupId,queuedAt:Date.now(),retryCount:0});
+    return {success:true,affected:ids.size};
+  };
+  api.deleteTask = async (inputId: string, mode: "single" | "series" = "single") => {
+    const requestScope = suffix();
+    const state = read(); const id = resolve(state, inputId);
+    const groupId = state.tasks.find(task => task.id === id)?.repeatGroupId || id;
+    const ids = taskRemovalIds(state.tasks,id,mode,groupId); ids.add(inputId);
     const pendingCreate = state.queue.some((item) => item.kind === "task.create" && item.entityId === inputId);
-    const base = { ...state, tasks: state.tasks.filter((task) => !ids.has(task.id)), queue: state.queue.filter((item) => !ids.has(item.entityId)) };
+    const base = { ...markTaskRemoval(state,id,mode,groupId), queue: state.queue.filter((item) => !ids.has(item.entityId)) };
     if (pendingCreate) { write(base, true); return { success: true }; }
     if (online() && !localId(id)) {
-      try { const result = await native.deleteTask(id); write(base); return result; }
+      try {
+        const result = await (mode === "series" ? native.deleteTask(id,"series") : native.deleteTask(id));
+        if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+        const latest = read();
+        write({...markTaskRemoval(latest,id,mode,groupId),queue:latest.queue.filter(item => !ids.has(item.entityId))}); return result;
+      }
       catch (error) { if (!retryable(error) && statusOf(error) !== 404) throw error; }
     }
-    enqueue(base, { id: newId("task-op"), kind: "task.delete", entityId: id, queuedAt: Date.now(), retryCount: 0 });
+    if (requestScope !== suffix()) throw new Error("账号或服务器已切换，请重新打开任务");
+    enqueue(base, { id: newId("task-op"), kind: "task.delete", entityId: id, mode, groupId, queuedAt: Date.now(), retryCount: 0 });
     return { success: true };
   };
 

@@ -97,7 +97,9 @@ describe("#771 server-side compatibility aliases", () => {
     expect(backendSource).toContain('pathname === "/public/api" || pathname.startsWith("/public/api/")');
     expect(backendSource).toContain('pathname === "/publicapi" || pathname.startsWith("/publicapi/")');
     expect(backendSource).toContain('headers.set("X-Nowen-Proxy-Compatibility-Path", compatibilityPath)');
-    expect(backendSource).toContain('exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path"]');
+    const exposedHeaders = backendSource.match(/exposeHeaders:\s*\[([^\]]*)\]/)?.[1];
+    expect(exposedHeaders).toContain('"X-Nowen-Proxy-Compatibility-Path"');
+    expect(exposedHeaders).toContain('"X-Request-Id"');
   });
 
   it("accepts only the three intended WebSocket paths and keeps real connections authenticated", () => {

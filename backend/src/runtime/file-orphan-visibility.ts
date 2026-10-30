@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { Context, Next } from "hono";
+import { fileExplorerFilters } from "../services/file-explorer-filters.js";
 
 import { getDb } from "../db/schema.js";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url.js";
@@ -93,6 +94,7 @@ export function getImmediateOrphanSummary(
   userId: string,
 ): { count: number; bytes: number } {
   const where: string[] = [
+    "a.trashedAt IS NULL",
     "EXISTS(SELECT 1 FROM notes owner_note WHERE owner_note.id = a.noteId)",
     "NOT EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id)",
     "COALESCE(a.uploadSource, '') <> 'file_manager'",
@@ -247,6 +249,7 @@ function buildImmediateOrphanList(
   const noteId = c.req.query("noteId") || "";
   const folderId = c.req.query("folderId") || "";
   const q = (c.req.query("q") || "").trim();
+  const explorer = fileExplorerFilters(c.req.query("fileKind"), c.req.query("createdAfter"), c.req.query());
   const page = Math.max(1, Number(c.req.query("page") || 1));
   const pageSize = Math.min(200, Math.max(1, Number(c.req.query("pageSize") || 50)));
 
@@ -285,6 +288,8 @@ function buildImmediateOrphanList(
   // “某笔记引用的文件”和“无任何引用”互斥，明确返回空集。
   if (noteId) where.push("1 = 0");
 
+  where.push(...explorer.conditions);
+  params.push(...explorer.params);
   const whereSql = where.join(" AND ");
   const totalRow = db.prepare(`
     SELECT COUNT(*) AS count

@@ -1,0 +1,17 @@
+TAP version 13
+# Subtest: v1.5.0 copy upgrades, saves and syncs, and its pre-upgrade full backup restores on both versions
+ok 1 - v1.5.0 copy upgrades, saves and syncs, and its pre-upgrade full backup restores on both versions
+  ---
+  duration_ms: 8401.3272
+  ...
+# v1.5.0 schema 122 -> candidate schema 123
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8824.8244
+

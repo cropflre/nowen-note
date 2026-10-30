@@ -112,6 +112,7 @@ export function noteContentToExportHtml(
   contentText: string,
   contentFormat?: string,
 ): string {
+  if (contentFormat === "plaintext") return `<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${rawContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`;
   const source = rawContent || contentText || "";
   const detected = detectFormat(source);
   if (contentFormat === "markdown" || detected === "md") {

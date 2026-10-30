@@ -1,0 +1,27 @@
+  • electron-builder  version=25.1.8 os=10.0.29683
+  • loaded configuration  file=C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\docs\qa\v1.5.2\stage3\scripts\windows-qa-builder.cjs
+  • @electron/rebuild already used by electron-builder, please consider to remove excess dependency from devDependencies
+
+To ensure your native dependencies are always matched electron version, simply add script `"postinstall": "electron-builder install-app-deps" to your `package.json`
+  • skipped dependencies rebuild  reason=npmRebuild is set to false
+  • packaging       platform=win32 arch=x64 electron=33.0.0 appOutDir=.qa152-windows\win-unpacked
+  ⨯ remove C:\Users\cropf\.codex\worktrees\release-152-qa-review\nowen-note\.qa152-windows\win-unpacked\resources\app.asar: The process cannot access the file because it is being used by another process.
+github.com/develar/go-fs-util.EnsureEmptyDir
+	/Users/runner/go/pkg/mod/github.com/develar/go-fs-util@v0.0.0-20190620175131-69a2d4542206/fs.go:98
+github.com/develar/app-builder/pkg/electron.UnpackElectron.func1.1
+	/Users/runner/work/app-builder/app-builder/pkg/electron/electronUnpack.go:38
+github.com/develar/app-builder/pkg/util.MapAsyncConcurrency.func2
+	/Users/runner/work/app-builder/app-builder/pkg/util/async.go:68
+runtime.goexit
+	/Users/runner/hostedtoolcache/go/1.21.13/arm64/src/runtime/asm_amd64.s:1650  
+  ⨯ C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-bin\win\x64\app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+Exit code:
+1  failedTask=build stackTrace=Error: C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\app-builder-bin\win\x64\app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE
+Exit code:
+1
+    at ChildProcess.<anonymous> (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\builder-util\src\util.ts:255:14)
+    at Object.onceWrapper (node:events:639:26)
+    at ChildProcess.emit (node:events:524:28)
+    at ChildProcess.cp.emit (C:\Users\cropf\Desktop\UGits\nowen-note\node_modules\cross-spawn\lib\enoent.js:34:29)
+    at maybeClose (node:internal/child_process:1104:16)
+    at Process.ChildProcess._handle.onexit (node:internal/child_process:304:5)

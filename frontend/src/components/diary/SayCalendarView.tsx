@@ -3,9 +3,13 @@ import { ChevronLeft, ChevronRight, Image, Video, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { localDateRangeToUtcSqlBounds } from "@/lib/dateTime";
 import type { Diary } from "@/types";
 import { formatDateKey, getMonthGrid, groupDiariesByDate } from "@/lib/sayCalendar";
 import SayCalendarDayPanel from "@/components/diary/SayCalendarDayPanel";
+import { useHolidayCalendar } from "@/hooks/useHolidayCalendar";
+import { HolidayCalendarSettings } from "@/components/calendar/HolidayCalendarSettings";
+import { HolidayDayLabel } from "@/components/calendar/HolidayDayLabel";
 
 function getTodayKey(): string {
   const d = new Date();
@@ -34,14 +38,17 @@ export default function SayCalendarView({
   const [loading, setLoading] = useState(false);
 
   const grid = useMemo(() => getMonthGrid(year, month), [year, month]);
+  const holidays = useHolidayCalendar(grid.map((cell) => Number(cell.dateKey.slice(0, 4))));
   const itemsByDate = useMemo(() => groupDiariesByDate(items) as Map<string, Diary[]>, [items]);
 
   const fetchMonthItems = useCallback(async () => {
-    const from = formatDateKey(year, month, 1);
-    const to = formatDateKey(year, month + 1, 0);
+    const range = localDateRangeToUtcSqlBounds({
+      from: formatDateKey(year, month, 1),
+      to: formatDateKey(year, month, new Date(year, month, 0).getDate()),
+    });
     setLoading(true);
     try {
-      const data = await api.getDiaryTimeline(undefined, 200, { from, to });
+      const data = await api.getDiaryTimeline(undefined, 200, range);
       setItems(data.items || []);
     } catch (e) {
       console.error("Load calendar month failed:", e);
@@ -121,7 +128,10 @@ export default function SayCalendarView({
         </button>
       </div>
 
+      <HolidayCalendarSettings year={year} />
+
       <div className="flex-1 overflow-auto p-4">
+        <p className="mb-3 text-xs text-tx-tertiary">{t("diary.calendarSubtitle")}</p>
         {loading ? (
           <div className="flex items-center justify-center h-full text-tx-tertiary">
             <Loader2 className="animate-spin" />
@@ -145,9 +155,10 @@ export default function SayCalendarView({
                   return (
                     <button
                       key={cell.dateKey}
+                      aria-label={cell.dateKey}
                       onClick={() => setSelectedDateKey(cell.dateKey)}
                       className={cn(
-                        "group relative flex flex-col items-start p-2 min-h-[72px] sm:min-h-[88px] rounded-xl border transition-all",
+                        "group relative flex min-w-0 flex-col items-start p-1 sm:p-2 min-h-[72px] sm:min-h-[88px] rounded-xl border transition-all",
                         isSelected
                           ? "border-accent-primary bg-accent-primary/5 shadow-sm shadow-accent-primary/10"
                           : "border-app-border/60 bg-app-surface/30 hover:border-accent-primary/30 hover:bg-app-surface/50"
@@ -172,6 +183,7 @@ export default function SayCalendarView({
                           </span>
                         )}
                       </div>
+                      <HolidayDayLabel day={holidays.getDay(cell.dateKey)} />
                       <div className="mt-1 flex w-full flex-col gap-0.5 overflow-hidden max-h-[42px] sm:max-h-[56px]">
                         {previewItems.map((item) => (
                           <div key={item.id} className="flex items-center gap-1 text-[10px] text-tx-secondary truncate">
@@ -189,6 +201,7 @@ export default function SayCalendarView({
 
             <div className="hidden lg:block">
               <SayCalendarDayPanel
+                holiday={selectedDateKey ? holidays.getDay(selectedDateKey) : undefined}
                 dateKey={selectedDateKey || ""}
                 items={selectedItems}
                 onWriteEntry={onWriteEntry}
@@ -201,6 +214,7 @@ export default function SayCalendarView({
 
       <div className="lg:hidden border-t border-app-border bg-app-surface/40">
         <SayCalendarDayPanel
+          holiday={selectedDateKey ? holidays.getDay(selectedDateKey) : undefined}
           dateKey={selectedDateKey || ""}
           items={selectedItems}
           onWriteEntry={onWriteEntry}

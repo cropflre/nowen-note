@@ -7,11 +7,11 @@ function preserveStartTime(dateValue: string, originalStartDate: string | null |
 }
 
 export function getTaskStartDate(task: Task): string | null {
-  return getDateValue(task.startDate || task.dueDate) || null;
+  return getDateValue(task.startDate) || getDateValue(task.dueDate) || null;
 }
 
 export function getTaskEndDate(task: Task): string | null {
-  return getDateValue(task.dueDate || task.startDate) || null;
+  return getDateValue(task.dueDate) || getDateValue(task.startDate) || null;
 }
 
 export function getTaskDurationDays(task: Task): number {
@@ -40,7 +40,7 @@ export function moveTaskDateRange(task: Task, targetStartDate: string): { startD
 }
 
 export function isTaskScheduled(task: Task): boolean {
-  return !!(task.startDate || task.dueDate);
+  return !!(getTaskStartDate(task) || getTaskEndDate(task));
 }
 
 export function buildTimelineDays(startDate: Date, count: number): Date[] {

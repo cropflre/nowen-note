@@ -1,0 +1,24 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:8691
+📖 OpenAPI 文档: http://localhost:8691/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:8691/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:8691" port=8691
+{"timestamp":"2026-10-12T13:16:21.006Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"5f06188d-f3be-4e1a-b103-9a0ee54e7208","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":1}
+{"timestamp":"2026-10-12T13:16:21.040Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"6e6a9b2b-f9bb-449e-88c4-84885224b9ab","method":"DELETE","route":"/api/notes/:id","httpStatus":403,"durationMs":3}
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-http-live',
+  actorUserId: 'qa-owner',
+  trashed: false,
+  actorConnectionId: undefined
+}
+[notes.get] unavailable {
+  noteId: 'qa-http-live',
+  reason: 'record-missing',
+  authenticated: true
+}
+{"timestamp":"2026-10-12T13:16:21.055Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"2067de6f-643c-4f41-8fa2-351fcbc34dc1","method":"GET","route":"/api/notes/:id","httpStatus":404,"durationMs":1}
+{"timestamp":"2026-10-12T13:16:21.060Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"20f0b798-dea2-47f6-a3d9-2cfbe6655922","method":"GET","route":"/api/export/*","httpStatus":404,"durationMs":1}

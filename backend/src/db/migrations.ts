@@ -1,8 +1,20 @@
+import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
+import { pluginRetainedStorageMigration } from "./pluginRetainedStorageMigration.js";
+import { nowenStudioMigration } from "./nowenStudioMigration.js";
+import { nowenStudioHistoryMigration } from "./nowenStudioHistoryMigration.js";
+import { assetAIMigration } from "./assetAIMigration.js";
+import { assetSyncMigration } from "./assetSyncMigration.js";
+import { attachmentTrashMigration } from "./attachmentTrashMigration.js";
+import { assetOrganizationMigration } from "./assetOrganizationMigration.js";
+import { taskLifecycleMigration } from "./taskLifecycleMigration.js";
+import { taskRecurrenceDeletionMigration } from "./taskRecurrenceDeletionMigration.js";
 import { wechatAssistantQueueColumnsMigration } from "./wechatAssistantQueueColumnsMigration.js";
 import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
+import { encryptedNoteDecryptionMigration } from "./encryptedNoteDecryptionMigration.js";
 import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
+import { taskComposerMigration } from "./taskComposerMigration.js";
 /**
  * Compatibility wrapper around the historical migration list.
  *
@@ -419,6 +431,20 @@ export const MIGRATIONS: Migration[] = [
   wechatAssistantMigration,
   wechatAssistantQueueColumnsMigration,
   encryptedContentV2Migration,
+  taskLifecycleMigration,
+  taskComposerMigration,
+  taskRecurrenceDeletionMigration,
+  assetOrganizationMigration,
+  attachmentTrashMigration,
+  assetSyncMigration,
+  assetAIMigration,
+  noteDeletionLifecycleMigration,
+  // Keep v132-v134 compatible with databases already upgraded before the
+  // Apps/Studio feature split; their runtime and UI continue in release/v1.6.0.
+  pluginRetainedStorageMigration,
+  nowenStudioMigration,
+  nowenStudioHistoryMigration,
+  encryptedNoteDecryptionMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

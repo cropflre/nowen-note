@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -20,6 +20,7 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { filterTagsByQuery } from "@/lib/tagSearch";
 import { isNavigationModuleVisible } from "@/lib/navigationVisibility";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
 import {
@@ -112,6 +113,11 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       return true;
     }
   });
+  const [tagSearchQuery, setTagSearchQuery] = useState("");
+  const filteredTags = useMemo(
+    () => filterTagsByQuery(state.tags, tagSearchQuery),
+    [state.tags, tagSearchQuery],
+  );
   const [deleteTagTarget, setDeleteTagTarget] = useState<DeleteTagTarget | null>(null);
   const [tagColorPopover, setTagColorPopover] = useState<TagColorTarget | null>(null);
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
@@ -364,10 +370,46 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               transition={{ duration: 0.16 }}
               className="overflow-hidden"
             >
+              {state.tags.length > 0 && (
+                <div className="px-2 pb-2">
+                  <div role="search" aria-label={t("sidebar.searchTags")} className="flex items-center gap-1.5 rounded-md border border-app-border bg-app-hover/40 px-2 focus-within:border-accent-primary">
+                    <Search size={13} className="shrink-0 text-tx-tertiary" aria-hidden="true" />
+                    <input
+                      type="text"
+                      inputMode="search"
+                      autoComplete="off"
+                      value={tagSearchQuery}
+                      onChange={(event) => setTagSearchQuery(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape" && tagSearchQuery) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setTagSearchQuery("");
+                        }
+                      }}
+                      placeholder={t("sidebar.searchTags")}
+                      aria-label={t("sidebar.searchTags")}
+                      className="min-w-0 flex-1 bg-transparent py-1.5 text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+                    />
+                    {tagSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setTagSearchQuery("")}
+                        aria-label={t("sidebar.clearTagSearch")}
+                        className="shrink-0 rounded p-0.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="max-h-[min(35vh,260px)] space-y-0.5 overflow-y-auto px-2 pb-2">
                 {state.tags.length === 0 ? (
                   <p className="px-2 py-1 text-[10px] text-tx-tertiary">{t("sidebar.noTags")}</p>
-                ) : state.tags.map((tag) => {
+                ) : filteredTags.length === 0 ? (
+                  <p role="status" className="px-2 py-1 text-xs text-tx-tertiary">{t("sidebar.noTagMatches")}</p>
+                ) : filteredTags.map((tag) => {
                   const active = state.selectedTagIds.includes(tag.id);
                   return (
                     <div

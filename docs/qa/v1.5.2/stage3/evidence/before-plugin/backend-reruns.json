@@ -1,0 +1,12 @@
+[
+  {
+    "label": "plugin-studio-projects",
+    "status": "failed",
+    "code": 1,
+    "signal": null,
+    "firstError": "not ok 6 - project reads, writes and exports reject hard links to files outside the project",
+    "executable": "C:\\Users\\cropf\\Desktop\\UGits\\nowen-note\\node_modules\\electron\\dist\\electron.exe",
+    "node": "v20.18.0",
+    "abi": "130"
+  }
+]

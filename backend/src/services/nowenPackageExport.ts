@@ -683,6 +683,8 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
 
     const contentFileName = effectiveFormat === "markdown"
       ? "content.md"
+      : effectiveFormat === "plaintext"
+        ? "content.txt"
       : effectiveFormat === "html"
         ? "content.html"
         : "content.tiptap.json";

@@ -1,0 +1,34 @@
+{
+  "device": "emulator-5580",
+  "package": "com.nowen.note.syncacceptance",
+  "offlineImmediateRead": true,
+  "forceStopRecovery": true,
+  "knowledgeTreeRootCreate": true,
+  "readWriteThroughProductionApiBridge": true,
+  "offlineNetworkIsolation": "adb reverse removed; HTTP server unreachable from Android",
+  "markdownAndRichText": true,
+  "missingNoticePoll": true,
+  "reconnect": true,
+  "httpPushToNativePull": {
+    "samples": 30,
+    "p50Ms": 291,
+    "p95Ms": 304,
+    "p99Ms": 371
+  },
+  "nativeCommitToServerAndAck": {
+    "samples": 30,
+    "p50Ms": 447,
+    "p95Ms": 484,
+    "p99Ms": 529
+  },
+  "errors": [
+    {
+      "lastError": null
+    }
+  ],
+  "boundary": "Loopback adb reverse; real Android Native SQLite, signed-in personal knowledgeTreeApi create, api get/update and MobileSyncEngine. Does not test full EditorPane, protected/shared/cross-type tree mutations, attachment bytes, or production JWT middleware.",
+  "apiLevel": "35",
+  "productionSourceCommit": "f6915749",
+  "apkSha256": "0953a8e9eb2c3c40da3a4b5b2f26454f15162ed89c507340b40707e1dc6cbf72",
+  "nativeCrashBufferLines": 0
+}

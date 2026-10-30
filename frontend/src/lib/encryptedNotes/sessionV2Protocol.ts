@@ -6,6 +6,7 @@ export type SessionV2Request = { id: number } & (
   | { operation: "open"; input: { envelope: ContentEnvelopeV2; passphrase: string; expected: ContentIdentityV2 } }
   | { operation: "create"; input: { document: EncryptedDocumentV2; passphrase: string; identity: ContentIdentityV2 } }
   | { operation: "update"; input: { envelope: ContentEnvelopeV2; document: EncryptedDocumentV2 } }
+  | { operation: "read-document"; input: { envelope: ContentEnvelopeV2 } }
   | { operation: "change-passphrase"; input: { envelope: ContentEnvelopeV2; passphrase: string; newPassphrase: string } }
   | { operation: "encrypt-history"; input: { context: Pick<EncryptedHistoryV2, "version" | "historyId" | "sourceVersion" | "originalFormat">; document: EncryptedDocumentV2; changeSummary: string | null } }
   | { operation: "decrypt-history"; input: { history: EncryptedHistoryV2 } }

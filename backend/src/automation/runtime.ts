@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { getDb } from "../db/schema.js";
-import { eventPublisher } from "./eventPublisher.js";
+import { eventPublisher, rowToEvent } from "./eventPublisher.js";
 import type { WorkflowRecord } from "./types.js";
 import { WorkflowRepository } from "./workflowRepository.js";
 import { WorkflowRunner } from "./workflowRunner.js";
@@ -8,6 +8,12 @@ import { WorkflowRunner } from "./workflowRunner.js";
 const INSTANCE_ID = `automation-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
 const GLOBAL_CONCURRENCY = 4;
 const EVENT_BATCH = 100;
+
+function reportAutomationError(operation: string, error: unknown): void {
+  const code = (error as { code?: string })?.code || (error instanceof Error ? error.name : "UNKNOWN_ERROR");
+  // Log only the error class/code, never the possibly sensitive event payload.
+  console.error(`[automation] ${operation} failed (${code})`);
+}
 
 class AutomationRuntime {
   private timer: NodeJS.Timeout | null = null;
@@ -19,12 +25,12 @@ class AutomationRuntime {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick(), 1000);
+    this.timer = setInterval(() => { void this.tick().catch((error) => reportAutomationError("tick", error)); }, 1000);
     this.timer.unref();
-    this.cleanupTimer = setInterval(() => eventPublisher.cleanup(), 60 * 60 * 1000);
+    this.cleanupTimer = setInterval(() => { try { eventPublisher.cleanup(); } catch (error) { reportAutomationError("cleanup", error); } }, 60 * 60 * 1000);
     this.cleanupTimer.unref();
     eventPublisher.publish({ type: "app.started", userId: "system", resourceType: "app", resourceId: "nowen", source: "system", sourceId: INSTANCE_ID, data: {} });
-    void this.tick();
+    void this.tick().catch((error) => reportAutomationError("tick", error));
   }
 
   stop(): void {
@@ -53,6 +59,9 @@ class AutomationRuntime {
         .run(INSTANCE_ID, new Date().toISOString(), event.id).changes;
       if (!claimed) continue;
       try {
+        // Quarantine damaged events before creating any workflow runs.
+        // Do not delete or rewrite the original payload; administrators can inspect it.
+        rowToEvent(event);
         const workflows = getDb().prepare("SELECT * FROM automation_workflows WHERE enabled=1 AND triggerType='event'").all() as WorkflowRecord[];
         for (const workflow of workflows) {
           const trigger = JSON.parse(workflow.triggerConfigJson) as { event?: string };
@@ -63,8 +72,13 @@ class AutomationRuntime {
         }
         getDb().prepare("UPDATE automation_events SET dispatchState='dispatched',dispatchedAt=?,lockedBy=NULL,lockedAt=NULL WHERE id=?")
           .run(new Date().toISOString(), event.id);
-      } catch {
-        getDb().prepare("UPDATE automation_events SET dispatchState='pending',lockedBy=NULL,lockedAt=NULL WHERE id=?").run(event.id);
+      } catch (error) {
+        if ((error as { code?: string })?.code === "AUTOMATION_EVENT_PAYLOAD_INVALID") {
+          getDb().prepare("UPDATE automation_events SET dispatchState='failed',lockedBy=NULL,lockedAt=NULL WHERE id=?").run(event.id);
+          console.error("[automation] quarantined invalid event payload", { eventId: String(event.id), code: "AUTOMATION_EVENT_PAYLOAD_INVALID" });
+        } else {
+          getDb().prepare("UPDATE automation_events SET dispatchState='pending',lockedBy=NULL,lockedAt=NULL WHERE id=?").run(event.id);
+        }
       }
     }
   }
@@ -104,7 +118,12 @@ class AutomationRuntime {
         .run(INSTANCE_ID, new Date().toISOString(), row.id).changes;
       if (!claimed) continue;
       this.active.set(String(row.id), String(row.workflowId));
-      void this.runner.run(String(row.id)).finally(() => this.active.delete(String(row.id)));
+      void this.runner.run(String(row.id))
+        .catch((error) => {
+          // Last-resort guard if even the runner's failure persistence fails.
+          reportAutomationError("workflow runner", error);
+        })
+        .finally(() => { this.active.delete(String(row.id)); });
     }
   }
 

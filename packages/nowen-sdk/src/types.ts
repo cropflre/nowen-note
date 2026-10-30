@@ -7,9 +7,9 @@ export interface NowenConfig {
   /** Nowen Note 后端地址，例如 http://localhost:3001 */
   baseUrl: string;
   /** 登录用户名 */
-  username: string;
-  /** 登录密码 */
-  password: string;
+  username?: string;
+  /** 登录密码；使用外部 Token 时可省略 */
+  password?: string;
   /** 请求超时（毫秒），默认 30000 */
   timeout?: number;
   /** 自定义 fetch 实现（用于测试或特殊环境） */
@@ -206,16 +206,45 @@ export interface UpdateMindMapParams {
   data?: string;
 }
 
+// ===== 认证 =====
+export type LoginResult =
+  | { requires2FA: false; token: string }
+  | { requires2FA: true; ticket: string; username: string };
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  role?: string;
+  isDemo?: boolean;
+  mustChangePassword?: boolean;
+  createdAt?: string;
+}
+
 // ===== 日记 =====
 export interface DiaryEntry {
   id: string;
   userId: string;
-  date: string;
-  content: string;
+  workspaceId: string | null;
+  contentText: string;
   mood: string;
-  weather: string;
+  images: string[];
+  media: DiaryMedia[];
   createdAt: string;
-  updatedAt: string;
+  creatorName: string | null;
+}
+
+export interface DiaryMedia {
+  id: string;
+  type: "image" | "video";
+}
+
+export interface DiaryTimeline {
+  items: DiaryEntry[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 // ===== AI =====

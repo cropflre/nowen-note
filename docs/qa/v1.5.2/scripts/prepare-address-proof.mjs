@@ -1,0 +1,27 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const [checkout,evidence]=process.argv.slice(2);
+const frontend=path.join(checkout,'frontend');
+const original=fs.readFileSync(path.join(frontend,'src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx'),'utf8');
+const diagnostic=original.replace('expect(inputs.some((input) => input.value.includes("note.nowen.cn"))).toBe(true);',`fs.writeFileSync(${JSON.stringify(path.join(evidence,'login-address-dom.json'))},JSON.stringify({inputValues:inputs.map(input=>input.value),lanDiscovery:!!host.querySelector('[data-lan-discovery]'),storedServer:localStorage.getItem('nowen-server-url-last')},null,2));\n      expect(inputs.some((input) => input.value.includes("note.nowen.cn"))).toBe(true);`);
+fs.writeFileSync(path.join(frontend,'src/components/__tests__/.qa-login-diagnostic.test.tsx'),`import fs from 'node:fs';\n`+diagnostic);
+fs.writeFileSync(path.join(frontend,'.qa-address.config.ts'),`import base from './vitest.config';\nexport default {...base,test:{...base.test,include:['.qa-address-proof.test.tsx','src/components/__tests__/.qa-login-diagnostic.test.tsx']}};\n`);
+fs.writeFileSync(path.join(frontend,'.qa-address-proof.test.tsx'),`import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+import {it,expect,vi} from 'vitest';
+import fs from 'node:fs';
+import ServerAddressInput from './src/components/ServerAddressInput';
+vi.mock('react-i18next',()=>({useTranslation:()=>({t:(key:string)=>key})}));
+Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
+it('observes a restored host while the initially blank address field owns autofocus',async()=>{
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+  const blank={protocol:'http' as const,host:'',port:'',path:''};
+  await act(async()=>root.render(<ServerAddressInput value={blank} onChange={()=>{}} autoFocus />));
+  const input=host.querySelector('input')!;const focused=document.activeElement===input;
+  await act(async()=>root.render(<ServerAddressInput value={{...blank,protocol:'https',host:'note.nowen.cn'}} onChange={()=>{}} autoFocus />));
+  const value=input.value;
+  fs.writeFileSync(${JSON.stringify(path.join(evidence,'address-autofocus-observation.json'))},JSON.stringify({focused,restoredHost:'note.nowen.cn',displayedValue:value},null,2));
+  expect(focused).toBe(true);expect(value).toBe('');
+  await act(async()=>root.unmount());host.remove();
+});
+`);

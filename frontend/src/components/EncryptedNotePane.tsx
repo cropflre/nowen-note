@@ -8,15 +8,17 @@ import EncryptedNoteRichTextEditor from "./EncryptedNoteRichTextEditor";
 import { useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { getOfflineQueueStorageKey, getQueue } from "@/lib/offlineQueue";
-import type { Note } from "@/types";
+import type { Note, NoteVersion } from "@/types";
 import { canWriteNote } from "@/lib/notePermissions";
 import { saveEncryptedNoteCiphertext } from "@/lib/encryptedNotes/saveNote";
-import { EncryptedContentSession } from "@/lib/encryptedNotes/sessionClient";
-import { EncryptedContentError, type EncryptedContentEnvelope } from "@/lib/encryptedNotes/envelope";
-import { ENCRYPTED_NOTE_FORMAT, ENCRYPTED_NOTE_LEAVE_EVENT, readEncryptedNoteDocument, validateEncryptedNotePlaintext } from "@/lib/encryptedNotes/noteDocument";
+import { EncryptedNoteSession, type NoteEnvelope } from "@/lib/encryptedNotes/noteSession";
+import { EncryptedContentError } from "@/lib/encryptedNotes/envelope";
+import { ENCRYPTED_NOTE_LEAVE_EVENT, readEncryptedNoteEnvelope, validateEncryptedNotePlaintext } from "@/lib/encryptedNotes/noteDocument";
 import { useEncryptedAutoLock } from "@/lib/encryptedNotes/useAutoLock";
+import { decryptNotePermanently, NoteDecryptionError } from "@/lib/encryptedNotes/decryptNote";
+import { ConversionCleanupError } from "@/lib/encryptedNotes/conversionCoordination";
 
-type Session = { envelope: EncryptedContentEnvelope; baseEnvelope: EncryptedContentEnvelope; initialContent: string };
+type Session = { envelope: NoteEnvelope; baseEnvelope: NoteEnvelope; initialContent: string };
 const AUTOSAVE_DELAY_MS = 800;
 
 export default function EncryptedNotePane({ note }: { note: Note }) {
@@ -31,11 +33,17 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [decryptionPassword, setDecryptionPassword] = useState("");
+  const [decryptionConsent, setDecryptionConsent] = useState(false);
+  const decrypting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
-  const cryptoSession = useRef<EncryptedContentSession | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<NoteVersion[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [history, setHistory] = useState<{ id: string; content: string; format: "markdown" | "tiptap-json" } | null>(null);
+  const cryptoSession = useRef<EncryptedNoteSession | null>(null);
   const confirmedStatus = useRef("");
   const operation = useRef<AbortController | null>(null);
   const pendingSave = useRef<Promise<boolean> | null>(null);
@@ -50,7 +58,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const dirty = body !== savedBody;
   const editable = canWriteNote(note) && !note.isLocked && !note.isTrashed;
   const native = Capacitor.isNativePlatform();
-  useEncryptedAutoLock(!securing && Boolean((!lockFailed && session) || passphrase || currentPassphrase || newPassphrase || confirmation || busy), () => {
+  useEncryptedAutoLock(!securing && Boolean((!lockFailed && session) || passphrase || currentPassphrase || newPassphrase || confirmation || decryptionPassword || busy), () => {
     if (lockFailed) { setPassphrase(""); return; }
     void lock(false, true);
   });
@@ -60,6 +68,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     current.current = { session: null, body: "", savedBody: "" };
     setSession(null); setBody(""); setSavedBody("");
     setPassphrase(""); setCurrentPassphrase(""); setNewPassphrase(""); setConfirmation("");
+    setDecryptionPassword(""); setDecryptionConsent(false);
+    setHistory(null); setHistoryVersions([]); setHistoryTotal(0);
   }
   function edit(content: string) {
     current.current.body = content; setBody(content);
@@ -107,6 +117,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     catch (failure) {
       if (mounted.current && !controller.signal.aborted) setError(failure instanceof EncryptedContentError && failure.code === "unlock-failed"
         ? t("encryptedNote.incorrectPassword")
+        : failure instanceof NoteDecryptionError || failure instanceof ConversionCleanupError
+        ? t(`encryptedDecryption.errors.${failure instanceof NoteDecryptionError ? failure.blockers[0] || failure.code : failure.code}`, { defaultValue: t("encryptedDecryption.failed") })
         : t("encryptedNote.operationFailed"));
       return false;
     } finally {
@@ -117,11 +129,11 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     if (native || locking.current) return;
     const inputPassword = passphrase;
     await execute(async (signal) => {
-      const envelope = readEncryptedNoteDocument(currentNote.current);
+      const envelope = readEncryptedNoteEnvelope(currentNote.current);
       const recovery = lockFailed ? current.current : null;
       if (recovery?.session && JSON.stringify(recovery.session.baseEnvelope) !== JSON.stringify(envelope)) throw new Error("Recovery base changed");
       cryptoSession.current?.close();
-      const opened = new EncryptedContentSession(); cryptoSession.current = opened;
+      const opened = new EncryptedNoteSession(envelope.version); cryptoSession.current = opened;
       let plaintext: string;
       try {
         plaintext = await opened.open(envelope, inputPassword, envelope, signal);
@@ -140,6 +152,28 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       if (recovery) setError(t("encryptedNote.recovered"));
     });
   }
+
+  async function loadHistory(more = false) {
+    if (dirty || saving || securing || !session || session.envelope.version !== 2) return;
+    await execute(async (signal) => {
+      const id = currentNote.current.id;
+      const result = await api.getNoteVersions(id, 20, more ? historyVersions.length : 0);
+      if (signal.aborted || !mounted.current || currentNote.current.id !== id) return;
+      setHistoryVersions(more ? [...historyVersions, ...result.versions] : result.versions); setHistoryTotal(result.total);
+    });
+  }
+  async function readHistory(versionId: string) {
+    if (dirty || saving || securing || !session || !cryptoSession.current) return;
+    setHistory(null);
+    await execute(async (signal) => {
+      const id = currentNote.current.id;
+      const row = await api.getNoteVersion(id, versionId);
+      if (signal.aborted || !mounted.current || currentNote.current.id !== id) return;
+      if (row.id !== versionId || row.noteId !== id) throw new EncryptedContentError("invalid");
+      const opened = await cryptoSession.current!.readVersion(row, signal);
+      if (!signal.aborted && mounted.current) setHistory({ ...opened, id: row.id });
+    });
+  }
   function save(changePassword = false): Promise<boolean> {
     if (pendingSave.current) return pendingSave.current;
     const { session: active, body: plaintext, savedBody: saved } = current.current;
@@ -154,7 +188,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     setSaving(!changePassword); autosaveFailed.current = false;
     const task = execute(async (signal) => {
       // Refuse to overwrite ciphertext revalidated or changed by another device.
-      if (JSON.stringify(readEncryptedNoteDocument(baseNote)) !== JSON.stringify(active.baseEnvelope)) throw new Error("Encrypted base changed");
+      if (JSON.stringify(readEncryptedNoteEnvelope(baseNote)) !== JSON.stringify(active.baseEnvelope)) throw new Error("Encrypted base changed");
       validateEncryptedNotePlaintext(plaintext, active.envelope.originalFormat);
       const envelope = changePassword
         ? await keySession.changePassphrase(active.envelope, currentPassphrase, newPassphrase, signal)
@@ -163,11 +197,11 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       // Permissions/remote ciphertext may have changed while the Worker was running.
       const latestNote = currentNote.current;
       if (!canWriteNote(latestNote) || latestNote.isLocked || latestNote.isTrashed || latestNote.content !== baseNote.content || latestNote.version !== baseNote.version) throw new Error("Permissions or revision changed before write");
-      const payload = { content: JSON.stringify(envelope), contentFormat: ENCRYPTED_NOTE_FORMAT, contentText: "", version: baseNote.version };
+      const payload = { content: JSON.stringify(envelope), contentFormat: baseNote.contentFormat, contentText: "", version: baseNote.version };
       const response = changePassword ? await api.updateNoteConfirmed(baseNote.id, payload) : await saveEncryptedNoteCiphertext(baseNote, payload.content, signal);
       const queued = Boolean((response as Note & { __offlineQueued?: boolean }).__offlineQueued);
       const updated = queued ? { ...baseNote, ...payload, updatedAt: response.updatedAt } : response;
-      readEncryptedNoteDocument(updated);
+      readEncryptedNoteEnvelope(updated);
       if (updated.content !== payload.content) throw new Error("Ciphertext not acknowledged");
       if (!mounted.current || signal.aborted || scope !== getOfflineQueueStorageKey()) return;
       if (currentNote.current.content !== baseNote.content || currentNote.current.version !== baseNote.version || !canWriteNote(currentNote.current) || currentNote.current.isLocked || currentNote.current.isTrashed) throw new Error("Ciphertext or permissions changed during save");
@@ -193,6 +227,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   }
   async function lock(discard = false, automatic = false): Promise<boolean> {
     if (locking.current) return false;
+    if (decrypting.current) operation.current?.abort();
     if (discard) {
       if (operation.current) return false;
       clearSession(); autosaveFailed.current = false; setLockFailed(false); setError(""); setStatus(""); return true;
@@ -200,6 +235,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const scope = getOfflineQueueStorageKey();
     locking.current = true; setSecuring(true); setLockFailed(false); setError("");
     setPassphrase(""); setCurrentPassphrase(""); setNewPassphrase(""); setConfirmation("");
+    setDecryptionPassword(""); setDecryptionConsent(false);
     // Cancel only an unlock. Never abort a submitted save or start a competing write.
     if (!current.current.session) operation.current?.abort();
     try {
@@ -216,6 +252,27 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     } finally {
       if (mounted.current && scope === getOfflineQueueStorageKey()) { locking.current = false; setSecuring(false); }
     }
+  }
+  async function removeEncryption() {
+    const baseNote = currentNote.current;
+    if (native || busy || operation.current || decrypting.current || dirty || saving || securing || !decryptionPassword || !decryptionConsent || !editable) return;
+    const password = decryptionPassword;
+    setDecryptionPassword(""); decrypting.current = true;
+    try {
+      await execute(async (signal) => {
+        const assertCurrent = () => {
+          const latest = currentNote.current;
+          if (!mounted.current || !canWriteNote(latest) || latest.isLocked || latest.isTrashed || latest.id !== baseNote.id
+            || latest.content !== baseNote.content || latest.version !== baseNote.version || current.current.body !== current.current.savedBody)
+            throw new NoteDecryptionError("VERSION_CONFLICT");
+        };
+        const updated = await decryptNotePermanently(baseNote, password, signal, assertCurrent);
+        if (signal.aborted || !mounted.current) return;
+        clearSession();
+        actions.setActiveNote(updated);
+        actions.updateNoteInList({ id: updated.id, contentText: updated.contentText, contentFormat: updated.contentFormat, version: updated.version, updatedAt: updated.updatedAt });
+      });
+    } finally { decrypting.current = false; }
   }
   return <section className="flex min-w-0 flex-1 flex-col bg-app-bg" aria-label={t("encryptedNote.ariaNote")}>
     <header className="flex items-center gap-2 border-b border-app-border p-3">
@@ -242,11 +299,31 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
         <Button disabled={!editable || busy} onClick={() => void save()}>{t("encryptedNote.retrySave")}</Button>
         <Button disabled={busy} variant="ghost" onClick={() => void lock(true)}>{t("encryptedNote.discardAndLock")}</Button>
       </div>}
+      {session.envelope.version === 2 && <div className="border-t border-app-border p-4">
+        <Button disabled={busy || dirty} variant="ghost" onClick={() => void loadHistory()}>{t("encryptedConversion.history")}</Button>
+        {historyVersions.length > 0 && <div className="flex flex-wrap gap-2">
+          {historyVersions.map((row) => <Button key={row.id} disabled={busy || dirty} variant="ghost" onClick={() => void readHistory(row.id)}>{t("encryptedConversion.version", { version: row.version })}</Button>)}
+          {historyVersions.length < historyTotal && <Button disabled={busy || dirty} variant="ghost" onClick={() => void loadHistory(true)}>{t("encryptedConversion.moreHistory")}</Button>}
+        </div>}
+        {history && <div role="region" aria-label={t("encryptedConversion.historyBody")} className="max-h-72 overflow-auto">
+          <Button variant="ghost" onClick={() => setHistory(null)}>{t("encryptedConversion.closeHistory")}</Button>
+          {history.format === "markdown" ? <pre className="whitespace-pre-wrap break-words">{history.content}</pre>
+            : <EncryptedNoteRichTextEditor key={history.id} initialContent={history.content} editable={false} onChange={() => {}} />}
+        </div>}
+      </div>}
       {editable && <details className="border-t border-app-border p-4"><summary>{t("encryptedNote.changePassword")}</summary><p className="my-2 text-xs">{t("encryptedNote.oldBackupHint")}</p>
         <input aria-label={t("encryptedNote.currentPassword")} type="password" autoComplete="off" value={currentPassphrase} disabled={busy} onChange={(event) => setCurrentPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label={t("encryptedNote.newPassword")} type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label={t("encryptedNote.confirmNewPassword")} type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <Button disabled={busy || dirty || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation} onClick={() => void save(true)}>{t("encryptedNote.confirmChange")}</Button>
+      </details>}
+      {editable && (note.permission == null || note.permission === "manage") && <details className="border-t border-app-border p-4">
+        <summary>{t("encryptedDecryption.title")}</summary>
+        <p className="my-2 text-sm text-tx-secondary">{t("encryptedDecryption.description")}</p>
+        <p className="my-2 text-xs text-tx-secondary">{t("encryptedDecryption.warning")}</p>
+        <input aria-label={t("encryptedDecryption.password")} placeholder={t("encryptedDecryption.password")} type="password" autoComplete="off" value={decryptionPassword} disabled={busy || securing} onChange={event => setDecryptionPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" />
+        <label className="my-2 flex items-start gap-2 text-sm"><input type="checkbox" checked={decryptionConsent} disabled={busy || securing} onChange={event => setDecryptionConsent(event.target.checked)} />{t("encryptedDecryption.consent")}</label>
+        <Button disabled={busy || dirty || saving || securing || !decryptionPassword || !decryptionConsent} onClick={() => void removeEncryption()}>{busy && decrypting.current ? t("encryptedDecryption.working") : t("encryptedDecryption.confirm")}</Button>
       </details>}
     </>}
   </section>;

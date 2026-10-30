@@ -152,7 +152,7 @@ module.exports = {
     signDlls: false,
     signingHashAlgorithms: ["sha256"],
     verifyUpdateCodeSignature: true,
-    publisherName: "Nowen",
+    // No Authenticode publisher identity for unsigned GitHub Direct Lite EXEs.
     // 产物名加 -lite 后缀，便于跟 full 分发包并排
     artifactName: "${productName}-${version}-lite-setup.${ext}",
   },

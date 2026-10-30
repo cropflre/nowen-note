@@ -1,0 +1,112 @@
+name: Nowen MCP Scope and Tools CI
+
+on:
+  push:
+    branches:
+      - main
+      - release/v1.5.2
+    paths:
+      - "packages/nowen-mcp/**"
+      - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/TokenManagement.tsx"
+      - "backend/src/middleware/api-token-resource-scope.ts"
+      - "backend/tests/api-token-resource-scope.test.ts"
+      - "backend/tests/mcp-knowledge-tree-p0.test.ts"
+      - "backend/tests/mcp-automation-p2.test.ts"
+      - "backend/src/automation/workflowService.ts"
+      - "backend/src/routes/automations.ts"
+      - "backend/src/lib/api-tokens.ts"
+      - "backend/src/routes/files.ts"
+      - "backend/src/routes/attachment-folders.ts"
+      - "backend/src/routes/attachment-trash.ts"
+      - "backend/src/routes/tasks.ts"
+      - "backend/src/services/taskNoteSnapshot.ts"
+      - "backend/src/routes/knowledge-tree.ts"
+      - ".github/workflows/mcp-scope-and-tools-ci.yml"
+  pull_request:
+    paths:
+      - "packages/nowen-mcp/**"
+      - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/TokenManagement.tsx"
+      - "backend/src/middleware/api-token-resource-scope.ts"
+      - "backend/tests/api-token-resource-scope.test.ts"
+      - "backend/tests/mcp-knowledge-tree-p0.test.ts"
+      - "backend/tests/mcp-automation-p2.test.ts"
+      - "backend/src/automation/workflowService.ts"
+      - "backend/src/routes/automations.ts"
+      - "backend/src/lib/api-tokens.ts"
+      - "backend/src/routes/files.ts"
+      - "backend/src/routes/attachment-folders.ts"
+      - "backend/src/routes/attachment-trash.ts"
+      - "backend/src/routes/tasks.ts"
+      - "backend/src/services/taskNoteSnapshot.ts"
+      - "backend/src/routes/knowledge-tree.ts"
+      - ".github/workflows/mcp-scope-and-tools-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/nowen-mcp/package-lock.json
+      - name: Install MCP package
+        run: npm ci --prefix packages/nowen-mcp
+      - name: Build and test MCP
+        run: npm test --prefix packages/nowen-mcp
+
+  mcp-ui-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Verify MCP connection settings type safety
+        run: npx tsc -p tsconfig.app.json --noEmit
+        working-directory: frontend
+
+  api-token-scope-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Test PAT resource and task boundaries
+        run: node --import tsx --test tests/api-token-resource-scope.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test real knowledge-tree route via MCP API Token
+        run: node --import tsx --test tests/mcp-knowledge-tree-p0.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test workflow ownership, version checks and token permissions
+        run: node --import tsx --test tests/mcp-automation-p2.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test

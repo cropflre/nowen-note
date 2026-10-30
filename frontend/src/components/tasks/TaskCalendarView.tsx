@@ -13,6 +13,9 @@ import { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
 import { TitleView } from "./taskTitleTokens";
 import { TaskEmptyState } from "./TaskEmptyState";
 import { groupCalendarDaysByWeek } from "./taskCalendarLayout";
+import { useHolidayCalendar } from "@/hooks/useHolidayCalendar";
+import { HolidayCalendarSettings } from "@/components/calendar/HolidayCalendarSettings";
+import { HolidayDayLabel } from "@/components/calendar/HolidayDayLabel";
 
 // Re-export for backward compat
 export { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
@@ -76,6 +79,7 @@ export function TaskCalendarView({
   }, [currentMonth]);
 
   const calendarWeeks = useMemo(() => groupCalendarDaysByWeek(calendarDays), [calendarDays]);
+  const holidays = useHolidayCalendar(calendarDays.map((day) => day.getFullYear()));
 
   const weekDayLabels = useMemo(() => {
     const labels: string[] = [];
@@ -152,6 +156,8 @@ export function TaskCalendarView({
         </button>
       </div>
 
+      <HolidayCalendarSettings year={currentMonth.getFullYear()} />
+
       {/* Calendar grid + selected date panel */}
       <div className="flex-1 flex overflow-hidden">
         {/* Grid */}
@@ -184,6 +190,7 @@ export function TaskCalendarView({
               return (
                 <div
                   key={dateKey}
+                  data-calendar-date={dateKey}
                   onClick={() => setSelectedDate(day)}
                   onDragOver={isMobile ? undefined : (e) => handleDragOver(e, dateKey)}
                   onDragLeave={isMobile ? undefined : handleDragLeave}
@@ -211,6 +218,8 @@ export function TaskCalendarView({
                     )}
                   </div>
 
+                  <HolidayDayLabel day={holidays.getDay(dateKey)} />
+
                   {/* Task dots / mini cards */}
                   <div className="hidden min-w-0 flex-col gap-1 md:flex">
                     {visibleTasks.map((task) => {
@@ -218,6 +227,8 @@ export function TaskCalendarView({
                       return (
                         <div
                           key={task.id}
+                          data-task-context-id={task.id}
+                          tabIndex={0}
                           onClick={(e) => { e.stopPropagation(); onSelect(task); }}
                           draggable={!isMobile}
                           onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
@@ -258,6 +269,7 @@ export function TaskCalendarView({
                 {(isZh ? format(selectedDate, "M\u6708d\u65E5 EEEE") : format(selectedDate, "EEEE, MMM d", { locale: dateLocale }))}
               </span>
               <span className="ml-2 text-xs text-tx-tertiary">{t("tasks.taskCount", { count: selectedDateTasks.length })}</span>
+              <HolidayDayLabel day={holidays.getDay(format(selectedDate, "yyyy-MM-dd"))} />
             </div>
             <div className="flex-1 p-3 space-y-1.5">
               {selectedDateTasks.length === 0 ? (
@@ -267,6 +279,8 @@ export function TaskCalendarView({
                 return (
                   <div
                     key={task.id}
+                    data-task-context-id={task.id}
+                    tabIndex={0}
                     onClick={() => onSelect(task)}
                     draggable={!isMobile}
                     onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
@@ -308,6 +322,7 @@ export function TaskCalendarView({
               {(isZh ? format(selectedDate, "M/d EEE") : format(selectedDate, "EEE, MMM d", { locale: dateLocale }))}
             </span>
             <span className="ml-1 text-[10px] text-tx-tertiary">{selectedDateTasks.length}</span>
+            <HolidayDayLabel day={holidays.getDay(format(selectedDate, "yyyy-MM-dd"))} />
           </div>
           <div className="p-2 space-y-1">
             {selectedDateTasks.length === 0 ? (
@@ -317,6 +332,8 @@ export function TaskCalendarView({
               return (
                 <div
                   key={task.id}
+                  data-task-context-id={task.id}
+                  tabIndex={0}
                   onClick={() => onSelect(task)}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer",

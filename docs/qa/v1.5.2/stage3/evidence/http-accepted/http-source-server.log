@@ -1,0 +1,52 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:8256
+📖 OpenAPI 文档: http://localhost:8256/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:8256/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:8256" port=8256
+{"timestamp":"2026-10-12T14:43:18.918Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"a20d9e10-2e89-460f-bcef-b27e7c6c1741","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":1}
+{"timestamp":"2026-10-12T14:43:18.922Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"e4452bd1-d959-46c5-ae86-94451a578e58","method":"DELETE","route":"/api/notes/:id","httpStatus":403,"durationMs":3}
+{"timestamp":"2026-10-12T14:43:18.927Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"7c0a2999-966e-4968-b6e9-4ec269b45588","method":"DELETE","route":"/api/notes/:id","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T14:43:18.930Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"910f676f-866d-4f26-85ee-73670cf6e3d5","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":0}
+{"timestamp":"2026-10-12T14:43:18.934Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"1527226c-21a7-4b67-a2b4-2a5d1aefe786","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":403,"durationMs":2}
+{"timestamp":"2026-10-12T14:43:18.938Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"787f43f6-7c2b-4c0f-9a2e-8eba337d9f51","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T14:43:18.941Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"1d9e98e2-ee49-49a4-9744-28c53119f5e6","method":"DELETE","route":"/api/notes/:id/permanent","httpStatus":403,"durationMs":1}
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:8256
+📖 OpenAPI 文档: http://localhost:8256/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:8256/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:8256" port=8256
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: true,
+  actorConnectionId: undefined
+}
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: true,
+  actorConnectionId: undefined
+}
+[realtime] broadcastNoteDeleted {
+  noteId: 'qa-live',
+  actorUserId: 'qa-owner',
+  trashed: false,
+  actorConnectionId: undefined
+}
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:8256
+📖 OpenAPI 文档: http://localhost:8256/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:8256/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:8256" port=8256

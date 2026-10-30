@@ -1,0 +1,14 @@
+[CORS] 开发模式：允许所有来源
+[Backup] 自动备份已启动（间隔模式，每 24 小时）
+[vec-store] sqlite-vec loaded (dim=uninitialized)
+[embedding-worker] started
+🚀 nowen-note API running on http://localhost:11162
+📖 OpenAPI 文档: http://localhost:11162/api/openapi.json
+[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)
+🛰  WebSocket endpoint: ws://localhost:11162/ws
+[discovery] mDNS published: _nowen-note._tcp.local. name="nowen-note@cropflre:11162" port=11162
+{"timestamp":"2026-10-12T14:34:57.449Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"0efeb04a-f487-4999-8a2f-61fb561d6d0f","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":1}
+{"timestamp":"2026-10-12T14:34:57.455Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"a046a527-07a0-4930-a9a4-3d6615a06454","method":"DELETE","route":"/api/notes/:id","httpStatus":403,"durationMs":3}
+{"timestamp":"2026-10-12T14:34:57.460Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"a2e6bf69-2a65-466c-b2ac-571f24a34a28","method":"DELETE","route":"/api/notes/:id","httpStatus":409,"durationMs":4}
+{"timestamp":"2026-10-12T14:34:57.462Z","level":"WARN","event":"http.request.failed","module":"http","requestId":"21024aa9-d7c5-4306-b4fe-fceb7cc6d015","method":"DELETE","route":"/api/*","httpStatus":401,"durationMs":0}
+{"timestamp":"2026-10-12T14:34:57.463Z","level":"ERROR","event":"http.request.failed","module":"http","requestId":"04c286e5-677c-4fc6-945c-08a6e0227cf1","code":"SYSTEM_INTERNAL_ERROR","httpStatus":500,"errorName":"SqliteError"}

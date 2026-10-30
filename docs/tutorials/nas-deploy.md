@@ -60,6 +60,7 @@ Docker 功能 → 导入 docker-compose.yml → 配置启动
 ## 通用注意事项
 
 - **端口冲突**：修改映射端口
+- **HTTPS**：已有 NAS 反代或 Lucky 时复用其证书与域名入口；Docker 新部署可使用配套 Caddy 模板。配置与检查步骤见 [HTTPS 部署](../https-deployment.md)。
 - **数据安全**：确保映射到持久存储
 - **备份**：使用 NAS 自带快照功能
 

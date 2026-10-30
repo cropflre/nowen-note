@@ -5,6 +5,9 @@ export const ENCRYPTED_HISTORY_V2_FORMAT = "encrypted-history-v2";
 export type EncryptedIdentityV2 = { objectId: string; kind: "note" | "block"; originalFormat: "markdown" | "tiptap-json";
   parentObjectId: string | null; documentSchemaVersion: 1; keyEpoch: number; encryptionEpoch: number };
 const uuid = (value: unknown) => { if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) throw new EncryptedNotePayloadError(); };
+// Ordinary versions use UUIDs; the overwrite-safety trigger uses 128-bit hex IDs.
+export const isEncryptedHistoryId = (value: unknown): value is string => typeof value === "string"
+  && /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.test(value);
 const epoch = (value: unknown) => { if (!Number.isSafeInteger(value) || (value as number) < 1) throw new EncryptedNotePayloadError(); };
 function parse(content: unknown): unknown {
   if (typeof content !== "string" || content.length > 5594476) throw new EncryptedNotePayloadError();
@@ -30,7 +33,8 @@ export function parseEncryptedContentV2(content: unknown, kind: "note" | "block"
 }
 export function parseEncryptedHistoryV2(content: unknown, expected: EncryptedIdentityV2, historyId: string, sourceVersion: number, originalFormat: string): void {
   const history = encryptedRecord(parse(content), ["version", "objectId", "keyEpoch", "encryptionEpoch", "historyId", "sourceVersion", "originalFormat", "payload"]);
-  uuid(history.historyId); uuid(history.objectId); epoch(history.sourceVersion); epoch(history.keyEpoch); epoch(history.encryptionEpoch);
+  if (!isEncryptedHistoryId(history.historyId)) throw new EncryptedNotePayloadError();
+  uuid(history.objectId); epoch(history.sourceVersion); epoch(history.keyEpoch); epoch(history.encryptionEpoch);
   if (history.version !== 1 || history.objectId !== expected.objectId || history.keyEpoch !== expected.keyEpoch || history.encryptionEpoch !== expected.encryptionEpoch
     || history.historyId !== historyId || history.sourceVersion !== sourceVersion || history.originalFormat !== originalFormat
     || !["markdown", "tiptap-json"].includes(originalFormat)) throw new EncryptedNotePayloadError();

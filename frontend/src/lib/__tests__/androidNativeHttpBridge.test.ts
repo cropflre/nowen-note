@@ -161,9 +161,15 @@ describe("androidNativeHttpBridge", () => {
 
       const response = await fetch(url, { headers: { Authorization: "Bearer token-1" } });
       const blob = await response.blob();
+      const binary = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(blob);
+      });
 
       expect(blob.type).toBe("image/png");
-      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual(bytes);
+      expect(Array.from(new Uint8Array(binary))).toEqual(bytes);
       expect(capacitorState.request).toHaveBeenCalledWith(expect.objectContaining({
         url,
         method: "GET",

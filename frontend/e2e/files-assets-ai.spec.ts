@@ -1,0 +1,63 @@
+import { test, expect } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+
+test("Phase E real app: consent, editable dry run, subset confirmation and metadata semantic search",async({page,request})=>{
+  const response=await request.post("/api/auth/login",{data:{username:"assets_qa",password:"assets-qa-only-password"}});
+  expect(response.ok()).toBe(true);
+  const account=await response.json();
+  const headers={Authorization:`Bearer ${account.token}`};
+  await page.addInitScript(({token,refreshToken,version})=>{
+    localStorage.setItem("nowen-token",token);localStorage.setItem("nowen-refresh-token",refreshToken);
+    localStorage.setItem("i18nextLng","zh-CN");localStorage.setItem("nowen-seen-version",version);
+  },{...account,version:JSON.parse(fs.readFileSync(path.resolve("../package.json"),"utf8")).version});
+  const before=await (await request.get("/api/files?pageSize=60",{headers})).json();
+  const chosen=before.items.slice(0,2) as Array<{id:string;filename:string;folderId:string|null}>;
+  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
+  await page.goto("/");
+  // Like the other file-center flows, wait for initial note/workspace restoration.
+  await expect(page.getByRole("button",{name:"插入加密内容",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"文件管理",exact:true}).click();
+  await page.getByRole("button",{name:"选择文件",exact:true}).click();
+  for(const file of chosen) await page.getByRole("button",{name:file.filename,exact:true}).click();
+  // Exercise the dialog fallback independently of the app's startup polyfill.
+  await page.evaluate(()=>Object.defineProperty(globalThis.crypto,"randomUUID",{value:undefined,writable:true,configurable:true}));
+  await page.getByRole("button",{name:"AI 帮我整理",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"AI 帮我整理",exact:true});
+  await expect(dialog.getByRole("button",{name:"生成整理建议",exact:true})).toBeDisabled();
+  await dialog.getByRole("checkbox").first().check();
+  await dialog.getByRole("button",{name:"生成整理建议",exact:true}).click();
+  await expect(dialog.locator("fieldset")).toHaveCount(2);
+  await expect(dialog).toContainText("本次处理 2 个文件");
+  for(const file of chosen) expect((await (await request.get(`/api/files/${file.id}`,{headers})).json()).folderId).toBe(file.folderId);
+  const first=dialog.locator("fieldset").first();
+  await first.getByLabel("新建根文件夹",{exact:true}).fill("已审核资料");
+  await first.getByLabel("添加标签（逗号分隔，最多 10 个）",{exact:true}).fill("Reviewed, UI");
+  await first.getByLabel("文件描述",{exact:true}).fill("Reviewed searchable-metadata-marker");
+  await dialog.locator("fieldset").nth(1).getByRole("checkbox").uncheck();
+  await page.setViewportSize({width:390,height:844});
+  expect(await dialog.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
+  const evidence=path.resolve("../docs/qa/files-assets-center-v2/screenshots/phase-e");
+  fs.mkdirSync(evidence,{recursive:true});
+  await page.screenshot({path:path.join(evidence,"preview-mobile.png")});
+  await dialog.getByRole("button",{name:"确认整理 1 个文件",exact:true}).click();
+  await expect(dialog).toContainText("已完成 1 个文件的整理");
+  expect((await (await request.get(`/api/files/ai/metadata/${chosen[0].id}`,{headers})).json()).description).toBe("Reviewed searchable-metadata-marker");
+  expect((await (await request.get(`/api/files/${chosen[1].id}`,{headers})).json()).folderId).toBe(chosen[1].folderId);
+  await dialog.getByRole("button",{name:"关闭",exact:true}).click();
+  await page.setViewportSize({width:1600,height:950});
+  const keyword=await request.get("/api/files?q=searchable-metadata-marker",{headers});
+  expect((await keyword.json()).items.map((item:{id:string})=>item.id)).toContain(chosen[0].id);
+  await page.getByRole("button",{name:"语义搜索",exact:true}).click();
+  const search=page.getByRole("dialog",{name:"语义搜索",exact:true});
+  await search.getByRole("checkbox").check();
+  await search.getByLabel("描述你要找的文件",{exact:true}).fill("design references");
+  await search.getByRole("button",{name:"语义搜索",exact:true}).click();
+  await expect(search).toContainText("已扫描 100 个文件");
+  await search.getByRole("button",{name:"继续扫描下一批",exact:true}).click();
+  await expect(search).toContainText("已扫描 103 个文件");
+  await expect(search.getByRole("button",{name:"继续扫描下一批",exact:true})).toHaveCount(0);
+  await search.locator(".overflow-y-auto").evaluate(element=>{element.scrollTop=0;});
+  await page.screenshot({path:path.join(evidence,"semantic-search.png")});
+  expect(errors).toEqual([]);
+});

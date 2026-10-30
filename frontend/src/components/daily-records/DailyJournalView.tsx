@@ -453,8 +453,8 @@ export default function DailyJournalView({
 
   return (
     <>
-    <div className="min-h-0 flex-1 overflow-auto bg-app-bg">
-      <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-5 px-4 py-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-6">
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto bg-app-bg">
+      <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-4 px-3 py-3 sm:gap-5 sm:px-4 sm:py-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-6">
         <main className="min-w-0 space-y-5">
           {activeWorkspaceId && (
             <div
@@ -518,61 +518,63 @@ export default function DailyJournalView({
           </div>
 
           <section>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <h2 className="text-2xl font-bold tracking-tight text-tx-primary">{heading}</h2>
-              {isToday && (
-                <span className="rounded-full bg-accent-primary/10 px-2 py-0.5 text-xs font-medium text-accent-primary">今天</span>
-              )}
-              {journalScope.kind === "personal" && (
-                <>
-              <button
-                type="button"
-                onClick={() => void organizeArchive()}
-                disabled={organizingArchive}
-                className="ml-auto flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
-                title="将已有日记整理到个人日记 / 年 / 月目录"
-              >
-                {organizingArchive ? <Loader2 size={14} className="animate-spin" /> : <FolderTree size={14} />}
-                <span className="hidden sm:inline">整理目录</span>
-              </button>
-                </>
-              )}
-              {journalScope.kind === "personal" && (
-              <button
-                type="button"
-                onClick={() => void cleanupLegacyArchive()}
-                disabled={cleaningArchive || organizingArchive}
-                className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
-                title="预览并安全清理迁移后遗留的空旧目录"
-              >
-                {cleaningArchive ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                <span className="hidden lg:inline">清理空目录</span>
-              </button>
-              )}
-              {journalScope.kind === "personal" && lastCleanupId && (
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="min-w-0 flex-1 text-lg font-bold tracking-tight text-tx-primary sm:text-2xl">
+                {heading.split(" ").map((part, index) => <React.Fragment key={index}>{index > 0 && " "}<span className="inline-block whitespace-nowrap">{part}</span></React.Fragment>)}
+                {isToday && <span className="ml-2 inline-block rounded-full bg-accent-primary/10 px-2 py-0.5 align-middle text-xs font-medium text-accent-primary">今天</span>}
+              </h2>
+              <div data-daily-journal-actions="" className="flex shrink-0 items-center gap-2">
+                {journalScope.kind === "personal" && (
+                  <>
                 <button
                   type="button"
-                  onClick={() => void restoreLegacyArchiveCleanup()}
-                  disabled={restoringCleanup}
-                  className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/10 disabled:opacity-60"
-                  title="撤销上一次旧目录清理"
+                  onClick={() => void organizeArchive()}
+                  disabled={organizingArchive}
+                  className="ml-auto flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
+                  title="将已有日记整理到个人日记 / 年 / 月目录"
                 >
-                  {restoringCleanup ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
-                  <span className="hidden lg:inline">撤销清理</span>
+                  {organizingArchive ? <Loader2 size={14} className="animate-spin" /> : <FolderTree size={14} />}
+                  <span className="hidden sm:inline">整理目录</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setReloadToken((value) => value + 1)}
-                className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-                title="刷新"
-              >
-                <RefreshCw size={15} />
-              </button>
+                  </>
+                )}
+                {journalScope.kind === "personal" && (
+                <button
+                  type="button"
+                  onClick={() => void cleanupLegacyArchive()}
+                  disabled={cleaningArchive || organizingArchive}
+                  className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
+                  title="预览并安全清理迁移后遗留的空旧目录"
+                >
+                  {cleaningArchive ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  <span className="hidden lg:inline">清理空目录</span>
+                </button>
+                )}
+                {journalScope.kind === "personal" && lastCleanupId && (
+                  <button
+                    type="button"
+                    onClick={() => void restoreLegacyArchiveCleanup()}
+                    disabled={restoringCleanup}
+                    className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/10 disabled:opacity-60"
+                    title="撤销上一次旧目录清理"
+                  >
+                    {restoringCleanup ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
+                    <span className="hidden lg:inline">撤销清理</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setReloadToken((value) => value + 1)}
+                  className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                  title="刷新"
+                >
+                  <RefreshCw size={15} />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
-              <div className="flex items-center justify-between border-b border-app-border px-5 py-3">
+              <div className="flex items-center justify-between border-b border-app-border px-3 py-3 sm:px-5">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
                     <BookOpen size={16} className="text-accent-primary" />

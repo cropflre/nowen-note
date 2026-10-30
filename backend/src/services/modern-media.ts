@@ -25,7 +25,8 @@ export function recordMediaAnalysis(id: string, bytes: Buffer, mimeType: string)
       JOIN attachment_media_variants pa ON pa.sourceAttachmentId = photo.id AND pa.kind = 'analysis'
       JOIN attachments video ON video.noteId = photo.noteId AND video.userId = photo.userId AND video.workspaceId IS photo.workspaceId
       JOIN attachment_media_variants va ON va.sourceAttachmentId = video.id AND va.kind = 'analysis'
-      WHERE json_extract(pa.metadata, '$.kind') = 'live-photo' AND json_extract(va.metadata, '$.kind') = 'video'
+      WHERE photo.trashedAt IS NULL AND video.trashedAt IS NULL
+        AND json_extract(pa.metadata, '$.kind') = 'live-photo' AND json_extract(va.metadata, '$.kind') = 'video'
         AND json_extract(pa.metadata, '$.assetIdentifier') = ? AND json_extract(va.metadata, '$.assetIdentifier') = ?
         AND (photo.id = ? OR video.id = ?)`).all(analysis.assetIdentifier, analysis.assetIdentifier, id, id) as Array<{ photoId: string; videoId: string; mimeType: string }>;
     const insert = getDb().prepare(`INSERT OR REPLACE INTO attachment_media_variants
@@ -56,7 +57,7 @@ async function loadAnalysis(row: SourceRow, read: ReadSource): Promise<MediaAnal
 async function findLiveCompanion(row: SourceRow, identifier: string): Promise<SourceRow | undefined> {
   // 只关联同一笔记、上传者和空间的原件，照片的分享凭证不能打开其它笔记的视频。
   const candidates = getDb().prepare(`SELECT id, noteId, userId, workspaceId, mimeType, filename, path FROM attachments
-    WHERE noteId = ? AND userId = ? AND workspaceId IS ? AND id != ?
+    WHERE noteId = ? AND userId = ? AND workspaceId IS ? AND id != ? AND trashedAt IS NULL
     AND (mimeType LIKE 'video/%' OR lower(filename) LIKE '%.mov' OR lower(filename) LIKE '%.mp4')`)
     .all(row.noteId, row.userId, row.workspaceId, row.id) as SourceRow[];
   for (const candidate of candidates) {
@@ -64,6 +65,7 @@ async function findLiveCompanion(row: SourceRow, identifier: string): Promise<So
     try { analysis = await loadAnalysis(candidate, () => readAttachmentObject(candidate.path)); }
     catch { continue; }
     if (analysis.kind !== "video" || analysis.assetIdentifier !== identifier) continue;
+    if (!motionSourcesActive(row, candidate)) continue;
     getDb().prepare(`INSERT INTO attachment_media_variants (sourceAttachmentId, kind, variantAttachmentId, mimeType)
       VALUES (?, 'original-motion', ?, ?) ON CONFLICT(sourceAttachmentId, kind)
       DO UPDATE SET variantAttachmentId = excluded.variantAttachmentId, mimeType = excluded.mimeType`)
@@ -72,13 +74,21 @@ async function findLiveCompanion(row: SourceRow, identifier: string): Promise<So
   }
 }
 
+function motionSourcesActive(row: SourceRow, companion?: SourceRow): boolean {
+  const active = (source: SourceRow) => Boolean(getDb().prepare(`SELECT 1 FROM attachments
+    WHERE id=? AND noteId=? AND userId=? AND workspaceId IS ? AND path=? AND trashedAt IS NULL`)
+    .get(source.id,source.noteId,source.userId,source.workspaceId,source.path));
+  return active(row) && (!companion || active(companion));
+}
+
 export async function inspectPhotoMedia(id: string, read?: ReadSource) {
-  const row = getDb().prepare("SELECT id, noteId, userId, workspaceId, mimeType, filename, path FROM attachments WHERE id = ?")
+  const row = getDb().prepare("SELECT id, noteId, userId, workspaceId, mimeType, filename, path FROM attachments WHERE id = ? AND trashedAt IS NULL")
     .get(id) as SourceRow | undefined;
   if (!row) throw new Error("MEDIA_SOURCE_MISSING");
   const analysis = await loadAnalysis(row, read || (() => readAttachmentObject(row.path)));
   const companion = analysis.kind === "live-photo" && analysis.assetIdentifier
     ? await findLiveCompanion(row, analysis.assetIdentifier) : undefined;
+  if (!motionSourcesActive(row, companion)) throw new Error("MEDIA_SOURCE_MISSING");
   return { row, analysis, companion };
 }
 
@@ -124,7 +134,10 @@ export async function getOrCreateMotionPreview(id: string, read?: ReadSource): P
     const cacheDir = path.join(getAttachmentsDir(), ".thumbs");
     const cacheName = `${id}_motion_${companion?.id || "embedded"}.mp4`;
     const cachePath = path.join(cacheDir, cacheName);
-    try { return await fs.promises.readFile(cachePath); } catch { /* 缓存丢失时懒生成。 */ }
+    let cached: Buffer | undefined;
+    try { cached = await fs.promises.readFile(cachePath); } catch { /* 缓存丢失时懒生成。 */ }
+    if (!motionSourcesActive(row, companion)) throw new Error("MEDIA_SOURCE_MISSING");
+    if (cached) return cached;
     const source = companion ? await readAttachmentObject(companion.path) : await (read || (() => readAttachmentObject(row.path)))();
     if (!source) throw new Error("MEDIA_SOURCE_MISSING");
     const motion = companion ? source : source.subarray(analysis.motion!.offset, analysis.motion!.offset + analysis.motion!.length);
@@ -137,8 +150,12 @@ export async function getOrCreateMotionPreview(id: string, read?: ReadSource): P
       await convertMotion(input, output);
       const result = await fs.promises.readFile(output);
       // 删除与转码可能并发；源记录已消失时不重新留下派生文件。
-      if (!getDb().prepare("SELECT id FROM attachments WHERE id = ?").get(id)) throw new Error("MEDIA_SOURCE_MISSING");
+      if (!motionSourcesActive(row, companion)) throw new Error("MEDIA_SOURCE_MISSING");
       await fs.promises.rename(output, cachePath);
+      if (!motionSourcesActive(row, companion)) {
+        await fs.promises.rm(cachePath, { force: true });
+        throw new Error("MEDIA_SOURCE_MISSING");
+      }
       getDb().prepare(`INSERT OR REPLACE INTO attachment_media_variants
         (sourceAttachmentId, kind, variantAttachmentId, storagePath, mimeType, metadata)
         VALUES (?, 'motion-mp4', ?, ?, 'video/mp4', ?)`)

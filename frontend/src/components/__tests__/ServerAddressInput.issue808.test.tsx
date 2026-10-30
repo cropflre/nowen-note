@@ -110,4 +110,25 @@ describe("issue #808: server address field on desktop login", () => {
     expect(host.querySelector('[role="listbox"]')).toBeNull();
     expect(document.activeElement).toBe(host.querySelector('[aria-haspopup="listbox"]'));
   });
+
+  it("accepts a restored server address while an untouched input has autofocus", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(<ServerAddressInput value={blank} onChange={onChange} autoFocus />));
+    expect(document.activeElement).toBe(address());
+    await act(async () => root.render(<ServerAddressInput
+      value={{ protocol: "https", host: "note.nowen.cn", port: "", path: "" }}
+      onChange={onChange} autoFocus />));
+    expect(address().value).toBe("note.nowen.cn");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite actual typing with a late restored address", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(<ServerAddressInput value={blank} onChange={onChange} autoFocus />));
+    await input("https://typed.example.com/custom");
+    await act(async () => root.render(<ServerAddressInput
+      value={{ protocol: "https", host: "restored.example.com", port: "", path: "" }}
+      onChange={onChange} autoFocus />));
+    expect(address().value).toBe("https://typed.example.com/custom");
+  });
 });

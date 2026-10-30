@@ -93,7 +93,7 @@ function normalizeHabit(row: Record<string, unknown>): Habit {
   };
 }
 
-async function ensureSchema(db: NativeDatabase): Promise<void> {
+export async function ensureMobileLocalTaskSchema(db: NativeDatabase): Promise<void> {
   const statements = [
     `CREATE TABLE IF NOT EXISTS mobile_local_task_projects (
       id TEXT PRIMARY KEY,
@@ -204,7 +204,7 @@ export function installMobileLocalAdvancedTaskBridge(
 
   let schemaPromise: Promise<void> | null = null;
   const ready = () => {
-    if (!schemaPromise) schemaPromise = ensureSchema(db);
+    if (!schemaPromise) schemaPromise = ensureMobileLocalTaskSchema(db);
     return schemaPromise;
   };
 
