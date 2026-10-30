@@ -79,6 +79,7 @@ test('formal Android release pins the original certificate fingerprint and safel
   const workflow = await read('.github/workflows/release-build.yml');
   const release = await read('scripts/release-cloud-ci.mjs');
   assert.ok(workflow.includes('NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}'));
+  assert.ok(release.includes('NOWEN_ANDROID_CERT_SHA256（原签名证书 SHA-256）'));
   assert.ok(release.includes('Signer #1 certificate SHA-256 digest:'));
   assert.ok(release.includes('escapeJavaProperty(password)'));
   assert.ok(release.includes('escapeJavaProperty(e.NOWEN_ANDROID_KEY_ALIAS)'));
