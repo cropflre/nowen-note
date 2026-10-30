@@ -73,6 +73,7 @@ describe("startup chunking contract", () => {
 
     expect(main).not.toContain("<DeferredGlobalFeatureCentersMount />");
     expect(main).toContain('React.lazy(() => import("./components/GlobalBridges"))');
+    expect(main).toContain("<React.Suspense fallback={null}>");
     expect(main).toContain('const loadImageTransformBootstrap = () => import("./lib/imageNodeTransformBootstrap")');
     expect(main).toContain("await loadImageTransformBootstrap()");
     expect(main).toContain('return import("./App")');
