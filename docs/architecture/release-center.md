@@ -25,6 +25,8 @@
 
 **唯一正式路径：** `release-build.yml` → 人工复核候选产物 → `release-publish.yml`。不得用 Tag push、旧 `publish.yml`、旧 `release-assets` 或本地 legacy 脚本绕过该路径。v1.5.4 冻结期间不触发任何发布工作流。
 
+Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量 `NOWEN_ANDROID_CERT_SHA256` 校验证书 SHA-256；Java `keystore.properties` 的密码、Alias 等字段使用可往返的 Unicode 转义。仅 `apksigner verify` 成功不等于签名身份正确。
+
 日期：2026-10-16；开发基线：`release/v1.5.2`。首次审计 HEAD `a0f65787`；期间用户其他工作推进到 `7dcc450a`，本工具不修改、暂存或回退这些工作。任务源码取远端分支的固定完整 SHA，不使用当前工作区替代候选提交。新需求，没有需要编造的历史故障根因；目标是消除手工发布时对工作流、副作用和资产状态的判断负担。
 
 ## 真实发布职责
