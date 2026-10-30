@@ -153,6 +153,41 @@ jobs:
           npm run test:linux-desktop
           npm run rebuild:native
           npx electron-builder --config electron/builder.config.js --linux --publish never
-      - name: Verify Windows staged update metadata
+      - name: Verify Windows Full and Lite update metadata against exact staged files
         if: matrix.platform == 'win'
-        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+        run: |
+          mkdir -p windows-freeze
+          for file in Nowen-Note-1.5.4-setup.exe Nowen-Note-1.5.4-portable.exe Nowen-Note-1.5.4-setup.exe.blockmap latest.yml; do
+            test -f "dist-electron/$file"
+            cp "dist-electron/$file" windows-freeze/
+          done
+          for file in Nowen-Note-Lite-1.5.4-setup.exe Nowen-Note-Lite-1.5.4-portable.exe Nowen-Note-Lite-1.5.4-setup.exe.blockmap latest-lite.yml; do
+            test -f "dist-electron-lite/$file"
+            cp "dist-electron-lite/$file" windows-freeze/
+          done
+          node scripts/verify-release-update-assets.mjs local --dir windows-freeze --version 1.5.4
+
+  agent-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm --prefix backend run build
+      - run: npm --prefix frontend run build
+      - working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Notebook Agent and real browser save / reload regression
+        working-directory: frontend
+        env: { NOWEN_AGENT_TEST_RUNTIME: node }
+        run: npx playwright test --config playwright.agent.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: release-freeze-agent-browser-evidence
+          path: docs/qa/artifacts/agent
+          if-no-files-found: ignore
+          retention-days: 7
