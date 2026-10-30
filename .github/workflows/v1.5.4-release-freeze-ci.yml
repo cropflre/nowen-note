@@ -75,7 +75,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '21' }
-      - uses: android-actions/setup-android@v3
+      # GitHub-hosted Ubuntu already provides Android cmdline-tools. Avoid the
+      # obsolete setup action, which tries to install removed SDK package 'tools'.
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - run: npm ci --prefix frontend
       - run: npm --prefix frontend run build
