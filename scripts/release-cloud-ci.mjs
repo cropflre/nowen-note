@@ -80,7 +80,7 @@ async function androidStage() {
   }
   const badging = run(join(dir, 'aapt'), ['dump', 'badging', apk]);
   const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
-  const expectedCode = Number(gradle.match(/versionCode\\s+(\\d+)/)?.[1]);
+  const expectedCode = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);
   if (!Number.isSafeInteger(expectedCode) || !badging.includes("name='com.nowen.note'") ||
       !badging.includes(`versionName='${e.RC_VERSION}'`) || !badging.includes(`versionCode='${expectedCode}'`)) {
     throw Error('Android APK application ID / versionName / versionCode 不匹配');
