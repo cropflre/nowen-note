@@ -86,7 +86,7 @@ jobs:
       # SDK package "tools"; sdkmanager remains on PATH for pinned packages below.
       - uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: 'platform-tools'
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - run: npm ci --prefix frontend
       - run: npm --prefix frontend run build
