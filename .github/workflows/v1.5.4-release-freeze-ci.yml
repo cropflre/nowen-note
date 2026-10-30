@@ -152,6 +152,14 @@ jobs:
         with:
           pattern: release-docker-*
           path: cloud-artifacts
+      - name: Validate pinned fnpack source before NAS package build
+        env:
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+        run: |
+          test -n "$FNPACK_URL"
+          [[ "$FNPACK_URL" == https://* ]]
+          [[ "$FNPACK_SHA256" =~ ^[a-f0-9]{64}$ ]]
       - name: Build FPK and UPK from this run's verified amd64/arm64 images
         env:
           RC_VERSION: 1.5.4
