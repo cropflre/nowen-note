@@ -118,9 +118,59 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          docker buildx build --load --platform "linux/$ARCH" --tag "nowen-freeze:$GITHUB_SHA-$ARCH" --build-arg APP_VERSION=1.5.4 .
+          docker buildx build --load --platform "linux/$ARCH" \
+            --tag "cropflre/nowen-note:v1.5.4-$ARCH" \
+            --tag "nowen-freeze:$GITHUB_SHA-$ARCH" \
+            --build-arg APP_VERSION=1.5.4 --build-arg "VCS_REF=$GITHUB_SHA" .
           docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-plugin-artifacts.cjs
           docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-sqlite-vec.cjs
+      - name: Stage immutable Docker image and verify native runtime
+        env:
+          RC_ARCH: ${{ matrix.arch }}
+          RC_VERSION: 1.5.4
+        run: node scripts/release-cloud-ci.mjs docker-stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-docker-${{ matrix.arch }}
+          path: release-docker/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  nas:
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-docker-*
+          path: cloud-artifacts
+      - name: Build FPK and UPK from this run's verified amd64/arm64 images
+        env:
+          RC_VERSION: 1.5.4
+          RC_TARGETS: '["fpk","upk"]'
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+        run: node scripts/release-cloud-ci.mjs nas
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-fpk
+          path: release-fpk/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-upk
+          path: release-upk/*
+          if-no-files-found: error
+          retention-days: 7
 
   desktop:
     strategy:
