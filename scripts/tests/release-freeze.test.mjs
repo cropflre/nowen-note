@@ -75,6 +75,15 @@ test('FPK manifest uses fnpack-compatible quoted HTML and release version placeh
   assert.doesNotMatch(description, /v1\.5\.[23]/);
 });
 
+test('formal Android release pins the original certificate fingerprint and safely encodes Java properties', async () => {
+  const workflow = await read('.github/workflows/release-build.yml');
+  const release = await read('scripts/release-cloud-ci.mjs');
+  assert.ok(workflow.includes('NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}'));
+  assert.ok(release.includes('Signer #1 certificate SHA-256 digest:'));
+  assert.ok(release.includes('escapeJavaProperty(password)'));
+  assert.ok(release.includes('escapeJavaProperty(e.NOWEN_ANDROID_KEY_ALIAS)'));
+});
+
 test('Docker freeze gate builds and upgrades the real v1.5.3 production image on the same volume', async () => {
   const workflow = await read('.github/workflows/studio-production-docker-rc.yml');
   const runner = await read('scripts/studio-rc-docker-run.sh');
