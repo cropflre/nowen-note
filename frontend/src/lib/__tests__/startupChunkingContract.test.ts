@@ -70,7 +70,17 @@ describe("startup chunking contract", () => {
     const deferredCenters = source("../../components/DeferredGlobalFeatureCenters.tsx");
 
     const globalBridges = source("../../components/GlobalBridges.tsx");
+    const coreRuntime = source("../coreRuntimeInstallers.ts");
 
+    expect(main).toContain('import("./lib/coreRuntimeInstallers")');
+    expect(main).not.toContain('import { installNoteSyncSafety }');
+    expect(main).not.toContain('import { installEditorMediaScopeGuard }');
+    expect(coreRuntime).toContain('installOptionalRuntime("android-native-http", installAndroidNativeHttpBridge)');
+    expect(coreRuntime).toContain('installOptionalRuntime("note-sync-safety", installNoteSyncSafety)');
+    expect(coreRuntime).toContain('installOptionalRuntime("non-blocking-note-fetch", installNonBlockingNoteFetch)');
+    expect(coreRuntime.indexOf('installOptionalRuntime("android-native-http"')).toBeLessThan(coreRuntime.indexOf('installOptionalRuntime("note-sync-safety"'));
+    expect(coreRuntime.indexOf('installOptionalRuntime("attachment-access-upstream"')).toBeLessThan(coreRuntime.indexOf('installOptionalRuntime("note-attachment-access"'));
+    expect(main).toContain('coreRuntimeInstalled = true');
     expect(main).not.toContain("<DeferredGlobalFeatureCentersMount />");
     expect(main).toContain('React.lazy(() => import("./components/GlobalBridges"))');
     expect(main).toContain("<React.Suspense fallback={null}>");
