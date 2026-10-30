@@ -50,8 +50,8 @@ stop
 # Upgrade only the image; keep the exact same bind-mounted data directory.
 start "$root/data" "$RC_IMAGE"
 node scripts/studio-rc-runtime-smoke.mjs legacy-verify
-# Studio was introduced after the published v1.5.3 baseline, so its
-# additional CAS/history fixture is created on the upgraded candidate.
+# Validate new v1.5.4 note writes, concurrency and ACL on the upgraded volume.
+# Personal Studio routes are not part of this version's published API.
 node scripts/studio-rc-runtime-smoke.mjs seed
 node scripts/studio-rc-runtime-smoke.mjs verify
 docker exec --workdir /app/backend "$name" node -e "
@@ -66,8 +66,9 @@ docker run --rm --entrypoint node --workdir /app/backend -v "$root/restore:/app/
   const DB=require('better-sqlite3');
   const db=new DB('/app/data/nowen-note.db',{readonly:true,fileMustExist:true});
   if(db.pragma('quick_check',{simple:true})!=='ok')process.exit(1);
-  if(db.prepare('SELECT COUNT(*) AS n FROM personal_studio_apps').get().n!==1)process.exit(1);
-  if(db.prepare('SELECT COUNT(*) AS n FROM personal_studio_app_versions').get().n!==3)process.exit(1);
+  // One historical note and one new candidate note must both survive the backup.
+  if(db.prepare('SELECT COUNT(*) AS n FROM notes').get().n!==2)process.exit(1);
+  if(db.prepare('SELECT COUNT(*) AS n FROM notebooks').get().n!==2)process.exit(1);
   db.close();
   console.log('STUDIO_BACKUP_CONTENT_PASS');
 "
@@ -77,14 +78,14 @@ node scripts/studio-rc-runtime-smoke.mjs verify
 stop
 start "$root/restore" "$RC_IMAGE"
 node scripts/studio-rc-runtime-smoke.mjs verify
-echo "STUDIO_PRODUCTION_DOCKER_RC_PASS: v1.5.3-to-v1.5.4 image upgrade, REST/ACL, restart, WAL backup, independent recovery"
+echo "STUDIO_PRODUCTION_DOCKER_RC_PASS: v1.5.3-to-v1.5.4 image upgrade, notes/CAS/ACL, restart, WAL backup, independent recovery"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
     echo "### Nowen Studio production Docker RC"
     echo "- Previous stable image: ${RC_OLD_IMAGE}"
     echo "- Candidate image source: ${GITHUB_SHA:-local} (${RC_IMAGE})"
     echo "- Same-volume v1.5.3 -> v1.5.4 container image upgrade: passed"
-    echo "- Production auth and REST CRUD/CAS/history/ACL: passed"
+    echo "- Production auth, note CRUD/CAS and per-user ACL: passed"
     echo "- Actual container restart and WAL-safe independent SQLite restore: passed"
     echo "- NOT assessed: physical NAS/Android, real AI credentials, Electron app launch, notarization/signature, updates"
     echo "- No deployment, tags or releases."
