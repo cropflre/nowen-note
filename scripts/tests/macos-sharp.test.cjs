@@ -25,8 +25,14 @@ function fixture(t, arch = "x64") {
     "./package": "./package.json", "./sharp.node": `./lib/sharp-darwin-${arch}.node`,
   } });
   json(vips, { version: "1.0.4" });
+  // afterPack now verifies sqlite-vec as well as sharp/FFmpeg. Build an actual
+  // structure with a fake Mach-O header rather than weakening the safety gate.
+  const vecName = `sqlite-vec-darwin-${arch}`;
+  json("sqlite-vec", { optionalDependencies: { [vecName]: "0.1.9" } });
+  json(vecName, { version: "0.1.9" });
   const binaries = [path.join(modules, addon, `lib/sharp-darwin-${arch}.node`),
-    path.join(modules, vips, "lib/libvips-cpp.42.dylib"), path.join(modules, "ffmpeg-static/ffmpeg")];
+    path.join(modules, vips, "lib/libvips-cpp.42.dylib"), path.join(modules, "ffmpeg-static/ffmpeg"),
+    path.join(modules, vecName, "vec0.dylib")];
   const header = Buffer.alloc(32);
   header.writeUInt32LE(0xfeedfacf);
   header.writeUInt32LE(arch === "x64" ? 0x01000007 : 0x0100000c, 4);
