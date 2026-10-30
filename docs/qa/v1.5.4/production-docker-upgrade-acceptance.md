@@ -11,12 +11,12 @@ For the exact PR merge SHA, CI performs the following using disposable data only
 1. Check out the immutable `v1.5.3` source tag and build its real production Docker image.
 2. Build the candidate `v1.5.4` production Docker image from the PR SHA.
 3. Start the old image against a fresh temporary bind-mounted data directory.
-4. Register synthetic users, create a personal Studio app, edit it with CAS, create history, and restore an earlier revision.
+4. Register synthetic users and create a notebook and note through the published v1.5.3 API, including a negative cross-user access check.
 5. Stop the old container and start the v1.5.4 candidate against the **same data directory**.
-6. Log in again and verify the same users, app data, ownership boundaries, and history.
+6. Log in again to verify the historical notebook and note, then create and edit a new v1.5.4 note; verify optimistic-version conflicts and cross-user read/write protection.
 7. Create a SQLite online/WAL-consistent backup from the upgraded candidate.
-8. Restore that backup into a **separate** temporary data directory, run `quick_check`, start a new candidate container against the restored copy, and verify the same records.
-9. Restart the upgraded container once more and verify persistence again.
+8. Restore that backup into a **separate** temporary data directory, run `quick_check`, check that both notes and notebooks are present, start a new candidate container against the restored copy, and verify unchanged content, version, and ACL.
+9. Restart the upgraded container once more and verify persistence again. Personal Studio is intentionally excluded: its endpoints are not available in this 1.5.4 release candidate.
 
 The test builds both images locally on the runner; it does not pull or push a release tag. Synthetic users, credentials, containers, and temporary volumes are removed by an EXIT trap.
 
