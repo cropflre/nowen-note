@@ -104,6 +104,8 @@ jobs:
           cd frontend && npx cap sync android
       - name: Install the pinned Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Verify Java Properties signing-secret escaping
+        run: node --test scripts/tests/release-cloud-android-signing.test.mjs
       - name: Inject signing material
         env:
           NOWEN_ANDROID_KEYSTORE_B64: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 }}
