@@ -75,6 +75,19 @@ test('FPK manifest uses fnpack-compatible quoted HTML and release version placeh
   assert.doesNotMatch(description, /v1\.5\.[23]/);
 });
 
+test('Docker freeze gate builds and upgrades the real v1.5.3 production image on the same volume', async () => {
+  const workflow = await read('.github/workflows/studio-production-docker-rc.yml');
+  const runner = await read('scripts/studio-rc-docker-run.sh');
+  assert.match(workflow, /ref: v1\.5\.3/);
+  assert.match(workflow, /APP_VERSION=1\.5\.4/);
+  assert.match(workflow, /RC_OLD_IMAGE:/);
+  assert.match(workflow, /RC_IMAGE:/);
+  assert.match(runner, /start "\$root\/data" "\$RC_OLD_IMAGE"/);
+  assert.match(runner, /start "\$root\/data" "\$RC_IMAGE"/);
+  assert.match(runner, /start "\$root\/restore" "\$RC_IMAGE"/);
+  assert.match(runner, /STUDIO_WAL_BACKUP_PASS/);
+});
+
 test('independently versioned frontend workspace remains unchanged', async () => {
   const frontend = await json('frontend/package.json');
   assert.equal(frontend.version, '0.0.0');
