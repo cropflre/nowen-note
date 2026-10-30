@@ -201,6 +201,9 @@ jobs:
           npm run rebuild:native
           npx electron-builder --config electron/builder.config.js --win --publish never
           npx electron-builder --config electron/builder.lite.config.js --win --publish never
+      - name: macOS packaging and native-module contracts
+        if: matrix.platform == 'mac'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
       - name: macOS Intel + Apple Silicon build-only packaging
         if: matrix.platform == 'mac'
         run: |
@@ -208,12 +211,42 @@ jobs:
           NOWEN_MAC_ARCH=x64 TARGET_ARCH=x64 npx electron-builder --config electron/builder.config.js --mac --publish never
           npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
           NOWEN_MAC_ARCH=arm64 TARGET_ARCH=arm64 npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Verify macOS update metadata and both architectures
+        if: matrix.platform == 'mac'
+        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+      - name: Upload unsigned macOS QA candidates
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-macos
+          path: |
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
       - name: Linux AppImage / deb build-only packaging
         if: matrix.platform == 'linux'
         run: |
           npm run test:linux-desktop
+          sudo apt-get update && sudo apt-get install -y desktop-file-utils
           npm run rebuild:native
           npx electron-builder --config electron/builder.config.js --linux --publish never
+          npm run verify:linux-desktop
+      - name: Verify Linux update metadata
+        if: matrix.platform == 'linux'
+        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+      - name: Upload unsigned Linux QA candidates
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-linux
+          path: |
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/latest-linux.yml
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify Windows Full and Lite update metadata against exact staged files
         if: matrix.platform == 'win'
         run: |
@@ -227,6 +260,14 @@ jobs:
             cp "dist-electron-lite/$file" windows-freeze/
           done
           node scripts/verify-release-update-assets.mjs local --dir windows-freeze --version 1.5.4
+      - name: Upload unsigned Windows Full/Lite QA candidates
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-windows
+          path: windows-freeze/*
+          if-no-files-found: error
+          retention-days: 7
 
   agent-browser:
     runs-on: ubuntu-latest
