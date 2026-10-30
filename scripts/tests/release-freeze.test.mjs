@@ -52,7 +52,10 @@ test('only the unified workflow can publish; legacy routes are fail-closed', asy
   assert.match(publisher, /exit 1/);
   assert.doesNotMatch(publisher, /docker\/login-action|release-github\.mjs publish|contents:\s*write/);
   const legacyBuild = await read('.github/workflows/release.yml');
-  assert.match(legacyBuild, /NOWEN_LEGACY_RELEASE_ASSETS_ENABLED == '1'/);
+  assert.match(legacyBuild, /name: Legacy Desktop Debug Build/);
+  assert.match(legacyBuild, /workflow_dispatch:/);
+  assert.doesNotMatch(legacyBuild, /tags:\s*\n\s*- ["']v/);
+  assert.doesNotMatch(legacyBuild, /release-assets|contents:\s*write/);
   assert.match(legacyBuild, /--publish never/);
   const cloudPublish = await read('.github/workflows/release-publish.yml');
   assert.match(cloudPublish, /release-cloud-ci\.mjs verify/);
