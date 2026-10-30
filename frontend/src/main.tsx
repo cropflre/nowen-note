@@ -9,27 +9,10 @@ import "./lib/noteTransferRefreshBridge";
 import "./lib/workspaceRefreshBridge";
 import "./i18n";
 // Must run before App and its import/export/editor schemas are evaluated.
-import "./lib/imageNodeTransformBootstrap";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
-import VoiceRecorderSheet from "./components/VoiceRecorderSheet";
 import Toaster from "./components/Toaster";
-import NoteIconBridge from "./components/NoteIconBridge";
-import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
-import MediaExperienceBridge from "./components/MediaExperienceBridge";
-import CameraCaptureBridge from "./components/CameraCaptureBridge";
-import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
-import ImageClipboardBridge from "./components/ImageClipboardBridge";
-import MarkdownMobileViewControlsBridge from "./components/MarkdownMobileViewControlsBridge";
-import DesktopUpdateCenter from "./components/DesktopUpdateCenter";
-import DockerUpdateCenter from "./components/DockerUpdateCenter";
-import TwoFactorLoginChallengeCenter from "./components/TwoFactorLoginChallengeCenter";
-import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
-import DeferredGlobalFeatureCentersMount from "./components/DeferredGlobalFeatureCentersMount";
-import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
-import InlineCommentBridge from "./components/InlineCommentBridge";
-import { isMobileLocalMode } from "./lib/mobileLocalMode";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -78,8 +61,18 @@ import { observeBootSplashReadiness, reportBootStage } from "./lib/bootSplash";
 
 reportBootStage("runtime");
 
-const App = React.lazy(() => import("./App"));
-const PublicNotebookView = React.lazy(() => import("./components/PublicNotebookView"));
+// The image transform schema patch must run before either private or public note
+// surfaces evaluate their editor/import schemas, but it must not inflate the login entry.
+const loadImageTransformBootstrap = () => import("./lib/imageNodeTransformBootstrap");
+const App = React.lazy(async () => {
+  await loadImageTransformBootstrap();
+  return import("./App");
+});
+const PublicNotebookView = React.lazy(async () => {
+  await loadImageTransformBootstrap();
+  return import("./components/PublicNotebookView");
+});
+const GlobalBridges = React.lazy(() => import("./components/GlobalBridges"));
 
 function reportBootError(source: string, error: unknown, fatal: boolean): void {
   try {
@@ -233,21 +226,9 @@ function renderApplication() {
           </ThemeProvider>
         ) : (
           <>
-            <NoteIconBridge />
-            <EmbedPasswordBridge />
-            <CameraCaptureBridge />
-            <VoiceRecorderSheet />
-            <MediaExperienceBridge />
-            <EditorImageTransformBridge />
-            <ImageClipboardBridge />
-            <MarkdownMobileViewControlsBridge />
-            <DesktopUpdateCenter />
-            <DockerUpdateCenter />
-            <TwoFactorLoginChallengeCenter />
-            <AndroidShareImportCenter />
-            <DeferredGlobalFeatureCentersMount />
-            <SiyuanRichTextCalloutBridge />
-            {!isMobileLocalMode() && <InlineCommentBridge />}
+            <React.Suspense fallback={<MainRouteFallback />}>
+              <GlobalBridges />
+            </React.Suspense>
             <React.Suspense fallback={<MainRouteFallback />}>
               <App />
             </React.Suspense>
