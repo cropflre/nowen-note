@@ -226,7 +226,7 @@ function renderApplication() {
           </ThemeProvider>
         ) : (
           <>
-            <React.Suspense fallback={<MainRouteFallback />}>
+            <React.Suspense fallback={null}>
               <GlobalBridges />
             </React.Suspense>
             <React.Suspense fallback={<MainRouteFallback />}>
