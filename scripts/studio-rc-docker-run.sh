@@ -3,6 +3,7 @@
 # destroys test users, JWTs and databases on exit. No release/deployment steps.
 set -euo pipefail
 : "${RC_IMAGE:?Must supply immutable candidate Docker image tag}"
+: "${RC_OLD_IMAGE:?Must supply the previous stable Docker image tag for upgrade testing}"
 root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/nowen-studio-rc.XXXXXX")"
 name="nowen-studio-rc-${GITHUB_RUN_ID:-local}-$$"
 port=45391
@@ -22,12 +23,13 @@ cleanup() {
 trap cleanup EXIT
 start() {
   local folder="$1"
+  local image="$2"
   docker run --detach --name "$name" \
     -p "127.0.0.1:$port:3001" -v "$folder:/app/data" \
     -e NODE_ENV=production -e PORT=3001 -e DB_PATH=/app/data/nowen-note.db \
     -e JWT_SECRET="$jwt" -e DISABLE_MDNS=1 \
     -e BACKUP_AUTO_ENABLED=false -e CALENDAR_EXPORT_TIMER_DISABLED=1 \
-    "$RC_IMAGE" > /dev/null
+    "$image" > /dev/null
   local healthy=0
   for i in $(seq 1 100); do
     if curl --silent --fail "$RC_BASE_URL/api/health" >/dev/null; then healthy=1; break; fi
@@ -41,8 +43,13 @@ start() {
   fi
 }
 stop() { docker rm -f "$name" >/dev/null; }
-start "$root/data"
+# Seed a real persistent database using the previous stable production image.
+start "$root/data" "$RC_OLD_IMAGE"
 node scripts/studio-rc-runtime-smoke.mjs seed
+stop
+# Upgrade only the image; keep the exact same bind-mounted data directory.
+start "$root/data" "$RC_IMAGE"
+node scripts/studio-rc-runtime-smoke.mjs verify
 docker exec --workdir /app/backend "$name" node -e "
   const DB=require('better-sqlite3'),db=new DB('/app/data/nowen-note.db');
   db.backup('/app/data/studio-rc-snapshot.db')
@@ -61,16 +68,18 @@ docker run --rm --entrypoint node --workdir /app/backend -v "$root/restore:/app/
   console.log('STUDIO_BACKUP_CONTENT_PASS');
 "
 stop
-start "$root/data"
+start "$root/data" "$RC_IMAGE"
 node scripts/studio-rc-runtime-smoke.mjs verify
 stop
-start "$root/restore"
+start "$root/restore" "$RC_IMAGE"
 node scripts/studio-rc-runtime-smoke.mjs verify
-echo "STUDIO_PRODUCTION_DOCKER_RC_PASS: image, REST/ACL, restart, WAL backup, independent recovery"
+echo "STUDIO_PRODUCTION_DOCKER_RC_PASS: v1.5.3-to-v1.5.4 image upgrade, REST/ACL, restart, WAL backup, independent recovery"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
     echo "### Nowen Studio production Docker RC"
-    echo "- Immutable image source: ${GITHUB_SHA:-local}"
+    echo "- Previous stable image: ${RC_OLD_IMAGE}"
+    echo "- Candidate image source: ${GITHUB_SHA:-local} (${RC_IMAGE})"
+    echo "- Same-volume v1.5.3 -> v1.5.4 container image upgrade: passed"
     echo "- Production auth and REST CRUD/CAS/history/ACL: passed"
     echo "- Actual container restart and WAL-safe independent SQLite restore: passed"
     echo "- NOT assessed: physical NAS/Android, real AI credentials, Electron app launch, notarization/signature, updates"
