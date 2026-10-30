@@ -23,8 +23,8 @@ const { parentPort, workerData } = require("worker_threads");
   try {
     const image = images.find((item) => item.is_primary()) || images[0];
     if (!image) {
-      const detail = decoderErrors.length ? `: ${decoderErrors.join("; ")}` : "";
-      throw new Error(`HEIF 文件没有可解码的图片${detail}`);
+      const detail = decoderErrors.length ? ": " + decoderErrors.join("; ") : "";
+      throw new Error("HEIF 文件没有可解码的图片" + detail);
     }
     const width = image.get_width();
     const height = image.get_height();
