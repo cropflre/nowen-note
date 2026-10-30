@@ -27,6 +27,16 @@ test('Android identity and versionCode advance beyond released v1.5.3', async ()
   assert.ok(Number.isSafeInteger(code) && code > 10509, 'must exceed published v1.5.3 code 10509');
 });
 
+test('source Xcode build configurations carry v1.5.4 defaults', async () => {
+  const project = await read('frontend/ios/App/App.xcodeproj/project.pbxproj');
+  const versions = [...project.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(match => match[1]);
+  assert.ok(versions.length >= 2);
+  assert.ok(versions.every(value => value === '1.5.4'));
+  const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = (\\d+);/g)].map(match => Number(match[1]));
+  assert.equal(codes.length, versions.length);
+  assert.ok(codes.every(value => value >= 10510));
+});
+
 test('Node 24 is used by the canonical GitHub-hosted build and publishing workflows', async () => {
   assert.equal((await read('.nvmrc')).trim(), '24.22.1');
   for (const path of ['.github/workflows/release-build.yml', '.github/workflows/release-publish.yml']) {
