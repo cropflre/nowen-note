@@ -63,7 +63,23 @@ jobs:
             exit 1
           fi
 
-          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          # Use the committed Xcode build number as the App Store Connect monotonic
+          # build identity. GitHub run numbers belong to different workflows and can
+          # be lower than a previously uploaded TestFlight build.
+          BUILD_NUMBER="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const project = fs.readFileSync("frontend/ios/App/App.xcodeproj/project.pbxproj", "utf8");
+          const values = [...project.matchAll(/CURRENT_PROJECT_VERSION\\s*=\\s*(\\d+);/g)].map((match) => Number(match[1]));
+          if (values.length < 2 || values.some((value) => !Number.isSafeInteger(value) || value !== values[0])) {
+            throw new Error("Xcode CURRENT_PROJECT_VERSION must be a consistent committed integer in every build configuration");
+          }
+          process.stdout.write(String(values[0]));
+          NODE
+          )"
+          if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid iOS build number: $BUILD_NUMBER" >&2
+            exit 1
+          fi
           echo "IOS_MARKETING_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IOS_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "Resolved iOS version: $VERSION ($BUILD_NUMBER)"

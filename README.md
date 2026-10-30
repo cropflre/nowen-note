@@ -35,7 +35,7 @@
 
 ## v1.5.3 更新亮点 · 2026-10-23
 
-**v1.5.3 的功能代码已进入 `main`。** 截至 2026-10-23，GitHub 上的 v1.5.3 Release 仍为**草稿**；以下是代码更新说明，**不表示所有客户端安装包已经公开发布**。正式版下载与各平台资产请以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
+**v1.5.3 是当前稳定正式版，已在 GitHub Releases 公开发布。** 下载安装包前请核对 [GitHub Release v1.5.3](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3) 的实际附件与设备架构。v1.5.4 仍处于发版前代码收尾和验收阶段，尚未发布。
 
 > [!IMPORTANT]
 > 升级前先完整备份数据库、附件及部署配置，并验证备份可恢复。**回滚客户端或 Docker 镜像不会自动回滚数据。**
@@ -395,7 +395,8 @@ nowen-note/
 - [邮件备份配置](./docs/backup-email-smtp.md)
 - [ARM64 部署](./docs/deploy-arm64.md)
 - [iOS 发布指南](./docs/iOS-Release.md)
-- [GitHub 桌面产物汇总与发布校验](./docs/releases/github-release-assets.md)
+- [Release Center 构建与发布职责](./docs/architecture/release-center.md)
+- [历史 GitHub 桌面产物汇总流程（非当前正式发版入口）](./docs/releases/github-release-assets.md)
 - [隐私策略](./docs/PRIVACY.md)
 - [浏览器剪藏扩展](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
 - OpenAPI：服务启动后访问 `/api/openapi.json`

@@ -24,7 +24,7 @@ class CloudGitHub extends GitHub {
   override async jobs() { return []; }
   override async artifacts() { return ["release-windows","release-docker-amd64","release-docker-arm64","release-upk","release-manifest"].map((name, index) => ({id:index+1,name,size:1,digest:`sha256:${sha}${sha.slice(0,24)}`,expired:false,verification:"not_downloaded" as const})); }
 }
-const input = {branch:"release/v1.5.4",version:"1.5.3",targets:["windows","upk"]};
+const input = {branch:"release/v1.5.4",version:"1.5.4",targets:["windows","upk"]};
 test("remote build pins source, adds Docker, preserves intent and never dispatches twice", async t => {
   const { store } = fixture(t); const github = new CloudGitHub();
   let cloud = new Cloud(store, github, root);

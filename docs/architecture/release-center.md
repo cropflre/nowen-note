@@ -8,6 +8,25 @@
 
 > 后续实现进展见文末 Phase 2A 补充和 [真实三平台调试验收](../qa/v1.5.2/release-center-remote-debug.md)；[Phase 2A 本地记录](../qa/v1.5.2/release-center-artifact-review.md)保留历史状态。
 
+## 2026-10-30：v1.5.4 正式发版职责（当前）
+ 
+ 本节为当前流程准则；下方 Phase 1/2A/2B 设计表格是历史审计，不代表 v1.5.4 仍沿用旧发布路径。
+
+| 工作流/入口 | 当前职责 | 是否能正式发布 |
+| --- | --- | --- |
+| `scripts/release.sh` | 调用 `release-cloud.mjs`，将固定分支 SHA、版本、目标派发到统一构建或发布工作流；本机不构建、不推 Tag、不上传二进制 | 否，属于安全编排入口 |
+| `release-build.yml` | 手动构建；验证精确 commit/version/targets，生成各平台候选 artifact、manifest 和校验数据 | 否，不创建 Tag、GitHub Release 或 Docker registry tag |
+| `release-publish.yml` | 重新核对成功构建 Run ID/attempt、commit SHA、版本确认和目标 channels；经过 `release-github` / `release-docker` / `release-testflight` 环境审批 | **是，唯一正式发布工作流** |
+| `release.yml` | 手动桌面调试构建；electron-builder 固定 `--publish never`。旧 `release-assets` Draft 收集仅在显式设置 `NOWEN_LEGACY_RELEASE_ASSETS_ENABLED=1` 时开放 | 默认否；不是 v1.5.4 正式路径 |
+| `publish.yml` | main 上的旧一键发布器已由 fail-closed 兼容入口替代 | 否 |
+| `ios-release.yml` | reusable/manual iOS 签名与 IPA 构建，只输出 artifact；TestFlight 上传归统一发布工作流 | 否 |
+| `microsoft-store-appx.yml` | 独立 AppX 候选打包和 manifest 校验 | 否，不自动提交 Partner Center |
+| `sync-gitee-release.yml` | GitHub Release 已正式发布后镜像允许的小文件 | 否，发布后的异步镜像 |
+
+**唯一正式路径：** `release-build.yml` → 人工复核候选产物 → `release-publish.yml`。不得用 Tag push、旧 `publish.yml`、旧 `release-assets` 或本地 legacy 脚本绕过该路径。v1.5.4 冻结期间不触发任何发布工作流。
+
+Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量 `NOWEN_ANDROID_CERT_SHA256` 校验证书 SHA-256；Java `keystore.properties` 的密码、Alias 等字段使用可往返的 Unicode 转义。仅 `apksigner verify` 成功不等于签名身份正确。
+
 日期：2026-10-16；开发基线：`release/v1.5.2`。首次审计 HEAD `a0f65787`；期间用户其他工作推进到 `7dcc450a`，本工具不修改、暂存或回退这些工作。任务源码取远端分支的固定完整 SHA，不使用当前工作区替代候选提交。新需求，没有需要编造的历史故障根因；目标是消除手工发布时对工作流、副作用和资产状态的判断负担。
 
 ## 真实发布职责

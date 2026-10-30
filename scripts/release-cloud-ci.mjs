@@ -43,6 +43,9 @@ async function plan() {
   const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
   if (gradle.match(/versionName\s+["']([^"']+)/)?.[1] !== input.version) throw Error('Android 版本不一致');
   if (input.targets.includes('android') && e.RC_ANDROID_SIGNING_READY !== 'true') throw Error('Android 签名 Secrets 不完整');
+  if (input.targets.includes('android') && !/^[a-f0-9]{64}$/.test((e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase())) {
+    throw Error('Android 正式构建需要仓库变量 NOWEN_ANDROID_CERT_SHA256（原签名证书 SHA-256）');
+  }
   if (input.targets.includes('ios') && e.RC_IOS_SIGNING_READY !== 'true') throw Error('iOS 签名 Secrets 不完整');
   if (input.targets.includes('macos') && e.RC_MAC_SIGNING_ENABLED === 'true' && e.RC_MAC_SIGNING_READY !== 'true') throw Error('macOS 签名/公证 Secrets 不完整');
   if (input.targets.includes('fpk') && (!/^https:\/\//.test(e.FNPACK_URL || '') || !/^[a-f0-9]{64}$/.test(e.FNPACK_SHA256 || ''))) throw Error('FPK 构建需要 FNPACK_URL 与 FNPACK_SHA256 仓库变量');
@@ -55,20 +58,36 @@ async function stageFiles(source, output, pattern) {
   if (!names.length) throw Error(`没有找到产物：${source}`);
   for (const name of names) { await fileDigest(join(source, name)); await copyFile(join(source, name), join(output, name)); }
 }
+export function escapeJavaProperty(value) {
+  return String(value).split("").map(char => /[A-Za-z0-9_./-]/.test(char)
+    ? char
+    : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+}
+
 async function androidSigning() {
   const password = e.NOWEN_ANDROID_KEYSTORE_PASSWORD, keyPassword = e.NOWEN_ANDROID_KEY_PASSWORD || password;
   if (!e.NOWEN_ANDROID_KEYSTORE_B64 || !password || !keyPassword || !e.NOWEN_ANDROID_KEY_ALIAS) throw Error('缺少 Android 发布签名 Secrets');
   await writeFile('frontend/android/app/cloud-release.keystore', Buffer.from(e.NOWEN_ANDROID_KEYSTORE_B64, 'base64'), { mode: 0o600 });
-  const escape = value => value.replace(/\\/g, '\\\\').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-  await writeFile('frontend/android/keystore.properties', `storeFile=app/cloud-release.keystore\nstorePassword=${escape(password)}\nkeyAlias=${escape(e.NOWEN_ANDROID_KEY_ALIAS)}\nkeyPassword=${escape(keyPassword)}\n`, { mode: 0o600 });
+  await writeFile('frontend/android/keystore.properties', `storeFile=app/cloud-release.keystore\nstorePassword=${escapeJavaProperty(password)}\nkeyAlias=${escapeJavaProperty(e.NOWEN_ANDROID_KEY_ALIAS)}\nkeyPassword=${escapeJavaProperty(keyPassword)}\n`, { mode: 0o600 });
 }
 async function androidStage() {
   const tools = (await readdir(join(e.ANDROID_HOME, 'build-tools'))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
   const dir = join(e.ANDROID_HOME, 'build-tools', tools);
   const apk = 'frontend/android/app/build/outputs/apk/release/app-release.apk';
   run(join(dir, 'apksigner'), ['verify', '--verbose', apk]);
+  const certificateOutput = run(join(dir, 'apksigner'), ['verify', '--print-certs', apk]);
+  const certificate = certificateOutput.match(/Signer #1 certificate SHA-256 digest:\s*([a-f0-9:]+)/i)?.[1]?.replace(/:/g, '').toLowerCase();
+  const expectedCertificate = (e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedCertificate) || certificate !== expectedCertificate) {
+    throw Error('Android APK signing certificate fingerprint does not match NOWEN_ANDROID_CERT_SHA256');
+  }
   const badging = run(join(dir, 'aapt'), ['dump', 'badging', apk]);
-  if (!badging.includes("name='com.nowen.note'") || !badging.includes(`versionName='${e.RC_VERSION}'`)) throw Error('Android APK 身份/版本不匹配');
+  const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
+  const expectedCode = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);
+  if (!Number.isSafeInteger(expectedCode) || !badging.includes("name='com.nowen.note'") ||
+      !badging.includes(`versionName='${e.RC_VERSION}'`) || !badging.includes(`versionCode='${expectedCode}'`)) {
+    throw Error('Android APK application ID / versionName / versionCode 不匹配');
+  }
   await mkdir('release-android', { recursive: true });
   await copyFile(apk, `release-android/Nowen-Note-${e.RC_VERSION}.apk`);
   const aab = 'frontend/android/app/build/outputs/bundle/release/app-release.aab';
@@ -83,14 +102,28 @@ async function dockerStage() {
   await mkdir('release-docker', { recursive: true });
   run('docker', ['run', '--rm', '--entrypoint', 'node', ref, '-e', "const Database=require('./backend/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close(); require('./backend/node_modules/sharp')({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer().catch(()=>process.exit(1));"]);
   run('docker', ['save', '-o', 'release-docker/image.tar', ref]);
-  await writeFile('release-docker/image.json', JSON.stringify({ ref, id: image.Id, arch: image.Architecture, sha: e.GITHUB_SHA, version: e.RC_VERSION }));
+  // Docker's image ID may be represented differently across runner image stores;
+  // pin the exact transferred archive rather than trusting cross-runner Id equality.
+  const archive = await fileDigest('release-docker/image.tar');
+  await writeFile('release-docker/image.json', JSON.stringify({ ref, id: image.Id, archiveSha256: archive.sha256, arch: image.Architecture, sha: e.GITHUB_SHA, version: e.RC_VERSION }));
 }
 async function loadImage(directory, version, sha, arch) {
   const image = await json(join(directory, 'image.json'));
   if (image.arch !== arch || image.sha !== sha || image.version !== version || image.ref !== `${CLOUD_REPO}:v${version}-${arch}` || !/^sha256:[a-f0-9]{64}$/.test(image.id)) throw Error('Docker 镜像记录不匹配');
+  const archive = await fileDigest(join(directory, 'image.tar'));
+  if (!/^[a-f0-9]{64}$/.test(image.archiveSha256 || '') || archive.sha256 !== image.archiveSha256) {
+    throw Error('Docker 镜像归档 SHA-256 不匹配');
+  }
   run('docker', ['load', '-i', join(directory, 'image.tar')]);
   const loaded = JSON.parse(run('docker', ['image', 'inspect', image.ref]))[0];
-  if (loaded.Id !== image.id || loaded.Architecture !== arch) throw Error('加载后的 Docker 镜像不匹配');
+  const labels = loaded.Config?.Labels || {};
+  // Validate provenance and runtime platform after importing the verified archive.
+  // Image Id equality alone is not portable across OCI/containerd Docker stores.
+  if (loaded.Architecture !== arch || loaded.Os !== 'linux' ||
+      labels['org.opencontainers.image.revision'] !== sha ||
+      labels['org.opencontainers.image.version'] !== version) {
+    throw Error('加载后的 Docker 镜像来源、架构或版本不匹配');
+  }
   return image;
 }
 async function nas() {

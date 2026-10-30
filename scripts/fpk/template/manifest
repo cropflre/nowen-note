@@ -1,7 +1,7 @@
 appname               = nowen-note
 version               = {{VERSION}}
 display_name          = 弄文笔记
-desc                  = <p>弄文笔记（Nowen Note）是一款开源、自托管的个人知识库与任务工作台。集 Markdown、富文本、思维导图、轻量表格、文件管理和 AI 问答于一体，部署在自己的 NAS，让记录、资料与任务有序沉淀，数据自己掌控。</p><h2>🚀 v1.5.2 正式版</h2><p><strong>2026 年 10 月 16 日 · 功能升级与稳定性更新</strong></p><ul><li><strong>文件管理</strong>：新增文件夹导航、标签、智能文件夹、批量整理和文件回收站，支持已有附件复用、AI 整理建议与元数据语义搜索。</li><li><strong>AI 与 MCP</strong>：扩展知识树、任务、文件及自动化管理能力，重要操作提供权限校验、预览与确认。</li><li><strong>任务中心</strong>：支持 AI 生成任务、今日完成清单、任务树归档、详情存为笔记及 Excel / Markdown 导出。</li><li><strong>多端同步</strong>：细化单篇笔记同步状态，改善离线编辑、目录同步和冲突恢复，修复部分 Android 笔记打开异常。</li><li><strong>编辑体验</strong>：新增纯文本笔记、中文排版和阅读位置记忆，优化 Markdown、Mermaid 与移动端 AI 助手。</li><li><strong>备份与安全</strong>：支持自动备份时区设置，加强加密笔记、附件权限及删除恢复保护，改善 NAS 启动与登录体验。</li></ul><p>AI 文件整理需在支持的平台与权限范围内使用，确认后执行；在线模型可能接收文件元数据，不上传文件本体。</p><p><strong>升级提醒：</strong>请先备份数据库和附件目录，并确认数据已持久化。回滚程序版本不等于回滚数据库。</p><p><a href="https://github.com/cropflre/nowen-note/blob/main/CHANGELOG.md">完整更新日志</a> · <a href="https://nowen.cn/">官方网站</a></p>
+desc                  = `<h2>Nowen Note v1.5.4</h2><p>开源、自托管的个人知识库与任务工作台，支持笔记、文件、任务、AI 和多端同步。</p><p>升级前请备份数据库和附件，确认持久化目录已正确挂载。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note">项目主页</a></p>`
 arch                  = x86_64
 source                = thirdparty
 maintainer            = Nowen

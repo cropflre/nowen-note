@@ -170,19 +170,6 @@ export default defineConfig(({ mode }) => ({
         // framer-motion 和 JSZip/Turndown，登录页只要使用动画就会把低频工具一起下载。
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
-          // Keep the full emoji catalog out of the application entry chunk.
-          'vendor-tiptap-emoji': ['@tiptap/extension-emoji'],
-          'vendor-tiptap': [
-            '@tiptap/react',
-            '@tiptap/starter-kit',
-            '@tiptap/extension-code-block-lowlight',
-            '@tiptap/extension-highlight',
-            '@tiptap/extension-image',
-            '@tiptap/extension-placeholder',
-            '@tiptap/extension-task-item',
-            '@tiptap/extension-task-list',
-            '@tiptap/extension-underline',
-          ],
           'vendor-ui': [
             'framer-motion',
             'lucide-react',
@@ -191,11 +178,6 @@ export default defineConfig(({ mode }) => ({
           'vendor-i18n': [
             'i18next',
             'react-i18next',
-          ],
-          'vendor-markdown': [
-            'react-markdown',
-            'remark-gfm',
-            'turndown',
           ],
           'vendor-archive': ['jszip'],
           'vendor-date': ['date-fns'],

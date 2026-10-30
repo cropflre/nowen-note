@@ -6,6 +6,7 @@ on:
       - release/v1.5.0
       - release/v1.5.1
       - release/v1.5.2
+      - release/v1.5.4
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
@@ -26,12 +27,20 @@ on:
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
       - "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts"
       - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
+      - "package.json"
+      - "package-lock.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/android/app/build.gradle"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/v1.5.4-release-freeze-ci.yml"
       - ".github/workflows/android-local-first-ci.yml"
   pull_request:
     branches:
       - main
       - release/v1.5.1
       - release/v1.5.2
+      - release/v1.5.4
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
@@ -52,6 +61,13 @@ on:
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
       - "frontend/src/lib/__tests__/mobileSignedInTreeCreate.test.ts"
       - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
+      - "package.json"
+      - "package-lock.json"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/android/app/build.gradle"
+      - "frontend/src/main.tsx"
+      - ".github/workflows/v1.5.4-release-freeze-ci.yml"
       - ".github/workflows/android-local-first-ci.yml"
   workflow_dispatch:
 
@@ -98,5 +114,8 @@ jobs:
           src/lib/__tests__/nativeTreeSchemaMigration.test.ts
           src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts
           src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts
+          src/lib/__tests__/ugreenAndroidLoginContract.test.ts
+          src/lib/__tests__/androidNativeHttpBridge.test.ts
+          src/components/__tests__/AndroidAccountRail.test.tsx
           src/components/__tests__/AccountLoginHistory.test.tsx
           src/components/__tests__/AccountLoginHistoryServerEdit.test.tsx

@@ -1,0 +1,19 @@
+# The older one-shot publisher was introduced on main during v1.5.3.
+# The supported v1.5.4 path is release-build.yml -> release-publish.yml.
+# Keep this filename reserved to prevent the legacy publisher from surviving
+# a merge and publishing the same version through a second, unverified path.
+name: Legacy Publish Disabled
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disabled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain the supported release procedure
+        run: |
+          echo "Legacy publish.yml is disabled. Use Unified Release Build and Publish Verified Release after manual approval." >&2
+          exit 1

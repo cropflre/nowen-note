@@ -1,5 +1,8 @@
 # GitHub 内汇总桌面产物与发布校验
 
+> **历史流程 / v1.5.4 起不作为正式发版入口。** 本文描述旧版 Tag push → `release.yml` → `release-assets` 的桌面产物汇总。当前 `release.yml` 已取消自动 Tag 构建；旧 `release-assets` 收集器默认 fail-closed，只有显式设置 `NOWEN_LEGACY_RELEASE_ASSETS_ENABLED=1` 才能启用。Nowen Note v1.5.4 唯一正式发布路径是 `release-build.yml` 构建候选产物，再由人工确认后运行 `release-publish.yml`。请勿照本文旧命令创建 Tag 或 Draft。
+
+
 macOS 包一直由 GitHub Actions 构建。新的发布流程把桌面 CI 产物的汇总上传、完整远端更新校验也放到 GitHub，避免大文件经过维护者的 WSL 下载、上传、再下载。
 
 ## 直接使用 GitHub 打桌面包

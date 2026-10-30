@@ -15,10 +15,15 @@ process.env.FRONTEND_DIST = path.resolve("../frontend/dist");
 process.env.JWT_SECRET = "isolated-assets-qa-signing-secret-not-production";
 
 await import("../src/runtime/knowledge-tree-migration-bootstrap.ts");
-const { getDb } = await import("../src/db/schema.ts");
+const dbModule = await import("../src/db/schema.ts");
+// Node 24 + tsx may expose transpiled CommonJS exports under default.
+const getDb = dbModule.getDb ?? dbModule.default?.getDb;
+if (typeof getDb !== "function") throw new Error("Assets QA database module does not export getDb");
 const { default: bcrypt } = await import("bcryptjs");
 const { default: sharp } = await import("sharp");
-const { getAttachmentsDir } = await import("../src/routes/attachments.ts");
+const attachmentModule = await import("../src/routes/attachments.ts");
+const getAttachmentsDir = attachmentModule.getAttachmentsDir ?? attachmentModule.default?.getAttachmentsDir;
+if (typeof getAttachmentsDir !== "function") throw new Error("Assets QA attachments module does not export getAttachmentsDir");
 const db = getDb();
 const owner = "assets-qa-user";
 db.prepare("INSERT INTO users (id, username, passwordHash, role) VALUES (?, 'assets_qa', ?, 'admin')")

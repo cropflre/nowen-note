@@ -1,7 +1,14 @@
 // Deterministic loopback provider for the isolated QA server only, never production.
 import http from "node:http";
-import { getDb } from "../src/db/schema.ts";
-import { setUserAISettings } from "../src/services/user-ai-settings.ts";
+// Node 24 + tsx can expose transpiled CommonJS exports through a default namespace.
+// Keep this isolated QA provider compatible with either loader representation.
+const dbModule = await import("../src/db/schema.ts");
+const settingsModule = await import("../src/services/user-ai-settings.ts");
+const getDb = dbModule.getDb ?? dbModule.default?.getDb;
+const setUserAISettings = settingsModule.setUserAISettings ?? settingsModule.default?.setUserAISettings;
+if (typeof getDb !== "function" || typeof setUserAISettings !== "function") {
+  throw new Error("Asset AI QA provider dependencies are unavailable");
+}
 
 export async function installAssetAIQA(userId) {
   const server = http.createServer(async (request,response) => {

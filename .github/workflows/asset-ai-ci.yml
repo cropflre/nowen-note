@@ -92,7 +92,8 @@ jobs:
       - run: npm --prefix frontend run lint:baseline
       - run: npm --prefix frontend run build:web
       - run: npm --prefix frontend run verify:bundle
-      - run: npm install --prefix frontend --no-save --no-package-lock @playwright/test@1.48.2
+      # 沿用 frontend/package-lock 的 @playwright/test（1.63.x）；钉 1.48.2 会让
+      # 新版 runner 上的浏览器与系统依赖安装失败。
       - run: cd frontend && npx playwright install --with-deps chromium
       - name: Real app AI organization and semantic metadata search
         working-directory: frontend

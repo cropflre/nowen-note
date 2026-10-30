@@ -39,6 +39,8 @@ jobs:
           node --check electron/storeIdentity.js
           node --check electron/updater.js
           node --check electron/preload.js
+      - name: Install root dependencies for Store/NSIS contract fixtures
+        run: npm ci
       - name: Store/NSIS packaging isolation and runtime tests
         run: npm run test:microsoft-store
       - name: Install frontend dependencies for Store UI type-check
@@ -66,6 +68,10 @@ jobs:
         with:
           node-version: '24.22.1'
           cache: 'npm'
+      # The Store config imports builder-util through electron-builder.
+      # CI starts from a clean checkout: install dependencies before loading it.
+      - name: Install root dependencies
+        run: npm ci
       - name: Validate Partner Center identity before heavy build
         shell: pwsh
         run: |
@@ -75,8 +81,6 @@ jobs:
         env:
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: node scripts/release-cloud-ci.mjs prepare
-      - name: Install root dependencies
-        run: npm ci
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci

@@ -22,7 +22,7 @@ export function parseArgs(args) {
 export async function main(args) {
   const options = parseArgs(args);
   if (options.help || args.length === 0) {
-    console.log(`GitHub Actions 发版入口（本机不构建、不改版本、不推 Tag、不上传产物）\n\n构建：bash scripts/release.sh --branch release/v1.5.4 --version 1.5.3 --target pc,android,docker --wait\n发布：bash scripts/release.sh --branch release/v1.5.4 --publish-run RUN_ID --attempt 1 --version 1.5.3 --channels github,docker --confirm 1.5.3\n\n--target: pc / windows / macos / linux / android / ios / store / docker / fpk / upk / clipper / all\n--sha: 固定已提交且推送的分支 HEAD；省略则查询远端\n--request-id: 请求 UUID，重复调用只跟踪同一远端任务\n--wait: 等待远端结果，关闭本机不影响构建\n--dry-run: 只显示请求，不触发 Actions\n版本必须已经提交；Store/NAS 商店上架仍由平台单独处理。`);
+    console.log(`GitHub Actions 发版入口（本机不构建、不改版本、不推 Tag、不上传产物）\n\n构建：bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc,android,docker --wait\n发布：bash scripts/release.sh --branch release/v1.5.4 --publish-run RUN_ID --attempt 1 --version 1.5.4 --channels github,docker --confirm 1.5.4\n\n--target: pc / windows / macos / linux / android / ios / store / docker / fpk / upk / clipper / all\n--sha: 固定已提交且推送的分支 HEAD；省略则查询远端\n--request-id: 请求 UUID，重复调用只跟踪同一远端任务\n--wait: 等待远端结果，关闭本机不影响构建\n--dry-run: 只显示请求，不触发 Actions\n版本必须已经提交；Store/NAS 商店上架仍由平台单独处理。`);
     return;
   }
   const requestId = (options.id || randomUUID()).toLowerCase();
