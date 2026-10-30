@@ -55,18 +55,29 @@ async function stageFiles(source, output, pattern) {
   if (!names.length) throw Error(`没有找到产物：${source}`);
   for (const name of names) { await fileDigest(join(source, name)); await copyFile(join(source, name), join(output, name)); }
 }
+export function escapeJavaProperty(value) {
+  return String(value).split("").map(char => /[A-Za-z0-9_./-]/.test(char)
+    ? char
+    : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+}
+
 async function androidSigning() {
   const password = e.NOWEN_ANDROID_KEYSTORE_PASSWORD, keyPassword = e.NOWEN_ANDROID_KEY_PASSWORD || password;
   if (!e.NOWEN_ANDROID_KEYSTORE_B64 || !password || !keyPassword || !e.NOWEN_ANDROID_KEY_ALIAS) throw Error('缺少 Android 发布签名 Secrets');
   await writeFile('frontend/android/app/cloud-release.keystore', Buffer.from(e.NOWEN_ANDROID_KEYSTORE_B64, 'base64'), { mode: 0o600 });
-  const escape = value => value.replace(/\\/g, '\\\\').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-  await writeFile('frontend/android/keystore.properties', `storeFile=app/cloud-release.keystore\nstorePassword=${escape(password)}\nkeyAlias=${escape(e.NOWEN_ANDROID_KEY_ALIAS)}\nkeyPassword=${escape(keyPassword)}\n`, { mode: 0o600 });
+  await writeFile('frontend/android/keystore.properties', `storeFile=app/cloud-release.keystore\nstorePassword=${escapeJavaProperty(password)}\nkeyAlias=${escapeJavaProperty(e.NOWEN_ANDROID_KEY_ALIAS)}\nkeyPassword=${escapeJavaProperty(keyPassword)}\n`, { mode: 0o600 });
 }
 async function androidStage() {
   const tools = (await readdir(join(e.ANDROID_HOME, 'build-tools'))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
   const dir = join(e.ANDROID_HOME, 'build-tools', tools);
   const apk = 'frontend/android/app/build/outputs/apk/release/app-release.apk';
   run(join(dir, 'apksigner'), ['verify', '--verbose', apk]);
+  const certificateOutput = run(join(dir, 'apksigner'), ['verify', '--print-certs', apk]);
+  const certificate = certificateOutput.match(/Signer #1 certificate SHA-256 digest:\\s*([a-f0-9:]+)/i)?.[1]?.replace(/:/g, '').toLowerCase();
+  const expectedCertificate = (e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedCertificate) || certificate !== expectedCertificate) {
+    throw Error('Android APK signing certificate fingerprint does not match NOWEN_ANDROID_CERT_SHA256');
+  }
   const badging = run(join(dir, 'aapt'), ['dump', 'badging', apk]);
   if (!badging.includes("name='com.nowen.note'") || !badging.includes(`versionName='${e.RC_VERSION}'`)) throw Error('Android APK 身份/版本不匹配');
   await mkdir('release-android', { recursive: true });
