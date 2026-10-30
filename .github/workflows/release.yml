@@ -1,13 +1,42 @@
-# Legacy desktop debug builds only. Production release publishing is owned by
-# release-build.yml (build-only candidates) and release-publish.yml (verified promotion).
-# This workflow is manual-only: it never reacts to tags and never creates a Draft/Release.
-# electron-builder always uses --publish never.
+# 三平台构建；GitHub EXE 直发与 Microsoft Store 独立分发。
+#
+# 发布职责约束：
+#   - v1.5.4 正式发布统一使用 release-build.yml -> release-publish.yml；
+#   - 旧版 release-assets Draft 收集入口默认关闭，需显式设置 NOWEN_LEGACY_RELEASE_ASSETS_ENABLED=1 才能临时使用；
+#   - 仅手动调试构建；不再由 Tag push 自动重复构建正式候选；
+#   - workflow_dispatch 默认仅调试；release-assets 模式在 GitHub 内汇总同 Tag 产物并校验；
+#   - scripts/release.sh 创建 Draft，校对 CI 回执后决定是否转正式；CI 不发布正式版本；
+#   - electron-builder 始终 --publish never，避免多发布者并发写 Release。
 
-name: Legacy Desktop Debug Build
-run-name: Manual desktop debug build ${{ github.ref_name }}
+name: Build & Release
+run-name: ${{ inputs.mode == 'release-assets' && format('Release assets {0}', inputs.request_id) || github.event.head_commit.message || github.ref_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Debug build or collect existing tag artifacts into Draft
+        type: choice
+        options: [debug, release-assets]
+        default: debug
+      source_run_id:
+        description: Existing release.yml tag-push build run ID (release-assets only)
+        type: string
+      request_id:
+        description: Unique local release request UUID (release-assets only)
+        type: string
+      desktop:
+        description: Collect both macOS architectures
+        type: boolean
+        default: true
+      windows:
+        description: Replace Windows Full/Lite candidates with same-tag CI assets
+        type: boolean
+        default: true
+      linux:
+        description: Collect Linux x64 AppImage and Debian packages
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,6 +44,7 @@ permissions:
 
 jobs:
   build:
+    if: inputs.mode == 'debug'
     strategy:
       fail-fast: false
       matrix:
@@ -238,4 +268,40 @@ jobs:
             dist-electron/*.blockmap
             dist-electron/latest*.yml
           if-no-files-found: ignore
+          retention-days: 14
+
+  release-assets:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release-assets' && startsWith(github.ref, 'refs/tags/v') && vars.NOWEN_LEGACY_RELEASE_ASSETS_ENABLED == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Collect same-tag assets and verify Draft in GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_REQUEST_ID: ${{ inputs.request_id }}
+          COLLECT_DESKTOP: ${{ inputs.desktop }}
+          COLLECT_WINDOWS: ${{ inputs.windows }}
+          COLLECT_LINUX: ${{ inputs.linux }}
+        run: node scripts/release-ci-assets.mjs collect
+      - name: Upload CI verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verification-${{ inputs.request_id }}
+          path: ${{ runner.temp }}/nowen-release-verification.json
+          if-no-files-found: error
+          overwrite: true
           retention-days: 14
