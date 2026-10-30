@@ -146,12 +146,13 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel";
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
   contentFormat?: "plaintext";
   sheetData?: unknown;
+  excelData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   if (input.parentId !== null) {

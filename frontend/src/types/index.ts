@@ -244,7 +244,7 @@ export interface Tag {
 
 export interface SearchResult {
   /** Unified search resource discriminator. Older servers may omit it, which means note. */
-  resourceType?: "note" | "mindmap" | "sheet";
+  resourceType?: "note" | "mindmap" | "sheet" | "excel";
   id: string;
   title: string;
   notebookId: string;
