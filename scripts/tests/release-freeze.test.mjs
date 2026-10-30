@@ -32,7 +32,7 @@ test('source Xcode build configurations carry v1.5.4 defaults', async () => {
   const versions = [...project.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(match => match[1]);
   assert.ok(versions.length >= 2);
   assert.ok(versions.every(value => value === '1.5.4'));
-  const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = (\\d+);/g)].map(match => Number(match[1]));
+  const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = ([0-9]+);/g)].map(match => Number(match[1]));
   assert.equal(codes.length, versions.length);
   assert.ok(codes.every(value => value >= 10510));
 });
