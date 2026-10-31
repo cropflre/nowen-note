@@ -450,6 +450,16 @@ function AboutPanel() {
             {t('about.website')}
             <ExternalLink size={11} />
           </a>
+          <a
+            href="https://apps.microsoft.com/detail/9MZ7Z6S39LL3"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+          >
+            <Download size={12} />
+            {t('about.microsoftStoreDownload')}
+            <ExternalLink size={11} />
+          </a>
         </div>
       </div>
 
