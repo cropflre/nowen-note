@@ -9,7 +9,9 @@ import { pathToFileURL } from "node:url";
 import { createServer, type ViteDevServer } from "vite";
 
 const root = path.resolve("..");
-const electron = createRequire(import.meta.url)("electron") as string;
+const runtime = process.env.NOWEN_MARKDOWN_TEST_RUNTIME === "node"
+  ? process.execPath
+  : createRequire(import.meta.url)("electron") as string;
 const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 const test = base.extend<{ server: string }>({
   server: async ({ browserName }, provide) => {
@@ -27,7 +29,7 @@ const test = base.extend<{ server: string }>({
         });
       });
       const server = `http://127.0.0.1:${port}`;
-      backend = spawn(electron, ["--import", pathToFileURL(path.join(root, "backend/node_modules/tsx/dist/loader.mjs")).href, path.join(root, "backend/tests/task-composer-browser-server.ts")], {
+      backend = spawn(runtime, ["--import", pathToFileURL(path.join(root, "backend/node_modules/tsx/dist/loader.mjs")).href, path.join(root, "backend/tests/task-composer-browser-server.ts")], {
         cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", TASK_COMPOSER_PROFILE: directory, FRONTEND_DIST: frontend, PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"],
       });
       backend.stdout?.on("data", chunk => { logs += chunk; }); backend.stderr?.on("data", chunk => { logs += chunk; });
