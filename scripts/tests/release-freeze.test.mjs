@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 
 const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const read = path => readFile(resolve(root, path), 'utf8');
@@ -54,6 +56,27 @@ test('Node 24 is used by the canonical GitHub-hosted build and publishing workfl
     const workflow = await read(path);
     assert.match(workflow, /node-version:\s*['"]24\.22\.1['"]/);
     assert.match(workflow, /workflow_dispatch:/);
+  }
+});
+
+test('macOS build steps omit signing credentials for unsigned candidates and retain them for signed builds', {skip:process.platform==='win32'}, async t => {
+  const workflow = createRequire(import.meta.url)('js-yaml').load(await read('.github/workflows/release-center-candidate.yml'));
+  const steps = workflow.jobs.build.steps.filter(step => ['Build macOS Intel', 'Build macOS Apple Silicon'].includes(step.name));
+  assert.equal(steps.length, 2);
+  const directory = await mkdtemp(resolve(tmpdir(), 'nowen-mac-signing-env-'));
+  t.after(() => rm(directory, {recursive:true,force:true}));
+  const bin = resolve(directory, 'bin');
+  await mkdir(bin);
+  const keys = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
+  await writeFile(resolve(bin, 'npm'), `#!${process.execPath}\n`, {mode:0o755});
+  await writeFile(resolve(bin, 'npx'), `#!${process.execPath}\nconst keys=${JSON.stringify(keys)};const values=Object.fromEntries(keys.filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));console.log(JSON.stringify(values));if(Object.values(values).some(value=>value===''))process.exit(1);\n`, {mode:0o755});
+  for (const step of steps) for (const signing of [false, true]) {
+    const credentials = Object.fromEntries(keys.map(key => [key, signing ? 'fixture' : '']));
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      cwd:root, encoding:'utf8', env:{...process.env,...credentials,CSC_IDENTITY_AUTO_DISCOVERY:String(signing),PATH:`${bin}:${process.env.PATH}`},
+    });
+    assert.equal(result.status, 0, `${step.name}: ${result.stderr} ${result.stdout}`);
+    assert.deepEqual(JSON.parse(result.stdout), signing ? credentials : {});
   }
 });
 
