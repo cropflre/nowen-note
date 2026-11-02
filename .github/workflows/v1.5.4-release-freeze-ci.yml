@@ -1,0 +1,319 @@
+name: v1.5.4 Release Freeze CI
+
+# Tests and build-only smoke. Never creates tags, drafts, releases, or registry tags.
+on:
+  pull_request:
+    branches: [release/v1.5.4]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-freeze-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci --ignore-scripts
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Version, Android signing, and single publisher contracts
+        run: node --test scripts/tests/release-freeze.test.mjs scripts/tests/release-cloud.test.mjs scripts/tests/release-cloud-android-signing.test.mjs
+      - name: Legacy update contracts and Store compatibility
+        run: npm run test:update-release && npm run test:microsoft-store
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      # The historical v1.5.0 source commit is used by the real upgrade/restore
+      # test; fetch complete refs so git archive can access that immutable baseline.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm --prefix backend run build:tsc
+      - run: npm --prefix backend run build
+      - name: Full backend regression suite
+        run: npm --prefix backend test
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # The created-at UI contract is tested in the product's primary UTC+8 locale.
+    env:
+      TZ: Asia/Shanghai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - name: Full React 19 / editor / Skills regression suite
+        run: npm --prefix frontend run test:run
+      - name: Typecheck and Vite production build
+        run: npm --prefix frontend run build
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      # Install cmdline-tools and accept licenses, but skip the removed legacy
+      # SDK package "tools"; sdkmanager remains on PATH for pinned packages below.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
+      - run: cd frontend && npx cap sync android
+      - name: Unsigned QA APK; never uses production signing material
+        working-directory: frontend/android
+        run: bash gradlew --no-daemon assembleDebug
+      - name: Validate QA APK identity and monotonic version
+        run: |
+          apk=frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          test "$(apkanalyzer manifest application-id "$apk")" = "com.nowen.note"
+          test "$(apkanalyzer manifest version-name "$apk")" = "1.5.4"
+          code=$(apkanalyzer manifest version-code "$apk")
+          test "$code" -gt 10509
+
+  docker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build architecture-specific image (no push)
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker buildx build --load --platform "linux/$ARCH" \
+            --tag "cropflre/nowen-note:v1.5.4-$ARCH" \
+            --tag "nowen-freeze:$GITHUB_SHA-$ARCH" \
+            --build-arg APP_VERSION=1.5.4 --build-arg "VCS_REF=$GITHUB_SHA" .
+          docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-plugin-artifacts.cjs
+          docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-sqlite-vec.cjs
+      - name: Stage immutable Docker image and verify native runtime
+        env:
+          RC_ARCH: ${{ matrix.arch }}
+          RC_VERSION: 1.5.4
+        run: node scripts/release-cloud-ci.mjs docker-stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-docker-${{ matrix.arch }}
+          path: release-docker/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  nas:
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-docker-*
+          path: cloud-artifacts
+      - name: Validate pinned fnpack source before NAS package build
+        env:
+          FNPACK_URL: ${{ vars.FNPACK_URL || 'https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64' }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 || '72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1' }}
+        run: |
+          test -n "$FNPACK_URL"
+          [[ "$FNPACK_URL" == https://* ]]
+          [[ "$FNPACK_SHA256" =~ ^[a-f0-9]{64}$ ]]
+      - name: Build FPK and UPK from this run's verified amd64/arm64 images
+        env:
+          RC_VERSION: 1.5.4
+          RC_TARGETS: '["fpk","upk"]'
+          FNPACK_URL: ${{ vars.FNPACK_URL || 'https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64' }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 || '72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1' }}
+        run: node scripts/release-cloud-ci.mjs nas
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-fpk
+          path: release-fpk/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-upk
+          path: release-upk/*
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: win }
+          - { os: macos-latest, platform: mac }
+          - { os: ubuntu-latest, platform: linux }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm run test:desktop-native
+      - run: npm run fetch:node
+      - run: npm run build:all
+      - name: Windows Full / Lite build-only packaging
+        if: matrix.platform == 'win'
+        run: |
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --win --publish never
+          npx electron-builder --config electron/builder.lite.config.js --win --publish never
+      - name: macOS packaging and native-module contracts
+        if: matrix.platform == 'mac'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+      - name: macOS Intel + Apple Silicon build-only packaging
+        if: matrix.platform == 'mac'
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          NOWEN_MAC_ARCH=x64 TARGET_ARCH=x64 npx electron-builder --config electron/builder.config.js --mac --publish never
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          NOWEN_MAC_ARCH=arm64 TARGET_ARCH=arm64 npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Verify macOS update metadata and both architectures
+        if: matrix.platform == 'mac'
+        run: |
+          for arch in x64 arm64; do
+            test -s "dist-electron/Nowen-Note-1.5.4-$arch.dmg"
+            test -s "dist-electron/Nowen-Note-1.5.4-$arch.zip"
+          done
+          test -s dist-electron/latest-mac.yml
+          node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+      - name: Upload unsigned macOS QA candidates
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-macos
+          path: |
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Linux AppImage / deb build-only packaging
+        if: matrix.platform == 'linux'
+        run: |
+          npm run test:linux-desktop
+          sudo apt-get update && sudo apt-get install -y desktop-file-utils
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --linux --publish never
+          npm run verify:linux-desktop
+      - name: Verify Linux update metadata
+        if: matrix.platform == 'linux'
+        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+      - name: Upload unsigned Linux QA candidates
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-linux
+          path: |
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/latest-linux.yml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Verify Windows Full and Lite update metadata against exact staged files
+        if: matrix.platform == 'win'
+        run: |
+          mkdir -p windows-freeze
+          for file in Nowen-Note-1.5.4-setup.exe Nowen-Note-1.5.4-portable.exe Nowen-Note-1.5.4-setup.exe.blockmap latest.yml; do
+            test -f "dist-electron/$file"
+            cp "dist-electron/$file" windows-freeze/
+          done
+          for file in Nowen-Note-Lite-1.5.4-setup.exe Nowen-Note-Lite-1.5.4-portable.exe Nowen-Note-Lite-1.5.4-setup.exe.blockmap latest-lite.yml; do
+            test -f "dist-electron-lite/$file"
+            cp "dist-electron-lite/$file" windows-freeze/
+          done
+          node scripts/verify-release-update-assets.mjs local --dir windows-freeze --version 1.5.4
+      - name: Upload unsigned Windows Full/Lite QA candidates
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-freeze-windows
+          path: windows-freeze/*
+          if-no-files-found: error
+          retention-days: 7
+
+  store:
+    uses: ./.github/workflows/microsoft-store-appx.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      artifact_name: release-freeze-store-appx
+
+  agent-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm --prefix backend run build
+      - run: npm --prefix frontend run build
+      - working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Notebook Agent and real browser save / reload regression
+        working-directory: frontend
+        env: { NOWEN_AGENT_TEST_RUNTIME: node }
+        run: npx playwright test --config playwright.agent.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: release-freeze-agent-browser-evidence
+          path: docs/qa/artifacts/agent
+          if-no-files-found: ignore
+          retention-days: 7

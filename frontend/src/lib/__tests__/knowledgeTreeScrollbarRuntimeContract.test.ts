@@ -8,10 +8,17 @@ function source(relativeUrl: string): string {
 describe("knowledge tree scrollbar runtime contract", () => {
   it("installs the bridge before the application renders", () => {
     const main = source("../../main.tsx");
-    expect(main).toContain('import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge"');
+    const runtime = source("../coreRuntimeInstallers.ts");
     const install = 'installOptionalRuntime("knowledge-tree-scrollbar", installKnowledgeTreeScrollbarBridge);';
-    expect(main).toContain(install);
-    expect(main.indexOf(install)).toBeLessThan(main.indexOf("ReactDOM.createRoot(root).render("));
+    // The startup installer was split into a deferred chunk to keep the login entry small.
+    // Still require the bridge to be installed before rendering any application route.
+    expect(runtime).toContain('import { installKnowledgeTreeScrollbarBridge } from "./knowledgeTreeScrollbarBridge"');
+    expect(runtime).toContain(install);
+    expect(main).toContain('import("./lib/coreRuntimeInstallers")');
+    expect(main).toContain("installCoreRuntime(installOptionalRuntime, reportBootError);");
+    expect(main.indexOf("installCoreRuntime(installOptionalRuntime, reportBootError);"))
+      .toBeLessThan(main.indexOf("() => renderApplication(),"));
+    expect(main).toContain("if (!coreRuntimeInstalled) {");
   });
 
   it("targets the real desktop tree scroll element and hides the unreliable native overlay", () => {

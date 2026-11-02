@@ -127,7 +127,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`editor Agent ${
   const response = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Agent test note", notebookId: books[0].id, contentFormat: format, content, contentText: "Agent original sentence Keep link" } });
   expect(response.ok()).toBe(true); const note = await response.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_browser");
   await page.locator("input[type=password]").fill("agent-browser-test-password");
@@ -200,7 +200,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`AI assistant en
   const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Assistant layout review", notebookId: books[0].id, contentFormat: format, content: format === "markdown" ? "" : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }), contentText: "" } });
   expect(created.ok()).toBe(true); const note = await created.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("assistant_ux");
   await page.locator("input[type=password]").fill("assistant-ux-test-password");
@@ -289,7 +289,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`live model opti
   const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "中文优化验收", notebookId: books[0].id, contentFormat: format, content } });
   expect(created.ok()).toBe(true); const note = await created.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_natural");
   await page.locator("input[type=password]").fill("agent-natural-test-password");
@@ -342,7 +342,7 @@ test("existing Q&A history and streaming survive Agent tab switches and process 
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_chat");
   await page.locator("input[type=password]").fill("agent-chat-test-password");
@@ -395,7 +395,7 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   const originalCount = (await noteList()).length;
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("workflow_browser");
   await page.locator("input[type=password]").fill("workflow-browser-test-password");
@@ -405,7 +405,7 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   const panel = page.getByRole("region", { name: "Notebook Agent", exact: true });
   await panel.getByLabel("Notebook scope", { exact: true }).selectOption(books[0].id);
-  await panel.getByLabel("What would you like to change?").fill("Summarize workflowmarker sources, create a new note and extract two tasks.");
+  await panel.getByRole("textbox", { name: "What would you like to organize?", exact: true }).fill("Summarize workflowmarker sources, create a new note and extract two tasks.");
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible({ timeout: 15000 });
   for (const source of sources) await expect(panel.getByRole("button", { name: source.title, exact: true })).toBeVisible();
@@ -466,7 +466,7 @@ test("P2 template UI and signed webhook generate an approval-bound workflow", as
   const noteList = async () => { const value = await (await page.request.get(`${product.server}/api/notes`, { headers })).json(); return Array.isArray(value) ? value : value.notes; };
   const original = (await noteList()).length;
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("p2_browser");
   await page.locator("input[type=password]").fill("p2-browser-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
@@ -484,7 +484,7 @@ test("P2 template UI and signed webhook generate an approval-bound workflow", as
   await expect(library.getByRole("button", { name: "Use template", exact: true })).toBeVisible();
   const templates = await (await page.request.get(`${product.server}/api/agent/library/templates?workspaceId=personal`, { headers })).json();
   await library.getByRole("button", { name: "Use template", exact: true }).click();
-  await expect(panel.getByLabel("What would you like to change?")).toBeDisabled();
+  await expect(panel.getByRole("textbox", { name: "What would you like to organize?", exact: true })).toBeDisabled();
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "Reject", exact: true }).click();
@@ -558,7 +558,7 @@ test("live P2 template retrieves two notes and persists an approved summary", as
   expect(proposed.preview.tasks).toBeUndefined(); expect(proposed.preview.extensionCalls || []).toHaveLength(0);
   expect((await noteList()).length).toBe(before);
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("p2_live");
   await page.locator("input[type=password]").fill("p2-live-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
@@ -616,7 +616,7 @@ test("live notebook Agent reviews individual drafts and persists only the approv
   expect(await taskList()).toHaveLength(0); expect((await noteList()).length).toBe(before);
 
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.4"); });
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("task_review_live");
   await page.locator("input[type=password]").fill("task-review-live-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);

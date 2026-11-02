@@ -111,9 +111,9 @@ jobs:
       - name: Enforce initial bundle budgets
         run: npm run verify:bundle
       - name: Install Playwright browsers for cold-start smoke
-        run: |
-          npm install --no-save --no-package-lock @playwright/test@1.48.2
-          npx playwright install --with-deps webkit chromium
+        # 直接使用 package-lock 里的 @playwright/test（1.63.x）。此前钉死 1.48.2，
+        # 其浏览器与 --with-deps 系统依赖包在 2026 的 ubuntu runner 镜像上已失效。
+        run: npx playwright install --with-deps webkit chromium
       - name: iPhone WebKit cold-start smoke
         run: |
           npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/nowen-vite-preview.log 2>&1 &

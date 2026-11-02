@@ -35,6 +35,7 @@ jobs:
           RC_TARGETS: ${{ inputs.targets }}
           RC_NOTES: ${{ inputs.notes }}
           RC_ANDROID_SIGNING_READY: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' }}
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
           RC_IOS_SIGNING_READY: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' }}
           RC_MAC_SIGNING_ENABLED: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
           RC_MAC_SIGNING_READY: ${{ secrets.MAC_CSC_LINK != '' && secrets.MAC_CSC_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
@@ -104,6 +105,8 @@ jobs:
           cd frontend && npx cap sync android
       - name: Install the pinned Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Verify Java Properties signing-secret escaping
+        run: node --test scripts/tests/release-cloud-android-signing.test.mjs
       - name: Inject signing material
         env:
           NOWEN_ANDROID_KEYSTORE_B64: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 }}
@@ -114,9 +117,10 @@ jobs:
       - name: Build signed APK and AAB
         working-directory: frontend/android
         run: bash gradlew --no-daemon assembleRelease bundleRelease
-      - name: Verify Android package identity, version and signature
+      - name: Verify Android package identity, version and pinned signing certificate
         env:
           RC_VERSION: ${{ inputs.version }}
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
         run: node scripts/release-cloud-ci.mjs android-stage
       - uses: actions/upload-artifact@v4
         with:

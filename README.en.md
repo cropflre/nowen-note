@@ -35,7 +35,7 @@
 
 ## v1.5.3 highlights · 2026-10-23
 
-**The v1.5.3 feature code is now on `main`.** As of October 23, 2026, the v1.5.3 GitHub Release is still a **draft**. These are code-level release highlights, **not a claim that all installers are publicly available**. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases) for the actual published version and assets.
+**v1.5.3 is the current stable release and is publicly available on GitHub Releases.** Before downloading, verify the actual assets and device architecture in [GitHub Release v1.5.3](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3). v1.5.4 remains in pre-release code cleanup and acceptance; it has not been published.
 
 > [!IMPORTANT]
 > Back up your database, attachments, and deployment configuration before upgrading, and verify you can restore them. **Rolling back an app or Docker image does not restore persisted data.**
@@ -397,7 +397,8 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 - [Email backup](./docs/backup-email-smtp.md)
 - [ARM64 deployment](./docs/deploy-arm64.md)
 - [iOS release guide](./docs/iOS-Release.md)
-- [GitHub desktop asset collection and release verification](./docs/releases/github-release-assets.md)
+- [Release Center build and publishing responsibilities](./docs/architecture/release-center.md)
+- [Historical GitHub desktop asset collection flow (not the current publisher)](./docs/releases/github-release-assets.md)
 - [Privacy policy](./docs/PRIVACY.md)
 - [Browser clipper](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
 - OpenAPI is available at `/api/openapi.json` after startup.

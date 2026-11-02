@@ -3,7 +3,7 @@ name: Android Immersive Editor CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, release/v1.5.0]
+    branches: [main, release/v1.5.0, release/v1.5.4]
     paths:
       - 'frontend/index.html'
       - 'frontend/src/components/EditorPane.tsx'
@@ -15,9 +15,17 @@ on:
       - 'frontend/src/components/__tests__/TagInputMobileCompact.test.ts'
       - 'frontend/src/hooks/useKeyboardVisible.ts'
       - 'frontend/src/lib/__tests__/androidImmersiveEditorContract.test.ts'
+      - 'frontend/src/main.tsx'
+      - 'frontend/vite.config.ts'
+      - 'frontend/src/components/GlobalBridges.tsx'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - '.github/workflows/v1.5.4-release-freeze-ci.yml'
       - '.github/workflows/android-immersive-editor-ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, release/v1.5.4]
     paths:
       - 'frontend/src/components/EditorPane.tsx'
       - 'frontend/src/components/TiptapEditor.tsx'
@@ -30,6 +38,14 @@ on:
       - 'frontend/src/components/PublicSpaceLauncher.tsx'
       - 'frontend/src/hooks/useKeyboardVisible.ts'
       - 'frontend/src/lib/__tests__/androidImmersiveEditorContract.test.ts'
+      - 'frontend/src/main.tsx'
+      - 'frontend/vite.config.ts'
+      - 'frontend/src/components/GlobalBridges.tsx'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - '.github/workflows/v1.5.4-release-freeze-ci.yml'
       - '.github/workflows/android-immersive-editor-ci.yml'
 
 permissions:

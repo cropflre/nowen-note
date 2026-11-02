@@ -2,9 +2,13 @@ name: Windows Direct Release Contract
 
 on:
   pull_request:
-    branches: [release/v1.5.2, release/v1.5.3]
+    branches: [release/v1.5.2, release/v1.5.3, release/v1.5.4]
     paths:
       - '.github/workflows/release.yml'
+      - '.github/workflows/release-build.yml'
+      - '.github/workflows/release-publish.yml'
+      - 'scripts/fpk/template/manifest'
+      - 'scripts/tests/release-freeze.test.mjs'
       - '.github/workflows/windows-direct-release-ci.yml'
       - 'electron/builder*.config.js'
       - 'scripts/release.sh'

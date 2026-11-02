@@ -58,8 +58,12 @@ const test = base.extend<{ server: string }>({
   },
 });
 
-for (const width of [1440, 390]) {
-  test.describe(`Markdown chapter folding at ${width}px`, () => {
+for (const { width, platform } of [
+  { width: 1440, platform: "MacIntel" },
+  { width: 1440, platform: "Linux x86_64" },
+  { width: 390, platform: "Linux armv8l" },
+]) {
+  test.describe(`Markdown chapter folding at ${width}px (${platform})`, () => {
     test.use({ viewport: { width, height: 900 }, hasTouch: width < 640,
       ...(width < 640 ? { isMobile: true, userAgent: devices["Pixel 7"].userAgent } : {}),
     });
@@ -67,6 +71,7 @@ for (const width of [1440, 390]) {
     test("gutter folds chapters without changing content and search reveals hidden matches", async ({ page, server }) => {
       const errors: string[] = [];
       page.on("pageerror", error => errors.push(error.message));
+      await page.addInitScript(platform => Object.defineProperty(navigator, "platform", { get: () => platform }), platform);
       const password = "folding-browser-test-password";
       const registration = await page.request.post(`${server}/api/auth/register`, { data: { username: "folding_user", password } });
       expect(registration.ok()).toBe(true);
@@ -124,9 +129,9 @@ for (const width of [1440, 390]) {
       if (width >= 640) {
         await search.press("Escape");
         await source.locator(".cm-line").filter({ hasText: "## First" }).click();
-        await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+[" : "Control+Shift+[");
+        await page.keyboard.press(platform.startsWith("Mac") ? "Meta+Alt+BracketLeft" : "Control+Shift+BracketLeft");
         await expect(source).not.toContainText("hidden target");
-        await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+]" : "Control+Shift+]");
+        await page.keyboard.press(platform.startsWith("Mac") ? "Meta+Alt+BracketRight" : "Control+Shift+BracketRight");
         await expect(source).toContainText("hidden target");
       }
       const after = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
