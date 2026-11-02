@@ -1080,8 +1080,9 @@ export const NoteCard = React.memo(function NoteCard({
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
   showNoteTime, showDivider = false, notebookLabel, notebookPath, dragHint, titleOnly = false,
-  sidebarTextStyle,
+  sidebarTextStyle, rowHeight,
 }: {
+  rowHeight?: number;
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   isContextTarget: boolean;
@@ -1121,7 +1122,7 @@ export const NoteCard = React.memo(function NoteCard({
     <motion.div
       ref={cardRef}
       data-note-list-card
-      style={{ height: noteListRowHeight(titleOnly, searchQuery) - 4 }}
+      style={{ minHeight: (rowHeight ?? noteListRowHeight(titleOnly, searchQuery)) - 4 }}
       // 仅做轻量淡入。早期版本用了 y:4 → y:0 的位移，会造成切换笔记本时
       // 整列卡片"先在面板底部出现再上移"的错觉（尤其当 list 项很少、
       // 列表内容贴近底部时尤为明显）。这里去掉 y 位移，让卡片就地淡入。
@@ -1137,7 +1138,7 @@ export const NoteCard = React.memo(function NoteCard({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       className={cn(
-        "relative w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-all group overflow-hidden",
+        "relative flex flex-col w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-all group overflow-hidden",
         isSelected
           ? "bg-accent-primary/10 border-accent-primary/40 shadow-sm"
           : isActive
@@ -1166,7 +1167,7 @@ export const NoteCard = React.memo(function NoteCard({
       )} />
 
       <div
-        className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0"
+        className="flex-1 flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0"
         draggable={draggable}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
@@ -1193,7 +1194,7 @@ export const NoteCard = React.memo(function NoteCard({
             // 和 CJK/英文/空格混排都稳定，并自带省略号。
             // break-all：兜底——遇到极长不可断词（连续超长英文/无空格 URL）也强制裁断，
             // 不让一行的"内容宽度"超过容器，导致 flex 容器再被撑变形。
-            "note-card-title text-sm font-medium line-clamp-1 break-all flex-1 min-w-0",
+            "note-card-title text-sm leading-normal font-medium line-clamp-1 break-all flex-1 min-w-0",
             classicText ? (isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary") : "text-tx-primary"
           )} title={note.title || t('common.untitledNote')}>
             {searchQuery && note.titleHtml ? (
@@ -1238,15 +1239,15 @@ export const NoteCard = React.memo(function NoteCard({
                   </span>
                 </div>
               )}
-              <p className={cn("note-card-preview line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")} dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+              <p className={cn("note-card-preview line-clamp-2 break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary", "leading-normal")} dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
             </div>
           ) : (
-            <p className={cn("note-card-preview mt-1 line-clamp-1 leading-[18px] break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}>{preview}</p>
+            <p className={cn("note-card-preview mt-1 line-clamp-1 break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary", "leading-snug")}>{preview}</p>
           )
         )}
 
         {!compactTitleOnly && (showNoteTime || notebookLabel || showCreator) && (
-          <div className={cn("note-card-metadata flex min-w-0 items-center gap-2 mt-auto leading-4", classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
+          <div className={cn("note-card-metadata flex min-w-0 items-center gap-2 mt-auto", classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary", "leading-snug")}>
             {notebookLabel && (
               <span className="flex flex-1 min-w-0 items-center gap-1" title={notebookPath || notebookLabel}>
                 <Folder size={10} className="shrink-0" />
@@ -1329,6 +1330,8 @@ export function VirtualNoteList({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(600);
+  const textMeasureRef = useRef<HTMLSpanElement>(null);
+  const [textScale, setTextScale] = useState(1);
 
   // 只在列表语义 scope 真正变化时复位。自动保存、realtime、后台同步、
   // notesRefreshToken 等同 scope 刷新会替换 notes 引用，但不能打断用户浏览位置。
@@ -1343,12 +1346,20 @@ export function VirtualNoteList({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const textMeasure = textMeasureRef.current;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerHeight(entry.contentRect.height);
+        if (entry.target === textMeasure) {
+          // 14px × 1.5 at the default size. Measure layout rather than device pixels:
+          // Android text zoom can enlarge glyphs without enlarging fixed px boxes.
+          setTextScale(Math.max(1, entry.contentRect.height / 21));
+        } else {
+          setContainerHeight(entry.contentRect.height);
+        }
       }
     });
     observer.observe(container);
+    if (textMeasure) observer.observe(textMeasure);
     setContainerHeight(container.clientHeight);
     return () => observer.disconnect();
   }, []);
@@ -1357,7 +1368,7 @@ export function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const itemHeight = noteListRowHeight(titleOnly, searchQuery);
+  const itemHeight = noteListRowHeight(titleOnly, searchQuery, textScale);
   const totalHeight = notes.length * itemHeight;
   useEffect(() => {
     const container = containerRef.current;
@@ -1376,10 +1387,11 @@ export function VirtualNoteList({
     <div
       ref={containerRef}
       data-note-list-scroll-viewport="virtual"
-      className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
+      className="relative flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
       onScroll={handleScroll}
     >
       <div style={{ height: totalHeight, position: "relative" }}>
+        <span ref={textMeasureRef} aria-hidden="true" className="absolute invisible pointer-events-none text-sm leading-normal">字</span>
         <div className="px-2 space-y-1" style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
           {visibleNotes.map((note, visibleIndex) => (
             <NoteCard
@@ -1389,6 +1401,7 @@ export function VirtualNoteList({
                 else noteCardRefs?.current.delete(note.id);
               }}
               note={note}
+              rowHeight={itemHeight}
               sidebarTextStyle={sidebarTextStyle}
               isActive={activeNoteId === note.id}
               isContextTarget={menuState.isOpen && menuState.targetId === note.id}

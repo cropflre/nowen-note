@@ -25,6 +25,16 @@ describe("DOCX import preflight", () => {
     expect(getDocxFileViolation({ name: "normal.docx", size: 28.5 * 1024 * 1024 })).toBeNull();
   });
 
+  it("accepts DOCX files through 1 GB and rejects files one byte over", () => {
+    const oneGiB = 1024 * 1024 * 1024;
+    expect(getDocxFileViolation({ name: "large.docx", size: 50 * 1024 * 1024 + 1 })).toBeNull();
+    expect(getDocxFileViolation({ name: "limit.docx", size: oneGiB })).toBeNull();
+    expect(getDocxFileViolation({ name: "oversized.docx", size: oneGiB + 1 })).toEqual({
+      code: "FILE_TOO_LARGE",
+      message: "文件过大（1.0 GB），安全上限为 1.0 GB",
+    });
+  });
+
   it("rejects ZIP expansion, XML and image abuse with explicit reasons", () => {
     const base = {
       originalBytes: 10 * 1024 * 1024,

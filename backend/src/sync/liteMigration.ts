@@ -27,13 +27,16 @@ import { logSyncInfo, logSyncWarn } from "./log";
 import { SyncError } from "./errors";
 import type { SyncRemoteClient } from "./remote";
 import type { SyncBlobClient } from "./blob";
+import type { RemoteSnapshotPage } from './remote';
 import { pullAttachmentBlobs } from "./blob";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges, type RemoteEntityPayload } from "./applyLocal";
-import { createProfile, findProfileByServer, switchActiveProfile } from "./profile";
+import { createProfile, findProfileByServer, getProfile, switchActiveProfile } from "./profile";
 import { ensureDevice } from "./device";
-import { markBootstrapReady, runBootstrap } from "./bootstrap";
+import { markBootstrapReady, readLocalState, reconcile, validateBootstrapPage } from "./bootstrap";
+import { recordConflict } from './conflict';
+import { enqueueMutation } from './outbox';
 import type { SyncEntityType } from "./types";
 
 /**
@@ -57,6 +60,7 @@ export type LiteMigrationStage =
 
 export interface LiteMigrationProgress {
   stage: LiteMigrationStage;
+  remoteUrl: string | null;
   /** 已下载的实体条数，供 UI 显示进度。 */
   downloaded: number;
   /** 已应用到本地库的条数。 */
@@ -94,6 +98,7 @@ const ENTITY_ORDER: SyncEntityType[] = [
   "note_tag",
   "favorite",
   "attachment",
+  "task", "task_reminder", "diary", "mindmap",
 ];
 
 /**
@@ -198,6 +203,7 @@ export function getLiteMigrationProgress(db: Database.Database): LiteMigrationPr
   const pending = countPendingAttachmentDownloads(db);
   return {
     stage: state.stage,
+    remoteUrl: state.remoteUrl,
     downloaded: state.downloaded,
     applied: state.applied,
     attachmentsDone: countAvailableAttachments(db),
@@ -261,6 +267,7 @@ export interface LiteMigrationOptions {
   remoteUrl: string;
   /** 本机 Desktop 账号 ID（数据落到这个用户名下）。 */
   userId: string;
+  remoteUserId?: string;
   client: SyncRemoteClient;
   /** 附件二进制通道；缺失时跳过二进制下载，元数据仍会迁移。 */
   blobClient?: SyncBlobClient | null;
@@ -293,6 +300,13 @@ export async function runLiteMigration(
 
   ensureStateTable(db);
   let state = readState(db);
+  if (state.remoteUrl && state.remoteUrl !== remoteUrl) {
+    throw new SyncError('INVALID_PAYLOAD', '迁移来源已改变，请继续使用原服务器完成迁移');
+  }
+  const previousProfile = state.profileId ? getProfile(db, state.profileId) : null;
+  if (previousProfile?.remoteUserId && options.remoteUserId && previousProfile.remoteUserId !== options.remoteUserId) {
+    throw new SyncError('INVALID_PAYLOAD', '迁移账号已改变，已保留原账号数据和迁移进度');
+  }
 
   if (state.stage === "complete") {
     return getLiteMigrationProgress(db);
@@ -305,6 +319,10 @@ export async function runLiteMigration(
 
     // after=0：Lite 用户本地无任何同步游标，从最开始算。
     const plan = await client.plan(0);
+    const profile = previousProfile || findProfileByServer(db, remoteUrl, options.remoteUserId ?? null) || createProfile(db, {
+      name: new URL(remoteUrl).host, serverUrl: remoteUrl, remoteUserId: options.remoteUserId,
+    });
+    writeState(db, { profileId: profile.id });
     // sequence 必须落库：重试时若重新取 plan 会拿到更大的 sequence，
     // 从而漏掉两次之间产生的远端变更。
     const snapshotSequence = state.snapshotSequence > 0
@@ -328,6 +346,7 @@ export async function runLiteMigration(
 
     for (;;) {
       const page = await client.snapshot(cursor, snapshotSequence, pageSize);
+      validateBootstrapPage(page.items);
       if (page.items.length > 0) {
         downloaded += page.items.length;
 
@@ -344,16 +363,22 @@ export async function runLiteMigration(
           byType.set(item.entityType, list);
         }
 
-        runWithOutboxSuppressed(() => {
+        db.transaction(() => runWithOutboxSuppressed(() => {
           runChangeFeedSuppressed(db, () => {
             for (const entityType of ENTITY_ORDER) {
               const batch = byType.get(entityType);
               if (!batch || batch.length === 0) continue;
-              const result = applyRemoteChanges(db, batch, { userId });
+              const comparison = reconcile(readLocalState(db, userId, entityType), batch);
+              for (const { local, remote } of comparison.conflicts) {
+                recordConflict(db, { profileId: profile.id, entityType, entityId: remote.entityId,
+                  localPayload: local.payload ?? null, remotePayload: remote.payload ?? null, basePayload: null,
+                  localVersion: Number(local.payload?.version) || null, remoteVersion: Number(remote.payload?.version) || null });
+              }
+              const result = applyRemoteChanges(db, comparison.toApply, { userId });
               applied += result.applied;
             }
           });
-        });
+        }))();
       }
 
       cursor = page.nextCursor;
@@ -415,7 +440,8 @@ export async function runLiteMigration(
     // 因此额外抽查 ID 是否真的存在于本地。
     writeState(db, { stage: "verifying" });
 
-    const verification = await verifyMigration(db, userId, plan, client, snapshotSequence);
+    const remoteIds = new Set<string>();
+    const verification = await verifyMigration(db, userId, plan, client, snapshotSequence, remoteIds);
     writeState(db, { verification: JSON.stringify(verification) });
 
     if (!verification.ok) {
@@ -439,18 +465,23 @@ export async function runLiteMigration(
     // 直接置 ready 让增量引擎接管。
     writeState(db, { stage: "switching" });
 
-    const existing = findProfileByServer(db, remoteUrl, null);
-    const profile = existing || createProfile(db, {
-      name: new URL(remoteUrl).host,
-      serverUrl: remoteUrl,
-    });
-    switchActiveProfile(db, profile.id);
     const device = ensureDevice(db, { profileId: profile.id, platform: process.platform });
 
     // 基线：游标落在 snapshot 高水位，并置 ready 让触发器开始记录增量。
-    markBootstrapReady(db, profile.id, tailCursor || snapshotSequence);
-
-    writeState(db, { stage: "complete", profileId: profile.id, lastError: null });
+    // The tail feed above is only inspected, not applied. Let the incremental
+    // engine replay it; acknowledging tailCursor here would lose those edits.
+    db.transaction(() => {
+      switchActiveProfile(db, profile.id);
+      markBootstrapReady(db, profile.id, snapshotSequence);
+      // Preserve local-only data as durable intent when the migration binds it
+      // to this account. Imported remote entities must never be echoed back.
+      for (const entityType of ENTITY_ORDER) for (const item of readLocalState(db, userId, entityType)) {
+        if (remoteIds.has(`${entityType}:${item.entityId}`)) continue;
+        const pending = db.prepare('SELECT 1 FROM sync_outbox WHERE profileId=? AND entityType=? AND entityId=? LIMIT 1').get(profile.id, entityType, item.entityId);
+        if (!pending) enqueueMutation(db, { profileId: profile.id, deviceId: device.id, entityType, entityId: item.entityId, operation: 'upsert', baseVersion: 0, payload: item.payload });
+      }
+      writeState(db, { stage: "complete", profileId: profile.id, lastError: null });
+    })();
     logSyncInfo("lite-migration.complete", {
       profileId: profile.id,
       deviceId: device.id,
@@ -475,10 +506,7 @@ export async function runLiteMigration(
 /**
  * 完整性校验。
  *
- * 三层：
- *   1. 各实体数量与远端 plan 一致；
- *   2. 抽样实体 ID 确实存在于本地（防止"数量对但内容错"）；
- *   3. 附件元数据数量一致（二进制可以延后补，元数据不能缺）。
+ * 完整遍历快照并核对核心实体身份；二进制可延后补，不能将其计入完整离线声明。
  */
 async function verifyMigration(
   db: Database.Database,
@@ -486,10 +514,11 @@ async function verifyMigration(
   plan: Awaited<ReturnType<SyncRemoteClient["plan"]>>,
   client: SyncRemoteClient,
   snapshotSequence: number,
+  remoteIds: Set<string>,
 ): Promise<LiteVerification> {
   const local = countLocal(db, userId);
   // plan 只回 notebook / note / tag 三项计数（协议第一版范围）。
-  // 附件元数据没有权威计数可比，因此靠下面的 ID 抽样把关 ——
+  // 附件元数据没有权威计数可比，因此逐页核对其实体 ID ——
   // 编造一个 0 去比较会让校验永远"通过"，等于没校验。
   const remote: Record<string, number> = {
     notebook: plan.notebookCount ?? 0,
@@ -504,12 +533,14 @@ async function verifyMigration(
     if (local[key] < remote[key]) mismatched.push(key);
   }
 
-  // ID 抽样：取远端第一页实体，逐个确认本地存在。
+  // Verify every page. A count or first-page sample cannot prove completeness.
   const missingSample: string[] = [];
-  try {
-    const page = await client.snapshot(null, snapshotSequence, 40);
+  let cursor: string | null = null;
+  do {
+    const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, 200);
+    validateBootstrapPage(page.items);
     for (const item of page.items) {
-      if (missingSample.length >= 20) break;
+      remoteIds.add(`${item.entityType}:${item.entityId}`);
       const table = ({
         notebook: "notebooks",
         note: "notes",
@@ -517,12 +548,12 @@ async function verifyMigration(
         attachment: "attachments",
       } as Record<string, string>)[item.entityType];
       if (!table) continue;
-      const hit = db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(item.entityId);
-      if (!hit) missingSample.push(`${item.entityType}:${item.entityId}`);
+      const hit = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND userId = ?`).get(item.entityId, userId);
+      if (!hit && missingSample.length < 20) missingSample.push(`${item.entityType}:${item.entityId}`);
     }
-  } catch {
-    // 抽样失败不影响数量校验结论：网络抖动不该判定为数据丢失。
-  }
+    cursor = page.nextCursor;
+    if (!page.hasMore) break;
+  } while (true);
 
   if (missingSample.length > 0 && !mismatched.includes("sample")) {
     mismatched.push("sample");

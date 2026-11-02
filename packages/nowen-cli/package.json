@@ -17,5 +17,6 @@
     "cli-table3": "^0.6.5"
   },
   "keywords": ["nowen-note", "cli", "notes"],
-  "license": "MIT"
+  "license": "MIT",
+  "engines": { "node": ">=24.22.1 <25" }
 }

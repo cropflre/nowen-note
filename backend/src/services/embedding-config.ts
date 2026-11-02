@@ -1,4 +1,6 @@
+import { normalizeAIHeaders } from "./ai-provider-config";
 import { getUserAISetting, getUserAISettings } from "./user-ai-settings";
+import { DEFAULT_EMBEDDING_TIMEOUT_SECONDS, parseEmbeddingTimeoutSeconds } from "./embedding-timeout";
 
 export type EmbeddingCredentialSource = "chat" | "profile" | "custom";
 
@@ -7,6 +9,8 @@ export interface EmbeddingConfig {
   model: string;
   apiKey: string;
   provider: string;
+  customHeaders?: Record<string, string>;
+  indexTimeoutMs?: number;
 }
 
 export interface EmbeddingConfigResolution {
@@ -22,6 +26,7 @@ export interface StoredAIProfile {
   id: string;
   name: string;
   provider: string;
+  customHeaders?: Record<string, string>;
   apiUrl: string;
   apiKey: string;
 }
@@ -52,12 +57,14 @@ export function readProfiles(userId: string): StoredAIProfile[] {
         const profile = item as Record<string, unknown>;
         const id = String(profile.id || "").trim();
         if (!id) return null;
+        const customHeaders = normalizeAIHeaders(profile.customHeaders);
         return {
           id,
           name: String(profile.name || "未命名配置").trim() || "未命名配置",
           provider: String(profile.provider || "openai").trim() || "openai",
           apiUrl: String(profile.apiUrl || "").trim(),
           apiKey: String(profile.apiKey || "").trim(),
+          ...(Object.keys(customHeaders).length ? { customHeaders } : {}),
         } satisfies StoredAIProfile;
       })
       .filter((profile): profile is StoredAIProfile => !!profile);
@@ -88,6 +95,8 @@ function failure(
  */
 export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolution {
   const settings = getUserAISettings(userId);
+  const indexTimeoutMs = (parseEmbeddingTimeoutSeconds(settings.ai_embedding_timeout_seconds)
+    ?? DEFAULT_EMBEDDING_TIMEOUT_SECONDS) * 1000;
   const model = settings.ai_embedding_model.trim();
   const profileId = settings.ai_embedding_profile_id.trim();
 
@@ -101,6 +110,9 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
         "EMBEDDING_PROFILE_NOT_FOUND",
         "绑定的 AI 配置已被删除，请重新选择 Embedding 服务",
       );
+    }
+    if (profile.provider === "anthropic") {
+      return failure("profile", profile.id, profile.name, "EMBEDDING_PROTOCOL_UNSUPPORTED", "Anthropic Messages 不提供向量接口，请选择独立的 OpenAI 兼容 Embedding 服务");
     }
     const url = normalizeServiceUrl(profile.provider, profile.apiUrl);
     if (!url) {
@@ -130,6 +142,8 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
         model,
         apiKey: profile.apiKey,
         provider: profile.provider,
+        ...(profile.customHeaders ? { customHeaders: profile.customHeaders } : {}),
+        indexTimeoutMs,
       },
       errorCode: null,
       error: null,
@@ -140,6 +154,10 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
   const embeddingKey = settings.ai_embedding_key.trim();
   const source: EmbeddingCredentialSource = embeddingUrl || embeddingKey ? "custom" : "chat";
   const provider = settings.ai_provider.trim() || "openai";
+  if (source === "chat" && provider === "anthropic") {
+    return failure(source, null, null, "EMBEDDING_PROTOCOL_UNSUPPORTED", "Anthropic Messages 不提供向量接口，请配置独立的 Embedding 服务");
+  }
+  const customHeaders = source === "chat" ? normalizeAIHeaders(settings.ai_custom_headers) : {};
   const url = normalizeServiceUrl(provider, embeddingUrl || settings.ai_api_url);
   const apiKey = embeddingKey || settings.ai_api_key.trim();
 
@@ -154,7 +172,7 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
     source,
     profileId: null,
     profileName: null,
-    config: { url, model, apiKey, provider },
+    config: { url, model, apiKey, provider, indexTimeoutMs, ...(Object.keys(customHeaders).length ? { customHeaders } : {}) },
     errorCode: null,
     error: null,
   };

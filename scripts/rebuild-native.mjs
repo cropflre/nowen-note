@@ -10,7 +10,7 @@
  *        - 调 @electron/rebuild 真编译
  *        - 覆盖 electron ABI、目标平台的 PE/ELF/Mach-O 文件格式
  *   2) 跨平台 prepare（host != target，例如 Linux 上打 Win 包）
- *        - @electron/rebuild 只能编 host 架构，编出来装到目标平台会
+ *        - 非 macOS 的跨架构构建不能直接复用 host 产物，装到目标平台会
  *          报 "is not a valid Win32 application" / "wrong ELF class" 等
  *        - 改为通过 prebuild-install 直接下载 better-sqlite3 官方为
  *          该 Electron 版本 + 目标 platform/arch 预编译好的 .node
@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import macSharp from "./lib/macos-sharp.cjs";
 import macFfmpeg from "./lib/macos-ffmpeg.cjs";
+import macSqliteVec from "./lib/macos-sqlite-vec.cjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,6 +56,7 @@ const NODE_MODULE_VERSION_BY_ELECTRON_MAJOR = {
   33: 130,
   34: 133,
   35: 136,
+  43: 148,
 };
 
 function sleepSync(ms) {
@@ -183,7 +185,7 @@ async function main() {
   const isCross =
     forcePrebuild ||
     targetPlatform !== hostPlatform ||
-    targetArch !== hostArch;
+    (targetArch !== hostArch && !(targetPlatform === "darwin" && hostPlatform === "darwin"));
 
   const rootPkg = JSON.parse(
     fs.readFileSync(path.join(ROOT, "package.json"), "utf8")
@@ -221,6 +223,7 @@ async function main() {
   if (targetPlatform === "darwin") {
     macSharp.prepareMacSharp(backendDir, targetArch);
     macFfmpeg.prepareMacFfmpeg(backendDir, targetArch);
+    macSqliteVec.prepareMacSqliteVec(backendDir, targetArch);
   }
 
   // ===== 关键步骤 1：清掉旧产物（npm ci 时 prebuild-install 拉的 Node 版 .node）=====
@@ -289,7 +292,6 @@ async function main() {
     const cmdArgs = [
       ...(useShim ? [] : ["--yes", "prebuild-install"]),
       "--runtime=electron",
-      `--target=${electronVersion}`,
       `--platform=${targetPlatform}`,
       `--arch=${targetArch}`,
       "--tag-prefix=v",
@@ -303,6 +305,9 @@ async function main() {
       shell: isWin,
       env: {
         ...process.env,
+        // The environment keeps numeric ABIs as strings; minimist would turn --target=148
+        // into a number that older node-abi cannot parse.
+        npm_config_target: String(expectedNodeAbi || electronVersion),
         // 禁止 prebuild-install 当成"源码构建回退"——跨平台必须拿到预编译，
         // 拿不到就直接失败而不是尝试在 host 编译出错 ABI 的产物。
         npm_config_build_from_source: "false",
@@ -327,7 +332,7 @@ async function main() {
     usedPrebuild = existingStamp?.mode === "prebuild";
   } else if (isCross) {
     // ===== 跨平台分支：用 prebuild-install 直接下 target 平台的 .node =====
-    // @electron/rebuild 只能编出 host 架构，跨平台编出来装不上。
+    // 不同操作系统不能交给本机编译器；macOS 双架构由下方 Xcode 构建处理。
     // better-sqlite3 官方为每个 Electron ABI × 每个平台都发布了 prebuilt 包，
     // 直接拉即可。
     runPrebuildInstall("cross-platform prepare");
@@ -350,6 +355,7 @@ async function main() {
       await rebuild({
         buildPath: backendDir,
         electronVersion,
+        arch: targetArch,
         force: true,
         onlyModules: ["better-sqlite3"],
         disablePreGypCopy: true,

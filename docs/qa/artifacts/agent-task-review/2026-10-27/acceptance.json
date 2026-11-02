@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-27",
+  "baseSha": "ef88ba34ee6aca4d9a85426f13678b00a1888b29",
+  "model": "deepseek-v4.1-flash-1017",
+  "sourceHashes": {
+    "backend/src/agent/workflowRuntime.ts": "6d3857ace856545b4be1f7878b46417cc4a166ea9690a1e83dffc64d5b436aa9",
+    "backend/src/services/task-composer.ts": "2fcebf952f1ffe5ffc8e70689946e456667007f7ee6eff2c1e8f3f3d5aea703f",
+    "backend/src/routes/agent.ts": "08756819c5f8663368571f55e2a55464f334bcad54b568f8100230637829f621",
+    "frontend/src/components/agent/AgentTaskDrafts.tsx": "9e0a662280ffabf6d73a0e88ab2da847568212ec4e825e2191a1cf3d90ed737c",
+    "frontend/src/components/agent/NotebookAgentPanel.tsx": "0f2ffbc113dd9b87fa01bb6b0b8004b630645cb91ba714f3055b3009acf8b65e",
+    "frontend/e2e/agent.spec.ts": "982cdc729ed76f734e93319367cdfa7bb2f7f6d1eb76bb9439af2b01b29e4aef"
+  },
+  "backend": {
+    "passed": 181,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "Real third-party MCP configuration unavailable"
+  },
+  "frontend": {
+    "passed": 42,
+    "failed": 0
+  },
+  "web": {
+    "passed": 7,
+    "failed": 0,
+    "skipped": 4,
+    "skipReason": "Live-provider scenarios use a separately supplied configuration"
+  },
+  "electronRenderer": {
+    "passed": 1,
+    "failed": 0
+  },
+  "liveProvider": {
+    "initialPreRefinement": {
+      "passed": 1,
+      "failed": 0,
+      "evidence": "initial-live-success.json",
+      "scope": "Before the excluded-empty-title validation refinement"
+    },
+    "finalSource": {
+      "passed": 0,
+      "timeouts": 3,
+      "includesMetadataDiagnostic": true
+    },
+    "stableAcceptancePassed": false,
+    "diagnosticHarnessStartupFailureExcluded": true
+  },
+  "formalRelease": false,
+  "temporaryCredentialsRemoved": true
+}

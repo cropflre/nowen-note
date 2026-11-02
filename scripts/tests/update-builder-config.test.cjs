@@ -30,3 +30,34 @@ test("lite updater stays on an isolated latest-lite channel", () => {
     /verifyUpdateArtifactsCli\.js/,
   );
 });
+
+test("macOS 11 users are not offered an incompatible Electron upgrade", async () => {
+  const os = require("node:os");
+  const { AppUpdater } = require("electron-updater");
+  const original = os.release;
+  const updater = {
+    currentVersion: require("semver").parse("1.5.3"),
+    isStagingMatch: async () => true,
+    _logger: { info() {}, warn() {} },
+  };
+  try {
+    for (const config of [full, lite]) {
+      assert.equal(config.mac.minimumSystemVersion, "12.0.0");
+      const event = { packager: { platform: { nodeName: "darwin" }, platformSpecificBuildOptions: {
+        releaseInfo: { releaseNotes: "original notes" },
+      } } };
+      config.artifactBuildCompleted(event);
+      const info = { version: "1.5.4", ...event.packager.platformSpecificBuildOptions.releaseInfo };
+      assert.equal(info.releaseNotes, "original notes");
+      os.release = () => "20.6.0";
+      assert.equal(await AppUpdater.prototype.isUpdateAvailable.call(updater, info), false);
+      os.release = () => "21.0.0";
+      assert.equal(await AppUpdater.prototype.isUpdateAvailable.call(updater, info), true);
+      const windows = { packager: { platform: { nodeName: "win32" }, platformSpecificBuildOptions: {} } };
+      config.artifactBuildCompleted(windows);
+      assert.equal(windows.packager.platformSpecificBuildOptions.releaseInfo, undefined);
+    }
+  } finally {
+    os.release = original;
+  }
+});

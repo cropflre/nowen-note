@@ -94,6 +94,7 @@ async function runEnhancedClip(req: EnhancedClipRequest): Promise<EnhancedClipRe
     if (req.imageMode === "inline") {
       sendProgress("download-images", "正在下载远程图片并保存到 Nowen...");
       const localized = await localizeRemoteImages(html, {
+        pageUrl: data.url,
         maxImages: cfg.maxImageCount,
         maxSingleBytes: cfg.maxSingleImageBytes,
         maxTotalBytes: cfg.maxTotalImageBytes,

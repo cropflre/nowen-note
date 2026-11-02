@@ -180,7 +180,7 @@ describe("VideoExtension NodeView events", () => {
     });
 
     try {
-      expect(fixture.video.getAttribute("src")).not.toContain("sig=");
+      expect(fixture.video.getAttribute("src")).toBeNull();
 
       await act(async () => {
         registerAttachmentAccessUrls(

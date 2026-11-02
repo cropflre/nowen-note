@@ -6,6 +6,7 @@ import test from "node:test";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-embedding-user-settings-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
+process.env.ELECTRON_USER_DATA = tmpDir;
 
 let closeDb: () => void;
 let embedQuery: typeof import("../src/services/embedding-worker").embedQuery;
@@ -51,12 +52,19 @@ test.after(async () => {
   }
 });
 
-test("embedQuery uses the requested user's URL, key, and model", async () => {
+test("embedQuery uses the requested user's URL, key, and model", async (t) => {
+  const nativeTimeout = AbortSignal.timeout;
+  const deadlines: number[] = [];
+  t.mock.method(AbortSignal, "timeout", (ms: number) => {
+    deadlines.push(ms);
+    return nativeTimeout(ms);
+  });
   setUserAISettings("embed-a", [
     { key: "ai_provider", value: "openai" },
     { key: "ai_embedding_url", value: "https://embed-a.example/v1" },
     { key: "ai_embedding_key", value: "embed-key-a" },
     { key: "ai_embedding_model", value: "embed-model-a" },
+    { key: "ai_embedding_timeout_seconds", value: "120" },
   ]);
   setUserAISettings("embed-b", [
     { key: "ai_provider", value: "openai" },
@@ -86,6 +94,7 @@ test("embedQuery uses the requested user's URL, key, and model", async () => {
     globalThis.fetch = originalFetch;
   }
 
+  assert.deepEqual(deadlines, [30_000, 30_000]);
   assert.deepEqual(requests, [
     { url: "https://embed-a.example/v1/embeddings", authorization: "Bearer embed-key-a", model: "embed-model-a" },
     { url: "https://embed-b.example/v1/embeddings", authorization: "Bearer embed-key-b", model: "embed-model-b" },
@@ -195,7 +204,13 @@ test("user-scoped rebuild enqueues attachments without ambiguous scope columns",
   );
 });
 
-test("background queue uses the same default URL semantics as embedQuery", async () => {
+test("background queues use the configured index deadline and default URL semantics", async (t) => {
+  const nativeTimeout = AbortSignal.timeout;
+  const deadlines: number[] = [];
+  t.mock.method(AbortSignal, "timeout", (ms: number) => {
+    deadlines.push(ms);
+    return nativeTimeout(ms);
+  });
   setUserAISettings("embed-invalid", [
     { key: "ai_api_url", value: "" },
     { key: "ai_embedding_url", value: "" },
@@ -213,6 +228,7 @@ test("background queue uses the same default URL semantics as embedQuery", async
   setUserAISettings("embed-default", [
     { key: "ai_api_key", value: "default-key" },
     { key: "ai_embedding_model", value: "default-model" },
+    { key: "ai_embedding_timeout_seconds", value: "120" },
   ]);
   getDb().prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)")
     .run("embed-default-notebook", "embed-default", "Notebook");
@@ -220,6 +236,14 @@ test("background queue uses the same default URL semantics as embedQuery", async
     .run("embed-default-note", "embed-default", "embed-default-notebook", "Long enough title", "Long enough body for embedding");
   getDb().prepare("UPDATE embedding_queue SET enqueuedAt = '2001-01-01 00:00:00' WHERE noteId = ?")
     .run("embed-default-note");
+
+  const attachmentText = "Long enough attachment content for embedding";
+  fs.mkdirSync(path.join(tmpDir, "attachments"), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, "attachments", "deadline.txt"), attachmentText);
+  getDb().prepare(`INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path)
+    VALUES ('embed-default-att', 'embed-default-note', 'embed-default', 'deadline.txt', 'text/plain', ?, 'deadline.txt')`).run(attachmentText.length);
+  getDb().prepare(`INSERT INTO attachment_embedding_queue (attachmentId, noteId, userId)
+    VALUES ('embed-default-att', 'embed-default-note', 'embed-default')`).run();
 
   let requests = 0;
   const originalFetch = globalThis.fetch;
@@ -236,7 +260,7 @@ test("background queue uses the same default URL semantics as embedQuery", async
 
   try {
     startEmbeddingWorker();
-    for (let attempt = 0; attempt < 20 && requests === 0; attempt += 1) {
+    for (let attempt = 0; attempt < 40 && requests < 2; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   } finally {
@@ -244,7 +268,9 @@ test("background queue uses the same default URL semantics as embedQuery", async
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(requests, 1);
+  assert.equal(requests, 2);
+  assert.deepEqual(deadlines, [120_000, 120_000]);
+  assert.equal((getDb().prepare("SELECT status FROM attachment_embedding_queue WHERE attachmentId = ?").get("embed-default-att") as { status: string }).status, "done");
   assert.equal(
     (getDb().prepare("SELECT status FROM embedding_queue WHERE noteId = ?").get("embed-default-note") as { status: string }).status,
     "done",

@@ -18,5 +18,9 @@
   },
   "files": ["dist", "README.md"],
   "keywords": ["nowen-note", "sdk", "api-client"],
-  "license": "MIT"
+  "license": "MIT",
+  "engines": { "node": ">=24.22.1 <25" },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
 }

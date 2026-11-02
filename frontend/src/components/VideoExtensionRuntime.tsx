@@ -193,7 +193,7 @@ export const LazyVideoNodeView: React.FC<ReactNodeViewProps> = ({
         <>
           <video
             key={videoRender.renderKey}
-            src={displaySrc}
+            src={displaySrc || undefined}
             controls
             playsInline
             preload="metadata"

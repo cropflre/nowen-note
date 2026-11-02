@@ -1,6 +1,6 @@
 import type { WorkflowDefinition, WorkflowStep } from "./types.js";
 
-const STEP_TYPES = new Set(["action", "condition", "delay", "transform", "stop"]);
+const STEP_TYPES = new Set(["action", "agent", "condition", "delay", "transform", "stop"]);
 const OPERATORS = new Set(["equals", "not_equals", "contains", "starts_with", "ends_with", "exists", "greater_than", "less_than"]);
 const EVENT_TYPES = new Set([
   "note.created", "note.updated", "note.trashed", "note.restored", "note.deleted",
@@ -51,7 +51,10 @@ export function validateWorkflowDefinition(input: unknown): WorkflowDefinition {
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(id) || ids.has(id)) bad(`步骤 ID 无效或重复: ${id}`);
     ids.add(id);
     if (!STEP_TYPES.has(String(raw.type))) bad(`步骤类型无效: ${raw.type}`);
-    if (raw.type === "action") {
+    if (raw.type === "agent") {
+      if (value.steps.length !== 1 || typeof raw.templateId !== "string" || typeof raw.templateRevision !== "string"
+        || raw.templateId.length > 128 || raw.templateRevision.length > 128) bad("Agent workflow requires one version-bound template step");
+    } else if (raw.type === "action") {
       if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(String(raw.pluginId || ""))) bad("Action pluginId 无效");
       if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(String(raw.actionId || ""))) bad("Action actionId 无效");
       if (raw.maxAttempts !== undefined && (!Number.isInteger(raw.maxAttempts) || Number(raw.maxAttempts) < 1 || Number(raw.maxAttempts) > 3)) bad("maxAttempts 必须在 1-3 之间");

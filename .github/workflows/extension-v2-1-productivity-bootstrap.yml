@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "24.22.1"
       - name: Apply Productivity Pack contribution patch
         run: node scripts/bootstrap-productivity-pack-v21.mjs
       - name: Verify patched source syntax

@@ -4,7 +4,7 @@
 ARG TARGETARCH=amd64
 
 # ---------- sqlite-vec: 按目标架构编译 musl 扩展（npm Linux 预编译包使用 glibc） ----------
-FROM node:20-alpine AS sqlite-vec-build
+FROM node:24.22.1-alpine3.23 AS sqlite-vec-build
 WORKDIR /build
 RUN apk add --no-cache build-base curl sqlite-dev
 # 与 backend/package-lock.json 中的 sqlite-vec 版本一致；源码固定校验和。
@@ -16,7 +16,7 @@ RUN curl -fSL --retry 3 https://github.com/asg017/sqlite-vec/releases/download/v
     && cc -O3 -fPIC -shared sqlite-vec.c -o vec0.so -lm
 
 # ---------- Stage 1: 前端构建 ----------
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS frontend-build
 ARG TARGETARCH
 WORKDIR /app/frontend
 
@@ -43,7 +43,7 @@ COPY scripts/verify-sync-notification-ui.cjs /app/scripts/verify-sync-notificati
 RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build:web
 
 # ---------- Stage 2: 后端构建（包含 updater 专用入口） ----------
-FROM node:20-alpine AS backend-build
+FROM node:24.22.1-alpine3.23 AS backend-build
 WORKDIR /app/backend
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
 RUN apk add --no-cache ffmpeg
@@ -55,7 +55,7 @@ RUN npx tsc \
 RUN apk del .build-deps
 
 # ---------- Stage 3: 运行时镜像 ----------
-FROM node:20-alpine
+FROM node:24.22.1-alpine3.23
 WORKDIR /app
 RUN apk add --no-cache tini tzdata ffmpeg
 
@@ -91,6 +91,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ARG BUILD_DATE=""
 ARG APP_VERSION=""
 ARG VCS_REF=""
+# Refuse an image tagged as a new release when its packaged server is still old.
+RUN node -e 'const app=require("./package.json").version; const backend=require("./backend/package.json").version; const expected=(process.env.APP_VERSION||app).replace(/^v/, ""); if(app!==expected||backend!==expected) throw new Error("Docker version mismatch: "+JSON.stringify({app,backend,expected}))'
 ENV NOWEN_BUILD_TIME=${BUILD_DATE}
 ENV NOWEN_APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.title="Nowen Note" \

@@ -48,8 +48,7 @@ for (const format of ["markdown", "tiptap-json"]) {
     const main = page.locator(format === "markdown" ? ".cm-content" : ".tiptap").first();
     await expect(main).toBeVisible(); await main.focus(); await page.keyboard.press("ControlOrMeta+End");
     async function openRegion() {
-      if (format === "markdown") await page.getByRole("button", { name: "插入加密内容", exact: true }).click();
-      else await page.locator('[title="插入加密内容"]').click();
+      await page.getByRole("button", { name: "插入加密内容（局部加密）", exact: true }).click();
     }
     await openRegion();
     await page.getByLabel("密码", { exact: true }).fill(passphrase);

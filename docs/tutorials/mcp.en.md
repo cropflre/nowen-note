@@ -7,7 +7,7 @@
 ## What you need to know
 
 - MCP support is still available under `packages/nowen-mcp/`.
-- The repository currently provides a **source installation**. Install Node.js 20+, Git, and npm first.
+- The repository currently provides a **source installation**. Install Node.js 24.22.1+ (24.x LTS), Git, and npm first.
 - Replace every `/absolute/path/...` placeholder with the real absolute path on your computer.
 - When Nowen Note runs on a NAS or another server, `NOWEN_URL` must be reachable from the computer running the AI client, for example `http://192.168.1.20:3001`.
 - Use a dedicated restricted Personal API Token instead of storing an administrator password in the MCP configuration.

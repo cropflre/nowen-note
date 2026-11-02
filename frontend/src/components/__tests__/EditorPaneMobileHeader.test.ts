@@ -17,7 +17,7 @@ function mobileHeaderSource() {
 
 function desktopToolbarSource() {
   const start = editorPaneSource.indexOf("onClick={toggleLock}");
-  const end = editorPaneSource.indexOf("{SHOW_EDITOR_MODE_TOGGLE && (", start);
+  const end = editorPaneSource.indexOf("{SHOW_EDITOR_MODE_TOGGLE &&", start);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
   return editorPaneSource.slice(start, end);

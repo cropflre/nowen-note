@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import type { Engine } from "./engine.ts";
 import { AppError, redact } from "./errors.ts";
+import type { Cloud } from "./cloud.ts";
 import { Channels } from "./channels.ts";
 
 async function body(req: IncomingMessage): Promise<any> {
@@ -34,7 +35,7 @@ type Middleware = (
 ) => void;
 export function createApp(
   engine: Engine,
-  options: { dist: string; dev?: Middleware; channels?: Channels },
+  options: { dist: string; dev?: Middleware; channels?: Channels; cloud?: Cloud },
 ) {
   const channels = options.channels || new Channels(engine.store, engine.planner.github);
   const session = randomBytes(32).toString("hex");
@@ -85,6 +86,28 @@ export function createApp(
           throw new AppError(401, "请刷新页面以建立本机会话");
         if (req.method !== "GET" && req.headers["x-release-center"] !== "1")
           throw new AppError(403, "缺少同源操作标识");
+        if (path.startsWith("/api/cloud") && options.cloud) {
+          const cloud = options.cloud;
+          if (path === "/api/cloud" && req.method === "GET") { await cloud.refresh(); json(cloud.view()); return; }
+          if (path === "/api/cloud/plans" && req.method === "POST") { json(await cloud.plan(await body(req)), 201); return; }
+          if (path === "/api/cloud/build" && req.method === "POST") { json(await cloud.build(await body(req)), 202); return; }
+          if (path === "/api/cloud/publish" && req.method === "POST") { json(await cloud.publish(await body(req)), 202); return; }
+          const remote = path.match(/^\/api\/cloud\/([a-f0-9-]{36})\/(cancel|logs)$/);
+          if (remote && req.method === "POST") {
+            const value = cloud.get(remote[1]);
+            if (!value.runId) throw new AppError(409, "远端结果待核实；请先在 GitHub 查看，禁止重新派发");
+            if (remote[2] === "cancel") {
+              await cloud.github.cancel(value.runId);
+              engine.store.audit(value.id, "cloud.cancel", "已请求远端取消；已完成的渠道操作不会自动撤销");
+              json({ requested: true });
+            } else {
+              const input = await body(req);
+              if (!value.jobs.some(job => job.id === input.jobId)) throw new AppError(400, "Job 不属于本次任务");
+              json({ log: redact(await cloud.github.jobLog(input.jobId), [cloud.github.token]) });
+            }
+            return;
+          }
+        }
         if (path === "/api/publication" && req.method === "GET") {
           json(engine.publication.view());
           return;

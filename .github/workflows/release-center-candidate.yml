@@ -2,6 +2,19 @@
 name: Release Center Candidate (isolated)
 run-name: Release Center candidate ${{ inputs.request_id }}
 on:
+  workflow_call:
+    inputs:
+      request_id: { required: true, type: string }
+      commit_sha: { required: true, type: string }
+      version: { required: true, type: string }
+      platforms: { required: true, type: string }
+      mac_signing: { required: false, type: boolean, default: false }
+    secrets:
+      MAC_CSC_LINK: { required: false }
+      MAC_CSC_KEY_PASSWORD: { required: false }
+      APPLE_ID: { required: false }
+      APPLE_APP_SPECIFIC_PASSWORD: { required: false }
+      APPLE_TEAM_ID: { required: false }
   workflow_dispatch:
     inputs:
       request_id:
@@ -50,7 +63,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
       - name: Validate exact checkout SHA and all version files
         shell: bash
@@ -75,19 +88,17 @@ jobs:
       - name: Existing release and Store isolation tests
         run: npm run test:update-release && npm run test:microsoft-store
   build:
+    if: inputs.platforms != '[]'
     needs: [validate, contracts]
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { platform: windows, os: windows-latest }
-          - { platform: macos, os: macos-latest }
-          - { platform: linux, os: ubuntu-latest }
-    runs-on: ${{ matrix.os }}
+        platform: ${{ fromJSON(inputs.platforms || '["windows","macos","linux"]') }}
+    runs-on: ${{ matrix.platform == 'windows' && 'windows-latest' || matrix.platform == 'macos' && 'macos-latest' || 'ubuntu-latest' }}
     timeout-minutes: 240
     env:
       NODE_OPTIONS: --max-old-space-size=4096
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      CSC_IDENTITY_AUTO_DISCOVERY: ${{ inputs.mac_signing && matrix.platform == 'macos' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,7 +106,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
       - name: Verify exact source
         shell: bash
@@ -105,6 +116,11 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$RC_SHA"
           test "$(node -p "require('./package.json').version")" = "$RC_VERSION"
+      - name: Prepare unified release source
+        if: inputs.platforms != ''
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: node scripts/release-cloud-ci.mjs prepare
       - name: Build app source
         shell: bash
         run: |
@@ -129,24 +145,40 @@ jobs:
         if: matrix.platform == 'macos'
         shell: bash
         run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
-      - name: Build unsigned macOS Intel
+      - name: Build macOS Intel
         if: matrix.platform == 'macos'
         shell: bash
         env:
+          CSC_LINK: ${{ inputs.mac_signing && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ inputs.mac_signing && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
           NOWEN_MAC_ARCH: x64
           TARGET_ARCH: x64
           npm_config_target_arch: x64
         run: |
+          if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
+            test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          fi
           npm run rebuild:native -- --target-platform=darwin --target-arch=x64
           npx electron-builder --config electron/builder.config.js --mac --publish never
-      - name: Build unsigned macOS Apple Silicon
+      - name: Build macOS Apple Silicon
         if: matrix.platform == 'macos'
         shell: bash
         env:
+          CSC_LINK: ${{ inputs.mac_signing && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ inputs.mac_signing && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
           NOWEN_MAC_ARCH: arm64
           TARGET_ARCH: arm64
           npm_config_target_arch: arm64
         run: |
+          if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
+            test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          fi
           npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
           npx electron-builder --config electron/builder.config.js --mac --publish never
       - name: Linux desktop contract tests
@@ -172,14 +204,30 @@ jobs:
           RC_VERSION: ${{ inputs.version }}
           RC_REQUEST_ID: ${{ inputs.request_id }}
         run: node scripts/release-center-stage-candidate.mjs
+      - name: Record macOS signature and notarization evidence
+        if: inputs.platforms != '' && matrix.platform == 'macos'
+        env:
+          RC_MAC_SIGNING: ${{ inputs.mac_signing }}
+          RC_VERSION: ${{ inputs.version }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+        run: node scripts/release-cloud-ci.mjs mac-proof
+      - uses: actions/upload-artifact@v4
+        if: inputs.platforms != '' && matrix.platform == 'macos'
+        with:
+          name: release-macos-proof
+          path: mac-proof/signature.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload nonpublishing candidate packages
         uses: actions/upload-artifact@v4
         with:
-          name: rc-candidate-${{ inputs.request_id }}-${{ matrix.platform }}
+          name: ${{ inputs.platforms != '' && format('release-{0}', matrix.platform) || format('rc-candidate-{0}-{1}', inputs.request_id, matrix.platform) }}
           path: rc-candidate/${{ matrix.platform }}/assets/*
           if-no-files-found: error
           retention-days: 7
       - name: Upload separate SHA evidence, not approval
+        if: inputs.platforms == ''
         uses: actions/upload-artifact@v4
         with:
           name: rc-candidate-evidence-${{ inputs.request_id }}-${{ matrix.platform }}

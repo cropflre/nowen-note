@@ -12,7 +12,7 @@ import { calculateTaskProgress } from "./taskProgress";
 import { buildTaskTree, type TaskTreeNode } from "./taskProgress";
 import { TaskEmptyState } from "./TaskEmptyState";
 
-const COLUMNS: { key: TaskStatus; icon: React.ReactNode; color: string }[] = [
+const COLUMNS: { key: TaskStatus; icon: React.ReactElement<{ size: number }>; color: string }[] = [
   { key: "todo", icon: <Circle size={16} />, color: "text-tx-tertiary" },
   { key: "doing", icon: <AlertTriangle size={16} />, color: "text-amber-500" },
   { key: "blocked", icon: <Ban size={16} />, color: "text-red-500" },
@@ -191,7 +191,7 @@ export function TaskBoardView({
                           className="p-1 rounded hover:bg-app-hover opacity-40 hover:opacity-100 transition-all"
                           title={STATUS_LABELS[c.key]}
                         >
-                          <span className={c.color}>{React.cloneElement(c.icon as React.ReactElement, { size: 11 })}</span>
+                          <span className={c.color}>{React.cloneElement(c.icon, { size: 11 })}</span>
                         </button>
                       ))}
                     </div>

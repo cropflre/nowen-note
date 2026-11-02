@@ -1,8 +1,8 @@
 # 更新日志 / Changelog
 
-本文档由 `scripts/generate-changelog.mjs` 从 git commit（Conventional Commits）自动生成，并在每次
-`scripts/release.sh` 发版时新增或替换同版本条目。手写待发布草稿应在自动生成后重新复核；
-用户发布说明草稿保存在 `docs/releases/`。
+本文档由 `scripts/generate-changelog.mjs` 从 git commit（Conventional Commits）生成。
+当前 `scripts/release.sh` 是 Release Center 的安全编排入口，不会自动修改本文件；
+每次正式发布前应在代码冻结后生成对应版本条目并人工复核。用户发布说明草稿保存在 `docs/releases/`。
 
 格式说明：
 

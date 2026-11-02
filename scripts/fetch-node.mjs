@@ -8,7 +8,7 @@
  * 用法：
  *   node scripts/fetch-node.mjs               # 默认仅当前平台
  *   node scripts/fetch-node.mjs --all         # 三平台全下（win/mac/linux x64 + mac arm64）
- *   NODE_EMBED_VERSION=v20.18.0 node scripts/fetch-node.mjs
+ *   NODE_EMBED_VERSION=v24.22.1 node scripts/fetch-node.mjs
  *
  * 产物目录：
  *   electron/node/win32-x64/node.exe
@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import https from "node:https";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -27,7 +28,7 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 const OUT_DIR = path.join(ROOT, "electron", "node");
 
-const VERSION = process.env.NODE_EMBED_VERSION || "v20.18.0";
+const VERSION = process.env.NODE_EMBED_VERSION || "v24.22.1";
 const MIRROR = process.env.NODE_MIRROR || "https://nodejs.org/dist";
 
 const TARGETS = {
@@ -167,8 +168,10 @@ async function fetchOne(key) {
   if (!cfg) throw new Error(`unknown target: ${key}`);
   const platDir = path.join(OUT_DIR, key);
   const outFile = path.join(platDir, cfg.exe);
+  const versionFile = `${outFile}.version`;
 
-  if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0) {
+  if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0 &&
+      fs.existsSync(versionFile) && fs.readFileSync(versionFile, "utf8").trim() === VERSION) {
     console.log(`[fetch-node] ✓ ${key} already exists, skip`);
     return;
   }
@@ -176,6 +179,17 @@ async function fetchOne(key) {
 
   const archivePath = path.join(platDir, `_download.${cfg.kind.replace(".", "_")}`);
   await download(cfg.url, archivePath);
+  const sumsPath = path.join(platDir, "SHASUMS256.txt");
+  await download(`${MIRROR}/${VERSION}/SHASUMS256.txt`, sumsPath);
+  const filename = new URL(cfg.url).pathname.split("/").pop();
+  const checksum = fs.readFileSync(sumsPath, "utf8").split(/\r?\n/)
+    .find(line => line.trim().split(/\s+/)[1] === filename)?.split(/\s+/)[0];
+  const actualChecksum = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+  if (!checksum || checksum !== actualChecksum) {
+    fs.rmSync(archivePath, { force: true });
+    fs.rmSync(sumsPath, { force: true });
+    throw new Error(`SHA-256 checksum mismatch: ${filename}`);
+  }
 
   if (cfg.kind === "zip") {
     await extractZip(archivePath, cfg.entry, outFile);
@@ -183,6 +197,8 @@ async function fetchOne(key) {
     await extractTarGz(archivePath, cfg.entry, outFile);
   }
   fs.unlinkSync(archivePath);
+  fs.unlinkSync(sumsPath);
+  fs.writeFileSync(versionFile, `${VERSION}\n`);
   console.log(`[fetch-node] ✓ ${key} -> ${outFile}`);
 }
 

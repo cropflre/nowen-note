@@ -23,7 +23,8 @@ for (const missing of [["encrypted_note_versions_update"], guards]) {
       const note = db.prepare("SELECT * FROM notes WHERE id='migration-note'").get();
       const history = db.prepare("SELECT * FROM note_versions WHERE id='migration-history'").get();
       const outbox = db.prepare("SELECT * FROM sync_outbox ORDER BY id").all();
-      db.prepare("DELETE FROM schema_migrations WHERE version>=123").run();
+      // Reinstall the encrypted guards without replaying unrelated later table creation.
+      db.prepare("DELETE FROM schema_migrations WHERE version IN (123,135,139)").run();
       for (const name of missing) db.exec(`DROP TRIGGER ${name}`);
 
       assert.doesNotThrow(() => runMigrations(db));

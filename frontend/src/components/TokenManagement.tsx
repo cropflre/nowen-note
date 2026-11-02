@@ -97,7 +97,7 @@ function scopeLabel(scope: string): string {
   return labels[scope] || scope;
 }
 
-export default function TokenManagement(): JSX.Element {
+export default function TokenManagement(): React.JSX.Element {
   const { t } = useTranslation();
   const [tokens, setTokens] = useState<ApiTokenListItem[]>([]);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);

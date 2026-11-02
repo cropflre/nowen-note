@@ -30,7 +30,7 @@ vi.mock("@capacitor/core", async (importOriginal) => {
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal<typeof import("react-i18next")>(),
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: "zh-CN" } }),
 }));
 
 vi.mock("@/components/MathView", () => ({

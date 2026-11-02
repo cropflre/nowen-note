@@ -1,7 +1,7 @@
 import { getBaseUrl } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
-export interface AutomationStep { id: string; type: "action" | "condition" | "delay" | "transform" | "stop"; [key: string]: unknown }
+export interface AutomationStep { id: string; type: "agent" | "action" | "condition" | "delay" | "transform" | "stop"; [key: string]: unknown }
 export interface AutomationWorkflow {
   id: string; name: string; description: string; enabled: boolean; workspaceId?: string | null;
   triggerType: "event" | "schedule" | "webhook" | "manual";

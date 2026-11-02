@@ -16,7 +16,7 @@ import { notifyMobileSyncStatusChanged, setMobileSyncEnabled, MOBILE_SYNC_APPLIE
 import { createMobileSyncEngine, type MobileSyncEngine } from "./mobileSyncEngine";
 import { createMobileServerEndpointRuntime } from "./mobileServerEndpointRuntime";
 import { installMobileSyncRealtime } from "./mobileSyncRealtime";
-import { createNativeAttachmentStore } from "./nativeAttachmentStore";
+import { createNativeAttachmentStore, type NativeAttachmentStore } from "./nativeAttachmentStore";
 import { openNativeDatabase, type NativeDatabase } from "./nativeDatabase";
 import { createNativeLocalRepository } from "./nativeLocalRepository";
 import { newLocalId, setLocalRepository } from "./localRepository";
@@ -24,6 +24,8 @@ import { clearQueue, getQueue } from "./offlineQueue";
 import { setSyncLocalAdminAdapter, SYNC_CONFLICT_ENTITY_TYPES } from "./syncLocalApi";
 import { readNativeNoteSyncReceipt } from "./mobileNoteSyncReceipt";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
+import { readMobileOfflineReadiness } from "./mobileOfflineReadiness";
+import { isExpiredNativeSession, MOBILE_SYNC_AUTH_REQUIRED_EVENT } from './nativeOfflineSession';
 import {
   MOBILE_LOCAL_ACCOUNT_ID,
   MOBILE_LOCAL_MODE_CHANGED_EVENT,
@@ -49,6 +51,10 @@ interface RuntimeHandle {
 let active: RuntimeHandle | null = null;
 let lifecycle = Promise.resolve();
 let globalListenersInstalled = false;
+
+export function hasMobileBoundLocalAccount(): boolean {
+  return !!active?.engine;
+}
 
 function now(): string {
   return new Date().toISOString();
@@ -283,6 +289,8 @@ function createNativeAdminAdapter(
   profileId:string,
   deviceId:string,
   serverUrl:string,
+  attachmentStore:NativeAttachmentStore,
+  userId:string,
 ) {
   const parseBody=(init?:RequestInit)=>init?.body?JSON.parse(String(init.body)) as Record<string,unknown>:{};
   const json=(value:string|null)=>{try{return value?JSON.parse(value) as Record<string,unknown>:null;}catch{return null;}};
@@ -309,6 +317,7 @@ function createNativeAdminAdapter(
       return {mode:"device-only",retainedPendingMutations:count,message:"已停止同步，此设备中的全部笔记仍完整保留。"} as T;
     }
     if(path==="/settings/server"&&method==="POST"){
+      if (isExpiredNativeSession(getAccessToken()) || active?.authStatus !== 'ready') throw new Error('请先重新登录服务器以恢复同步');
       const body=parseBody(init);if(String(body.serverUrl||"").replace(/\/+$/,"")!==serverUrl)throw new Error("移动端请先在登录页切换服务器");
       await db.run("UPDATE sync_profiles SET enabled=1,authStatus='ready',updatedAt=? WHERE id=?",[now(),profileId]);
       setMobileSyncEnabled(true);engine.start();
@@ -329,7 +338,7 @@ function createNativeAdminAdapter(
       const pendingCount=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_outbox WHERE profileId=? AND status IN ('pending','failed')",[profileId]))[0]?.count||0;
       const pendingAttachments=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM attachments WHERE transferStatus IN ('pending_upload','uploading','pending_download','downloading','failed')"))[0]?.count||0;
       const conflictCount=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;
-      return {profileId,serverUrl,deviceId,lastSeenAt:null,localCursor:state?.lastSequence||0,lastSyncAt:state?.lastSyncAt||null,lastError:state?.lastError||null,pendingMutations:pendingCount,pendingAttachments,conflictCount,pendingSample:pending} as T;
+      return {profileId,serverUrl,deviceId,lastSeenAt:null,localCursor:state?.lastSequence||0,lastSyncAt:state?.lastSyncAt||null,lastError:state?.lastError||null,pendingMutations:pendingCount,pendingAttachments,conflictCount,pendingSample:pending,offline:await readMobileOfflineReadiness(db,attachmentStore,profileId,userId)} as T;
     }
     if(path==="/scopes"){
       const rows=await db.query<Record<string,unknown>>("SELECT * FROM sync_workspace_scopes WHERE profileId=? ORDER BY workspaceName",[profileId]);
@@ -517,7 +526,7 @@ async function configureRuntime(): Promise<void> {
       await tx.run(`INSERT INTO sync_profiles (
         id,name,serverUrl,remoteUserId,enabled,authStatus,bootstrapStatus,createdAt,updatedAt
       ) VALUES (?,?,?,?,1,'ready','pending',?,?) ON CONFLICT(id) DO UPDATE SET
-        serverUrl=excluded.serverUrl,remoteUserId=excluded.remoteUserId,authStatus='ready',updatedAt=excluded.updatedAt`, [
+        serverUrl=excluded.serverUrl,remoteUserId=excluded.remoteUserId,updatedAt=excluded.updatedAt`, [
         ids.profileId,"当前账号",serverUrl,userId,now(),now(),
       ]);
       await tx.run(`INSERT INTO sync_devices (profileId,deviceId,deviceName,platform,createdAt,lastSeenAt)
@@ -526,6 +535,7 @@ async function configureRuntime(): Promise<void> {
       ]);
     });
     const mobileLocalDb = await openNativeDatabase(MOBILE_LOCAL_ACCOUNT_ID);
+    await db.run("UPDATE sync_profiles SET authStatus=? WHERE id=?", [isExpiredNativeSession(token) ? 'auth_required' : 'ready', ids.profileId]);
     try {
       await migrateMobileLocalAccount({
         sourceDb: mobileLocalDb,
@@ -564,13 +574,13 @@ async function configureRuntime(): Promise<void> {
     const networkHandle = await Network.addListener("networkStatusChange", (status) => { void endpoints?.networkChanged(status); notifyMobileSyncStatusChanged(); });
     removeListeners.push(() => networkHandle.remove());
     setLocalRepository(repository);
-    setSyncLocalAdminAdapter(createNativeAdminAdapter(db,engine,repository,ids.profileId,ids.deviceId,serverUrl));
+    setSyncLocalAdminAdapter(createNativeAdminAdapter(db,engine,repository,ids.profileId,ids.deviceId,serverUrl,attachmentStore,userId));
     const restoreBridge = installMobileLocalFirstBridge(repository,db,userId);
     active = {identity,db,engine,restoreBridge,removeListeners};
     const profile = (await db.query<{ enabled: number }>("SELECT enabled FROM sync_profiles WHERE id=?",[ids.profileId]))[0];
     setMobileSyncEnabled(profile?.enabled === 1);
     removeListeners.push(installMobileSyncRealtime(engine));
-    if (profile?.enabled === 1) engine.start();
+    if (profile?.enabled === 1 && !isExpiredNativeSession(token)) engine.start();
   } catch (error) {
     for (const remove of removeListeners) await Promise.resolve(remove()).catch(() => undefined);
     await db.close().catch(() => undefined);
@@ -592,6 +602,12 @@ export async function initializeMobileLocalFirstRuntime(): Promise<void> {
     window.addEventListener("nowen:token-changed",scheduleConfigure);
     window.addEventListener(SERVER_URL_CHANGED_EVENT,scheduleConfigure);
     window.addEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT,scheduleConfigure);
+    window.addEventListener(MOBILE_SYNC_AUTH_REQUIRED_EVENT, () => {
+      const current = active;
+      current?.engine?.stop();
+      if (current?.engine) void current.db.run("UPDATE sync_profiles SET authStatus='auth_required' WHERE enabled=1")
+        .then(() => notifyMobileSyncStatusChanged());
+    });
   }
   scheduleConfigure();
   await lifecycle;

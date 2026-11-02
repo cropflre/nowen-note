@@ -9,7 +9,8 @@
     "contextMenus",
     "storage",
     "notifications",
-    "debugger"
+    "debugger",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {

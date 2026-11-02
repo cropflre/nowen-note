@@ -167,8 +167,8 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
   const serverUrl = getServerUrl();
   const currentOrigin = typeof window !== "undefined" && window.location.origin.startsWith("http") ? window.location.origin : "";
-  const usingDesktopLiteMode = desktopInfo?.mode === "lite";
-  const desktopLocalUrl = desktopInfo?.backendPort ? `http://127.0.0.1:${desktopInfo.backendPort}` : "";
+  const usingDesktopLiteMode = desktopInfo?.mode === "lite" && desktopInfo.runtime !== "local";
+  const desktopLocalUrl = desktopInfo?.localServerUrl || (desktopInfo?.backendPort ? `http://127.0.0.1:${desktopInfo.backendPort}` : "");
   const usingCurrentLocalBackend = !!serverUrl && !!desktopLocalUrl && normalizeUrl(serverUrl) === normalizeUrl(desktopLocalUrl);
   const usingRemoteServer =
     !!serverUrl

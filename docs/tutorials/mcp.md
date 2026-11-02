@@ -7,7 +7,7 @@
 ## 先看结论
 
 - MCP 功能仍然受支持，服务端代码位于 `packages/nowen-mcp/`。
-- 当前官方仓库提供的是**源码安装方式**，需要 Node.js 20+、Git 和 npm。
+- 当前官方仓库提供的是**源码安装方式**，需要 Node.js 24.22.1+（24.x LTS）、Git 和 npm。
 - 不要直接照抄 `/path/to/...`。客户端配置中的脚本路径必须替换为你电脑上的**绝对路径**。
 - 如果 Nowen Note 部署在 NAS 或其他服务器，`NOWEN_URL` 应填写该设备能从当前电脑访问的地址，例如 `http://192.168.1.20:3001`，而不是 `localhost`。
 - 推荐使用独立的 restricted Personal API Token，不要把管理员密码写进 MCP 配置。
@@ -36,7 +36,7 @@ http://localhost:3001
 
 如果浏览器都打不开，请先处理 Docker 端口、NAS 防火墙、反向代理或局域网访问问题，MCP 无法绕过网络连接问题。
 
-### 2. 安装 Node.js 20+ 和 Git
+### 2. 安装 Node.js 24.22.1+（24.x LTS） 和 Git
 
 检查版本：
 

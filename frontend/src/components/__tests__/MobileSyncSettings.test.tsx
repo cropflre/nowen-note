@@ -29,6 +29,15 @@ afterEach(() => { act(() => root.unmount()); host.remove(); });
 const mount = async () => { await act(async () => root.render(<MobileSyncSettings />)); };
 const choices = () => host.querySelectorAll<HTMLInputElement>('input[type="radio"]');
 describe("Android simple sync choices", () => {
+  it("translates the sign-in action for expired authorization in both languages", async () => {
+    mocks.settings.mockResolvedValue({ mode: "device-only", authorized: false, authorizationState: "expired", profiles: [] });
+    await mount();
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "登录工作台")).toBe(true);
+    await act(async () => { await i18n.changeLanguage("en"); });
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Sign In")).toBe(true);
+    expect(host.textContent).not.toContain("auth.login");
+  });
+
   it("updates mounted mobile sync labels when switching between Chinese and English", async () => {
     await mount();
     expect(host.textContent).toContain("不同步，仅此设备");

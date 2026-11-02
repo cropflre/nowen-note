@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
@@ -51,6 +52,39 @@ async function flushPreview() {
 }
 
 describe("markdownLivePreviewExtension", () => {
+  it("opens an image without replacing its preview with Markdown source", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const doc = "![photo](https://example.com/photo.png)\n\nEditing paragraph";
+    // Flush the widget's React mount and passive effects before clicking its image.
+    const view = await act(async () => new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [markdown(), markdownLivePreviewExtension],
+      }),
+    }));
+    try {
+      await vi.waitFor(() => expect(parent.querySelector("img")).not.toBeNull());
+      const image = parent.querySelector("img")!;
+      const selection = view.state.selection;
+      image.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      expect(view.state.selection.eq(selection)).toBe(true);
+      expect(parent.querySelector("img")).toBe(image);
+      await act(async () => image.click());
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="图片预览"]')).not.toBeNull());
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      });
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="图片预览"]')).toBeNull());
+      expect(view.state.selection.eq(selection)).toBe(true);
+      expect(parent.querySelector("img")).toBe(image);
+      expect(view.state.doc.toString()).toBe(doc);
+    } finally { await act(async () => view.destroy()); }
+  });
+
   it("authorizes Live-mode images for their own note and updates the scope even for identical text", async () => {
     resetAttachmentAccessStateForTests();
     localStorage.setItem("nowen-token", "jwt-token");

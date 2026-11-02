@@ -103,3 +103,12 @@ export async function confirmTaskComposition(context: TaskComposerContext, batch
   window.dispatchEvent(new Event("nowen:task-composer-created"));
   return result;
 }
+
+/** Reuse the existing confirmed-record cache; never enqueue these server results again. */
+export async function refreshAgentTaskResults(context: TaskComposerContext, ids: string[]) {
+  const tasks = await Promise.all(ids.map(id => request<Task>(context, `/tasks/${encodeURIComponent(id)}`, undefined, undefined, "GET")));
+  if (!isTaskComposerContextCurrent(context)) throw new TaskComposerApiError("CONTEXT_CHANGED");
+  if (context.workspaceId === "personal" && cacheConfirmedTasks) await cacheConfirmedTasks(tasks);
+  window.dispatchEvent(new Event(TASK_REMINDER_SYNC_EVENT));
+  window.dispatchEvent(new Event("nowen:task-composer-created"));
+}

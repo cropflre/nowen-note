@@ -15,6 +15,9 @@ export class Store {
     chmodSync(path, 0o600);
     this.db
       .exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+      CREATE TABLE IF NOT EXISTS cloud_plans (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS cloud_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, active INTEGER NOT NULL, data TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS one_cloud_active ON cloud_requests(active) WHERE active=1;
       CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, key TEXT UNIQUE NOT NULL, fingerprint TEXT NOT NULL, active INTEGER NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS one_active ON tasks(active) WHERE active=1;
@@ -100,7 +103,7 @@ export class Store {
     return this.transaction(() => {
       const existing = this.byKey(task.key, fingerprint);
       if (existing) return existing;
-      if (this.tasks(true).length)
+      if (this.tasks(true).length || this.db.prepare("SELECT id FROM cloud_requests WHERE active=1").get())
         throw new AppError(409, "已有活动任务，请等待完成或取消");
       // Keep an optional version reservation in the same SQLite transaction.
       // If the task cannot be created, no version remains accidentally reserved.
