@@ -100,6 +100,7 @@
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-003: lost upload responses recover the exact persisted PDF identity, including deduplicated uploads" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: automatic download replays retained legacy edits before starting the NAS baseline" },
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: failed desktop download can open the remote workspace without losing retained edits or retrying in the background" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-003: failed automatic download retains its session and can retry after connectivity returns" },
         { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-003: initial NAS download automatically fetches attachment bytes without manually registering downloads" },
         { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "a failed server write preserves the encrypted barrier and does not queue plaintext (DCC-003)" },
@@ -175,6 +176,7 @@
       "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-005: shows live desktop download stages and actual attachment progress without claiming a completed local copy" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset binding preserves server-generated negative root positions across native replicas" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset Pull loads final folder dependencies beyond its first change-feed page" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folder Apply failure retains cursor and the complete previous local graph" },
