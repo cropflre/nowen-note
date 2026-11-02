@@ -121,7 +121,7 @@ export async function loadImage(directory, version, sha, arch, execute = run) {
     throw Error('Docker 镜像归档 SHA-256 不匹配');
   }
   execute('docker', ['load', '-i', join(directory, 'image.tar')]);
-  const loaded = JSON.parse(execute('docker', ['image', 'inspect', image.ref]))[0];
+  const loaded = JSON.parse(execute('docker', ['image', 'inspect', '--platform', `linux/${arch}`, image.ref]))[0];
   const labels = loaded.Config?.Labels || {};
   // Validate provenance and runtime platform after importing the verified archive.
   // Image Id equality alone is not portable across OCI/containerd Docker stores.

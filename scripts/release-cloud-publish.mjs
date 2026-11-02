@@ -79,8 +79,9 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   };
   const checkRemote = (ref, image) => {
     execute('docker', ['pull', '--platform', `linux/${image.arch}`, ref]);
-    const actual = JSON.parse(execute('docker', ['image', 'inspect', ref]))[0];
-    if (actual.Id !== image.loadedImageId || actual.Architecture !== image.arch || actual.Os !== 'linux') throw Error('Docker 已有版本内容不同；禁止覆盖');
+    // Select the child manifest; containerd otherwise returns the multi-platform index ID.
+    const actual = JSON.parse(execute('docker', ['image', 'inspect', '--platform', `linux/${image.arch}`, ref]))[0];
+    if (actual.Id !== image.loadedImageId || actual.Architecture !== image.arch || actual.Os !== 'linux') throw Error(`Docker 已有版本内容不同；禁止覆盖：${ref} linux/${image.arch} (${actual.Id} != ${image.loadedImageId})`);
   };
   if (await exists(versionTag)) {
     for (const image of images) checkRemote(`${CLOUD_REPO}:${versionTag}`, image);
@@ -107,7 +108,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   if (await exists('latest')) {
     const latestRef = `${CLOUD_REPO}:latest`;
     execute('docker', ['pull', '--platform', 'linux/amd64', latestRef]);
-    const latest = JSON.parse(execute('docker', ['image', 'inspect', latestRef]))[0];
+    const latest = JSON.parse(execute('docker', ['image', 'inspect', '--platform', 'linux/amd64', latestRef]))[0];
     const currentVersion = latest.Config.Labels?.['org.opencontainers.image.version']?.replace(/^v/, '');
     const comparison = compareVersions(currentVersion, manifest.version);
     if (comparison > 0) { await appendFile(e.GITHUB_STEP_SUMMARY, `已发布 ${versionTag}；latest 保留更新版本 ${currentVersion}。\n`); return; }
