@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -94,6 +94,23 @@ test('only the unified workflow can publish; legacy routes are fail-closed', asy
   assert.match(cloudPublish, /release-cloud-ci\.mjs verify/);
   assert.match(cloudPublish, /environment: release-github/);
   assert.match(cloudPublish, /environment: release-docker/);
+});
+
+test('formal Clipper packaging excludes historical ZIPs from the upload directory', {skip:process.platform==='win32'}, async t => {
+  const workflow = createRequire(import.meta.url)('js-yaml').load(await read('.github/workflows/release-build.yml'));
+  const step = workflow.jobs.clipper.steps.find(step => step.run?.includes('pack:all'));
+  const directory = await mkdtemp(resolve(tmpdir(), 'nowen-clipper-release-'));
+  t.after(() => rm(directory, {recursive:true,force:true}));
+  await mkdir(resolve(directory, 'releases'));
+  await mkdir(resolve(directory, 'bin'));
+  await writeFile(resolve(directory, 'releases/nowen-clipper-0.2.0.zip'), 'historical');
+  await writeFile(resolve(directory, 'releases/README.md'), 'keep');
+  const version = (await json('packages/nowen-clipper/package.json')).version;
+  const names = ['', '-edge', '-firefox'].map(suffix => `nowen-clipper-${version}${suffix}.zip`);
+  await writeFile(resolve(directory, 'bin/npm'), `#!${process.execPath}\nif(process.argv.includes('pack:all')){const fs=require('node:fs');for(const name of ${JSON.stringify(names)})fs.writeFileSync('releases/'+name,'current');}\n`, {mode:0o755});
+  const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {cwd:directory,encoding:'utf8',env:{...process.env,PATH:`${resolve(directory,'bin')}:${process.env.PATH}`}});
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual((await readdir(resolve(directory, 'releases'))).sort(), [...names, 'README.md'].sort());
 });
 
 test('FPK manifest uses fnpack-compatible quoted HTML and release version placeholder', async () => {
