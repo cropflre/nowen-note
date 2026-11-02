@@ -167,7 +167,7 @@ test('Docker promotes verified archives across runner image IDs and rejects corr
   if(args[0]==='load'){const image=runnerImages.find(image=>args.at(-1).includes(image.arch));local.set(image.ref,image);return '';}
   if(args[0]==='push'){const image=local.get(args[1]);remote.set(args[1].split(':').at(-1),[image]);if(lose){lose=false;throw Error('push response lost');}return '';}
   if(args[0]==='pull'){const arch=args[2].split('/').at(-1);local.set(args[3],remote.get(args[3].split(':').at(-1)).find(image=>image.arch===arch));return '';}
-  if(args[0]==='image'){const image=local.get(args.at(-1));return JSON.stringify([{Id:image.id,Architecture:image.arch,Os:'linux',Config:{Labels:{'org.opencontainers.image.version':image.version,'org.opencontainers.image.revision':badRevision?'f'.repeat(40):image.sha}}}]);}
+  if(args[0]==='image'){const ref=args.at(-1),image=local.get(ref);const index=remote.get(ref.split(':').at(-1))?.length>1;return JSON.stringify([{Id:index&&!args.includes('--platform')?`sha256:${'e'.repeat(64)}`:image.id,Architecture:image.arch,Os:'linux',Config:{Labels:{'org.opencontainers.image.version':image.version,'org.opencontainers.image.revision':badRevision?'f'.repeat(40):image.sha}}}]);}
   if(args.includes('inspect'))return JSON.stringify({digest:`sha256:${'e'.repeat(64)}`});
   if(args.includes('create')){const tag=args[args.indexOf('-t')+1].split(':').at(-1);remote.set(tag,runnerImages);return '';}
   throw Error(`unexpected ${command} ${args}`);
