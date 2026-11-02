@@ -36,7 +36,8 @@ NAS 目标自动包含 Docker：FPK 引用本次版本镜像；UPK 从同次构�
 | 仓库变量 | `NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON` | 所有正式构建复用既有 Official Registry 信任根校验；缺失时在预检阻断 |
 | 仓库 Secrets | `NOWEN_ANDROID_KEYSTORE_B64`、`NOWEN_ANDROID_KEYSTORE_PASSWORD`、`NOWEN_ANDROID_KEY_ALIAS`、可选 `NOWEN_ANDROID_KEY_PASSWORD` | Android 发布签名；缺少必填项则预检阻断，签名文件结束后清理 |
 | 仓库 Secrets | `IOS_CERTIFICATE_BASE64`、`IOS_CERTIFICATE_PASSWORD`、`IOS_PROVISIONING_PROFILE_BASE64`、`IOS_KEYCHAIN_PASSWORD` | iOS 签名和导出；构建不会上传 TestFlight |
-| 仓库变量 | `NOWEN_RELEASE_MAC_SIGNING=1` | 在统一构建中启用 macOS 签名/公证；未启用时仍可构建测试包，但不能正式分发 |
+| 仓库变量 | `NOWEN_RELEASE_MAC_SIGNING=1` | 在统一构建中启用 macOS 签名/公证；未启用时构建未签名候选，默认不允许正式分发 |
+| 仓库变量 | `NOWEN_RELEASE_UNSIGNED_MACOS_VERSION=X.Y.Z` | 仅在用户明确授权后，允许该准确版本分发未签名、未公证的 macOS 包；保留来源、attempt 和摘要校验，发布说明必须披露，完成后移除此变量 |
 | 仓库 Secrets | `MAC_CSC_LINK`、`MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID` | 复用 electron-builder / afterSign；两架构检查 Developer ID 签名与 stapler 公证票据，证据绑定包摘要 |
 | 仓库变量 | `FNPACK_URL`、`FNPACK_SHA256` | 官方 fnpack Linux amd64 可执行文件的 HTTPS 下载地址与固定 SHA-256；缺失则 FPK 预检失败 |
 | 服务进程环境 | `NOWEN_RELEASE_GITHUB_TOKEN` | 固定仓库 Contents 读、Actions 写；不传给构建器或浏览器 |
@@ -52,7 +53,7 @@ iOS Runner 固定为 `macos-26`，使用 Node 24.22.1，并在依赖安装前检
 
 ## 产物与恢复
 
-构建完成后生成 `release-manifest`，记录仓库、源码 SHA、版本、请求 UUID、Run/attempt、目标以及逐文件大小与 SHA-256；桌面包还复核更新元数据 SHA-512。macOS 正式分发额外要求签名、公证证据与同批文件摘要匹配。Runner 原生依赖检查沿用现有构建链。
+构建完成后生成 `release-manifest`，记录仓库、源码 SHA、版本、请求 UUID、Run/attempt、目标以及逐文件大小与 SHA-256；桌面包还复核更新元数据 SHA-512。macOS 默认要求签名、公证证据与同批文件摘要匹配。用户明确授权分发未签名包时，使用准确版本变量作为单次例外；证据仍须保持 `signed=false`、`notarized=false` 并匹配原构建，不能通过改名或伪造状态获取资格。Runner 原生依赖检查沿用现有构建链。
 
 产物保留 **7 天**。失败构建保留已经上传的成功目标供排查，但不会生成完整成功凭据。重建请使用新请求 UUID 完整构建，不使用 Actions 的 Re-run 混合不同 attempt 产物；入口预检与最终汇总均拒绝非第一次 attempt。
 
@@ -79,6 +80,6 @@ bash scripts/release.sh --branch release/v1.5.4 \
 
 ## English scope
 
-All builds run in GitHub Actions; the CLI and local console only dispatch and follow runs. The unified build covers desktop, signed Android/iOS packages, Store AppX, two Docker architectures, NAS packages and browser extensions. Sources and committed versions are pinned. A manifest binds every artifact to its SHA, request, run/attempt, file sizes and hashes. Unsigned macOS builds are test candidates; publishing requires matching Developer ID and notarization evidence.
+All builds run in GitHub Actions; the CLI and local console only dispatch and follow runs. The unified build covers desktop, signed Android/iOS packages, Store AppX, two Docker architectures, NAS packages and browser extensions. Sources and committed versions are pinned. A manifest binds every artifact to its SHA, request, run/attempt, file sizes and hashes. Unsigned macOS builds are rejected by default. After explicit user authorization, NOWEN_RELEASE_UNSIGNED_MACOS_VERSION may approve one exact version; provenance and hashes remain mandatory, signature metadata stays false, and release notes must disclose the unsigned, unnotarized status. Remove the exception after publication.
 
 Publishing is a separate, explicitly confirmed workflow and defaults off in both the console and repository configuration. Environment-gated jobs reverify and upload the same built artifacts. GitHub writes reconcile by ownership and asset digests; versioned Docker images cannot overwrite different content. TestFlight processing, store submissions and device acceptance remain separate. No real remote build, release, secret configuration or publication authorization was performed during this implementation.
