@@ -33,26 +33,26 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.3 highlights · 2026-10-23
+## v1.5.4 highlights · 2026-11-02
 
-**v1.5.3 is the current stable release and is publicly available on GitHub Releases.** Before downloading, verify the actual assets and device architecture in [GitHub Release v1.5.3](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3). v1.5.4 remains in pre-release code cleanup and acceptance; it has not been published.
+**AI writing, Markdown folding, and offline improvements.** Read the [v1.5.4 release notes](./docs/releases/v1.5.4.md). Publication status, available platforms, and device architectures are defined by the actual entries in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
 > [!IMPORTANT]
-> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.**
+> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.** This release's macOS packages are not Developer ID signed or Apple notarized; Windows GitHub direct downloads are also unsigned.
 
-- **Smoother note editing:** More reliable nested note dragging (#869), mobile code-block and slash-menu interactions, a restored All Notes entry, and search within favorites.
-- **Safer image handling:** One-click remote-image localization for personal content, persisted image rotation, and shareable image links with filename extensions.
-- **More flexible encryption:** Unlock an encrypted note and explicitly confirm permanent removal of note encryption (#875).
-- **Better calendars and reminders:** Mainland China holidays (#848), improved Chinese PushPlus task digests and webhook response checks, timezone fixes (#867), and MCP scheduling/reminder fixes (#871).
-- **Cross-platform stability:** Clearer Android server connection errors, verified macOS packaging dependencies, and stronger release build validation.
+- **Review AI changes before applying:** Editor and notebook assistants generate edit proposals, note drafts and task drafts. Reuse instruction-only Skills and administrator-authorized shared model profiles.
+- **Navigate long Markdown notes:** Chapter folding automatically reveals search matches. Live image previews and Mermaid compatibility are improved.
+- **More reliable images and attachments:** Better zoom, pan, pinch and original-resolution viewing; recover persisted attachments after lost upload responses and use shorter stable share links.
+- **Fewer manual NAS offline steps:** Full desktop clients prepare local copies of personal notes and managed attachments, with offline editing and reconnect upload. Android local-first handling is strengthened.
+- **Import and interface improvements:** DOCX files up to 1 GB, compact mobile AI panels, large-font cards, isolated concurrent clipping, and a Microsoft Store download entry.
 
-**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** are reserved for **v1.6.0**, **not shipped as v1.5.3 release highlights**. Actual delivery remains subject to implementation, testing, and publication.
+**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** remain reserved for **v1.6.0** and are **not new deliverables in v1.5.4**. Actual delivery remains subject to implementation, testing, and publication.
 
 See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
 
-## Previous stable release · v1.5.2
+## Previous stable release · v1.5.3
 
-Released on October 16, 2026, v1.5.2 improved file management, scoped MCP capabilities, AI task workflows, cross-device sync, and deployment tools. Read the [v1.5.2 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.2).
+Released on October 23, 2026, v1.5.3 improved note editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. Read the [v1.5.3 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3).
 
 ## Connect AI clients to Nowen Note
 

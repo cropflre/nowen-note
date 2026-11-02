@@ -69,18 +69,24 @@ async function androidSigning() {
   if (!e.NOWEN_ANDROID_KEYSTORE_B64 || !password || !keyPassword || !e.NOWEN_ANDROID_KEY_ALIAS) throw Error('缺少 Android 发布签名 Secrets');
   await writeFile('frontend/android/app/cloud-release.keystore', Buffer.from(e.NOWEN_ANDROID_KEYSTORE_B64, 'base64'), { mode: 0o600 });
   await writeFile('frontend/android/keystore.properties', `storeFile=app/cloud-release.keystore\nstorePassword=${escapeJavaProperty(password)}\nkeyAlias=${escapeJavaProperty(e.NOWEN_ANDROID_KEY_ALIAS)}\nkeyPassword=${escapeJavaProperty(keyPassword)}\n`, { mode: 0o600 });
+  const certificate = execFileSync('keytool', ['-exportcert', '-keystore', 'frontend/android/app/cloud-release.keystore', '-alias', e.NOWEN_ANDROID_KEY_ALIAS, '-storepass:env', 'NOWEN_ANDROID_KEYSTORE_PASSWORD'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const fingerprint = createHash('sha256').update(certificate).digest('hex');
+  const expected = (e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase();
+  if (fingerprint !== expected) throw Error(`Android release keystore certificate SHA-256 ${fingerprint} does not match pinned NOWEN_ANDROID_CERT_SHA256 (${expected || 'missing'})`);
+  console.log(`Android release keystore certificate SHA-256 verified: ${fingerprint}`);
 }
 async function androidStage() {
-  const tools = (await readdir(join(e.ANDROID_HOME, 'build-tools'))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
-  const dir = join(e.ANDROID_HOME, 'build-tools', tools);
+  // Match the SDK installed by release-build.yml, regardless of runner image updates.
+  const dir = join(e.ANDROID_HOME, 'build-tools', '36.0.0');
   const apk = 'frontend/android/app/build/outputs/apk/release/app-release.apk';
   run(join(dir, 'apksigner'), ['verify', '--verbose', apk]);
   const certificateOutput = run(join(dir, 'apksigner'), ['verify', '--print-certs', apk]);
   const certificate = certificateOutput.match(/Signer #1 certificate SHA-256 digest:\s*([a-f0-9:]+)/i)?.[1]?.replace(/:/g, '').toLowerCase();
   const expectedCertificate = (e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(expectedCertificate) || certificate !== expectedCertificate) {
-    throw Error('Android APK signing certificate fingerprint does not match NOWEN_ANDROID_CERT_SHA256');
+    throw Error(`Android APK signing certificate fingerprint ${certificate || 'unrecognized output'} does not match NOWEN_ANDROID_CERT_SHA256 (${expectedCertificate || 'missing'})`);
   }
+  console.log(`Android APK certificate SHA-256 verified with build-tools 36.0.0: ${certificate}`);
   const badging = run(join(dir, 'aapt'), ['dump', 'badging', apk]);
   const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
   const expectedCode = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);

@@ -160,6 +160,8 @@ jobs:
         run: |
           if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
             test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
           npm run rebuild:native -- --target-platform=darwin --target-arch=x64
           npx electron-builder --config electron/builder.config.js --mac --publish never
@@ -178,6 +180,8 @@ jobs:
         run: |
           if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
             test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
           npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
           npx electron-builder --config electron/builder.config.js --mac --publish never
