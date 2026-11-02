@@ -113,6 +113,28 @@ test('formal Clipper packaging excludes historical ZIPs from the upload director
   assert.deepEqual((await readdir(resolve(directory, 'releases'))).sort(), [...names, 'README.md'].sort());
 });
 
+test('Clipper Chrome and Edge retain Chromium manifests while Firefox is derived separately', async t => {
+  const directory = await mkdtemp(resolve(tmpdir(), 'nowen-clipper-manifest-'));
+  t.after(() => rm(directory, {recursive:true,force:true}));
+  await mkdir(resolve(directory, 'scripts'));
+  await mkdir(resolve(directory, 'public'));
+  await writeFile(resolve(directory, 'scripts/copy-public.mjs'), await read('packages/nowen-clipper/scripts/copy-public.mjs'));
+  const chrome = JSON.parse(await read('packages/nowen-clipper/public/manifest.json'));
+  await writeFile(resolve(directory, 'public/manifest.json'), JSON.stringify(chrome));
+  for (const browser of ['chrome', 'edge', 'firefox']) {
+    const result = spawnSync(process.execPath, [resolve(directory, 'scripts/copy-public.mjs'), `--browser=${browser}`], {encoding:'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    const manifest = JSON.parse(await readFile(resolve(directory, 'dist/manifest.json'), 'utf8'));
+    if (browser === 'firefox') {
+      assert.deepEqual(manifest.background.scripts, [chrome.background.service_worker]);
+      assert.equal(manifest.background.service_worker, undefined);
+      assert.ok(manifest.browser_specific_settings.gecko.id);
+    } else {
+      assert.deepEqual(manifest, chrome, `${browser} must retain the Chromium service worker`);
+    }
+  }
+});
+
 test('FPK manifest uses fnpack-compatible quoted HTML and release version placeholder', async () => {
   const manifest = await read('scripts/fpk/template/manifest');
   assert.match(manifest, /^version\s*=\s*\{\{VERSION\}\}$/m);
