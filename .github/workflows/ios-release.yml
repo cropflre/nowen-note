@@ -69,7 +69,7 @@ jobs:
           BUILD_NUMBER="$(node - <<'NODE'
           const fs = require("node:fs");
           const project = fs.readFileSync("frontend/ios/App/App.xcodeproj/project.pbxproj", "utf8");
-          const values = [...project.matchAll(/CURRENT_PROJECT_VERSION\\s*=\\s*(\\d+);/g)].map((match) => Number(match[1]));
+          const values = [...project.matchAll(/CURRENT_PROJECT_VERSION\s*=\s*(\d+);/g)].map((match) => Number(match[1]));
           if (values.length < 2 || values.some((value) => !Number.isSafeInteger(value) || value !== values[0])) {
             throw new Error("Xcode CURRENT_PROJECT_VERSION must be a consistent committed integer in every build configuration");
           }

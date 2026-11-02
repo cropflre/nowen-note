@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -38,6 +39,13 @@ test('source Xcode build configurations carry v1.5.4 defaults', async () => {
   const workflow = await read('.github/workflows/ios-release.yml');
   assert.match(workflow, /CURRENT_PROJECT_VERSION/);
   assert.equal(workflow.includes('BUILD_NUMBER="${GITHUB_RUN_NUMBER}"'), false);
+  const script = workflow.match(/BUILD_NUMBER="\$\(node - <<'NODE'\r?\n([\s\S]*?)\r?\n\s*NODE\r?\n\s*\)"/)?.[1];
+  assert.ok(script, 'iOS workflow must resolve the committed build number');
+  const result = spawnSync(process.execPath, ['-'], {
+    cwd: root, encoding: 'utf8', input: script,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, String(codes[0]));
 });
 
 test('Node 24 is used by the canonical GitHub-hosted build and publishing workflows', async () => {
