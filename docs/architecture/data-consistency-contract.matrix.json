@@ -97,6 +97,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-003: lost upload responses recover the exact persisted PDF identity, including deduplicated uploads" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: automatic download replays retained legacy edits before starting the NAS baseline" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-003: failed automatic download retains its session and can retry after connectivity returns" },
@@ -200,6 +201,9 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
+        { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
+        { "file": "frontend/src/lib/__tests__/attachmentUploadRecovery.test.ts", "case": "does not recover into a changed server or account (DCC-006)" },
         { "file": "backend/tests/ai-collaboration.test.ts", "case": "chat rejects foreign, deleted and malformed Skills before provider access (DCC-006)" },
         { "file": "backend/tests/agent.test.ts", "case": "editor rejects foreign, deleted and malformed Skills before creating runs or calling models (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
@@ -357,6 +361,7 @@
       "title": "Android Native 关闭同步后重启仍保留未发出修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "uses the offline blob in original mode without network access (DCC-009)" },
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-009: stopping sync or disabling AI prevents remote model access without changing local data" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "does not contact a server in Native local-only mode (DCC-009)" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-009: Web and Android without a desktop bridge open their existing workspace without desktop sync" },

@@ -22,6 +22,8 @@ import { downloadAttachment } from "@/lib/downloadFile";
 import { toast } from "@/lib/toast";
 import { normalizeImageFlipX, normalizeImageRotation, type ImageRotation } from "@/lib/imageNodeTransformBootstrap";
 import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { clampImageViewerPosition } from "@/lib/imageViewerGeometry";
+import { useTranslation } from "react-i18next";
 import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
 
 const MIN_SCALE = 1;
@@ -38,6 +40,7 @@ type SinglePointerGesture = {
   startPosition: Point;
   startedOnImage: boolean;
   suppressTap: boolean;
+  moved: boolean;
 };
 
 type PinchGesture = {
@@ -114,6 +117,8 @@ export default function FullscreenImageViewer({
   onRotate,
   onEdit,
 }: FullscreenImageViewerProps) {
+  const { i18n } = useTranslation();
+  const english = i18n.language?.toLowerCase().startsWith("en");
   const gallery = useMemo<FullscreenImageItem[]>(() => {
     const valid = images?.filter((item) => !!item.src) || [];
     return valid.length ? valid : (src ? [{ src, alt }] : []);
@@ -123,6 +128,7 @@ export default function FullscreenImageViewer({
   const currentItem = gallery[currentIndex] || gallery[0] || { src: "", alt: "" };
   const imageRender = useAttachmentImageRenderSource(currentItem.src, {
     enabled: open && !!currentItem.src,
+    preferOriginal: true,
   });
   const baseRotation = normalizeImageRotation(currentItem.rotation);
   const baseFlipX = normalizeImageFlipX(currentItem.flipX);
@@ -144,6 +150,7 @@ export default function FullscreenImageViewer({
   const [position, setPosition] = useState<Point>({ x: 0, y: 0 });
   const [rotation, setRotation] = useState(0);
   const [fitRatio, setFitRatio] = useState(1);
+  const [pixelRatio, setPixelRatio] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [interacting, setInteracting] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -157,15 +164,9 @@ export default function FullscreenImageViewer({
     const image = imageRef.current;
     if (!stage || !image || nextScale <= MIN_SCALE) return { x: 0, y: 0 };
 
-    const sideways = rotationRef.current % 180 !== 0;
-    const transformedWidth = (sideways ? image.offsetHeight : image.offsetWidth) * nextScale;
-    const transformedHeight = (sideways ? image.offsetWidth : image.offsetHeight) * nextScale;
-    const maxX = Math.max(0, (transformedWidth - stage.clientWidth) / 2);
-    const maxY = Math.max(0, (transformedHeight - stage.clientHeight) / 2);
-    return {
-      x: clamp(next.x, -maxX, maxX),
-      y: clamp(next.y, -maxY, maxY),
-    };
+    return clampImageViewerPosition(next, nextScale, rotationRef.current,
+      { width: image.offsetWidth, height: image.offsetHeight },
+      { width: stage.clientWidth, height: stage.clientHeight });
   }, []);
 
   const commitTransform = useCallback((nextScale: number, nextPosition: Point) => {
@@ -180,17 +181,33 @@ export default function FullscreenImageViewer({
   const updateFitRatio = useCallback(() => {
     const image = imageRef.current;
     if (!image?.naturalWidth || !image.offsetWidth) return;
-    const next = clamp(image.offsetWidth / image.naturalWidth, 0.01, 1);
+    const next = Math.min(image.offsetWidth / image.naturalWidth, 1);
     fitRatioRef.current = next;
+    setPixelRatio(window.devicePixelRatio || 1);
     maxScaleRef.current = Math.max(MAX_SCALE, 1 / next);
-    setFitRatio((current) => Math.abs(current - next) < 0.001 ? current : next);
+    setFitRatio(next);
+  }, []);
+
+  const clearGestures = useCallback(() => {
+    const ids = [...pointersRef.current.keys()];
+    pointersRef.current.clear();
+    singleGestureRef.current = null;
+    pinchGestureRef.current = null;
+    lastTapRef.current = null;
+    setInteracting(false);
+    for (const id of ids) {
+      try {
+        if (stageRef.current?.hasPointerCapture(id)) stageRef.current.releasePointerCapture(id);
+      } catch { /* WebView may have already released the capture. */ }
+    }
   }, []);
 
   const resetTransform = useCallback(() => {
+    clearGestures();
     rotationRef.current = baseRotation;
     setRotation(baseRotation);
     commitTransform(MIN_SCALE, { x: 0, y: 0 });
-  }, [baseRotation, commitTransform]);
+  }, [baseRotation, clearGestures, commitTransform]);
 
   const navigateGallery = useCallback((delta: -1 | 1) => {
     const next = clamp(currentIndex + delta, 0, Math.max(0, gallery.length - 1));
@@ -220,11 +237,6 @@ export default function FullscreenImageViewer({
       clearTimeout(wheelIdleTimerRef.current);
       wheelIdleTimerRef.current = null;
     }
-    pointersRef.current.clear();
-    singleGestureRef.current = null;
-    pinchGestureRef.current = null;
-    lastTapRef.current = null;
-    setInteracting(false);
     setControlsVisible(true);
     setMoreOpen(false);
     resetTransform();
@@ -270,17 +282,23 @@ export default function FullscreenImageViewer({
     });
 
     const handleResize = () => {
+      clearGestures();
+      updateFitRatio();
       commitTransform(scaleRef.current, positionRef.current);
     };
     window.addEventListener("resize", handleResize);
+    window.addEventListener("blur", clearGestures);
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener("blur", clearGestures);
+      clearGestures();
+      if (wheelIdleTimerRef.current) clearTimeout(wheelIdleTimerRef.current);
       unregisterBackHandler();
     };
-  }, [open, currentItem.src, closeViewer, commitTransform, navigateGallery, resetTransform]);
+  }, [open, currentItem.src, closeViewer, commitTransform, navigateGallery, resetTransform, clearGestures, updateFitRatio]);
 
   const zoomAroundPoint = useCallback((nextScale: number, clientPoint?: Point) => {
     const stage = stageRef.current;
@@ -346,6 +364,7 @@ export default function FullscreenImageViewer({
     const points = Array.from(pointersRef.current.values());
 
     if (points.length >= 2) {
+      lastTapRef.current = null;
       const [first, second] = points;
       const center = midpoint(first, second);
       const stage = stageRef.current?.getBoundingClientRect();
@@ -376,6 +395,7 @@ export default function FullscreenImageViewer({
       startPosition: positionRef.current,
       startedOnImage,
       suppressTap: false,
+      moved: false,
     };
     setInteracting(scaleRef.current > MIN_SCALE);
   }, []);
@@ -409,7 +429,12 @@ export default function FullscreenImageViewer({
     }
 
     const single = singleGestureRef.current;
-    if (!single || single.pointerId !== event.pointerId || scaleRef.current <= MIN_SCALE) return;
+    if (!single || single.pointerId !== event.pointerId) return;
+    if (distance(single.start, { x: event.clientX, y: event.clientY }) > TAP_MOVE_TOLERANCE_PX) {
+      single.moved = true;
+      lastTapRef.current = null;
+    }
+    if (scaleRef.current <= MIN_SCALE) return;
     commitTransform(scaleRef.current, {
       x: single.startPosition.x + event.clientX - single.start.x,
       y: single.startPosition.y + event.clientY - single.start.y,
@@ -417,6 +442,8 @@ export default function FullscreenImageViewer({
   }, [commitTransform]);
 
   const finishPointer = useCallback((event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+    if (!pointersRef.current.has(event.pointerId)) return;
+    if (cancelled) lastTapRef.current = null;
     const single = singleGestureRef.current;
     const point = { x: event.clientX, y: event.clientY };
     pointersRef.current.delete(event.pointerId);
@@ -439,6 +466,7 @@ export default function FullscreenImageViewer({
           startPosition: positionRef.current,
           startedOnImage: true,
           suppressTap: true,
+          moved: false,
         };
       }
       setInteracting(pointersRef.current.size > 0);
@@ -448,7 +476,7 @@ export default function FullscreenImageViewer({
     singleGestureRef.current = null;
     setInteracting(false);
     if (cancelled || !single || single.pointerId !== event.pointerId || single.suppressTap) return;
-    if (distance(single.start, point) > TAP_MOVE_TOLERANCE_PX) {
+    if (single.moved || distance(single.start, point) > TAP_MOVE_TOLERANCE_PX) {
       if (scaleRef.current <= MIN_SCALE) {
         const dx = point.x - single.start.x;
         const dy = point.y - single.start.y;
@@ -478,13 +506,14 @@ export default function FullscreenImageViewer({
   const handleDownload = useCallback(async () => {
     if (!currentItem.src) return;
     try {
-      if (onDownload) await onDownload(currentItem, currentIndex);
-      else await downloadAttachment(currentItem.src, imageFilename(currentItem, currentIndex));
+      const originalItem = { ...currentItem, src: imageRender.resolvedSrc || currentItem.src };
+      if (onDownload) await onDownload(originalItem, currentIndex);
+      else await downloadAttachment(originalItem.src, imageFilename(currentItem, currentIndex));
     } catch (error) {
       console.error("[FullscreenImageViewer] download failed:", error);
       toast.error("图片下载失败");
     }
-  }, [currentIndex, currentItem, onDownload]);
+  }, [currentIndex, currentItem, imageRender.resolvedSrc, onDownload]);
 
   const handleCopy = useCallback(async () => {
     if (!currentItem.src) return;
@@ -519,7 +548,7 @@ export default function FullscreenImageViewer({
       zoomAroundPoint(MIN_SCALE);
       return;
     }
-    zoomAroundPoint(oneToOneScale > MIN_SCALE + 0.01 ? oneToOneScale : DOUBLE_TAP_SCALE);
+    zoomAroundPoint(oneToOneScale);
   }, [zoomAroundPoint]);
 
   const handleClosePointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -550,7 +579,9 @@ export default function FullscreenImageViewer({
       aria-label="图片预览"
       data-nowen-mobile-image-viewer=""
       data-nowen-fullscreen-image-viewer=""
+      data-swipe-blocker="image-viewer"
       className="fixed inset-0 z-[1000] overflow-hidden bg-black/[0.92] backdrop-blur-sm"
+      style={{ touchAction: "none", overscrollBehavior: "none", userSelect: "none" }}
     >
       <div
         ref={stageRef}
@@ -563,6 +594,7 @@ export default function FullscreenImageViewer({
         onPointerMove={handlePointerMove}
         onPointerUp={(event) => finishPointer(event)}
         onPointerCancel={(event) => finishPointer(event, true)}
+        onLostPointerCapture={(event) => finishPointer(event, true)}
         onWheel={handleWheel}
       >
         <span className="relative inline-block leading-none" style={{ transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale}) rotate(${rotation}deg)${baseFlipX ? " scaleX(-1)" : ""}`, transformOrigin: "center center" }}>
@@ -590,6 +622,13 @@ export default function FullscreenImageViewer({
         {!imageRender.error && <MotionPhotoOverlay source={currentItem.src} enabled={open} />}
         </span>
       </div>
+
+      {controlsVisible && !imageRender.loading && !imageRender.error && fitRatio * scale * pixelRatio > 1.05 && (
+        <p className="pointer-events-none fixed inset-x-3 z-[1010] text-center text-xs text-white/70"
+          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 78px)" }}>
+          {english ? "Beyond original resolution; the image may look blurry" : "已超过原图分辨率，图片可能变模糊"}
+        </p>
+      )}
 
       {(imageRender.loading || imageRender.error) && (
         <div className="pointer-events-none fixed inset-0 z-[1005] flex items-center justify-center px-6 text-white">

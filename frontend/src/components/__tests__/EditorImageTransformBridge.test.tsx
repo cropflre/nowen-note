@@ -2,7 +2,7 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { NodeSelection } from "@tiptap/pm/state";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import "@/lib/imageNodeTransformBootstrap";
 import {
   allowImageResizeThroughMobileBackdrop,
@@ -108,6 +108,27 @@ describe("EditorImageTransformBridge", () => {
 
     expect(applyImageTransformLayout(wrapper, 0, false)).toBe(true);
     expect(nodeView.style.display).toBe("inline");
+  });
+
+  it("waits for decoded dimensions rather than freezing an imported stretched ratio", () => {
+    document.body.innerHTML = '<p><span class="resizable-image-wrapper"><img width="600" height="600"></span></p>';
+    const wrapper = document.querySelector<HTMLElement>(".resizable-image-wrapper")!;
+    const image = wrapper.querySelector("img")!;
+    Object.defineProperties(image, {
+      offsetWidth: { value: 600, configurable: true },
+      offsetHeight: { value: 600, configurable: true },
+    });
+    expect(applyImageTransformLayout(wrapper, 0, false)).toBe(false);
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1200, configurable: true },
+      naturalHeight: { value: 600, configurable: true },
+    });
+    const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { callback(0); return 1; });
+    image.dispatchEvent(new Event("load"));
+    expect(image.style.width).toBe("600px");
+    expect(image.style.height).toBe("300px");
+    expect(image.getAttribute("width")).toBe("600");
+    frame.mockRestore();
   });
 
   it("lets the first resize gesture pass through the compact mobile sheet backdrop", () => {

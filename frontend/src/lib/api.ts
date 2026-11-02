@@ -25,6 +25,7 @@ import {
 } from "./uploadRequest";
 import type { Note, SearchResult, Task } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
+import { newLocalId } from "./localRepository";
 
 export interface SpeechSettings { apiUrl: string; model: string; language: string | null; apiKeySet: boolean; configured: boolean }
 async function voiceRequest<T>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
@@ -264,22 +265,49 @@ api.attachments.upload = (async (noteId: string, file: File) => {
   }
   const token = localStorage.getItem("nowen-token");
   const form = new FormData();
+  const uploadId = newLocalId();
   form.append("file", file);
   form.append("noteId", noteId);
+  form.append("uploadId", uploadId);
   const fullUrl = `${getBaseUrl()}/attachments`;
-  const payload = await fetchJsonWithUploadDeadline<Awaited<ReturnType<typeof baseApi.attachments.upload>>>(
-    fullUrl,
-    {
-      method: "POST",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    },
-    {
-      timeoutMs: ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
-      timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
-      httpErrorMessage: "附件上传失败",
-    },
-  );
+  type UploadResult = Awaited<ReturnType<typeof baseApi.attachments.upload>>;
+  const validResult = (value: UploadResult | null | undefined): value is UploadResult =>
+    !!value && typeof value.id === "string" && !!value.id && typeof value.url === "string" && !!value.url;
+  let payload: UploadResult;
+  try {
+    payload = await fetchJsonWithUploadDeadline<UploadResult>(
+      fullUrl,
+      {
+        method: "POST",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: form,
+      },
+      {
+        timeoutMs: ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
+        timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
+        httpErrorMessage: "附件上传失败",
+      },
+    );
+    if (!validResult(payload)) throw new UploadRequestError("附件上传响应无效", { code: "NETWORK_ERROR" });
+  } catch (error) {
+    const uncertainResult = error instanceof UploadRequestError
+      && (error.code === "NETWORK_ERROR" || error.code === "UPLOAD_TIMEOUT" || (error.status !== undefined && error.status >= 500));
+    if (!uncertainResult || localStorage.getItem("nowen-token") !== token || `${getBaseUrl()}/attachments` !== fullUrl) throw error;
+    // The server may already have saved the file. Recover that operation by ID,
+    // never blindly POST it again and create a second unreferenced attachment.
+    try {
+      const recovered = await fetchJsonWithUploadDeadline<UploadResult>(
+        `${fullUrl}/upload-result/${uploadId}?noteId=${encodeURIComponent(noteId)}`,
+        { method: "GET", headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } },
+        { timeoutMs: 5_000, timeoutMessage: "查询附件上传结果超时", httpErrorMessage: "查询附件上传结果失败" },
+      );
+      if (!validResult(recovered) || recovered.id !== uploadId || localStorage.getItem("nowen-token") !== token || `${getBaseUrl()}/attachments` !== fullUrl) throw error;
+      payload = recovered;
+    } catch {
+      // Old servers do not expose recovery. Keep the original actionable error.
+      throw error;
+    }
+  }
   registerAttachmentAccessUrls(payload.accessUrls, fullUrl);
   const stableUrl = getPersistentAttachmentUrl(payload.url)
     || getPersistentAttachmentUrl(`/api/attachments/${payload.id}`);

@@ -378,6 +378,7 @@ export interface DeduplicatedAttachmentRow {
  *   - 删除时依赖 path 引用计数兜底，最后一个引用消失才 unlink。
  */
 export function createDeduplicatedAttachmentRow(args: {
+  id?: string;
   source: ExistingAttachmentForDedup;
   noteId: string;
   userId: string;
@@ -387,7 +388,7 @@ export function createDeduplicatedAttachmentRow(args: {
   uploadSource?: string | null;
 }): DeduplicatedAttachmentRow {
   const db = getDb();
-  const id = uuid();
+  const id = args.id || uuid();
   const filename = args.filename || args.source.filename || args.source.path || `${id}.bin`;
   const hash = args.hash ?? args.source.hash ?? null;
 
@@ -680,6 +681,35 @@ export async function handleDownloadAttachment(
 // ============================================================================
 const app = new Hono();
 
+// A failed HTTP response does not imply that the upload failed to persist.
+// Only its uploader may recover this exact operation; do not expose file paths.
+app.get("/upload-result/:id", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const noteId = c.req.query("noteId") || "";
+  c.header("Cache-Control", "private, no-store");
+  if (!hasPermission(resolveNotePermission(noteId, userId).permission, "write")) {
+    return c.json({ error: "无权查询该笔记的上传结果", code: "FORBIDDEN" }, 403);
+  }
+  const row = getDb().prepare(`SELECT id, noteId, filename, mimeType, size, path FROM attachments
+    WHERE id = ? AND noteId = ? AND userId = ? AND trashedAt IS NULL`)
+    .get(c.req.param("id"), noteId, userId) as {
+      id: string; noteId: string; filename: string; mimeType: string; size: number; path: string;
+    } | undefined;
+  if (!row || !(await checkAttachmentObjectExists(row.path)).exists) {
+    return c.json({ error: "未找到已完成的附件上传" }, 404);
+  }
+  return c.json({
+    id: row.id,
+    url: `/api/attachments/${row.id}`,
+    imageUrl: imageAttachmentUrl(c, row.id, row.mimeType),
+    filename: row.filename,
+    mimeType: row.mimeType,
+    size: row.size,
+    category: isImageMime(row.mimeType) ? "image" : "file",
+    accessUrls: createUserAttachmentAccessUrls(userId, [row]),
+  });
+});
+
 /**
  * 上传附件（任意格式）。
  *
@@ -688,6 +718,7 @@ const app = new Hono();
  *   multipart/form-data：
  *     file:   File
  *     noteId: string  // 必传，用于 ACL 校验 + 外键
+ *     uploadId?: UUID // 可选，用于丢失响应后的精确恢复
  *
  * 响应：
  *   { id, url, mimeType, size, filename, category: "image" | "file" }
@@ -734,6 +765,14 @@ app.post("/", async (c) => {
     return c.json({ error: "加密文本笔记暂不支持附件", code: "ENCRYPTED_NOTE_ATTACHMENT_FORBIDDEN" }, 400);
   }
 
+  const uploadId = body.uploadId;
+  if (uploadId !== undefined && (typeof uploadId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uploadId))) {
+    return c.json({ error: "无效的上传 ID", code: "INVALID_UPLOAD_ID" }, 400);
+  }
+  if (uploadId && db.prepare("SELECT 1 FROM attachments WHERE id = ?").get(uploadId)) {
+    return c.json({ error: "上传 ID 已存在", code: "UPLOAD_ID_CONFLICT" }, 409);
+  }
+
   // 大小 / MIME 校验
   if (file.size > MAX_ATTACHMENT_SIZE) {
     return c.json(
@@ -749,7 +788,7 @@ app.post("/", async (c) => {
 
   // 落盘
   ensureAttachmentsDir();
-  const id = uuid();
+  const id = uploadId || uuid();
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
@@ -759,7 +798,9 @@ app.post("/", async (c) => {
   mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
   const ext = pickExt(file.name, mime);
   const monthPath = getUploadMonthPath();
-  const storagePath = `${monthPath}/${id}.${ext}`;
+  // A client-supplied metadata ID must never overwrite an existing object,
+  // including concurrent requests racing on the same ID.
+  const storagePath = `${monthPath}/${uploadId ? uuid() : id}.${ext}`;
 
   // v11 hash 去重：先算 SHA-256，在同 scope（userId + workspaceId）内查命中。
   // 阶段 B 命中策略：
@@ -789,6 +830,7 @@ app.post("/", async (c) => {
     let clone: DeduplicatedAttachmentRow;
     try {
       clone = createDeduplicatedAttachmentRow({
+        id,
         source: dedupRow,
         noteId,
         userId,

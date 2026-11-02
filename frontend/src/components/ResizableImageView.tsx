@@ -10,6 +10,7 @@ import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRender
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
 import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
 import { downloadAttachment } from "@/lib/downloadFile";
+import { useTranslation } from "react-i18next";
 
 /**
  * Tiptap Image 扩展的自定义 NodeView。
@@ -33,6 +34,8 @@ export function createResizableImageNodeView() {
 }
 
 export function ResizableImageView(props: NodeViewProps) {
+  const { i18n } = useTranslation();
+  const english = i18n.language?.toLowerCase().startsWith("en");
   const { node, updateAttributes, selected, editor } = props;
   const { src, alt, title } = node.attrs as { src?: string; alt?: string; title?: string };
   const initialWidth = (node.attrs as { width?: number | string | null }).width ?? null;
@@ -217,6 +220,28 @@ export function ResizableImageView(props: NodeViewProps) {
   const finalSrc = imageRender.renderSrc;
   const imgError = !!imageRender.error;
   const displayWidth = draftWidth ?? (typeof initialWidth === "number" ? initialWidth : null);
+  const [resolutionHint, setResolutionHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selected || !shouldRenderHeavyContent) return;
+    const image = imgRef.current;
+    if (!image) return;
+    const measure = () => {
+      const dpr = window.devicePixelRatio || 1;
+      setResolutionHint(image.naturalWidth && image.clientWidth * dpr > image.naturalWidth * 1.05
+        ? `${image.naturalWidth} × ${image.naturalHeight} → ${image.clientWidth} × ${image.clientHeight} (DPR ${dpr})`
+        : null);
+    };
+    measure();
+    image.addEventListener("load", measure);
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(image);
+    return () => {
+      image.removeEventListener("load", measure);
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [selected, shouldRenderHeavyContent, imageRender.renderKey, displayWidth]);
   const placeholderWidth = Math.max(120, Math.min(displayWidth || 320, 640));
   const placeholderHeight = Math.max(96, Math.min(Math.round(placeholderWidth * 0.56), 360));
 
@@ -335,6 +360,11 @@ export function ResizableImageView(props: NodeViewProps) {
 
       {shouldRenderHeavyContent && selected && editable && (
         <span contentEditable={false} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+          {resolutionHint && (
+            <span title={resolutionHint} className="absolute bottom-1 left-1 max-w-full rounded bg-black/65 px-1.5 py-1 text-[11px] leading-normal text-white">
+              {english ? "Image resolution is too low; may look blurry" : "当前图片分辨率不足，可能模糊"}
+            </span>
+          )}
           <span
             onMouseDown={(e) => handleMouseDown(e, "nw")}
             onTouchStart={(e) => handleTouchStart(e, "nw")}
