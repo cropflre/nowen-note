@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: "24.22.1"
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build and test SDK
         run: npm test
       - name: Validate Markdown API documentation
