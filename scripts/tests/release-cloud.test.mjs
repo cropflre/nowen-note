@@ -30,7 +30,7 @@ test("only completed successful unified builds from this repo and exact attempt 
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { makeManifest, verifyManifest } from '../release-cloud-ci.mjs';
+import { makeManifest, verifyManifest, fileDigest } from '../release-cloud-ci.mjs';
 import { parseArgs } from '../release-cloud.mjs';
 test('artifact verification rejects changed bytes, missing targets and foreign source attempts', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'nowen-cloud-inventory-'));
@@ -152,23 +152,24 @@ test('Docker latest cannot regress when an older build finishes later', () => {
 });
 
 import { publishDocker } from '../release-cloud-publish.mjs';
-test('Docker recovers a lost architecture push and rejects a conflicting version without overwriting it', async t => {
+test('Docker promotes verified archives across runner image IDs and rejects corruption or conflicting versions', async t => {
  const directory=await mkdtemp(join(tmpdir(),'nowen-cloud-docker-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const previousSummary=process.env.GITHUB_STEP_SUMMARY,previousFetch=global.fetch;
  process.env.GITHUB_STEP_SUMMARY=join(directory,'summary');
  t.after(()=>{global.fetch=previousFetch;if(previousSummary===undefined)delete process.env.GITHUB_STEP_SUMMARY;else process.env.GITHUB_STEP_SUMMARY=previousSummary;});
  const images=['amd64','arm64'].map((arch,i)=>({ref:`cropflre/nowen-note:v1.5.3-${arch}`,id:`sha256:${String(i+1).repeat(64)}`,arch,sha,version:'1.5.3'}));
- for(const image of images){await mkdir(join(directory,`release-docker-${image.arch}`));await writeFile(join(directory,`release-docker-${image.arch}`,'image.json'),JSON.stringify(image));}
- const remote=new Map(),local=new Map(),calls=[];let lose=true;
+ const runnerImages=images.map((image,i)=>({...image,id:`sha256:${String(i+3).repeat(64)}`}));
+ for(const image of images){const dir=join(directory,`release-docker-${image.arch}`);await mkdir(dir);await writeFile(join(dir,'image.tar'),'verified archive');image.archiveSha256=(await fileDigest(join(dir,'image.tar'))).sha256;await writeFile(join(dir,'image.json'),JSON.stringify(image));}
+ const remote=new Map(),local=new Map(),calls=[];let lose=true,badRevision=false;
  global.fetch=async url=>({status:remote.has(String(url).split('/').at(-1))?200:404,ok:true});
  const execute=(command,args)=>{
   calls.push(args);
-  if(args[0]==='load'){const image=images.find(image=>args.at(-1).includes(image.arch));local.set(image.ref,image);return '';}
+  if(args[0]==='load'){const image=runnerImages.find(image=>args.at(-1).includes(image.arch));local.set(image.ref,image);return '';}
   if(args[0]==='push'){const image=local.get(args[1]);remote.set(args[1].split(':').at(-1),[image]);if(lose){lose=false;throw Error('push response lost');}return '';}
   if(args[0]==='pull'){const arch=args[2].split('/').at(-1);local.set(args[3],remote.get(args[3].split(':').at(-1)).find(image=>image.arch===arch));return '';}
-  if(args[0]==='image'){const image=local.get(args.at(-1));return JSON.stringify([{Id:image.id,Architecture:image.arch,Config:{Labels:{'org.opencontainers.image.version':image.version}}}]);}
+  if(args[0]==='image'){const image=local.get(args.at(-1));return JSON.stringify([{Id:image.id,Architecture:image.arch,Os:'linux',Config:{Labels:{'org.opencontainers.image.version':image.version,'org.opencontainers.image.revision':badRevision?'f'.repeat(40):image.sha}}}]);}
   if(args.includes('inspect'))return JSON.stringify({digest:`sha256:${'e'.repeat(64)}`});
-  if(args.includes('create')){const tag=args[args.indexOf('-t')+1].split(':').at(-1);remote.set(tag,images);return '';}
+  if(args.includes('create')){const tag=args[args.indexOf('-t')+1].split(':').at(-1);remote.set(tag,runnerImages);return '';}
   throw Error(`unexpected ${command} ${args}`);
  };
  const manifest={version:'1.5.3',commit_sha:sha};
@@ -180,6 +181,12 @@ test('Docker recovers a lost architecture push and rejects a conflicting version
  assert.equal(calls.filter(args=>args.includes('create')||args[0]==='push').length,writes);
  remote.set('v1.5.3',[{...images[0],id:`sha256:${'f'.repeat(64)}`},images[1]]);
  await assert.rejects(publishDocker(manifest,execute,directory),/禁止覆盖/);
+ assert.equal(calls.filter(args=>args.includes('create')||args[0]==='push').length,writes);
+ badRevision=true;
+ await assert.rejects(publishDocker(manifest,execute,directory),/来源、架构或版本不匹配/);
+ badRevision=false;
+ await writeFile(join(directory,'release-docker-amd64','image.tar'),'corrupted archive');
+ await assert.rejects(publishDocker(manifest,execute,directory),/归档 SHA-256 不匹配/);
  assert.equal(calls.filter(args=>args.includes('create')||args[0]==='push').length,writes);
 });
 

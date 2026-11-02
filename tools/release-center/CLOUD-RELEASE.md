@@ -72,7 +72,7 @@ bash scripts/release.sh --branch release/v1.5.4 \
 发布入口只接受本仓库 `release-build.yml` 成功运行的准确 attempt。每个写入 Job 在自己的 Environment 保护通过后重新下载、校验原构建清单和全部文件，直接使用原产物，不重新编译。
 
 - **GitHub**：创建指向源码 SHA 的轻量 Tag，准备带构建来源标记的 Draft，逐个上传并核对远端 digest 后发布。已有同名 Tag、Release 或资产内容不符时停止；不接管外部 Release、不覆盖资产。丢失响应后可通过新发布请求对账，已确认成功的写入不会重复。GitHub 直接分发不混入 AppX、IPA 或 Docker tar。
-- **Docker**：验证本次两个归档的镜像 ID，先推送架构镜像，再用固定 digest 汇总 `vX.Y.Z`。已有版本内容不同则拒绝覆盖。版本镜像验证后更新 `latest`，按版本比较防止旧版本回退覆盖；Docker 发布 Job 跨版本串行执行。构建阶段不会提前发布镜像。NAS 的 GitHub 分发要求同时选择 Docker 渠道，Docker 成功后才发布对应 NAS 包。
+- **Docker**：验证本次两个归档的 SHA-256、来源和架构，再以发布 Runner 载入后的镜像身份复核推送结果，避免跨镜像存储的 ID 表示差异。先推送架构镜像，再用固定 digest 汇总 `vX.Y.Z`。已有版本内容不同则拒绝覆盖。版本镜像验证后更新 `latest`，按版本比较防止旧版本回退覆盖；Docker 发布 Job 跨版本串行执行。构建阶段不会提前发布镜像。NAS 的 GitHub 分发要求同时选择 Docker 渠道，Docker 成功后才发布对应 NAS 包。
 - **TestFlight**：只上传已验证的 IPA，不重新 Archive。上传响应丢失或 Apple 尚在处理时，先在 App Store Connect 核对版本/Build Number，再决定重试；不自动重传未知结果。
 - **Store / NAS 商店 / 扩展商店**：本轮提供构建和产物，不新增平台自动上架 API。各平台审核、回执和真机验收仍需单独完成。
 

@@ -113,24 +113,24 @@ async function dockerStage() {
   const archive = await fileDigest('release-docker/image.tar');
   await writeFile('release-docker/image.json', JSON.stringify({ ref, id: image.Id, archiveSha256: archive.sha256, arch: image.Architecture, sha: e.GITHUB_SHA, version: e.RC_VERSION }));
 }
-async function loadImage(directory, version, sha, arch) {
+export async function loadImage(directory, version, sha, arch, execute = run) {
   const image = await json(join(directory, 'image.json'));
   if (image.arch !== arch || image.sha !== sha || image.version !== version || image.ref !== `${CLOUD_REPO}:v${version}-${arch}` || !/^sha256:[a-f0-9]{64}$/.test(image.id)) throw Error('Docker 镜像记录不匹配');
   const archive = await fileDigest(join(directory, 'image.tar'));
   if (!/^[a-f0-9]{64}$/.test(image.archiveSha256 || '') || archive.sha256 !== image.archiveSha256) {
     throw Error('Docker 镜像归档 SHA-256 不匹配');
   }
-  run('docker', ['load', '-i', join(directory, 'image.tar')]);
-  const loaded = JSON.parse(run('docker', ['image', 'inspect', image.ref]))[0];
+  execute('docker', ['load', '-i', join(directory, 'image.tar')]);
+  const loaded = JSON.parse(execute('docker', ['image', 'inspect', image.ref]))[0];
   const labels = loaded.Config?.Labels || {};
   // Validate provenance and runtime platform after importing the verified archive.
   // Image Id equality alone is not portable across OCI/containerd Docker stores.
-  if (loaded.Architecture !== arch || loaded.Os !== 'linux' ||
+  if (!/^sha256:[a-f0-9]{64}$/.test(loaded.Id || '') || loaded.Architecture !== arch || loaded.Os !== 'linux' ||
       labels['org.opencontainers.image.revision'] !== sha ||
       labels['org.opencontainers.image.version'] !== version) {
     throw Error('加载后的 Docker 镜像来源、架构或版本不匹配');
   }
-  return image;
+  return { ...image, loadedImageId: loaded.Id };
 }
 async function nas() {
   const targets = JSON.parse(e.RC_TARGETS);
