@@ -2,9 +2,10 @@ name: Windows Direct Release Contract
 
 on:
   pull_request:
-    branches: [release/v1.5.2, release/v1.5.3, release/v1.5.4]
+    branches: [main, release/v1.5.2, release/v1.5.3, release/v1.5.4]
     paths:
       - '.github/workflows/release.yml'
+      - '.github/workflows/publish.yml'
       - '.github/workflows/release-build.yml'
       - '.github/workflows/release-publish.yml'
       - 'scripts/fpk/template/manifest'
@@ -14,6 +15,8 @@ on:
       - 'scripts/release.sh'
       - 'scripts/release-legacy.sh'
       - 'scripts/release-ci-assets.mjs'
+      - 'scripts/release-github.mjs'
+      - 'scripts/tests/release-github.test.mjs'
       - 'scripts/tests/release-ci-assets.test.mjs'
       - 'scripts/tests/release-ci-guard.test.mjs'
       - 'scripts/tests/release-publisher-contract.test.mjs'
