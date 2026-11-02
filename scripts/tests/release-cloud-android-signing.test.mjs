@@ -60,3 +60,30 @@ test("release keystore identity is checked before Gradle without exposing signin
   const accepted = run(fingerprint);
   assert.equal(accepted.status, 0, accepted.stderr);
 });
+
+test("Android staging uses the installed pinned SDK even when a newer SDK is present", (t) => {
+  if (process.platform === "win32") { t.skip("POSIX Android runner tools"); return; }
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-android-stage-"));
+  t.after(() => fs.rmSync(directory, { recursive:true, force:true }));
+  const app = path.join(directory, "frontend/android/app");
+  fs.mkdirSync(path.join(app, "build/outputs/apk/release"), { recursive:true });
+  fs.mkdirSync(path.join(app, "build/outputs/bundle/release"), { recursive:true });
+  fs.writeFileSync(path.join(app, "build.gradle"), 'versionCode 10510\nversionName "1.5.4"\n');
+  fs.writeFileSync(path.join(app, "build/outputs/apk/release/app-release.apk"), "fixture-apk");
+  fs.writeFileSync(path.join(app, "build/outputs/bundle/release/app-release.aab"), "fixture-aab");
+  const fingerprint = "ab".repeat(32), sdk = path.join(directory, "sdk"), bin = path.join(directory, "bin");
+  const command = (file, body) => { fs.mkdirSync(path.dirname(file), { recursive:true }); fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode:0o700 }); };
+  command(path.join(sdk, "build-tools/37.0.0/apksigner"), "exit 99");
+  command(path.join(sdk, "build-tools/36.0.0/apksigner"), 'if [ "$2" = "--print-certs" ]; then echo "Signer #1 certificate SHA-256 digest: $FIXTURE_CERT"; fi');
+  command(path.join(sdk, "build-tools/36.0.0/aapt"), "echo \"package: name='com.nowen.note' versionCode='10510' versionName='1.5.4'\"");
+  command(path.join(bin, "jarsigner"), "echo 'jar verified.'");
+  const run = certificate => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-stage"], { cwd:directory, encoding:"utf8", env:{...process.env,PATH:`${bin}:${process.env.PATH}`,GITHUB_ACTIONS:"true",GITHUB_REPOSITORY:"cropflre/nowen-note",ANDROID_HOME:sdk,RC_VERSION:"1.5.4",NOWEN_ANDROID_CERT_SHA256:fingerprint,FIXTURE_CERT:certificate} });
+  const accepted = run(fingerprint);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(fs.readFileSync(path.join(directory, "release-android/Nowen-Note-1.5.4.apk"), "utf8"), "fixture-apk");
+  fs.rmSync(path.join(directory, "release-android"), { recursive:true });
+  const rejected = run("cd".repeat(32));
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /does not match NOWEN_ANDROID_CERT_SHA256/);
+  assert.ok(!fs.existsSync(path.join(directory, "release-android")));
+});
