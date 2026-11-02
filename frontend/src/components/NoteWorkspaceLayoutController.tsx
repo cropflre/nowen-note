@@ -78,9 +78,8 @@ export default function NoteWorkspaceLayoutController() {
   const observedCollapsedRef = useRef(state.noteListCollapsed);
   const expectedCollapsedRef = useRef<boolean | null>(null);
 
-  // All notes, favorites, tags and search are result-set surfaces. They require the
-  // middle list even when the saved everyday workspace mode is "standard".
-  // Leaving those views restores the user's standard/three-column preference.
+  // Favorites, tags and search require their result list. All Notes can use
+  // the knowledge tree directly and must honor the saved workspace layout.
   const automaticCollapseReason = noteWorkspaceActive && !functionalListView
     ? getAutomaticCollapseReason({
       editorFullscreen: state.editorFullscreen,

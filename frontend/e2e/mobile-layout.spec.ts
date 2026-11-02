@@ -28,6 +28,46 @@ test.beforeAll(async ({ request }) => {
   tokens = await response.json();
 });
 
+for (const width of [1600, 1024]) {
+  test(`All Notes honors standard layout and restores three columns (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(({ tokens }) => {
+      localStorage.setItem("nowen-token", tokens.token);
+      localStorage.setItem("nowen-refresh-token", tokens.refreshToken);
+      localStorage.setItem("i18nextLng", "zh-CN");
+    }, { tokens });
+    await page.goto("/notes/assets-qa-reference-0");
+    const allNotes = page.getByRole("button", { name: "所有笔记", exact: true });
+    await allNotes.click();
+    const trigger = page.getByTestId("note-workspace-layout-trigger");
+    const list = page.getByTestId("note-workspace-list-pane");
+    const editor = page.getByTestId("note-workspace-editor-pane");
+    await trigger.click();
+    await page.getByRole("menuitemradio", { name: "标准模式" }).click();
+    await expect(list).toBeHidden();
+    await expect(editor).toBeVisible();
+    const standardWidth = (await editor.boundingBox())!.width;
+    await page.reload();
+    await expect(trigger).toBeVisible();
+    await expect(list).toBeHidden();
+    await allNotes.click();
+    await expect(list).toBeHidden();
+    await page.screenshot({ path: test.info().outputPath(`standard-${width}.png`) });
+
+    // Narrow windows collapse three columns automatically, retaining the preference.
+    await trigger.click();
+    await page.getByRole("menuitemradio", { name: "三栏模式" }).click();
+    if (width < 1120) {
+      await expect(list).toBeHidden();
+      await page.setViewportSize({ width: 1600, height: 900 });
+    }
+    await expect(list).toBeVisible();
+    if (width === 1600) expect((await editor.boundingBox())!.width).toBeLessThan(standardWidth);
+    await expect.poll(() => page.locator("body").evaluate(el => el.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`three-column-${width}.png`) });
+  });
+}
+
 for (const width of [320, 390, 430, 1280]) {
   test.describe(`${width}px`, () => {
     test.use({ viewport: { width, height: width === 1280 ? 900 : 844 }, isMobile: width < 768, hasTouch: width < 768 });

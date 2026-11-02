@@ -179,7 +179,30 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
   });
 
-  it.each(["all", "favorites", "tag", "search"])("keeps %s results visible in a narrow window and restores the saved base mode afterwards", (viewMode) => {
+  it.each([1600, 1024])("honors standard mode in All Notes at %spx, including after remount", (width) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
+    state.viewMode = "all";
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("标准模式")));
+    expect(state.noteListCollapsed).toBe(true);
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(state.noteListCollapsed).toBe(true);
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    act(() => window.dispatchEvent(new Event("resize")));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("三栏模式")));
+    expect(state.noteListCollapsed).toBe(false);
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+  });
+
+  it.each(["favorites", "tag", "search"])("keeps %s results visible in a narrow window and restores the saved base mode afterwards", (viewMode) => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "standard");
     state.noteListCollapsed = true;

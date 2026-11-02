@@ -217,10 +217,9 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
       window.dispatchEvent(new CustomEvent<KnowledgeTreeClearSearchDetail>(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, { detail: { clearOnly: true } }));
       actions.setMobileView("list");
       actions.setEditorFullscreen(false);
-      if (!isMobile && state.noteListCollapsed) actions.toggleNoteListCollapsed();
     }
     if (isMobile) actions.setMobileSidebar(false);
-  }, [actions, isMobile, localDeviceMode, state.noteListCollapsed]);
+  }, [actions, isMobile, localDeviceMode]);
 
   const handleSwitchToLocal = useCallback(async () => {
     if (isAndroidNativeRuntime()) {
