@@ -99,6 +99,7 @@ export interface AppInfo {
 
 export interface LiteMigrationProgress {
   stage: "pending" | "auth_required" | "preparing" | "downloading" | "applying" | "attachments" | "verifying" | "switching" | "complete" | "failed";
+  remoteUrl?: string | null;
   downloaded?: number;
   applied?: number;
   attachmentsDone?: number;
