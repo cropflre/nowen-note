@@ -1,0 +1,191 @@
+# One-time published v1.5.4 Windows/macOS hotfix repack.
+# No tag movement, no Android/NAS/Linux/Docker/Store mutation.
+# This workflow activates only when this audited recipe is merged to release/v1.5.4.
+name: v1.5.4 Desktop Hotfix Repack
+run-name: v1.5.4 Windows and macOS hotfix asset replacement
+on:
+  push:
+    branches: [release/v1.5.4]
+    paths:
+      - '.github/workflows/v154-desktop-asset-hotfix.yml'
+      - 'scripts/release-v154-desktop-hotfix.mjs'
+      - 'scripts/tests/release-v154-desktop-hotfix.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: v154-desktop-hotfix-repack
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 0194596fc382262154f3afbc9d9c1de61eb48f58
+  NODE_OPTIONS: --max-old-space-size=4096
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false' # original v1.5.4 macOS packages were unsigned
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - name: Verify exact hotfix scope and pinned tested tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'cropflre/nowen-note'
+          test "$GITHUB_REF" = 'refs/heads/release/v1.5.4'
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          test "$(git rev-parse "${SOURCE_SHA}^{tree}")" = 20143753d8a5b1f77e871ec648638ebbb6df1471
+          git diff --name-only "$SOURCE_SHA" "$GITHUB_SHA" > /tmp/v154-hotfix-changes
+          cat /tmp/v154-hotfix-changes
+          diff -u <(printf '%s\n' '.github/workflows/v154-desktop-asset-hotfix.yml' 'scripts/release-v154-desktop-hotfix.mjs' 'scripts/tests/release-v154-desktop-hotfix.test.mjs') /tmp/v154-hotfix-changes
+          test "$(node -p 'require("./package.json").version')" = 1.5.4
+          node --check scripts/release-v154-desktop-hotfix.mjs
+          node --test scripts/tests/release-v154-desktop-hotfix.test.mjs
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows, os: windows-latest }
+          - { platform: macos, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0194596fc382262154f3afbc9d9c1de61eb48f58
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - name: Confirm source and version
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(node -p 'require("./package.json").version')" = 1.5.4
+      - run: npm ci
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm run test:desktop-native
+      - run: npm run fetch:node
+      - run: npm run build:all
+      - name: Build Windows Full and Lite without publishing
+        if: matrix.platform == 'windows'
+        run: |
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --win --publish never
+          npx electron-builder --config electron/builder.lite.config.js --win --publish never
+      - name: Build macOS Intel and Apple Silicon without publishing or signing
+        if: matrix.platform == 'macos'
+        run: |
+          node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          NOWEN_MAC_ARCH=x64 TARGET_ARCH=x64 npx electron-builder --config electron/builder.config.js --mac --publish never
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          NOWEN_MAC_ARCH=arm64 TARGET_ARCH=arm64 npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Stage only the exact v1.5.4 desktop replacement assets
+        env:
+          HOTFIX_PLATFORM: ${{ matrix.platform }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const v='1.5.4',win=process.env.HOTFIX_PLATFORM==='windows';
+          const names=win?[
+            `Nowen-Note-${v}-setup.exe`, `Nowen-Note-${v}-setup.exe.blockmap`, `Nowen-Note-${v}-portable.exe`, 'latest.yml',
+            `Nowen-Note-Lite-${v}-setup.exe`, `Nowen-Note-Lite-${v}-setup.exe.blockmap`, `Nowen-Note-Lite-${v}-portable.exe`, 'latest-lite.yml',
+          ]:[...['x64','arm64'].flatMap(a=>[
+            `Nowen-Note-${v}-${a}.dmg`, `Nowen-Note-${v}-${a}.dmg.blockmap`,
+            `Nowen-Note-${v}-${a}.zip`, `Nowen-Note-${v}-${a}.zip.blockmap`,
+          ]),'latest-mac.yml'];
+          const dir=win?'hotfix-windows':'hotfix-macos';
+          fs.mkdirSync(dir);
+          for(const name of names){
+            const origin=win&&(name.startsWith('Nowen-Note-Lite-')||name==='latest-lite.yml')?'dist-electron-lite':'dist-electron';
+            const file=path.join(origin,name);
+            const stat=fs.lstatSync(file);
+            if(!stat.isFile()||stat.isSymbolicLink()||stat.size<=0)throw Error(`Invalid asset ${name}`);
+            fs.copyFileSync(file,path.join(dir,name),fs.constants.COPYFILE_EXCL);
+          }
+          NODE
+          node scripts/verify-release-update-assets.mjs local --dir "hotfix-$HOTFIX_PLATFORM" --version 1.5.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hotfix-${{ matrix.platform }}
+          path: hotfix-${{ matrix.platform }}/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  original-backup:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - name: Download, hash, and retain all 17 original desktop files before replacement
+        run: node scripts/release-v154-desktop-hotfix.mjs backup original-v154
+      - uses: actions/upload-artifact@v4
+        with:
+          name: original-v154
+          path: original-v154/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: [build, original-backup]
+    environment: release-github
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'hotfix-*'
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: original-v154
+          path: original-v154
+      - name: Validate updater hashes before modifying the published Release
+        run: |
+          node scripts/verify-release-update-assets.mjs local --dir hotfix-windows --version 1.5.4
+          node scripts/verify-release-update-assets.mjs local --dir hotfix-macos --version 1.5.4
+      - name: Safely replace only the v1.5.4 Windows/macOS published files
+        run: node scripts/release-v154-desktop-hotfix.mjs publish .
+      - name: Verify published updater metadata against downloaded remote assets
+        run: node scripts/verify-release-update-assets.mjs remote --repo cropflre/nowen-note --tag v1.5.4 --version 1.5.4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v154-desktop-hotfix-receipt
+          path: hotfix-receipt.json
+          if-no-files-found: ignore
+          retention-days: 7
