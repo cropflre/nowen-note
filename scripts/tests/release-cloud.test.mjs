@@ -124,6 +124,25 @@ test('an unsigned Mac candidate cannot acquire release eligibility from a rename
  await writeFile(file,JSON.stringify({...proof,signed:true,notarized:true,run_attempt:2}));await assert.rejects(verifyMacProof(manifest,directory));
 });
 
+test('explicit unsigned Mac distribution is version-scoped and still rejects mismatched provenance', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'nowen-cloud-unsigned-mac-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ await mkdir(join(directory,'release-macos-proof'));
+ const files=[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}];
+ const manifest={targets:['macos'],version:'1.5.4',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files}]};
+ const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,signed:false,notarized:false,files};
+ const file=join(directory,'release-macos-proof','signature.json');
+ await writeFile(file,JSON.stringify(proof));
+ for(const approved of [undefined,'1.5.3','*']) await assert.rejects(verifyMacProof(manifest,directory,approved));
+ await verifyMacProof(manifest,directory,'1.5.4');
+ assert.deepEqual(JSON.parse(await readFile(file,'utf8')),proof);
+ for(const change of [{sha:'c'.repeat(40)},{version:'1.5.3'},{request_id:'other'},{run_id:102},{run_attempt:2},{files:[{...files[0],sha256:'d'.repeat(64)}]},{signed:true},{notarized:true}]) {
+  await writeFile(file,JSON.stringify({...proof,...change}));
+  await assert.rejects(verifyMacProof(manifest,directory,'1.5.4'));
+ }
+ const workflow=await readFile(new URL('../../.github/workflows/release-publish.yml',import.meta.url),'utf8');
+ assert.ok(workflow.includes('RC_UNSIGNED_MACOS_VERSION: ${{ vars.NOWEN_RELEASE_UNSIGNED_MACOS_VERSION }}'));
+});
+
 import { compareVersions } from '../lib/release-cloud-contract.mjs';
 test('Docker latest cannot regress when an older build finishes later', () => {
  assert.equal(compareVersions('1.5.4','1.5.3'),1);

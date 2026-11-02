@@ -37,6 +37,7 @@ jobs:
           RC_CHANNELS: ${{ inputs.channels }}
           RC_CONFIRMATION: ${{ inputs.confirmation }}
           RC_PUBLISH_ENABLED: ${{ vars.NOWEN_RELEASE_CLOUD_PUBLISH }}
+          RC_UNSIGNED_MACOS_VERSION: ${{ vars.NOWEN_RELEASE_UNSIGNED_MACOS_VERSION }}
         run: node scripts/release-cloud-publish.mjs preflight
       - uses: actions/download-artifact@v4
         with:
