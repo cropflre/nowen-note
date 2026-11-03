@@ -207,6 +207,7 @@ function listGrantedNotebookCatalog(ctx: TokenAccessContext): any[] {
 function requiredScope(pathname: string, method: string): string | null {
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
+  if (pathname.startsWith("/api/onboarding/")) return "__login_only__";
   if (pathname.startsWith("/api/tokens")) return "__login_only__";
   if (pathname.startsWith("/api/task-digest")) return "__login_only__";
   if (pathname === "/api/automations" || pathname.startsWith("/api/automations/")) return write ? "automations:write" : "automations:read";

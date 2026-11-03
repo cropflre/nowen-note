@@ -74,6 +74,7 @@ import workspacesRouter from "./routes/workspaces";
 import workspaceIssuesRouter from "./routes/workspace-issues";
 import notificationsRouter from "./routes/notifications";
 import authRouter from "./routes/auth";
+import onboardingRouter from "./routes/onboarding";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
 import userPreferencesRouter from "./routes/user-preferences";
@@ -654,6 +655,7 @@ app.route("/api/notifications", notificationsRouter);
 app.route("/api/users", usersRouter);
 app.route("/api/tokens", tokensRouter);
 app.route("/api/user-preferences", userPreferencesRouter);
+app.route("/api/onboarding", onboardingRouter);
 
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);

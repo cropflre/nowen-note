@@ -220,6 +220,7 @@ export interface BackupInfo {
 export interface BackupOptions {
   type?: "full" | "db-only";
   description?: string;
+  preserveNoteHistory?: boolean;
 }
 
 export class BackupBusyError extends Error {
@@ -938,7 +939,9 @@ export class BackupManager {
       // 容错：若 prune 内部抛错也不能让 createBackup 整体失败。
       try { this.pruneDbOnly(); } catch { /* ignore */ }
       // P0-1：顺路清理过期 note_versions，避免单表无限膨胀。
-      try { this.pruneNoteVersions(); } catch { /* ignore */ }
+      if (!options.preserveNoteHistory) {
+        try { this.pruneNoteVersions(); } catch { /* ignore */ }
+      }
       return info;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

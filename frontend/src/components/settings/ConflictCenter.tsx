@@ -1,4 +1,6 @@
+import { getQueueLength } from "@/lib/offlineQueue";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -11,20 +13,37 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {
+  applyKnowledgeTreeRepair,
   fetchConflictDetail,
   fetchConflicts,
   fetchResolvedConflicts,
   forkConflict,
+  hasNativeSyncLocalAdminAdapter,
+  previewKnowledgeTreeRepair,
   reopenConflict,
   resolveConflict,
   SYNC_CONFLICT_ENTITY_TYPES,
+  triggerSyncNow,
   type ConflictDetail,
   type ConflictSummary,
   type ResolvedConflictSummary,
 } from "@/lib/syncLocalApi";
 import { buildAutomaticConflictMerge } from "@/lib/syncConflictAutoMerge";
 import { isProtectedNotePayload } from "@/lib/encryptedNotes/blockDocument";
-import { TREE_CONFLICT_FIELDS, canSafelyChooseTreeSide, isTreeConflict, treeConflictAvailability, treeConflictExplanation } from "@/lib/syncTreeConflictPresentation";
+import { getKnowledgeTreeExpansionScope } from "@/lib/knowledgeTreeExpansion";
+import { knowledgeTreeApi } from "@/lib/knowledgeTreeApi";
+import { downloadBlob } from "@/lib/mindmapExport";
+import { isAndroidNative, saveBlobToSystemFile } from "@/lib/nativeImageSave";
+import { TREE_CONFLICT_FIELDS, canSafelyChooseTreeSide, isTreeConflict, isTreeLifecycleConflict, treeConflictAvailability, treeConflictExplanation } from "@/lib/syncTreeConflictPresentation";
+
+type TreeRepairStrategy = "keep-local" | "keep-remote";
+type TreeRepairPreview = Awaited<ReturnType<typeof previewKnowledgeTreeRepair>> & { blocked?: string };
+
+function canResolveNativeTreeLifecycle(detail: ConflictDetail, strategy: TreeRepairStrategy): boolean {
+  return hasNativeSyncLocalAdminAdapter() && canSafelyChooseTreeSide(detail) &&
+    Boolean(detail.local?.lifecycle || (strategy === "keep-remote" && detail.remote?.__delete)) &&
+    !(strategy === "keep-local" && detail.remote?.__delete);
+}
 
 const HISTORY_PAGE_SIZE = 20;
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -77,8 +96,44 @@ export function ConflictCenter({
   const [notice, setNotice] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
+  const treeNameScope = getKnowledgeTreeExpansionScope();
+  const [treeNameSnapshot, setTreeNameSnapshot] = useState<{ scope: string; names: Map<string, string> } | null>(null);
+  const treeNames = treeNameSnapshot?.scope === treeNameScope ? treeNameSnapshot.names : new Map<string, string>();
+  const [treePreview, setTreePreview] = useState<{
+    strategy: TreeRepairStrategy;
+    ids: string[];
+    scope: string;
+    preview: TreeRepairPreview;
+  } | null>(null);
+  const treeItems = items.filter((item) => isTreeConflict(item.entityType));
+  const otherItems = items.filter((item) => !isTreeConflict(item.entityType));
+  const bulkTargets = otherItems.filter((item) => selectedIds.has(item.id) && item.entityType !== "attachment_organization");
+  const selectedTreeIds = treeItems.filter((item) => selectedIds.has(item.id)).map((item) => item.id);
+  const attachmentCount = selectedIds.size - bulkTargets.length - selectedTreeIds.length;
+
+  useEffect(() => {
+    if (![...items, ...historyItems].some((item) => isTreeConflict(item.entityType))) return;
+    let active = true;
+    const scope = treeNameScope;
+    void knowledgeTreeApi.list(true).then(({ nodes }) => {
+      if (active && scope === getKnowledgeTreeExpansionScope()) {
+        setTreeNameSnapshot({ scope, names: new Map(nodes.map((node) => [node.id, node.title])) });
+      }
+    }).catch(() => {
+      if (active) setTreeNameSnapshot(null);
+    });
+    return () => { active = false; };
+  }, [items, historyItems, treeNameScope]);
+
+  const conflictTitle = (item: ConflictSummary) => (
+    item.localTitle || item.remoteTitle || (isTreeConflict(item.entityType)
+      ? treeNames.get(item.entityId) || t("treeConflict.untitled")
+      : item.entityId)
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
+    setTreePreview(null);
     try {
       const [result, history] = await Promise.all([
         fetchConflicts(),
@@ -95,6 +150,7 @@ export function ConflictCenter({
       setSelectedIds((current) => new Set(
         [...current].filter((id) => availableIds.has(id)),
       ));
+      return result.items;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -110,6 +166,7 @@ export function ConflictCenter({
     setDetailError(null);
     setDetailLoadingId(id);
     setSelected(null);
+    setTreePreview(null);
     try {
       const detail = await fetchConflictDetail(id);
       if (requestId === detailRequestRef.current) setSelected(detail);
@@ -122,41 +179,139 @@ export function ConflictCenter({
     }
   };
 
-  const handleResolve = async (
-    id: string,
-    resolution: "keep-local" | "keep-remote",
-  ) => {
+  const handleTreePreview = async (strategy: TreeRepairStrategy, ids: string[]) => {
+    const scope = getOfflineQueueStorageKey();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    setWarning(null);
+    setTreePreview(null);
+    try {
+      if (getQueueLength() > 0) throw new Error(t("treeConflict.pendingOfflineWrites"));
+      const preview = await previewKnowledgeTreeRepair(strategy, ids);
+      if (scope === getOfflineQueueStorageKey()) {
+        setTreePreview({ strategy, ids, scope, preview });
+      }
+    } catch (err) {
+      if (scope === getOfflineQueueStorageKey()) {
+        setTreePreview({
+          strategy,
+          ids,
+          scope,
+          preview: { token: "", changes: [], blocked: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestTreeSync = async () => {
+    const result = await triggerSyncNow();
+    if (!result.engineRunning || result.status?.state === "error" || result.status?.state === "offline") {
+      throw new Error(result.status?.lastError || result.message || t("treeConflict.syncUnavailable"));
+    }
+  };
+
+  const handleTreeRepair = async () => {
+    if (!treePreview?.preview.token || treePreview.preview.blocked ||
+        treePreview.scope !== getOfflineQueueStorageKey()) return;
+    setBusy(true);
+    setError(null);
+    setTreePreview(null);
+    try {
+      if (getQueueLength() > 0) throw new Error(t("treeConflict.pendingOfflineWrites"));
+      const result = await applyKnowledgeTreeRepair(treePreview.strategy, treePreview.ids, treePreview.preview.token);
+      setSelected(null);
+      const backupNotice = result.backupId
+        ? ` ${t(hasNativeSyncLocalAdminAdapter() ? "treeConflict.backupSaved" : "treeConflict.desktopBackupSaved", {
+            id: result.backupFilename || result.backupId,
+            data: t("settings.dataManagement"),
+            restore: t("dataManager.overview.restore"),
+          })}`
+        : "";
+      const repairNotice = t(treePreview.strategy === "keep-remote" ? "treeConflict.repaired" : "treeConflict.localQueued", {
+        count: result.resolved,
+      });
+      setNotice(repairNotice + backupNotice);
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+        detail: { reason: "sync-conflict-repair" },
+      }));
+      try {
+        await requestTreeSync();
+        setWarning(t("treeConflict.verifyRequested"));
+      } catch (err) {
+        setWarning(t("treeConflict.syncFailed", { reason: err instanceof Error ? err.message : String(err) }));
+      }
+      const refreshed = await reload();
+      if (refreshed) {
+        const count = refreshed.filter((item) => isTreeConflict(item.entityType)).length;
+        setNotice(`${repairNotice} ${t("treeConflict.remainingCount", { count })}${backupNotice}`);
+      }
+      onResolved?.();
+    } catch (err) {
+      setTreePreview({
+        ...treePreview,
+        preview: {
+          ...treePreview.preview,
+          token: "",
+          blocked: t("treeConflict.repairFailed", { reason: err instanceof Error ? err.message : String(err) }),
+        },
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleTreeSync = async () => {
+    setBusy(true);
+    setTreePreview(null);
+    setError(null);
+    setNotice(null);
+    setWarning(null);
+    try {
+      await requestTreeSync();
+      setSelected(null);
+      const refreshed = await reload();
+      onResolved?.();
+      if (refreshed) setNotice(t("treeConflict.syncRequested"));
+    } catch (err) {
+      setError(t("treeConflict.syncFailed", { reason: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResolve = async (id: string, resolution: TreeRepairStrategy) => {
+    const isTree = items.some((item) => item.id === id && isTreeConflict(item.entityType));
+    if (isTree) {
+      if (selected?.id !== id) return;
+      if (!isTreeLifecycleConflict(selected)) {
+        await handleTreePreview(resolution, [id]);
+        return;
+      }
+      if (!canResolveNativeTreeLifecycle(selected, resolution)) return;
+      if (getQueueLength() > 0) {
+        setDetailError({ id, message: t("treeConflict.pendingOfflineWrites") });
+        return;
+      }
+      if (!window.confirm(t(resolution === "keep-local"
+        ? "treeConflict.confirmLifecycleLocal"
+        : "treeConflict.confirmLifecycleRemote"))) return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     setWarning(null);
     try {
-      const target = items.find((item) => item.id === id);
-      if (target && isTreeConflict(target.entityType)) {
-        const detail = selected?.id === id ? selected : await fetchConflictDetail(id);
-        if (!canSafelyChooseTreeSide(detail)) {
-          setSelected(detail);
-          setDetailError({
-            id,
-            message: "只有单边知识树结构，无法安全采用版本。请先检查对应业务资源和同步诊断。",
-          });
-          return;
-        }
-      }
       await resolveConflict(id, { resolution, deviceId: deviceId ?? undefined });
       setSelected(null);
       await reload();
       onResolved?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const target = items.find((item) => item.id === id);
-      if (target && isTreeConflict(target.entityType)) {
-        // A missing business resource may still reject a structurally valid
-        // choice. Explain that failure next to the entry being inspected.
-        setDetailError({ id, message: `操作未完成：${message}。请先检查知识树及业务资源同步情况。` });
-      } else {
-        setError(message);
-      }
+      if (isTree) setDetailError({ id, message });
+      else setError(message);
     } finally {
       setBusy(false);
     }
@@ -193,13 +348,21 @@ export function ConflictCenter({
     }
   };
 
+  const disableTreeSide = (id: string, strategy: TreeRepairStrategy) => {
+    if (selected?.id !== id) return true;
+    if (!isTreeLifecycleConflict(selected)) return false;
+    return !canResolveNativeTreeLifecycle(selected, strategy);
+  };
+
   const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
 
   const toggleAll = () => {
+    setTreePreview(null);
     setSelectedIds(allSelected ? new Set() : new Set(items.map((item) => item.id)));
   };
 
   const toggleItem = (id: string) => {
+    setTreePreview(null);
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -209,13 +372,7 @@ export function ConflictCenter({
   };
 
   const handleBulkResolve = async (resolution: "keep-local" | "keep-remote") => {
-    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
-    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
-    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType) && item.entityType!=="attachment_organization");
-    if(selectedTargets.some(item=>item.entityType==="attachment_organization")) setWarning(t("assetOrganization.syncConflictBatchSkipped"));
-    if (excludedTree) {
-      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：须先核对节点及业务资源，不支持一键覆盖。");
-    }
+    const targets = bulkTargets;
     if (targets.length === 0) return;
 
     const sourceLabel = resolution === "keep-local" ? "本机" : "云端";
@@ -227,7 +384,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    if (!excludedTree) setWarning(null);
+    setWarning(null);
     const failed: string[] = [];
     let resolvedCount = 0;
 
@@ -260,13 +417,7 @@ export function ConflictCenter({
   };
 
   const handleAutomaticMerge = async () => {
-    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
-    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
-    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType) && item.entityType!=="attachment_organization");
-    if(selectedTargets.some(item=>item.entityType==="attachment_organization")) setWarning(t("assetOrganization.syncConflictBatchSkipped"));
-    if (excludedTree) {
-      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：不能通过自动合并普通字段来重建目录结构。");
-    }
+    const targets = bulkTargets;
     if (targets.length === 0) return;
 
     const confirmed = window.confirm(
@@ -277,7 +428,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    if (!excludedTree) setWarning(null);
+    setWarning(null);
     const blocked: string[] = [];
     const failed: string[] = [];
     let mergedCount = 0;
@@ -319,7 +470,7 @@ export function ConflictCenter({
       if (blocked.length > 0) {
         const sample = blocked.slice(0, 3).join("；");
         const more = blocked.length > 3 ? `；另有 ${blocked.length - 3} 条` : "";
-        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}${excludedTree ? `；另有 ${excludedTree} 条知识树结构冲突被安全跳过` : ""}`);
+        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}`);
       } else if (failed.length === 0) {
         setNotice(`已智能合并 ${mergedCount} 条冲突。`);
       }
@@ -333,7 +484,7 @@ export function ConflictCenter({
   };
 
   const handleReopen = async (item: ResolvedConflictSummary) => {
-    const title = item.localTitle || item.remoteTitle || item.entityId;
+    const title = conflictTitle(item);
     const confirmed = window.confirm(
       `确定撤销“${title}”的已处理状态吗？它会重新出现在待处理列表中，但不会自动回滚当前内容。`,
     );
@@ -401,10 +552,6 @@ export function ConflictCenter({
         <p className="text-xs text-muted-foreground">没有需要处理的冲突。</p>
       ) : (
         <>
-      <p className="text-xs text-muted-foreground">
-        同一条内容在两处被分别修改。两个版本都完整保留，请选择要采用哪一个。
-      </p>
-
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-2 text-xs">
         <label className="flex cursor-pointer items-center gap-2">
           <input
@@ -420,7 +567,7 @@ export function ConflictCenter({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={busy || selectedIds.size === 0}
+            disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleAutomaticMerge(); }}
             className="inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50"
             title="只自动合并双方修改字段不重叠的冲突"
@@ -430,7 +577,7 @@ export function ConflictCenter({
           </button>
           <button
             type="button"
-            disabled={busy || selectedIds.size === 0}
+            disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleBulkResolve("keep-local"); }}
             className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50"
           >
@@ -438,7 +585,7 @@ export function ConflictCenter({
           </button>
           <button
             type="button"
-            disabled={busy || selectedIds.size === 0}
+            disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleBulkResolve("keep-remote"); }}
             className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50"
           >
@@ -447,8 +594,54 @@ export function ConflictCenter({
         </div>
       </div>
 
+      {selectedIds.size > 0 ? (
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p>{t("treeConflict.selectionCounts", { ordinary: bulkTargets.length, tree: selectedTreeIds.length, attachments: attachmentCount })}</p>
+        </div>
+      ) : null}
+
+      {[otherItems, treeItems].map((group) => group.length > 0 ? (
+        <section key={group === treeItems ? "tree" : "other"} className="space-y-2">
+          <h4 className="text-xs font-medium">
+            {group === treeItems
+              ? t("treeConflict.heading", { count: group.length })
+              : t("treeConflict.otherHeading", { count: group.length })}
+          </h4>
+          {group === treeItems ? (
+            <>
+              <p className="text-xs text-muted-foreground">{t("treeConflict.structureOnly")}</p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button type="button" disabled={busy || selectedTreeIds.length === 0}
+                  onClick={() => { void handleTreePreview("keep-remote", selectedTreeIds); }}
+                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  {t("treeConflict.previewRemote")}
+                </button>
+                <button type="button" disabled={busy || selectedTreeIds.length === 0}
+                  onClick={() => { void handleTreePreview("keep-local", selectedTreeIds); }}
+                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  {t("treeConflict.previewLocal")}
+                </button>
+                <button type="button" disabled={busy}
+                  onClick={() => { void handleTreeSync(); }}
+                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  {t("treeConflict.syncAndCheck")}
+                </button>
+              </div>
+              {treePreview ? (
+                <TreeRepairReview
+                  strategy={treePreview.strategy}
+                  preview={treePreview.preview}
+                  requestedCount={treePreview.ids.length}
+                  names={treeNames}
+                  busy={busy}
+                  onApply={() => { void handleTreeRepair(); }}
+                  onClose={() => setTreePreview(null)}
+                />
+              ) : null}
+            </>
+          ) : null}
       <ul className="space-y-2">
-        {items.map((item) => (
+        {group.map((item) => (
           <li key={item.id} className="rounded-md border p-3 text-xs">
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
@@ -458,11 +651,11 @@ export function ConflictCenter({
                   disabled={busy}
                   onChange={() => toggleItem(item.id)}
                   className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
-                  aria-label={`选择冲突 ${item.localTitle || item.remoteTitle || item.entityId}`}
+                  aria-label={`选择冲突 ${conflictTitle(item)}`}
                 />
                 <div className="min-w-0">
                   <p className="truncate font-medium">
-                    {item.localTitle || item.remoteTitle || item.entityId}
+                    {conflictTitle(item)}
                   </p>
                   <p className="mt-0.5 text-muted-foreground">
                     {isTreeConflict(item.entityType)
@@ -474,7 +667,7 @@ export function ConflictCenter({
               <button
                 type="button"
                 onClick={() => { void openDetail(item.id); }}
-                disabled={detailLoadingId === item.id}
+                disabled={busy || detailLoadingId === item.id}
                 aria-expanded={selected?.id === item.id}
                 className="shrink-0 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
@@ -485,8 +678,8 @@ export function ConflictCenter({
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
-                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
+                disabled={busy || (isTreeConflict(item.entityType) && disableTreeSide(item.id, "keep-local"))}
+                title={isTreeConflict(item.entityType) ? t("treeConflict.openDetails") : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-local"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
@@ -494,8 +687,8 @@ export function ConflictCenter({
               </button>
               <button
                 type="button"
-                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
-                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
+                disabled={busy || (isTreeConflict(item.entityType) && disableTreeSide(item.id, "keep-remote"))}
+                title={isTreeConflict(item.entityType) ? t("treeConflict.openDetails") : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-remote"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
@@ -528,32 +721,34 @@ export function ConflictCenter({
             ) : null}
             {selected?.id === item.id && selected.status !== "resolved" ? (
               <div className="mt-3" data-conflict-detail-id={item.id}>
-                <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
+                <ConflictDiff detail={selected} busy={busy} treeNames={treeNames} onClose={() => setSelected(null)}
                   onManual={(payload) => handleManualResolve(selected.id, payload)} />
               </div>
             ) : null}
           </li>
         ))}
       </ul>
+        </section>
+      ) : null)}
         </>
       )}
 
       {warning ? (
-        <p className="flex items-start gap-2 text-xs text-amber-600">
+        <p role="status" className="flex items-start gap-2 text-xs text-amber-600">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {warning}
         </p>
       ) : null}
 
       {error ? (
-        <p className="flex items-start gap-2 text-xs text-destructive">
+        <p role="alert" className="flex items-start gap-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
       ) : null}
 
       {notice ? (
-        <p className="flex items-start gap-2 text-xs text-emerald-600">
+        <p role="status" className="flex items-start gap-2 text-xs text-emerald-600">
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {notice}
         </p>
@@ -571,14 +766,136 @@ export function ConflictCenter({
           onEntityTypeChange={setHistoryEntityType}
           onLoadMore={() => { void handleLoadMoreHistory(); }}
           onView={(id) => { void openDetail(id); }}
+          titleForItem={conflictTitle}
           onReopen={(item) => { void handleReopen(item); }}
         />
       ) : null}
 
       {selected?.status === "resolved" ? (
-        <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
+        <ConflictDiff detail={selected} busy={busy} treeNames={treeNames} onClose={() => setSelected(null)}
           onManual={(payload) => handleManualResolve(selected.id,payload)} />
       ) : null}
+    </section>
+  );
+}
+
+function treeParentLabel(value: unknown, names: Map<string, string>, t: TFunction): string {
+  return typeof value === "string" && value
+    ? names.get(value) || t("treeConflict.unknownParent")
+    : t("treeConflict.root");
+}
+
+function TreeRepairReview({
+  strategy,
+  preview,
+  requestedCount,
+  names,
+  busy,
+  onApply,
+  onClose,
+}: {
+  strategy: TreeRepairStrategy;
+  preview: TreeRepairPreview;
+  requestedCount: number;
+  names: Map<string, string>;
+  busy: boolean;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const region = useRef<HTMLElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  useEffect(() => { region.current?.focus(); }, []);
+
+  type Snapshot = TreeRepairPreview["changes"][number]["local"];
+  const describe = (snapshot: Snapshot): string => {
+    if (!snapshot) return t("treeConflict.missingStructure");
+    return t("treeConflict.snapshot", {
+      parent: treeParentLabel(snapshot.parentId, names, t),
+      order: snapshot.sortOrder ?? "—",
+      state: t(snapshot.isDeleted ? "treeConflict.deleted" : "treeConflict.active"),
+    });
+  };
+
+  const exportStructure = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const exportedAt = new Date().toISOString();
+      const fileName = `nowen-tree-structure-${exportedAt.replace(/[:.]/g, "-")}.json`;
+      const mimeType = "application/json";
+      const nodes = preview.changes.flatMap(({ local }) => local ? [{
+        id: local.id,
+        parentId: local.parentId,
+        sortOrder: local.sortOrder,
+        isDeleted: local.isDeleted,
+        deletedAt: local.deletedAt,
+        resourceType: local.resourceType,
+        resourceId: local.resourceId,
+        nodeType: local.nodeType,
+      }] : []);
+      const blob = new Blob([JSON.stringify({ version: 1, exportedAt, nodes }, null, 2)], { type: mimeType });
+      if (isAndroidNative()) {
+        await saveBlobToSystemFile({ blob, fileName, mimeType });
+      } else {
+        downloadBlob(blob, fileName);
+      }
+    } catch (err) {
+      setExportError(t("treeConflict.exportFailed", { reason: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <section ref={region} tabIndex={-1} aria-label={t("treeConflict.review")}
+      className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
+      <h5 className="font-medium">{t(strategy === "keep-local" ? "treeConflict.reviewLocal" : "treeConflict.reviewRemote", {
+        count: requestedCount,
+      })}</h5>
+      {preview.blocked ? (
+        <p role="alert" className="text-amber-700 dark:text-amber-300">
+          {t("treeConflict.blocked", { reason: preview.blocked })}
+        </p>
+      ) : <p className="text-muted-foreground">{t("treeConflict.confirmHint")}</p>}
+      {preview.changes.length > 0 ? (
+        <div className="max-h-64 overflow-y-auto">
+          <table className="w-full table-fixed border-collapse text-left">
+            <thead><tr className="text-muted-foreground">
+              <th scope="col">{t("treeConflict.node")}</th>
+              <th scope="col">{t("treeConflict.local")}</th>
+              <th scope="col">{t("treeConflict.remote")}</th>
+            </tr></thead>
+            <tbody>
+              {preview.changes.map((change) => (
+                <tr key={change.id} className="border-t align-top">
+                  <th scope="row" className="break-words py-1 pr-2 font-medium">{change.title || names.get(change.local?.id ?? change.remote?.id ?? "") || t("treeConflict.untitled")}</th>
+                  <td className="break-words py-1 pr-2">{describe(change.local)}</td>
+                  <td className="break-words py-1">{describe(change.remote)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {exportError ? <p role="alert" className="text-destructive">{exportError}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || exporting || !preview.token || Boolean(preview.blocked)} onClick={onApply}
+          className="rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50">
+          {t("treeConflict.confirm")}
+        </button>
+        {preview.changes.some(({ local }) => local) ? (
+          <button type="button" disabled={busy || exporting} onClick={() => { void exportStructure(); }}
+            className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+            {t("treeConflict.exportStructure")}
+          </button>
+        ) : null}
+        <button type="button" disabled={busy || exporting} onClick={onClose}
+          className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+          {t("treeConflict.closeReview")}
+        </button>
+      </div>
     </section>
   );
 }
@@ -595,6 +912,7 @@ function ResolvedConflictHistory({
   onLoadMore,
   onView,
   onReopen,
+  titleForItem,
 }: {
   items: ResolvedConflictSummary[];
   total: number;
@@ -607,6 +925,7 @@ function ResolvedConflictHistory({
   onLoadMore: () => void;
   onView: (id: string) => void;
   onReopen: (item: ResolvedConflictSummary) => void;
+  titleForItem: (item: ResolvedConflictSummary) => string;
 }) {
   const {t}=useTranslation();
   const formatResolvedAt = (value: string) => {
@@ -656,10 +975,10 @@ function ResolvedConflictHistory({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate font-medium">
-                      {item.localTitle || item.remoteTitle || item.entityId}
+                      {titleForItem(item)}
                     </p>
                     <p className="mt-0.5 text-muted-foreground">
-                      {item.entityType} · 已处理于 {formatResolvedAt(item.resolvedAt)}
+                      {ENTITY_TYPE_LABELS[item.entityType] || item.entityType} · 已处理于 {formatResolvedAt(item.resolvedAt)}
                     </p>
                   </div>
                   <div className="flex gap-2">
@@ -740,11 +1059,13 @@ function ConflictDiff({
   busy,
   onClose,
   onManual,
+  treeNames,
 }: {
   detail: ConflictDetail;
   busy: boolean;
   onClose: () => void;
   onManual: (payload:Record<string,unknown>) => Promise<void>;
+  treeNames: Map<string, string>;
 }) {
   const {t}=useTranslation();
   const [editing,setEditing] = useState(false);
@@ -795,7 +1116,7 @@ function ConflictDiff({
             <p>云端结构：<strong>{detail.remote ? "已存在" : "缺少/尚未同步"}</strong></p>
           </div>
           <p className="text-muted-foreground">
-            {treeConflictAvailability(detail) === "both" ? "核对以下结构差异，再选择需要保留的版本。" : "一方缺少完整节点结构，不能将其误判为内容相同。"}
+            {treeConflictAvailability(detail) === "both" ? "核对以下结构差异，再选择需要保留的版本。" : "预检会重新读取当前结构，确认所需节点与业务资源已经同步。"}
           </p>
           <table className="w-full table-fixed border-collapse">
             <thead>
@@ -805,8 +1126,8 @@ function ConflictDiff({
               {TREE_CONFLICT_FIELDS.map(([field, label]) => (
                 <tr key={field} className="border-t align-top">
                   <td className="py-1">{label}</td>
-                  <td className="break-all py-1">{detail.local ? preview(detail.local[field]) : "尚未同步"}</td>
-                  <td className="break-all py-1">{detail.remote ? preview(detail.remote[field]) : "尚未同步"}</td>
+                  <td className="break-all py-1">{detail.local ? (field === "parentId" ? treeParentLabel(detail.local.parentId, treeNames, t) : preview(detail.local[field])) : "尚未同步"}</td>
+                  <td className="break-all py-1">{detail.remote ? (field === "parentId" ? treeParentLabel(detail.remote.parentId, treeNames, t) : preview(detail.remote[field])) : "尚未同步"}</td>
                 </tr>
               ))}
             </tbody>
@@ -847,9 +1168,10 @@ function ConflictDiff({
         </p>
       ) : isTreeConflict(detail.entityType) ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
-          知识树结构不等于笔记正文，因此不提供 JSON 拼接合并。{canSafelyChooseTreeSide(detail)
-            ? "核对父目录、排序和删除状态后，可通过上方按钮选择保留版本。"
-            : "请先检查同步状态，不要清空本机或云端数据。"}
+          {isTreeLifecycleConflict(detail)
+            ? t(canResolveNativeTreeLifecycle(detail, "keep-remote") || canResolveNativeTreeLifecycle(detail, "keep-local")
+              ? "treeConflict.nativeLifecycleHint" : "treeConflict.lifecycleHint")
+            : t("treeConflict.previewHint")}
         </p>
       ) : detail.entityType==="attachment_organization" ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">{t("assetOrganization.syncConflictHint")}</p>

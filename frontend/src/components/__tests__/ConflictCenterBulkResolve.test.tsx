@@ -7,6 +7,11 @@ import { ConflictCenter } from "../settings/ConflictCenter";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const {
+  hasNativeSyncLocalAdminAdapterMock,
+  downloadBlobMock,
+  applyKnowledgeTreeRepairMock,
+  previewKnowledgeTreeRepairMock,
+  triggerSyncNowMock,
   fetchConflictDetailMock,
   fetchConflictsMock,
   fetchResolvedConflictsMock,
@@ -14,6 +19,11 @@ const {
   reopenConflictMock,
   resolveConflictMock,
 } = vi.hoisted(() => ({
+  hasNativeSyncLocalAdminAdapterMock: vi.fn(),
+  downloadBlobMock: vi.fn(),
+  applyKnowledgeTreeRepairMock: vi.fn(),
+  previewKnowledgeTreeRepairMock: vi.fn(),
+  triggerSyncNowMock: vi.fn(),
   fetchConflictDetailMock: vi.fn(),
   fetchConflictsMock: vi.fn(),
   fetchResolvedConflictsMock: vi.fn(),
@@ -22,7 +32,25 @@ const {
   resolveConflictMock: vi.fn(),
 }));
 
-vi.mock("@/lib/api",()=>({api:{attachmentFolders:{list:async()=>({folders:[]})}}}));
+vi.mock("@/lib/api", () => ({
+  getCurrentWorkspace: () => "personal",
+  getServerUrl: () => "",
+  api: { attachmentFolders: { list: async () => ({ folders: [] }) } },
+}));
+
+vi.mock("@/lib/mindmapExport", () => ({ downloadBlob: downloadBlobMock }));
+
+vi.mock("@/lib/knowledgeTreeApi", () => ({
+  knowledgeTreeApi: {
+    list: async () => ({
+      nodes: [
+        { id: "notebook:folder-0", title: "项目目录" },
+        { id: "folder-a", title: "本机目录" },
+        { id: "folder-b", title: "云端目录" },
+      ],
+    }),
+  },
+}));
 
 vi.mock("@/lib/syncLocalApi", () => ({
   SYNC_CONFLICT_ENTITY_TYPES: [
@@ -37,6 +65,10 @@ vi.mock("@/lib/syncLocalApi", () => ({
     "diary",
     "mindmap",
   ],
+  applyKnowledgeTreeRepair: applyKnowledgeTreeRepairMock,
+  previewKnowledgeTreeRepair: previewKnowledgeTreeRepairMock,
+  triggerSyncNow: triggerSyncNowMock,
+  hasNativeSyncLocalAdminAdapter: hasNativeSyncLocalAdminAdapterMock,
   fetchConflictDetail: fetchConflictDetailMock,
   fetchConflicts: fetchConflictsMock,
   fetchResolvedConflicts: fetchResolvedConflictsMock,
@@ -90,11 +122,17 @@ async function waitFor(assertion: () => void) {
 describe("冲突中心批量处理", () => {
   let root: Root | null = null;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await (await import("@/i18n")).default.changeLanguage("zh-CN");
     document.body.innerHTML = "";
     fetchConflictsMock.mockReset();
     fetchResolvedConflictsMock.mockReset();
     fetchResolvedConflictsMock.mockResolvedValue({ total: 0, items: [] });
+    hasNativeSyncLocalAdminAdapterMock.mockReset().mockReturnValue(false);
+    downloadBlobMock.mockReset();
+    applyKnowledgeTreeRepairMock.mockReset();
+    previewKnowledgeTreeRepairMock.mockReset();
+    triggerSyncNowMock.mockReset();
     fetchConflictDetailMock.mockReset();
     forkConflictMock.mockReset();
     reopenConflictMock.mockReset();
@@ -117,7 +155,6 @@ describe("冲突中心批量处理", () => {
   afterEach(() => {
     if (root) act(() => root?.unmount());
     root = null;
-    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
@@ -434,14 +471,30 @@ describe("冲突中心批量处理", () => {
     expect(cards[0].textContent).not.toContain("两侧内容一致");
     expect(cards[0].textContent).not.toContain("手动编辑并合并");
     const buttons = [...cards[0].querySelectorAll("button")];
-    expect(buttons.find((b) => b.textContent === "保留本机版本")?.disabled).toBe(true);
-    expect(buttons.find((b) => b.textContent === "保留云端版本")?.disabled).toBe(true);
+    expect(buttons.find((b) => b.textContent === "保留本机版本")?.disabled).toBe(false);
+    const singleCloud = buttons.find((b) => b.textContent === "保留云端版本");
+    expect(singleCloud?.disabled).toBe(false);
+    previewKnowledgeTreeRepairMock.mockRejectedValueOnce(new Error("云端仍然缺少结构"));
+    await act(async () => { singleCloud?.click(); });
+    expect(previewKnowledgeTreeRepairMock).toHaveBeenCalledWith("keep-remote", [treeItems[0].id]);
+    expect(applyKnowledgeTreeRepairMock).not.toHaveBeenCalled();
     expect(buttons.find((b) => b.textContent?.includes("手动合并"))).toBeUndefined();
     await act(async () => { host.querySelector<HTMLInputElement>('[aria-label="全选冲突"]')?.click(); });
     const bulk = [...host.querySelectorAll("button")].find((b) => b.textContent === "一键采用本机");
     await act(async () => { bulk?.click(); });
     expect(resolveConflictMock).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("已跳过 28 条知识树结构冲突");
+    expect(bulk?.disabled).toBe(true);
+    expect(host.textContent).toContain("0 条可尝试批量处理，28 条需预检知识树结构");
+    expect(host.textContent).toContain("项目目录");
+    expect(host.textContent).not.toContain("notebook:folder-0");
+    const preview = [...host.querySelectorAll("button")].find((b) => b.textContent === "预览以云端为准修复");
+    previewKnowledgeTreeRepairMock.mockRejectedValueOnce(new Error("云端缺少结构"));
+    await act(async () => { preview?.click(); });
+    await waitFor(() => expect(host.textContent).toContain("云端缺少结构"));
+    const confirmRepair = [...host.querySelectorAll("button")].find((b) => b.textContent === "确认修复目录结构");
+    expect(confirmRepair?.disabled).toBe(true);
+    await act(async () => { confirmRepair?.click(); });
+    expect(applyKnowledgeTreeRepairMock).not.toHaveBeenCalled();
     const smart = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("智能合并选中项"));
     await act(async () => { smart?.click(); });
     expect(resolveConflictMock).not.toHaveBeenCalled();
@@ -469,13 +522,108 @@ describe("冲突中心批量处理", () => {
     await waitFor(() => expect(card.querySelector('[role="alert"]')?.textContent).toContain("详情暂时不可用"));
     expect(card.querySelector('[data-conflict-detail-id="tree-both"]')).toBeNull();
     await act(async () => { view()?.click(); });
-    await waitFor(() => expect(card.textContent).toContain("folder-a"));
-    expect(card.textContent).toContain("folder-b");
+    await waitFor(() => expect(card.textContent).toContain("本机目录"));
+    expect(card.textContent).toContain("云端目录");
     expect([...card.querySelectorAll("button")].find((b) => b.textContent === "保留本机版本")?.disabled).toBe(false);
   });
 
+  it("18 条知识树冲突独立预检，二次确认后批量采用云端并请求同步", async () => {
+    const treeItems = Array.from({ length: 18 }, (_, index) => ({
+      ...conflicts[0],
+      id: `tree-${index}`,
+      entityType: "knowledge_tree_node",
+      entityId: `note:note-${index}`,
+      localTitle: `项目笔记 ${index}`,
+      diffFields: ["parentId", "sortOrder"],
+    }));
+    const snapshot = {
+      id: "note:note-0", parentId: "folder-a", sortOrder: 0, isDeleted: 0,
+      deletedAt: null, resourceType: "note", resourceId: "note-0", nodeType: "note",
+    };
+    fetchConflictsMock.mockResolvedValue({ total: 19, items: [...conflicts.slice(0, 1), ...treeItems] });
+    previewKnowledgeTreeRepairMock.mockResolvedValue({
+      token: "tree-plan",
+      changes: treeItems.map((item) => ({
+        id: item.id,
+        title: item.localTitle,
+        local: { ...snapshot, content: "never export body" },
+        remote: { ...snapshot, parentId: "folder-b", sortOrder: 4 },
+      })),
+    });
+    applyKnowledgeTreeRepairMock.mockImplementation(async () => {
+      fetchConflictsMock.mockResolvedValue({ total: 1, items: conflicts.slice(0, 1) });
+      return { resolved: 18, backupId: "backup-id", backupFilename: "full-backup.zip" };
+    });
+    triggerSyncNowMock.mockResolvedValue({ engineRunning: true });
+    const onResolved = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="tree-device" onResolved={onResolved} />); });
+    await waitFor(() => expect(host.textContent).toContain("知识树结构冲突（18）"));
+    await act(async () => { host.querySelector<HTMLInputElement>('[aria-label="全选冲突"]')?.click(); });
+    expect(host.textContent).toContain("1 条可尝试批量处理，18 条需预检知识树结构");
+    const button = (label: string) => [...host.querySelectorAll("button")].find((entry) => entry.textContent === label);
+    await act(async () => { button("预览以云端为准修复")?.click(); });
+
+    const ids = treeItems.map((item) => item.id);
+    expect(previewKnowledgeTreeRepairMock).toHaveBeenCalledWith("keep-remote", ids);
+    expect(applyKnowledgeTreeRepairMock).not.toHaveBeenCalled();
+    expect(resolveConflictMock).not.toHaveBeenCalled();
+    const review = host.querySelector('[aria-label="知识树修复预览"]');
+    expect(review?.querySelectorAll("tbody tr")).toHaveLength(18);
+    expect(review?.textContent).toContain("本机目录 · 排序 0 · 正常");
+    expect(review?.textContent).toContain("云端目录 · 排序 4 · 正常");
+    await act(async () => { button("导出本机结构快照")?.click(); });
+    expect(downloadBlobMock).toHaveBeenCalledOnce();
+    const [blob, fileName] = downloadBlobMock.mock.calls[0] as [Blob, string];
+    const exported = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+    expect(fileName).toMatch(/^nowen-tree-structure-.*\.json$/);
+    expect(JSON.parse(exported).nodes[0]).toEqual(snapshot);
+    expect(exported).not.toContain("never export body");
+    expect(exported).not.toContain("tree-plan");
+    await act(async () => { button("确认修复目录结构")?.click(); });
+
+    expect(applyKnowledgeTreeRepairMock).toHaveBeenCalledWith("keep-remote", ids, "tree-plan");
+    expect(triggerSyncNowMock).toHaveBeenCalledOnce();
+    expect(onResolved).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("本机已修复 18 条知识树结构冲突。");
+    expect(host.textContent).toContain("当前列表还有 0 条知识树结构冲突。");
+    expect(host.textContent).toContain("full-backup.zip");
+    expect(host.textContent).toContain("冲突（1）");
+  });
+
+  it("Android 回收站冲突逐项确认，沿用专门的生命周期处理", async () => {
+    hasNativeSyncLocalAdminAdapterMock.mockReturnValue(true);
+    const item = { ...conflicts[0], entityType: "knowledge_tree_node", entityId: "notebook:folder-a" };
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [item] });
+    fetchConflictDetailMock.mockResolvedValue({
+      ...item,
+      status: "unresolved",
+      base: null,
+      local: { lifecycle: "trash", isDeleted: 1 },
+      remote: { lifecycleSubtree: [], isDeleted: 0 },
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="native-device" />); });
+    const button = (label: string) => [...host.querySelectorAll("button")].find((entry) => entry.textContent === label);
+    await waitFor(() => expect(button("查看")).toBeDefined());
+    await act(async () => { button("查看")?.click(); });
+    expect(button("保留云端版本")?.disabled).toBe(false);
+    await act(async () => { button("保留云端版本")?.click(); });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("回收站状态"));
+    expect(resolveConflictMock).toHaveBeenCalledWith(item.id, { resolution: "keep-remote", deviceId: "native-device" });
+    expect(previewKnowledgeTreeRepairMock).not.toHaveBeenCalled();
+  });
+
   it("附件整理冲突逐项选择，隐藏 JSON 合并并跳过批量覆盖",async()=>{
-    await (await import("@/i18n")).default.changeLanguage("zh-CN");
     const item={...conflicts[0],id:"asset-conflict",entityType:"attachment_organization",entityId:"folder:asset",diffFields:["name"]};
     fetchConflictsMock.mockResolvedValue({total:1,items:[item]});
     fetchConflictDetailMock.mockResolvedValue({...item,status:"unresolved",resolvedAt:null,base:null,

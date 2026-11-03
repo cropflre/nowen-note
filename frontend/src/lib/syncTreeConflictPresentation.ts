@@ -50,3 +50,11 @@ export function canSafelyChooseTreeSide(
   // replacement while either structural side is missing.
   return treeConflictAvailability(detail) === "both";
 }
+
+export function isTreeLifecycleConflict(
+  detail: Pick<ConflictDetail, "local" | "remote"> | null | undefined,
+): boolean {
+  return [detail?.local, detail?.remote].some((side) =>
+    Boolean(side?.lifecycle || side?.lifecycleSubtree || side?.__delete),
+  );
+}

@@ -1427,6 +1427,10 @@ export const api = {
 
   // User
   getMe: () => request<User>("/me"),
+  claimOnboardingWelcome: () => request<{ noteId: string | null }>("/onboarding/welcome", {
+    method: "POST",
+    _skipOfflineQueue: true,
+  }),
   getUserPreferences: () => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;

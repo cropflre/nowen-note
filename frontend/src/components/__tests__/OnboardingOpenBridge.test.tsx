@@ -2,18 +2,14 @@
 
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  state: {
-    activeNote: null as null | Record<string, unknown>,
-    notebooks: [] as Array<Record<string, unknown>>,
-  },
+  state: { activeNote: null as null | { id: string } },
   workspace: "personal",
-  serverUrl: "https://notes.example.test",
+  scope: "server:account",
   api: {
-    getMe: vi.fn(),
-    getNoteSlim: vi.fn(),
+    claimOnboardingWelcome: vi.fn(),
     getNote: vi.fn(),
   },
   actions: {
@@ -29,146 +25,116 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   api: mocks.api,
   getCurrentWorkspace: () => mocks.workspace,
-  getServerUrl: () => mocks.serverUrl,
 }));
-
+vi.mock("@/lib/offlineScope", () => ({
+  getOfflineQueueStorageKey: () => mocks.scope,
+}));
 vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: mocks.state }),
   useAppActions: () => mocks.actions,
 }));
 
-import OnboardingOpenBridge, { onboardingWelcomeNoteId } from "../OnboardingOpenBridge";
+import OnboardingOpenBridge from "../OnboardingOpenBridge";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
 
-async function flushEffects(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+const note = {
+  id: "onboarding-v1-user-1-zh-welcome",
+  userId: "user-1",
+  notebookId: "onboarding-v1-user-1-zh",
+  title: "欢迎使用 Nowen Note",
+};
+
+async function mountBridge(): Promise<() => Promise<void>> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<React.StrictMode><OnboardingOpenBridge /></React.StrictMode>));
+  return async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  };
 }
 
 beforeEach(() => {
   localStorage.clear();
   mocks.state.activeNote = null;
-  mocks.state.notebooks = [];
   mocks.workspace = "personal";
-  mocks.serverUrl = "https://notes.example.test";
-  vi.clearAllMocks();
-
-  const user = { id: "user-1", username: "new-user" };
-  const note = {
-    id: onboardingWelcomeNoteId(user.id),
-    userId: user.id,
-    notebookId: `onboarding-v1-${user.id}-zh`,
-    title: "欢迎使用 Nowen Note",
-    content: "# 欢迎使用 Nowen Note",
-    contentText: "欢迎使用 Nowen Note",
-    contentFormat: "markdown",
-    version: 1,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-01T00:00:00.000Z",
-  };
-  mocks.api.getMe.mockResolvedValue(user);
-  mocks.api.getNoteSlim.mockResolvedValue({ id: note.id, version: 1 });
+  mocks.scope = "server:account";
+  vi.resetAllMocks();
   mocks.api.getNote.mockResolvedValue(note);
 });
 
-afterEach(() => {
-  document.body.innerHTML = "";
-});
-
 describe("OnboardingOpenBridge", () => {
-  it("opens the seeded Chinese welcome note once and selects its notebook", async () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
+  it("opens a server-granted welcome once and does not reopen after a storage clear or URL change", async () => {
+    mocks.api.claimOnboardingWelcome
+      .mockResolvedValueOnce({ noteId: note.id })
+      .mockResolvedValue({ noteId: null });
 
+    const unmount = await mountBridge();
     try {
-      await act(async () => root.render(<OnboardingOpenBridge />));
-      await flushEffects();
-
-      const expectedId = onboardingWelcomeNoteId("user-1");
-      expect(mocks.api.getNoteSlim).toHaveBeenCalledWith(expectedId);
-      expect(mocks.api.getNote).toHaveBeenCalledWith(expectedId);
-      expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(
-        expect.objectContaining({ id: expectedId, title: "欢迎使用 Nowen Note" }),
-      );
-      expect(mocks.actions.setSelectedNotebook).toHaveBeenCalledWith(
-        "onboarding-v1-user-1-zh",
-      );
+      expect(mocks.api.claimOnboardingWelcome).toHaveBeenCalledTimes(1);
+      expect(mocks.api.getNote).toHaveBeenCalledWith(note.id);
+      expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(note);
+      expect(mocks.actions.setSelectedNotebook).toHaveBeenCalledWith(note.notebookId);
       expect(mocks.actions.setViewMode).toHaveBeenCalledWith("notebook");
       expect(mocks.actions.setMobileView).toHaveBeenCalledWith("editor");
       expect(mocks.actions.refreshNotebooks).toHaveBeenCalledTimes(1);
       expect(mocks.actions.refreshNotes).toHaveBeenCalledTimes(1);
-      expect(
-        Object.keys(localStorage).some((key) => key.startsWith("nowen:onboarding-welcome-opened:v1:")),
-      ).toBe(true);
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
 
     vi.clearAllMocks();
-    const secondHost = document.createElement("div");
-    document.body.appendChild(secondHost);
-    const secondRoot = createRoot(secondHost);
+    localStorage.clear();
+    mocks.scope = "server-alias:account";
+    const unmountAlias = await mountBridge();
     try {
-      await act(async () => secondRoot.render(<OnboardingOpenBridge />));
-      await flushEffects();
-
-      expect(mocks.api.getMe).toHaveBeenCalledTimes(1);
-      expect(mocks.api.getNoteSlim).not.toHaveBeenCalled();
+      expect(mocks.api.claimOnboardingWelcome).toHaveBeenCalledTimes(1);
+      expect(mocks.api.getNote).not.toHaveBeenCalled();
       expect(mocks.actions.setActiveNote).not.toHaveBeenCalled();
     } finally {
-      await act(async () => secondRoot.unmount());
-      secondHost.remove();
+      await unmountAlias();
     }
   });
 
-  it("remembers that old users were not seeded without changing the active note", async () => {
-    mocks.api.getNoteSlim.mockRejectedValue(
+  it("does not open the welcome when the server lacks account-level support", async () => {
+    mocks.api.claimOnboardingWelcome.mockRejectedValue(
       Object.assign(new Error("Not found"), { status: 404 }),
     );
-
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-
+    const unmount = await mountBridge();
     try {
-      await act(async () => root.render(<OnboardingOpenBridge />));
-      await flushEffects();
-
+      expect(mocks.api.getNote).not.toHaveBeenCalled();
       expect(mocks.actions.setActiveNote).not.toHaveBeenCalled();
-      const markerValue = Object.keys(localStorage)
-        .map((key) => localStorage.getItem(key))
-        .find((value) => value?.includes("not-seeded"));
-      expect(markerValue).toBeTruthy();
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
   });
 
   it("does not interrupt an existing note or a non-personal workspace", async () => {
     mocks.state.activeNote = { id: "already-open" };
     mocks.workspace = "workspace-1";
-
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-
+    const unmount = await mountBridge();
     try {
-      await act(async () => root.render(<OnboardingOpenBridge />));
-      await flushEffects();
-
-      expect(mocks.api.getMe).not.toHaveBeenCalled();
+      expect(mocks.api.claimOnboardingWelcome).not.toHaveBeenCalled();
       expect(mocks.actions.setActiveNote).not.toHaveBeenCalled();
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
+    }
+  });
+
+  it("ignores a welcome response after switching account", async () => {
+    mocks.api.claimOnboardingWelcome.mockImplementation(async () => {
+      mocks.scope = "server:other-account";
+      return { noteId: note.id };
+    });
+    const unmount = await mountBridge();
+    try {
+      expect(mocks.api.getNote).not.toHaveBeenCalled();
+      expect(mocks.actions.setActiveNote).not.toHaveBeenCalled();
+    } finally {
+      await unmount();
     }
   });
 });

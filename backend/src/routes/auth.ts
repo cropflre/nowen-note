@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { getDb } from "../db/schema";
+import { markOnboardingHandled } from "../lib/onboarding";
 import { userSessionsRepository } from "../repositories";
 import { v4 as uuid } from "uuid";
 import bcrypt from "bcryptjs";
@@ -339,6 +340,18 @@ function issueDesktopLocalAuth(c: Context, userId: string) {
   return c.json({ ...tokens, user });
 }
 
+function createManagedDesktopUser(userId: string, passwordHash: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO users (id, username, email, passwordHash, role, displayName)
+      VALUES (?, 'desktop', 'desktop@nowen-note.local', ?, 'admin', 'Local Desktop User')
+    `).run(userId, passwordHash);
+    // This per-install identity can later bind an existing cloud account.
+    markOnboardingHandled(db, userId);
+  })();
+}
+
 // Startup may create the managed account, but must never repair an existing one
 // by overwriting its password, role, disabled state, or token version.
 auth.post("/desktop/bootstrap-local", async (c) => {
@@ -388,10 +401,7 @@ auth.post("/desktop/bootstrap-local", async (c) => {
   if (db.prepare("SELECT id FROM users WHERE username = 'desktop'").get()) {
     return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
   }
-  db.prepare(`
-    INSERT INTO users (id, username, email, passwordHash, role, displayName)
-    VALUES (?, 'desktop', 'desktop@nowen-note.local', ?, 'admin', 'Local Desktop User')
-  `).run(userId, passwordHash);
+  createManagedDesktopUser(userId, passwordHash);
   return issueDesktopLocalAuth(c, userId);
 });
 
@@ -426,10 +436,7 @@ auth.post("/desktop/reset-local", async (c) => {
     `).run(passwordHash, userId);
   } else {
     userId = uuid();
-    db.prepare(`
-      INSERT INTO users (id, username, email, passwordHash, role, displayName)
-      VALUES (?, ?, ?, ?, 'admin', ?)
-    `).run(userId, username, "desktop@nowen-note.local", passwordHash, "Local Desktop User");
+    createManagedDesktopUser(userId, passwordHash);
   }
 
   resetLoginFailure(db, userId);
