@@ -378,7 +378,7 @@ app.post("/nodes", async (c) => {
       const conflict = verifyTreePreconditions(c, body.parentId, body);
       if (conflict) return conflict;
     }
-    if (!["folder", "note", "markdown", "word", "mindmap", "sheet"].includes(nodeType)) {
+    if (!["folder", "note", "markdown", "word", "mindmap", "sheet", "excel"].includes(nodeType)) {
       return c.json({ error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" }, 400);
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
@@ -398,6 +398,7 @@ app.post("/nodes", async (c) => {
       nodeType,
       title: typeof body.title === "string" ? body.title : "",
       sheetData: body.sheetData,
+      excelData: body.excelData,
       contentFormat: body.contentFormat === "plaintext" ? "plaintext" : undefined,
     });
     return c.json(node, 201);

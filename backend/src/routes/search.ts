@@ -61,7 +61,7 @@ type MatchSource = {
 };
 
 type SearchResultWithScore = Omit<SearchRow, "contentText" | "tagText" | "attachmentNames" | "attachmentText"> & {
-  resourceType: "note" | "mindmap" | "sheet";
+  resourceType: "note" | "mindmap" | "sheet" | "excel";
   snippet: string;
   titleHtml: string;
   snippetHtml: string;
@@ -672,7 +672,7 @@ function buildSearchResult(
     - Math.min(matchCount, 20) / 100;
 
   return {
-    resourceType: row.noteType === "sheet" ? "sheet" : "note",
+    resourceType: row.noteType === "sheet" ? "sheet" : row.noteType === "excel" ? "excel" : "note",
     id: row.id,
     userId: row.userId,
     notebookId: row.notebookId,
