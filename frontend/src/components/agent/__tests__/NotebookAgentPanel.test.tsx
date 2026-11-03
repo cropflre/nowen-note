@@ -17,7 +17,7 @@ const run: AgentWorkflow = { id: "run", notebookId: "book", workspaceId: null, c
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.clearAllMocks(); mocks.current.mockReturnValue(true); mocks.books.mockResolvedValue([{ id: "book", name: "Book" }]);
-  mocks.capabilities.mockResolvedValue({ enabled: true }); mocks.list.mockResolvedValue([run]); mocks.get.mockResolvedValue(run);
+  mocks.capabilities.mockResolvedValue({ enabled: true, aiContentLabels: "v1" }); mocks.list.mockResolvedValue([run]); mocks.get.mockResolvedValue(run);
   mocks.action.mockResolvedValue({ ...run, status: "completed", preview: undefined });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });

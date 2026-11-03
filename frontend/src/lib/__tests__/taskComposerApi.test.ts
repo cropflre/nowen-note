@@ -1,6 +1,7 @@
+import { readAiProvenance } from "../aiContentProvenance";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fetchWithAuthRefresh } from "../authSession";
-import { confirmTaskComposition, getTaskComposerContext, previewTaskComposition, registerTaskComposerCache, type TaskComposerBatch } from "../taskComposerApi";
+import { confirmedCandidates, confirmTaskComposition, getTaskComposerContext, previewTaskComposition, registerTaskComposerCache, type TaskComposerBatch } from "../taskComposerApi";
 
 const state = vi.hoisted(() => ({ workspace: "personal", account: "a", local: false }));
 vi.mock("../api.impl", () => ({ getBaseUrl: () => "http://fixture/api", getCurrentWorkspace: () => state.workspace }));
@@ -46,4 +47,12 @@ it("caches only committed task rows and reports cache failure separately from cr
   vi.mocked(fetchWithAuthRefresh).mockResolvedValue(new Response(JSON.stringify(result)));
   expect(await confirmTaskComposition(getTaskComposerContext(), batch)).toMatchObject({ createdCount: 1, refreshFailed: true });
   expect(fetchWithAuthRefresh).toHaveBeenCalledOnce(); expect(cache).toHaveBeenCalledWith(result.tasks);
+});
+
+it("labels generated task descriptions with stable IDs while leaving manual candidates unchanged", () => {
+  const base = { ...batch.tasks[0], selected: true, reason: "", warnings: [], duplicateOf: [], allowDuplicate: false };
+  const [generated, manual] = confirmedCandidates([{ ...base, clientId: "generated-id", aiGenerated: true }, { ...base, clientId: "manual-id" }]);
+  expect(readAiProvenance(generated.description)?.ProduceID).toBe("generated-id");
+  expect(generated.description).toContain("AI 生成内容");
+  expect(manual.description).toBe(base.description);
 });

@@ -2512,6 +2512,8 @@
     "starred": "Starred"
   },
   "ai": {
+    "generatedTitlePrefix": "AI-generated title: ",
+    "generatedLabel": "AI-generated content",
     "title": "AI Configuration",
     "description": "Configure AI models for intelligent classification and AI assistant",
     "configured": "Configured",
@@ -2825,6 +2827,7 @@
     "github": "GitHub",
     "website": "Nowen Website",
     "microsoftStoreDownload": "Microsoft Store Download",
+    "appFilingNumber": "App filing number",
     "license": "MIT License",
     "sponsor": "Sponsor",
     "sponsorDesc": "If this project helps you, buy the author a coffee ?",
@@ -3450,6 +3453,7 @@
       "create_extensions": "Execute approved tools"
     },
     "errors": {
+      "AI_LABELING_UNSUPPORTED": "Update the server to use AI content labeling with this feature.",
       "AGENT_REQUEST_FAILED": "Request failed. Check your connection and retry.",
       "VERSION_CONFLICT": "The note changed. Reject this proposal and generate a new one.",
       "UNSAFE_DOCUMENT": "This document cannot be safely edited automatically. Use Q&A to draft changes.",

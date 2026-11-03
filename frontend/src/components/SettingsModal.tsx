@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Browser } from "@capacitor/browser";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
 import qqGroupQr from "@/assets/feedback/qq-group.jpg";
@@ -461,6 +462,22 @@ function AboutPanel() {
             <ExternalLink size={11} />
           </a>
         </div>
+        {import.meta.env.MODE === "harmony" && (
+          <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+            <p>{t('about.appFilingNumber')}</p>
+            <a
+              href="https://beian.miit.gov.cn/"
+              onClick={async (event) => {
+                event.preventDefault();
+                await Browser.open({ url: "https://beian.miit.gov.cn/" });
+              }}
+              className="inline-flex items-center gap-1 hover:text-accent-primary transition-colors"
+            >
+              粤ICP备2026067978号-2A
+              <ExternalLink size={11} />
+            </a>
+          </div>
+        )}
       </div>
 
       {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}

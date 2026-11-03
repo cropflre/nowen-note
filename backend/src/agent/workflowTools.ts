@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "./model.js";
 
 export const workflowInput = z.object({
+  aiContentLabels: z.literal("v1").optional(),
   templateId: z.string().uuid().optional(),
   templateRevision: z.string().uuid().optional(),
   notebookId: z.string().min(1).max(128), includeChildren: z.boolean().default(true),

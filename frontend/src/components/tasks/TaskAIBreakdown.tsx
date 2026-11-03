@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { createAiProvenance, markAiMarkdown, type AiProvenance } from "@/lib/aiContentProvenance";
 import React, { useState, useCallback } from "react";
 import { Sparkles, Loader2, Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -7,6 +9,7 @@ import type { Task } from "@/types";
 import { buildDueAtFromDateAndTime, getDueTimeValue } from "./taskDateUtils";
 
 interface SubtaskSuggestion {
+  aiProvenance: AiProvenance;
   title: string;
   priority: number;
   dueDate: string | null;
@@ -41,7 +44,7 @@ export function TaskAIBreakdown({
     try {
       const lang = i18n.resolvedLanguage || i18n.language;
       const res = await api.aiBreakdownTask(task.id, lang);
-      setSuggestions((res.subtasks || []).map((s) => ({ ...s, selected: true })));
+      setSuggestions((res.subtasks || []).map((s) => ({ ...s, selected: true, aiProvenance: createAiProvenance() })));
     } catch (err: any) {
       setError(err.message || t("tasks.aiBreakdown.failed"));
     } finally {
@@ -65,6 +68,7 @@ export function TaskAIBreakdown({
       for (const s of selected) {
         await api.createTask({
           title: s.title,
+          description: markAiMarkdown("", s.aiProvenance, t("ai.generatedLabel")),
           priority: s.priority as 1 | 2 | 3,
           dueDate: s.dueDate || undefined,
           dueAt: s.dueAt || undefined,
@@ -107,6 +111,7 @@ export function TaskAIBreakdown({
 
       {open && !loading && suggestions.length > 0 && (
         <div className="rounded-lg border border-app-border bg-app-elevated/50 p-3 space-y-2">
+          <AiGeneratedNotice />
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-medium text-tx-primary">{t("tasks.aiBreakdown.title")}</span>
             <button onClick={() => setOpen(false)} className="text-tx-tertiary hover:text-tx-primary">

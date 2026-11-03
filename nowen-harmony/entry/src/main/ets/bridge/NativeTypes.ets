@@ -9,6 +9,9 @@ export interface NativeResult {
   values?: Record<string, relationalStore.ValueType>[];
   changes?: SqlChanges;
   uri?: string;
+  success?: boolean;
+  canceled?: boolean;
+  displayPath?: string;
   files?: NativeResult[];
   name?: string;
   type?: string;

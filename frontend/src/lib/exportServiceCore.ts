@@ -1,3 +1,6 @@
+import { aiMarkdownFrontmatter, markAiMarkdown, readAiProvenance, readNoteAiProvenance, type AiProvenance } from "@/lib/aiContentProvenance";
+import { addAiPdfMetadata, readHtmlAiProvenance } from "@/lib/aiExportMetadata";
+import { AiProvenanceMark, addAiProvenanceMarkdownRule } from "@/components/extensions/AiProvenanceMark";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { isAndroidNative, saveImageToGallery } from "./nativeImageSave";
@@ -54,6 +57,7 @@ const ExportBlockEmbedExtension = Node.create({
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
 const tiptapExtensions = [
+  AiProvenanceMark,
   ...getRichTextExtensions(),
   StarterKit.configure({
     codeBlock: false,
@@ -976,6 +980,7 @@ function createTurndown(): TurndownService {
 
   td.keep(["audio"]);
   addRichTextMarkdownRules(td);
+  addAiProvenanceMarkdownRule(td);
   return td;
 }
 
@@ -1103,6 +1108,8 @@ export async function exportAllNotes(
         markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       }
 
+      const provenance = readNoteAiProvenance(note);
+      if (provenance && !readAiProvenance(markdown)) markdown = markAiMarkdown(markdown, provenance);
       preparedNotes.push({
         id: note.id,
         title: note.title,
@@ -1297,9 +1304,10 @@ export async function exportNotebook(
         `contentFormat: "${note.contentFormat || 'tiptap-json'}"`,
         `created: ${note.createdAt}`,
         `updated: ${note.updatedAt}`,
+        aiMarkdownFrontmatter(readNoteAiProvenance(note)).trimEnd(),
         "---",
         "",
-      ].join("\n");
+      ].filter((line, index, rows) => line !== "" || index === rows.length - 1).join("\n");
       const fullContent = frontmatter + markdown;
 
       const count = folderCounts.get(folder) || 0;
@@ -1421,7 +1429,9 @@ export async function exportSingleNote(
       }
     }
 
-    const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
+    let markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
+    const provenance = readNoteAiProvenance(note);
+    if (provenance && !readAiProvenance(markdown)) markdown = markAiMarkdown(markdown, provenance);
 
     const frontmatter = [
       "---",
@@ -1429,9 +1439,10 @@ export async function exportSingleNote(
       `contentFormat: "${note.contentFormat || 'tiptap-json'}"`,
       `created: ${note.createdAt}`,
       `updated: ${note.updatedAt}`,
+      aiMarkdownFrontmatter(readNoteAiProvenance(note)).trimEnd(),
       "---",
       "",
-    ].join("\n");
+    ].filter((line, index, rows) => line !== "" || index === rows.length - 1).join("\n");
 
     const fullContent = frontmatter + markdown;
     const safeTitle = sanitizeFilename(note.title);
@@ -1619,7 +1630,7 @@ export async function printNote(note: {
  *    因跨域 taint 失败。
  *  - PDF 为 A4 纵向，按图像高度换算分页；每页之间的"图像偏移"通过 `addImage` 的负 y 实现。
  */
-async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
+async function renderPrintableHtmlToPdfBlob(docHtml: string, provenance: AiProvenance | null = null): Promise<Blob> {
   // 离屏 iframe 承载 HTML；宽度固定 800px，保证 html2canvas 截图后再按 A4 缩放时分辨率足够。
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
@@ -1685,6 +1696,7 @@ async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
 
     // A4: 210mm × 297mm
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+    addAiPdfMetadata(pdf, provenance);
     const pageWidthMm = pdf.internal.pageSize.getWidth();   // 210
     const pageHeightMm = pdf.internal.pageSize.getHeight(); // 297
     // 左右各留 10mm 边距
@@ -1773,6 +1785,7 @@ export async function exportSingleNoteAsPDF(noteId: string): Promise<ExportPdfRe
   try {
     const note = await api.getNote(noteId);
     const docHtml = await buildPrintableHtml(note);
+    const provenance = readNoteAiProvenance(note) || readHtmlAiProvenance(docHtml);
 
     // —— 优先：Electron 静默导出 ——
     const desktop = (window as unknown as {
@@ -1781,7 +1794,7 @@ export async function exportSingleNoteAsPDF(noteId: string): Promise<ExportPdfRe
           Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
       };
     }).nowenDesktop;
-    if (desktop && typeof desktop.exportNoteToPDF === "function") {
+    if (!provenance && desktop && typeof desktop.exportNoteToPDF === "function") {
       const res = await desktop.exportNoteToPDF({
         html: docHtml,
         suggestedName: sanitizeFilename(note.title),
@@ -1793,7 +1806,7 @@ export async function exportSingleNoteAsPDF(noteId: string): Promise<ExportPdfRe
     }
 
     // —— Web 直接下载 PDF ——
-    const blob = await renderPrintableHtmlToPdfBlob(docHtml);
+    const blob = await renderPrintableHtmlToPdfBlob(docHtml, provenance);
     const filename = `${sanitizeFilename(note.title) || "note"}.pdf`;
     const staged = await api.stageGeneratedExport(blob, filename);
     api.downloadMarkdownExport(staged.downloadToken, staged.filename);

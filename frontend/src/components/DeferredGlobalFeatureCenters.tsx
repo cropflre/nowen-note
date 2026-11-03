@@ -15,6 +15,7 @@ import RoundTripImportBatchCenter from "./RoundTripImportBatchCenter";
 import RoundTripPermissionMappingCenter from "./RoundTripPermissionMappingCenter";
 import RoundTripPermissionExportCenter from "./RoundTripPermissionExportCenter";
 import SiyuanImportProgressBridge from "./SiyuanImportProgressBridge";
+import { isHarmonyNative } from "@/lib/nativeImageSave";
 
 /**
  * Low-frequency authenticated feature centers.
@@ -34,7 +35,7 @@ export default function DeferredGlobalFeatureCenters() {
       <TaskDataTransferBridgeV2 />
       <SystemFullDataTransferBridge />
       <BackupWebDavBridge />
-      <NoteImageExportCenter />
+      {!isHarmonyNative() && <NoteImageExportCenter />}
       <DocxImportCenter />
       <PublicSpaceLauncher />
       <NoteTransferCenter />

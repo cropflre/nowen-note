@@ -7,8 +7,9 @@ vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: mocks.t }) }));
 vi.mock("@/lib/api", () => ({ api: { agent: mocks, getNote: mocks.getNote, aiPrompts: { list: mocks.skills } } }));
 vi.mock("@/lib/aiCollaboration", () => ({ collaborationScope: () => mocks.scope }));
 import EditorAgentPanel from "../EditorAgentPanel";
+import { createAiProvenance, prependAiDeclaration } from "@/lib/aiContentProvenance";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-const proposal = { original: "original", result: "improved", format: "markdown", edits: [{ before: "original", after: "improved" }], token: "a".repeat(64) };
+const proposal = { original: "original", result: prependAiDeclaration("improved", "markdown", createAiProvenance("run")), format: "markdown", edits: [{ before: "original", after: "improved" }], token: "a".repeat(64) };
 const run = { id: "run", noteId: "note", status: "waiting_approval", steps: [], proposal };
 let host: HTMLDivElement, root: Root, current: string, selection: string;
 const apply = vi.fn((original: string) => current === original), flush = vi.fn();
@@ -16,7 +17,7 @@ const editor = () => ({ getSnapshot: () => ({ content: current, contentText: cur
 beforeEach(() => {
   vi.clearAllMocks(); current = "original"; selection = ""; mocks.scope = "account-a";
   mocks.skills.mockResolvedValue({ items: [{ id: "review", name: "Review", prompt: "PRIVATE SKILL" }] });
-  mocks.capabilities.mockResolvedValue({ enabled: true }); mocks.latest.mockResolvedValue(run);
+  mocks.capabilities.mockResolvedValue({ enabled: true, aiContentLabels: "v1" }); mocks.latest.mockResolvedValue(run);
   mocks.action.mockResolvedValue({ ...run, status: "cancelled", proposal: undefined });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
@@ -30,7 +31,7 @@ it("rechecks editor content after approval response and never applies over newer
   let resolve!: (value: unknown) => void; mocks.approve.mockImplementation(() => new Promise(r => { resolve = r; }));
   await render(); await click("agent.accept"); current = "typed while waiting";
   await act(async () => { resolve(proposal); });
-  expect(apply).toHaveBeenCalledWith("original", proposal.edits); expect(flush).not.toHaveBeenCalled(); expect(mocks.action).toHaveBeenCalledWith("run", "cancel");
+  expect(apply).toHaveBeenCalledWith("original", proposal.edits, createAiProvenance("run")); expect(flush).not.toHaveBeenCalled(); expect(mocks.action).toHaveBeenCalledWith("run", "cancel");
 });
 it("reject leaves editor untouched and previews model HTML as text", async () => {
   mocks.latest.mockResolvedValue({ ...run, proposal: { ...proposal, edits: [{ before: "original", after: '<img src=x onerror="alert(1)">' }] } });
@@ -100,4 +101,12 @@ it("blocks a late snapshot read after account switch before sending the Skill or
   await act(async () => resolve({ version: 1 }));
   expect(mocks.create).not.toHaveBeenCalled();
   expect(host.textContent).toContain("aiCollaboration.chatScopeChanged");
+});
+
+it("blocks old servers before starting or approving unlabeled writes", async () => {
+  mocks.capabilities.mockResolvedValue({ enabled: true });
+  await render();
+  expect(host.textContent).toContain("agent.errors.AI_LABELING_UNSUPPORTED");
+  expect(mocks.latest).not.toHaveBeenCalled();
+  expect(apply).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { readNoteAiProvenance, type AiProvenance } from "./aiContentProvenance";
 import { parseServerTime } from "@/lib/dateTime";
 import {
   isMarkdownImageExportSource,
@@ -11,6 +12,7 @@ export type NoteImageExportTheme = "current" | "light" | "dark";
 export type NoteImageExportDestination = "download" | "gallery" | "files" | "share";
 
 export interface ExportableNoteImageSource {
+  aiProvenance?: AiProvenance;
   id: string;
   title: string;
   content: string;
@@ -88,6 +90,8 @@ export function prepareNoteImageExportSource(
   note: ExportableNoteImageSource,
 ): ExportableNoteImageSource {
   const prepared = normalizeNoteImageExportSource(note);
+  const provenance = readNoteAiProvenance(note);
+  if (provenance) prepared.aiProvenance = provenance;
   if (!isMarkdownImageExportSource(prepared.content || prepared.contentText || "", prepared.contentFormat)) {
     return prepared;
   }

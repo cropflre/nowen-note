@@ -651,7 +651,7 @@ export default function KnowledgeTreeNodeMenu({
       } else if (actionId === "export_note_word") {
         const fresh = await api.getNote(noteId);
         const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
-        const blob = await exportNoteAsDocx(fresh.content || "", fresh.title || "未命名笔记");
+        const blob = await exportNoteAsDocx(fresh.content || "", fresh.title || "未命名笔记", undefined, fresh.id);
         await downloadDocxBlob(blob, fresh.title || "未命名笔记");
       }
       toast.dismiss(toastId);

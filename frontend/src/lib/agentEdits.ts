@@ -1,3 +1,6 @@
+import type { Editor } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
+import { aiProvenanceParagraph, markAiMarkdown, type AiProvenance } from "./aiContentProvenance";
 export interface AgentEdit { before: string; after: string }
 export interface AgentProposal { original: string; result: string; format: "markdown" | "tiptap-json"; edits: AgentEdit[]; token: string }
 export interface AgentRun { id: string; noteId: string; status: string; errorCode?: string | null; steps: Array<{ sequence: number; toolName: string; status: string }>; proposal?: AgentProposal }
@@ -23,4 +26,32 @@ export function agentTextRanges(parts: Array<{ text: string; pos: number }>, edi
     ranges.push(range);
   }
   return ranges.sort((a, b) => a.from - b.from);
+}
+
+/** The declaration and proposed replacements share one editor transaction. */
+export function agentMarkdownChanges(original: string, edits: AgentEdit[], provenance?: AiProvenance) {
+  const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+  if (provenance) {
+    const prefix = markAiMarkdown("", provenance) + "\n\n";
+    if (changes[0]?.from === 0) changes[0].insert = prefix + changes[0].insert;
+    else changes.unshift({ from: 0, to: 0, insert: prefix });
+  }
+  return changes;
+}
+
+export function applyAgentTiptapChanges(editor: Editor, edits: AgentEdit[], provenance?: AiProvenance): void {
+  const parts: Array<{ text: string; pos: number; marks: readonly import("@tiptap/pm/model").Mark[] }> = [];
+  editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+  if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
+    parts.push({ text: "", pos: 1, marks: [] });
+  }
+  const ranges = agentTextRanges(parts, edits);
+  const tr = editor.state.tr;
+  for (const range of ranges.reverse()) {
+    if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
+    else tr.delete(range.from, range.to);
+  }
+  if (provenance) tr.insert(0, editor.schema.nodeFromJSON(aiProvenanceParagraph(provenance)));
+  editor.view.dispatch(closeHistory(tr));
+  editor.view.dispatch(closeHistory(editor.state.tr));
 }

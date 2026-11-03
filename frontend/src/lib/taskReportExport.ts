@@ -1,3 +1,5 @@
+import { aiMarkdownFrontmatter, markAiMarkdown, readAiProvenance, stripAiProvenanceComments } from "./aiContentProvenance";
+import { addAiOoxmlMetadata } from "./aiExportMetadata";
 import { api } from "@/lib/api";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { buildTaskTree, calculateTaskProgress } from "@/components/tasks/taskProgress";
@@ -25,7 +27,7 @@ export function taskReportRows(tasks: Task[], projects: TaskProject[], t: Transl
         status: t(node.archivedAt ? "tasks.lifecycle.archived" : ({ todo: "tasks.statusTodo", doing: "tasks.statusDoing", blocked: "tasks.statusBlocked", done: "tasks.statusDone" })[node.isCompleted ? "done" : node.status]),
         completed: node.isCompleted === 1,
         progress: progress.progress, completedChildren: progress.completedChildren, totalChildren: progress.totalChildren,
-        description: node.description || "", priority: t(({ 1: "tasks.low", 2: "tasks.medium", 3: "tasks.high" })[node.priority]),
+        description: stripAiProvenanceComments(node.description || "").trim(), priority: t(({ 1: "tasks.low", 2: "tasks.medium", 3: "tasks.high" })[node.priority]),
         startDate: node.startDate || "", dueDate: node.dueDate || "", dueAt: node.dueAt || "",
         completedAt: node.completedAt || "", archivedAt: node.archivedAt || "",
       });
@@ -56,7 +58,9 @@ export function buildTaskMarkdown(tasks: Task[], projects: TaskProject[], t: Tra
     }
     lines.push("");
   }
-  return lines.join("\n");
+  const provenance = tasks.map(task => readAiProvenance(task.description || "")).find(Boolean) || null;
+  const markdown = lines.join("\n");
+  return provenance ? `---\n${aiMarkdownFrontmatter(provenance)}---\n${markAiMarkdown(markdown, provenance)}` : markdown;
 }
 
 export async function buildTaskExcel(tasks: Task[], projects: TaskProject[], t: Translate): Promise<Blob> {
@@ -72,7 +76,8 @@ export async function buildTaskExcel(tasks: Task[], projects: TaskProject[], t: 
     cells: {},
   };
   rows.forEach((row, index) => FIELDS.forEach(field => { data.cells[sheetCellKey(`r${index}`, field)] = String(row[field]); }));
-  return new Blob([await createTableXlsx(data, t("tasks.report.title"))], { type: XLSX_MIME });
+  const provenance = tasks.map(task => readAiProvenance(task.description || "")).find(Boolean) || null;
+  return new Blob([await addAiOoxmlMetadata(await createTableXlsx(data, t("tasks.report.title")), provenance)], { type: XLSX_MIME });
 }
 
 export async function exportTaskReport(format: "xlsx" | "md", t: Translate, taskId?: string): Promise<void> {

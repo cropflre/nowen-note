@@ -1,5 +1,6 @@
-﻿import { closeHistory } from "@tiptap/pm/history";
-import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
+import { readAiProvenance } from "@/lib/aiContentProvenance";
+import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
+﻿import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -1790,6 +1791,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     extensions: [
+      AiProvenanceMark,
       keyboardExtension.current,
       StarterKit.configure({
         codeBlock: false,
@@ -3258,24 +3260,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       },
       isReady: () => !!editor && !editor.isDestroyed,
       getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
-      applyAgentEdits: (original, edits) => {
+      applyAgentEdits: (original, edits, provenance) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
         if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
         try {
-          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
-          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
-          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
-            parts.push({ text: "", pos: 1, marks: [] });
-          }
-          const ranges = agentTextRanges(parts, edits);
-          const tr = editor.state.tr;
-          for (const range of ranges.reverse()) {
-            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
-            else tr.delete(range.from, range.to);
-          }
-          editor.view.dispatch(closeHistory(tr));
-          editor.view.dispatch(closeHistory(editor.state.tr));
+          applyAgentTiptapChanges(editor, edits, provenance);
           return true;
         } catch { return false; }
       },
@@ -5052,11 +5042,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (!editor) return;
     const view = editor.view;
     const hasInternalBlockMarkers = findInternalMarkdownMarkerRanges(text).length > 0;
+    const hasAiProvenance = !!readAiProvenance(text);
 
-    if (hasInternalBlockMarkers || looksLikeMarkdown(text)) {
+    if (hasAiProvenance || hasInternalBlockMarkers || looksLikeMarkdown(text)) {
       // 直接转换为富文本 HTML 后插入，一步到位
       try {
-        const convertedHtml = hasInternalBlockMarkers
+        const convertedHtml = hasAiProvenance ? sanitizeForPaste(mdToFullHtml(text)) : hasInternalBlockMarkers
           ? mdToFullHtml(text) || markdownToSimpleHtml(text)
           : markdownToSimpleHtml(text);
         const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);

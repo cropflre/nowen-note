@@ -1,3 +1,5 @@
+import { aiProvenanceParagraph, readNoteAiProvenance } from "./aiContentProvenance";
+import { detectFormat, markdownToTiptapJSON } from "@/lib/contentFormat";
 // lib/wordNoteService.ts —— Word 笔记创建、附件替换、导入和导出入口
 
 import { api } from "./api";
@@ -158,10 +160,11 @@ export async function exportNoteAsDocx(
   noteContent: string,
   title: string,
   author?: string,
+  noteId?: string,
 ): Promise<Blob> {
   let parsed: any = null;
   try {
-    parsed = JSON.parse(noteContent);
+    parsed = detectFormat(noteContent) === "md" ? markdownToTiptapJSON(noteContent) : JSON.parse(noteContent);
   } catch {
     parsed = {
       type: "doc",
@@ -181,7 +184,12 @@ export async function exportNoteAsDocx(
       ],
     };
   }
+  const provenance = readNoteAiProvenance({ id: noteId, title, content: noteContent });
   const ir = await tiptapToIr(parsed, { title, author });
+  if (provenance && !ir.meta.aiProvenance) {
+    parsed.content.unshift(aiProvenanceParagraph(provenance, title));
+    return createDocx(await tiptapToIr(parsed, { title, author }), { title, author });
+  }
   return createDocx(ir, { title, author });
 }
 

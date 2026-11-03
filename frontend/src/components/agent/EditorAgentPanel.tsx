@@ -1,3 +1,5 @@
+import { readAiProvenance } from "@/lib/aiContentProvenance";
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -64,6 +66,7 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   useEffect(() => {
     alive.current = true; cancelled.current = false;
     void api.agent.capabilities().then(async capabilities => {
+      if (capabilities.enabled && capabilities.aiContentLabels !== "v1") throw new Error("AI_LABELING_UNSUPPORTED");
       const latest = capabilities.enabled ? await api.agent.latest(note.id) : null;
       if (alive.current) { setEnabled(capabilities.enabled); setLoaded(true); setRun(latest); runId.current = latest?.id || null; }
     }).catch(e => { if (alive.current) { setLoaded(true); setError(errorText(e)); } });
@@ -116,7 +119,9 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
       if (!alive.current || cancelled.current) return;
       // Revalidate after the network round trip; the editor may have changed meanwhile.
       const handle = editor();
-      if (!handle?.applyAgentEdits?.(approved.original, approved.edits)) { await stop(); throw new Error("VERSION_CONFLICT"); }
+      const provenance = readAiProvenance(approved.result);
+      if (!provenance) throw new Error("AI_LABELING_UNSUPPORTED");
+      if (!handle?.applyAgentEdits?.(approved.original, approved.edits, provenance)) { await stop(); throw new Error("VERSION_CONFLICT"); }
       handle.flushSave();
       setRun({ ...run, status: "applying", proposal: undefined });
       const deadline = Date.now() + 20000;
@@ -173,7 +178,7 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
       {steps.map(step => <div className="rounded border border-app-border p-2 text-sm" key={step.sequence}>{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status === "running" && run && ["failed", "cancelled", "interrupted"].includes(run.status) ? run.status : step.status}`)}</div>)}
       {run?.proposal?.edits.map((edit, index) => <div className="rounded border border-app-border p-2 text-sm whitespace-pre-wrap break-words" key={index}>
         <div className="text-xs text-tx-secondary">{t("agent.before")}</div><del className="block bg-red-500/10">{edit.before || t("agent.emptyNote")}</del>
-        <div className="text-xs text-tx-secondary">{t("agent.after")}</div><ins className="block bg-green-500/10 no-underline">{edit.after}</ins>
+        <div className="text-xs text-tx-secondary">{t("agent.after")}</div><AiGeneratedNotice /><ins className="block bg-green-500/10 no-underline">{edit.after}</ins>
       </div>)}
       {(error || run?.errorCode) && <p role="alert" className="text-sm text-red-500">{error || errorText({ code: run?.errorCode })}</p>}
       {run?.status === "completed" && <p className="text-sm">{t("agent.saved")}</p>}

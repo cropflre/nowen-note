@@ -1,3 +1,4 @@
+import { readAiProvenance } from "@/lib/aiContentProvenance";
 // office/serializers/tiptap-to-ir.ts —— Tiptap JSON → DocxIR
 //
 // 阶段 W2 配套：把笔记编辑器（Tiptap StarterKit + 业务扩展）的 JSON
@@ -96,8 +97,10 @@ export async function tiptapToIr(
     for (const b of out) blocks.push(b);
   }
 
+  const aiProvenance = readAiProvenance(JSON.stringify(node));
   return {
     meta: {
+      ...(aiProvenance ? { aiProvenance } : {}),
       title: opts.title,
       author: opts.author,
       created: new Date().toISOString(),

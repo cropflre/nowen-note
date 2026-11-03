@@ -6,7 +6,7 @@ import { util } from '@kit.ArkTS';
 import { asset } from '@kit.AssetStoreKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { HarmonyDatabase, DatabaseOptions } from './NativeDatabase';
-import { HarmonyFiles, FileOptions } from './NativeFiles';
+import { HarmonyFiles, FileOptions, ExportFileOptions } from './NativeFiles';
 import { getNetworkType } from '../services/NetworkMonitor';
 import { NativeResult, NativeFailure, NativeEvent } from './NativeTypes';
 
@@ -138,6 +138,9 @@ export class NativeHost {
   private async call(request: NativeRequest): Promise<NativeResult> {
     if (request.plugin === 'CapacitorSQLite') return this.database.call(request.method, request.options as DatabaseOptions);
     if (request.plugin === 'Filesystem') return this.files.call(request.method, request.options as FileOptions);
+    if (request.plugin === 'FileExport' && request.method === 'saveFile') {
+      return this.files.saveExport(request.options as ExportFileOptions);
+    }
     if (request.plugin === 'SecureStorage') return this.secret(request.method, request.options as SecretOptions);
     if (request.plugin === 'CapacitorHttp') return this.fetch(request.options as HttpOptions);
     if (request.plugin === 'Network' && request.method === 'getStatus') {

@@ -290,6 +290,8 @@ app.get("/notes", (c) => {
 
 // 前端保留富文本 -> Markdown 的格式转换，后端负责把结果和附件流式写入临时 ZIP。
 // POST 只创建异步任务并立即返回，避免 NAS 反向代理因长时间无响应而超时。
+app.get("/markdown-package/capabilities", c => c.json({ aiContentLabels: "v1" }));
+
 app.post("/markdown-package/jobs", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;

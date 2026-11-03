@@ -1,3 +1,5 @@
+import { AI_CONTENT_LABEL, readNoteAiProvenance, type AiProvenance } from "@/lib/aiContentProvenance";
+import { addAiImageMetadata, aiXmpMetadata, readHtmlAiProvenance } from "@/lib/aiExportMetadata";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { common, createLowlight } from "lowlight";
@@ -8,6 +10,7 @@ import {
 } from "@/lib/exportService";
 import {
   isAndroidNative,
+  isHarmonyNative,
   saveImageToGalleryDetailed,
   saveBlobToSystemFile,
   shareNativeFiles,
@@ -636,17 +639,29 @@ async function renderSlice(
   prepared: PreparedHost,
   slice: { offset: number; height: number },
   scale: number,
+  provenance: AiProvenance | null = null,
 ): Promise<HTMLCanvasElement> {
+  const fontSize = Math.max(16, Math.ceil(Math.min(prepared.width, slice.height) * 0.06));
+  const labelHeight = provenance ? Math.ceil(fontSize * 1.7) : 0;
+  const outputHeight = slice.height + labelHeight;
+  const renderScale = Math.min(scale, MAX_CANVAS_DIMENSION / Math.max(prepared.width, outputHeight),
+    Math.sqrt(MAX_CANVAS_PIXELS / (prepared.width * outputHeight)));
   const clone = prepared.host.cloneNode(true) as HTMLDivElement;
   clone.style.left = "-100000px";
   clone.style.width = `${prepared.width}px`;
-  clone.style.height = `${slice.height}px`;
+  clone.style.height = `${outputHeight}px`;
   clone.style.overflow = "hidden";
   clone.style.zIndex = "-1";
   const article = clone.querySelector(".nowen-note-image-export-page") as HTMLElement | null;
   if (!article) throw new Error("EXPORT_ARTICLE_MISSING");
-  article.style.transform = `translateY(-${slice.offset}px)`;
+  article.style.transform = `translateY(${labelHeight - slice.offset}px)`;
   article.style.transformOrigin = "top left";
+  if (provenance) {
+    const notice = document.createElement("div");
+    notice.textContent = AI_CONTENT_LABEL;
+    notice.style.cssText = `position:absolute;left:0;top:0;width:100%;height:${labelHeight}px;box-sizing:border-box;padding:8px 16px;background:#fff;color:#475569;font:${fontSize}px/1.3 sans-serif;z-index:1`;
+    clone.appendChild(notice);
+  }
   document.body.appendChild(clone);
 
   try {
@@ -654,14 +669,14 @@ async function renderSlice(
     const html2canvas = (await import("html2canvas")).default;
     const canvas = await html2canvas(clone, {
       backgroundColor: prepared.background,
-      scale,
+      scale: renderScale,
       useCORS: true,
       allowTaint: false,
       logging: false,
       width: prepared.width,
-      height: slice.height,
+      height: outputHeight,
       windowWidth: prepared.width,
-      windowHeight: slice.height,
+      windowHeight: outputHeight,
       scrollX: 0,
       scrollY: 0,
       imageTimeout: RESOURCE_TIMEOUT_MS,
@@ -673,7 +688,7 @@ async function renderSlice(
   }
 }
 
-function createSvgBlob(prepared: PreparedHost): Blob {
+function createSvgBlob(prepared: PreparedHost, provenance: AiProvenance | null = null): Blob {
   const XHTML_NS = "http://www.w3.org/1999/xhtml";
   const xhtmlDoc = document.implementation.createDocument(XHTML_NS, "html", null);
   const body = xhtmlDoc.createElementNS(XHTML_NS, "body");
@@ -681,9 +696,12 @@ function createSvgBlob(prepared: PreparedHost): Blob {
   const imported = xhtmlDoc.importNode(prepared.article, true) as Element;
   body.appendChild(imported);
   const serialized = new XMLSerializer().serializeToString(imported);
+  const fontSize = Math.max(16, Math.ceil(Math.min(prepared.width, prepared.height) * 0.06));
+  const labelHeight = provenance ? Math.ceil(fontSize * 1.7) : 0;
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
-    <svg xmlns="http://www.w3.org/2000/svg" width="${prepared.width}" height="${prepared.height}" viewBox="0 0 ${prepared.width} ${prepared.height}">
-      <foreignObject width="100%" height="100%">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${prepared.width}" height="${prepared.height + labelHeight}" viewBox="0 0 ${prepared.width} ${prepared.height + labelHeight}">
+      ${provenance ? `<metadata>${aiXmpMetadata(provenance)}</metadata><rect width="100%" height="${labelHeight}" fill="#fff"/><text x="16" y="${fontSize + 8}" font-size="${fontSize}" font-family="sans-serif" fill="#475569">${AI_CONTENT_LABEL}</text>` : ""}
+      <foreignObject y="${labelHeight}" width="100%" height="${prepared.height}">
         <div xmlns="${XHTML_NS}" style="width:${prepared.width}px;height:${prepared.height}px;background:${prepared.background};">
           <style><![CDATA[${prepared.styleText}]]></style>${serialized}
         </div>
@@ -724,13 +742,13 @@ async function saveFiles(
   }
 
   if (destination === "files") {
-    if (isAndroidNative()) {
+    if (isAndroidNative() || isHarmonyNative()) {
       const target = files.length === 1
         ? { blob: files[0].blob, name: files[0].fileName, mime: files[0].mimeType }
         : { ...(await zipFiles(files, baseName)), mime: "application/zip" };
       const saved = await saveBlobToSystemFile({ blob: target.blob, fileName: target.name, mimeType: target.mime });
       if (saved.canceled) return { files, canceled: true };
-      return { displayPath: saved.displayPath || saved.uri, openUri: saved.uri, files };
+      return { displayPath: saved.displayPath || saved.uri, openUri: isHarmonyNative() ? undefined : saved.uri, files };
     }
     const target = files.length === 1
       ? { blob: files[0].blob, name: files[0].fileName }
@@ -765,25 +783,26 @@ export async function exportNoteImageDetailed(
   options: NoteImageExportOptions,
 ): Promise<NoteImageExportResult> {
   const format = options.format || "png";
-  const destination = options.destination || (isAndroidNative() ? "gallery" : "download");
+  const destination = isHarmonyNative() ? "files" : options.destination || (isAndroidNative() ? "gallery" : "download");
   const warnings: string[] = [];
   let prepared: PreparedHost | null = null;
 
   try {
     prepared = await prepareHost(note, options.theme || "current", options.onProgress);
     const baseName = sanitizeFilename(note.title || "note");
+    const provenance = note.aiProvenance || readNoteAiProvenance(note) || readHtmlAiProvenance(prepared.article.innerHTML);
     let files: NoteImageExportFile[] = [];
     let paginated = false;
 
     if (format === "svg") {
       options.onProgress?.({ phase: "render", current: 0, total: 1, message: "正在生成 SVG…" });
-      const blob = createSvgBlob(prepared);
+      const blob = createSvgBlob(prepared, provenance);
       files = [{
         blob,
         fileName: `${baseName}.svg`,
         mimeType: "image/svg+xml",
         width: prepared.width,
-        height: prepared.height,
+        height: prepared.height + (provenance ? Math.ceil(Math.max(16, Math.ceil(Math.min(prepared.width, prepared.height) * 0.06)) * 1.7) : 0),
       }];
       options.onProgress?.({ phase: "render", current: 1, total: 1, message: "SVG 已生成" });
     } else {
@@ -806,8 +825,8 @@ export async function exportNoteImageDetailed(
           total: plan.slices.length,
           message: plan.slices.length > 1 ? `正在渲染第 ${index + 1}/${plan.slices.length} 页…` : "正在渲染高清图片…",
         });
-        const canvas = await renderSlice(prepared, plan.slices[index], plan.scale);
-        const blob = await canvasToBlob(canvas, mimeType, quality);
+        const canvas = await renderSlice(prepared, plan.slices[index], plan.scale, provenance);
+        const blob = await addAiImageMetadata(await canvasToBlob(canvas, mimeType, quality), provenance);
         const suffix = plan.slices.length > 1 ? `-${String(index + 1).padStart(2, "0")}` : "";
         files.push({
           blob,
