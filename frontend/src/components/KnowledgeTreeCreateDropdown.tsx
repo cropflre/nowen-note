@@ -17,7 +17,7 @@ const CREATE_ITEMS = [
   { kind: "plaintext", label: "note.format.plainTextDocument", icon: FileText },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
   { kind: "sheet", label: "轻量表格", icon: Table2 },
-  { kind: "excel", label: "Excel 表格", icon: FileSpreadsheet },
+  { kind: "excel", label: "自研 excel 表格", icon: FileSpreadsheet },
 ] as const;
 const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹" } as const;
 
