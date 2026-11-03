@@ -1,3 +1,5 @@
+﻿import { isolateHistory } from "@codemirror/commands";
+import { agentTextRanges } from "@/lib/agentEdits";
 import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
@@ -55,11 +57,11 @@ import {
 } from "@codemirror/search";
 import {
   bracketMatching,
-  foldKeymap,
   indentOnInput,
   syntaxHighlighting,
   HighlightStyle,
   syntaxTree,
+  unfoldAll,
 } from "@codemirror/language";
 import {
   autocompletion,
@@ -80,6 +82,7 @@ import {
   Bold,
   CheckSquare,
   FileCode,
+  FileLock2,
   Heading1,
   Heading2,
   Heading3,
@@ -113,6 +116,7 @@ import {
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownLivePreviewNoteId } from "@/lib/markdownLivePreview";
+import { markdownFolding } from "@/lib/markdownFolding";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -133,6 +137,7 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
+import { resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
 import { resolveEditorBubblePosition } from "@/lib/editorBubbleSelection";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
@@ -798,7 +803,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const attachmentNoteCompartmentRef = useRef(new Compartment());
   const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
-  const searchPhraseCompartmentRef = useRef(new Compartment());
+  const localizedExtensionsCompartmentRef = useRef(new Compartment());
 
   // ���һ�δ��� pointer ʱ���������"ѡ�����ݴ������� Android ϵͳ���Ʋ˵�"�߼�
   const lastTouchAtRef = useRef<number>(0);
@@ -1311,6 +1316,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
+      applyAgentEdits: (original, edits) => {
+        const view = viewRef.current;
+        if (!view || !editable || view.state.doc.toString() !== original) return false;
+        try {
+          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          collabUndoManagerRef.current?.stopCapturing();
+          view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
+          collabUndoManagerRef.current?.stopCapturing();
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         const view = viewRef.current;
         if (!view || !editable || !view.state.facet(EditorView.editable)) return false;
@@ -1529,7 +1546,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         baseTheme,
         themeCompartmentRef.current.of(isDarkMode() ? oneDark : []),
         editableCompartmentRef.current.of(EditorView.editable.of(editable)),
-        searchPhraseCompartmentRef.current.of(markdownSearchPhrases(i18n.resolvedLanguage || i18n.language)),
+        localizedExtensionsCompartmentRef.current.of([
+          markdownSearchPhrases(i18n.resolvedLanguage || i18n.language),
+          markdownFolding(i18n.resolvedLanguage || i18n.language),
+        ]),
         searchPanelTheme,
 
         // ��ݼ�������Ĭ�� keymap ע�ᣬ��֤ Mod-s ���� chrome �̣�
@@ -1539,7 +1559,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           ...defaultKeymap,
           ...searchKeymap,
           ...historyKeymap,
-          ...foldKeymap,
           ...completionKeymap,
           indentWithTab,
         ]),
@@ -1741,6 +1760,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // Phase 3: CRDT ģʽ���ĵ��� yCollab �йܣ���Ҫ�ֶ� dispatch setContent��
     // ������������ update ����Զ��״̬��ֻ����ͳ��/���ˢ�¡�
     const isSwitchingNote = lastSyncedNoteIdRef.current !== note.id;
+    if (isSwitchingNote) unfoldAll(view);
 
     if (collabEnabledRef.current) {
       if (isSwitchingNote) {
@@ -2167,9 +2187,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: searchPhraseCompartmentRef.current.reconfigure(
+      effects: localizedExtensionsCompartmentRef.current.reconfigure([
         markdownSearchPhrases(i18n.resolvedLanguage || i18n.language),
-      ),
+        markdownFolding(i18n.resolvedLanguage || i18n.language),
+      ]),
     });
   }, [i18n.language, i18n.resolvedLanguage]);
 
@@ -2216,7 +2237,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
-      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
       {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
@@ -2443,6 +2463,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <FileCode size={iconSize} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && (
+            <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.insertTooltip")}>
+              <FileLock2 size={iconSize} />
+            </ToolbarButton>
+          )}
           <ToolbarButton
             onClick={() => withView((v) => insertHorizontalRule(v))}
             title={tr("tiptap.horizontalRule") || "�ָ���"}
@@ -2489,9 +2514,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
                 title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
               >
                 <ClipboardPlus size={iconSize} className="text-blue-500" />
-              </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
-                <Sparkles size={iconSize} className="text-violet-500" />
               </ToolbarButton>
             </>
           )}
@@ -2689,7 +2711,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.selectedText")}>{tr("encryptedBlock.encrypt")}</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {
@@ -2704,7 +2726,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )}
           {selectedTextAction?.type === "url" && (
             <ToolbarButton
-              onClick={() => window.open(selectedTextAction.href, '_blank', 'noopener')}
+              onClick={() => window.open(resolveAttachmentAccessUrl(selectedTextAction.href), '_blank', 'noopener')}
               title={selectedTextAction.value}
             >
               <ExternalLink size={14} />
@@ -2745,7 +2767,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               </ToolbarButton>
               <ToolbarButton
                 onClick={openAIAssistant}
-                title={tr("tiptap.aiAssistant") || "AI ����"}
+                title={tr("agent.quickRewrite")}
               >
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>

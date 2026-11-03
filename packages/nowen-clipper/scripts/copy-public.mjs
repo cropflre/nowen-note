@@ -95,7 +95,7 @@ if (!existsSync(chromeManifestPath)) {
   process.exit(1);
 }
 
-if (browser === "chrome") {
+if (browser !== "firefox") {
   copyFileSync(chromeManifestPath, join(dstDir, "manifest.json"));
 } else {
   // ---- Firefox 派生 ----

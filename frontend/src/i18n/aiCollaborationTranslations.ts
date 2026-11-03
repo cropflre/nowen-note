@@ -1,4 +1,8 @@
 export const zhCNAICollaborationTranslations = { aiCollaboration: {
+  notebookAgentTitle: "整理笔记本", notebookAgentHint: "汇总笔记、生成总结与待办，预览确认后再保存。", notebookAgentRequest: "你想如何整理？", notebookAgentOptions: "更多选项", editCurrentNote: "编辑当前笔记",
+  chatSettings: "问答设置",
+  chatSkill: "自定义 Skill", noChatSkill: "不使用 Skill", chatScopeChanged: "账号或空间已切换，请重新选择 Skill。", retrySkills: "重新加载 Skill", manageChatSkills: "管理 Skill",
+  chatSkillHint: "使用所选 Skill 指导生成，可随时停用；与写作助手共用个人指令。最多 4000 字，支持指令，不执行脚本。",
   title: "AI 快记", entry: "AI 快记",
   missingInput: "请先补充「{{name}}」，或改用自动整理。",
   simpleHint: "随手记下想法，AI 帮你整理成笔记。关闭后也会保留。", moreOptions: "补充资料或调整整理方式", autoMethod: "自动选择", templateSettings: "管理写作模板", quickFolder: "快速记录", usingMethod: "整理为：{{name}}", savingTo: "保存到 {{name}} · 更改", usingProject: "参考资料：{{name}}", regenerate: "再整理一下", stop: "停止整理",
@@ -21,6 +25,10 @@ export const zhCNAICollaborationTranslations = { aiCollaboration: {
   addSkill: "添加个人 Skill", updateSkill: "更新个人 Skill", deleteSkill: "删除个人 Skill「{{name}}」？",
 } };
 export const enAICollaborationTranslations = { aiCollaboration: {
+  notebookAgentTitle: "Organize a notebook", notebookAgentHint: "Turn notes into a summary and tasks. Preview and confirm before saving.", notebookAgentRequest: "What would you like to organize?", notebookAgentOptions: "More options", editCurrentNote: "Edit current note",
+  chatSettings: "Chat settings",
+  chatSkill: "Custom Skill", noChatSkill: "No Skill", chatScopeChanged: "Account or workspace changed. Select a Skill again.", retrySkills: "Reload Skills", manageChatSkills: "Manage Skills",
+  chatSkillHint: "Guides generation until disabled. Shares personal instructions with the writing assistant. Up to 4,000 characters; instructions only, no script execution.",
   title: "AI capture", entry: "AI capture",
   missingInput: "Fill in “{{name}}” first, or choose automatic writing.",
   simpleHint: "Jot down an idea. AI will organize it into a note. Your draft stays when you close.", moreOptions: "Add sources or change the writing method", autoMethod: "Choose automatically", templateSettings: "Manage writing templates", quickFolder: "Quick notes", usingMethod: "Writing: {{name}}", savingTo: "Save to {{name}} · Change", usingProject: "Sources: {{name}}", regenerate: "Try again", stop: "Stop",

@@ -6,7 +6,7 @@ Nowen Note 的本地 stdio MCP Server，让支持 Model Context Protocol 的 AI 
 
 ## 要求
 
-- Node.js 20+
+- Node.js 24.22.1+（24.x LTS）
 - npm
 - 一个可以从当前电脑访问的 Nowen Note 服务
 - 推荐使用 restricted Personal API Token

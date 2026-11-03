@@ -298,6 +298,11 @@ function rememberPendingTaskId(taskId: string): void {
   try { localStorage.setItem(PENDING_TASK_ID_KEY, taskId); } catch { /* ignore */ }
 }
 
+export function queueTaskNavigation(taskId: string): void {
+  rememberPendingTaskId(taskId);
+  window.dispatchEvent(new CustomEvent(TASK_NOTIFICATION_OPEN_EVENT, { detail: { taskId } }));
+}
+
 export function consumePendingTaskNotificationTaskId(): string | null {
   try {
     const taskId = localStorage.getItem(PENDING_TASK_ID_KEY);
@@ -318,8 +323,7 @@ export async function registerTaskNotificationActionListener(
     (action) => {
       const taskId = String((action.notification.extra as any)?.taskId || "").trim();
       if (!taskId) return;
-      rememberPendingTaskId(taskId);
-      window.dispatchEvent(new CustomEvent(TASK_NOTIFICATION_OPEN_EVENT, { detail: { taskId } }));
+      queueTaskNavigation(taskId);
       onOpenTask?.(taskId);
     },
   );

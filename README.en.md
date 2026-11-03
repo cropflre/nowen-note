@@ -24,7 +24,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js 24.22.1+ (24.x LTS)](https://img.shields.io/badge/Node.js-24.22.1%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose%20v2-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
 
 </div>
@@ -33,26 +33,26 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.3 highlights · 2026-10-23
+## v1.5.4 highlights · 2026-11-02
 
-**v1.5.3 is publicly released on GitHub.** Check the [v1.5.3 release assets](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3) for platform-specific downloads and compatibility.
+**AI writing, Markdown folding, and offline improvements.** Read the [v1.5.4 release notes](./docs/releases/v1.5.4.md). Publication status, available platforms, and device architectures are defined by the actual entries in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
 > [!IMPORTANT]
-> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.**
+> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.** This release's macOS packages are not Developer ID signed or Apple notarized; Windows GitHub direct downloads are also unsigned.
 
-- **Smoother note editing:** More reliable nested note dragging (#869), mobile code-block and slash-menu interactions, a restored All Notes entry, and search within favorites.
-- **Safer image handling:** One-click remote-image localization for personal content, persisted image rotation, and shareable image links with filename extensions.
-- **More flexible encryption:** Unlock an encrypted note and explicitly confirm permanent removal of note encryption (#875).
-- **Better calendars and reminders:** Mainland China holidays (#848), improved Chinese PushPlus task digests and webhook response checks, timezone fixes (#867), and MCP scheduling/reminder fixes (#871).
-- **Cross-platform stability:** Clearer Android server connection errors, verified macOS packaging dependencies, and stronger release build validation.
+- **Review AI changes before applying:** Editor and notebook assistants generate edit proposals, note drafts and task drafts. Reuse instruction-only Skills and administrator-authorized shared model profiles.
+- **Navigate long Markdown notes:** Chapter folding automatically reveals search matches. Live image previews and Mermaid compatibility are improved.
+- **More reliable images and attachments:** Better zoom, pan, pinch and original-resolution viewing; recover persisted attachments after lost upload responses and use shorter stable share links.
+- **Fewer manual NAS offline steps:** Full desktop clients prepare local copies of personal notes and managed attachments, with offline editing and reconnect upload. Android local-first handling is strengthened.
+- **Import and interface improvements:** DOCX files up to 1 GB, compact mobile AI panels, large-font cards, isolated concurrent clipping, and a Microsoft Store download entry.
 
-**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** are reserved for **v1.6.0**, **not shipped as v1.5.3 release highlights**. Actual delivery remains subject to implementation, testing, and publication.
+**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** remain reserved for **v1.6.0** and are **not new deliverables in v1.5.4**. Actual delivery remains subject to implementation, testing, and publication.
 
 See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
 
-## Previous stable release · v1.5.2
+## Previous stable release · v1.5.3
 
-Released on October 16, 2026, v1.5.2 improved file management, scoped MCP capabilities, AI task workflows, cross-device sync, and deployment tools. Read the [v1.5.2 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.2).
+Released on October 23, 2026, v1.5.3 improved note editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. Read the [v1.5.3 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3).
 
 ## Connect AI clients to Nowen Note
 
@@ -62,7 +62,7 @@ The Nowen Note MCP Server connects to Claude Code, Cursor, VS Code, and other co
 - [中文安装教程](./docs/tutorials/mcp.md)
 - [Standalone nowen-mcp package README](./packages/nowen-mcp/README.md)
 
-The supported source-build launcher uses Node.js 20+ and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
+The supported source-build launcher uses Node.js 24.22.1+ (24.x LTS) and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
 
 ## Why Nowen Note
 
@@ -289,9 +289,11 @@ See [`.env.example`](./.env.example) for the complete template.
 
 > Available packages vary by release. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
+Desktop builds require macOS 12 (Monterey) or later; macOS 11 users will not be offered this version through automatic updates. See the [Node 24 migration notes](./docs/node24-upgrade.md).
+
 ## Local development
 
-Requires Node.js 20+, npm, and Git. Electron and native builds also require platform toolchains.
+Requires Node.js 24.22.1+ (24.x LTS), npm, and Git. Electron and native builds also require platform toolchains.
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
@@ -330,7 +332,7 @@ npm run cap:build
 npx cap open android
 ```
 
-> Capacitor 8 requires Node.js 22+ for Android release tooling. Regular web and Electron development can continue to use the project's Node.js 20+ baseline.
+> Web, Electron, and mobile builds use Node.js 24.22.1 (24.x LTS). Run `nvm install && nvm use` to select the project version.
 
 iOS:
 
@@ -343,9 +345,9 @@ npm run cap:open:ios
 
 | Layer | Main technologies |
 | --- | --- |
-| **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS, Tiptap 3, CodeMirror 6, Yjs, IndexedDB |
-| **Backend** | Node.js 20, Hono 4, WebSocket, better-sqlite3, FTS5, sqlite-vec, sharp |
-| **Desktop** | Electron 33, electron-builder, electron-updater |
+| **Frontend** | React 19, TypeScript, Vite 5, Tailwind CSS, Tiptap 3, CodeMirror 6, Yjs, IndexedDB |
+| **Backend** | Node.js 24 LTS, Hono 4, WebSocket, better-sqlite3, FTS5, sqlite-vec, sharp |
+| **Desktop** | Electron 43, electron-builder, electron-updater |
 | **Mobile** | Capacitor 8 for Android/iOS, ArkTS + ArkWeb for HarmonyOS |
 | **Storage and backup** | SQLite, local attachments, S3/Cloudflare R2/MinIO, email and WebDAV backups; PostgreSQL is under validation |
 | **Developer APIs** | OpenAPI 3.0, TypeScript SDK, CLI, MCP Server, Webhook |
@@ -382,6 +384,7 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 - [Nowen download center](https://nowen.cn/#/note/download)
 - [Nowen official help center](https://nowen.cn/#/note/tutorials)
 - [MCP Server installation and usage](./docs/tutorials/mcp.en.md)
+- [Editor Agent P0 usage and limitations (development branch)](./docs/user/editor-agent.md)
 - [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [Tutorial center](./docs/tutorials/README.md)
 - [Feature overview](https://nowen.cn/#/note/features)
@@ -394,7 +397,8 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 - [Email backup](./docs/backup-email-smtp.md)
 - [ARM64 deployment](./docs/deploy-arm64.md)
 - [iOS release guide](./docs/iOS-Release.md)
-- [GitHub desktop asset collection and release verification](./docs/releases/github-release-assets.md)
+- [Release Center build and publishing responsibilities](./docs/architecture/release-center.md)
+- [Historical GitHub desktop asset collection flow (not the current publisher)](./docs/releases/github-release-assets.md)
 - [Privacy policy](./docs/PRIVACY.md)
 - [Browser clipper](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
 - OpenAPI is available at `/api/openapi.json` after startup.

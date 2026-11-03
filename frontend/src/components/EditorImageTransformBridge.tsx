@@ -81,14 +81,8 @@ export function applyImageTransformLayout(
   if (!image) return false;
 
   const measuredWidth = image.offsetWidth;
-  const measuredHeight = image.offsetHeight;
-  const naturalWidth = image.naturalWidth
-    || positive(image.getAttribute("width"))
-    || measuredWidth;
-  const naturalHeight = image.naturalHeight
-    || (measuredWidth > 0 && measuredHeight > 0 && naturalWidth > 0
-      ? naturalWidth * measuredHeight / measuredWidth
-      : measuredHeight);
+  const naturalWidth = image.naturalWidth;
+  const naturalHeight = image.naturalHeight;
 
   if (!naturalWidth || !naturalHeight) {
     if (!imageLoadListeners.has(image)) {

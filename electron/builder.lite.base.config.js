@@ -172,6 +172,7 @@ module.exports = {
   },
 
   mac: {
+    minimumSystemVersion: "12.0.0",
     target: [
       { target: "dmg", arch: ["arm64", "x64"] },
       { target: "zip", arch: ["arm64", "x64"] },

@@ -1,6 +1,32 @@
 import { expect, test, encryptedFixtureUrl } from "./encrypted-notes-test";
 const password = "test-only-m3-password";
 const plaintext = "PRIVATE_ENCRYPTED_M3_SENTINEL actual editor";
+for (const format of ["Markdown", "富文本"]) {
+  for (const width of [1440, 390]) {
+    test(`actual ${format} keeps encrypted insertion in the existing toolbar at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(encryptedFixtureUrl("encrypted-notes-product-editor.html"));
+      await page.getByRole("button", { name: format === "Markdown" ? "打开实际 Markdown 编辑器" : "打开实际富文本编辑器", exact: true }).click();
+      const main = page.locator(format === "Markdown" ? ".cm-content" : ".tiptap").first();
+      await expect(main).toBeVisible();
+      await main.click();
+      const toolbar = page.locator(format === "Markdown" ? '[data-markdown-mobile-toolbar="expanded"]' : '[data-mobile-editor-toolbar="expanded"]');
+      const insert = page.getByRole("button", { name: "插入加密内容（局部加密）", exact: true });
+      if (width < 768) {
+        await expect(insert).not.toBeVisible();
+        await page.getByRole("button", { name: "更多", exact: true }).click();
+      }
+      await expect(toolbar.getByRole("button", { name: "插入加密内容（局部加密）", exact: true })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath(`encrypted-toolbar-${width}.png`) });
+      await insert.click();
+      const dialog = page.getByRole("dialog", { name: "局部加密区域", exact: true });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel("区域临时正文", { exact: true })).toHaveValue("");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+      expect(await page.evaluate(() => window.productEditorDocument())).not.toContain("nowen-encrypted-v1");
+    });
+  }
+}
 for (const format of ["Markdown", "富文本", "Markdown 协作"]) {
   test(`actual ${format} encrypts an existing selection and retains public text after reload`, async ({ page }) => {
     // This text intentionally existed before encryption; old history/backups remain outside this feature's protection.
@@ -19,7 +45,8 @@ for (const format of ["Markdown", "富文本", "Markdown 协作"]) {
     for (let i = 0; i < before.length; i++) await main.press("ArrowRight");
     for (let i = 0; i < selected.length; i++) await main.press("Shift+ArrowRight");
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(selected);
-    await page.locator('[title="加密选中文字"]').click();
+    if (format === "Markdown") await page.getByRole("button", { name: "插入加密内容（局部加密）", exact: true }).click();
+    else await page.locator('[title="加密选中文字"]').click();
     const dialog = page.getByRole("dialog", { name: "局部加密区域", exact: true });
     await expect(dialog).toContainText("历史记录和旧备份中可能仍存在旧内容");
     await expect(dialog.getByLabel("区域临时正文", { exact: true })).toHaveCount(0);
@@ -59,8 +86,7 @@ for (const format of ["Markdown", "富文本"]) {
     await expect(page.getByRole("status")).toHaveText("编辑器就绪");
     const main = page.locator(format === "Markdown" ? ".cm-content" : ".tiptap").first();
     await expect(main).toBeVisible(); await main.focus();
-    if (format === "Markdown") await page.getByRole("button", { name: "插入加密内容", exact: true }).click();
-    else await page.locator('[title="插入加密内容"]').click();
+    await page.getByRole("button", { name: "插入加密内容（局部加密）", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "局部加密区域", exact: true })).toBeVisible();
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByLabel("确认密码", { exact: true }).fill(password);

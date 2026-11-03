@@ -54,7 +54,7 @@ http://<服务器或 NAS 的 IP>:3001
 
 ### 本地开发
 
-需要 Node.js 20+、npm 和 Git：
+需要 Node.js 24.22.1+（24.x LTS）、npm 和 Git：
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git

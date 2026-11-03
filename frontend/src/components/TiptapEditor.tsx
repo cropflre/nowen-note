@@ -1,3 +1,5 @@
+﻿import { closeHistory } from "@tiptap/pm/history";
+import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -118,7 +120,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
-  Code, FileCode, Sparkles, X,
+  Code, FileCode, FileLock2, Sparkles, X,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
@@ -3255,6 +3257,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
+      applyAgentEdits: (original, edits) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
+        try {
+          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
+          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
+            parts.push({ text: "", pos: 1, marks: [] });
+          }
+          const ranges = agentTextRanges(parts, edits);
+          const tr = editor.state.tr;
+          for (const range of ranges.reverse()) {
+            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
+            else tr.delete(range.from, range.to);
+          }
+          editor.view.dispatch(closeHistory(tr));
+          editor.view.dispatch(closeHistory(editor.state.tr));
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         return applyTiptapCjkTypography(editor, action);
@@ -5542,7 +5566,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="插入加密内容">🔒</ToolbarButton>
+        {!isGuest && !note.isTrashed && (
+          <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable} title={t("encryptedBlock.insertTooltip")}>
+            <FileLock2 size={iconSize} />
+          </ToolbarButton>
+        )}
         <ToolbarButton
           onClick={handleForceMarkdownConversion}
           disabled={!editable || isGuest}
@@ -5729,9 +5757,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
-            <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
           </>
         )}
       </div>
@@ -5827,7 +5852,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title={t("encryptedBlock.selectedText")}>{t("encryptedBlock.encrypt")}</ToolbarButton>}
           <ToolbarButton
             onClick={toggleFormatPainter}
             isActive={formatPainterArmed}
@@ -5947,7 +5972,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
             </>

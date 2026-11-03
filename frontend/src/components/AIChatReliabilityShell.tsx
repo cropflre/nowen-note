@@ -1,3 +1,7 @@
+import AIChatMobileSettings from "./AIChatMobileSettings";
+import NotebookAgentPanel from "./agent/NotebookAgentPanel";
+import { getCurrentWorkspace } from "@/lib/api";
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -10,6 +14,7 @@ import {
   RefreshCw,
   Scissors,
   ShieldCheck,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import OriginalAIChatPanel from "./AIChatPanel";
@@ -25,6 +30,8 @@ import {
   type ReliableStatus,
 } from "@/lib/aiReliable";
 import { cn } from "@/lib/utils";
+import ChatSkillsPicker from "./aiCollaboration/ChatSkillsPicker";
+import { collaborationScope } from "@/lib/aiCollaboration";
 
 interface Props {
   onClose: () => void;
@@ -72,6 +79,37 @@ function StatusPill({ status }: { status: ReliableStatus | null }) {
 }
 
 export default function AIChatReliabilityShell(props: Props) {
+  const { t } = useTranslation();
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const settingsTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 767px)");
+    if (!media) return;
+    const changed = () => { setIsMobile(media.matches); setMobileSettingsOpen(false); };
+    changed(); media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
+  const [selectedSkillId, setSelectedSkillId] = useState("");
+  const [agentMode, setAgentMode] = useState(false);
+  const [skillScope, setSkillScope] = useState(collaborationScope);
+  const selectedSkill = useRef<{ id: string; scope: string } | null>(null);
+  useEffect(() => {
+    const changed = () => {
+      const scope = collaborationScope();
+      if (selectedSkill.current?.scope !== scope) { selectedSkill.current = null; setSelectedSkillId(""); setMobileSettingsOpen(false); }
+      setSkillScope(scope);
+    };
+    const events = ["nowen:workspace-changed", "nowen:token-changed", "nowen:server-url-changed", "storage"];
+    events.forEach(event => window.addEventListener(event, changed));
+    return () => events.forEach(event => window.removeEventListener(event, changed));
+  }, []);
+  const [workflowWorkspace, setWorkflowWorkspace] = useState(getCurrentWorkspace);
+  useEffect(() => {
+    const changed = () => setWorkflowWorkspace(getCurrentWorkspace());
+    window.addEventListener("nowen:workspace-changed", changed);
+    return () => window.removeEventListener("nowen:workspace-changed", changed);
+  }, []);
   const { state } = useApp();
   const activeNote = state.activeNote;
   const [mode, setMode] = useState<ReliableAskMode>("knowledge");
@@ -138,9 +176,12 @@ export default function AIChatReliabilityShell(props: Props) {
       onReferences?: (refs: any[]) => void,
       options?: { notebookId?: string; includeChildren?: boolean },
     ): Promise<string> => {
+      const skill = selectedSkill.current;
+      if (skill && skill.scope !== collaborationScope()) throw new Error(t("aiCollaboration.chatScopeChanged"));
       const response = await reliableAsk(
         {
           question,
+          ...(skill ? { skillId: skill.id } : {}),
           history,
           mode,
           currentNoteId: activeNote?.id,
@@ -164,7 +205,7 @@ export default function AIChatReliabilityShell(props: Props) {
     return () => {
       if ((api as any).aiAsk === patched) (api as any).aiAsk = previous || originalAskRef.current;
     };
-  }, [activeNote?.id, mode, refreshStatus, selectedText]);
+  }, [activeNote?.id, mode, refreshStatus, selectedText, t]);
 
   const currentMode = MODE_OPTIONS.find((item) => item.id === mode)!;
   const currentNoteUnavailable = mode === "current-note" && !activeNote?.id;
@@ -180,11 +221,9 @@ export default function AIChatReliabilityShell(props: Props) {
     return `${status.provider || "未配置"} · ${status.model || "未选择模型"}`;
   }, [status]);
 
-  return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
-      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="mr-1 hidden min-w-0 items-center gap-2 md:flex">
+  const settingsControls = (
+          <div className={agentMode ? "hidden" : isMobile ? "flex flex-col gap-3" : "contents"}>
+          <div className="mr-1 hidden min-w-0 items-center gap-2 xl:flex">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
               <Activity size={14} />
             </div>
@@ -194,7 +233,7 @@ export default function AIChatReliabilityShell(props: Props) {
             </div>
           </div>
 
-          <div className="flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:w-auto">
+          <div className="order-2 flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:order-none md:w-auto">
             {MODE_OPTIONS.map((item) => {
               const Icon = item.icon;
               const disabled = item.id === "current-note" && !activeNote?.id;
@@ -203,7 +242,7 @@ export default function AIChatReliabilityShell(props: Props) {
                   key={item.id}
                   type="button"
                   disabled={disabled}
-                  onClick={() => setMode(item.id)}
+                  onClick={() => { setMode(item.id); if (item.id === "selection") setContextCollapsed(false); }}
                   title={item.description}
                   className={cn(
                     "flex min-w-0 flex-1 md:flex-none items-center justify-center gap-1.5 rounded-lg px-2 md:px-2.5 py-1.5 text-[11px] font-medium transition",
@@ -220,7 +259,14 @@ export default function AIChatReliabilityShell(props: Props) {
             })}
           </div>
 
-          <div className="ml-auto flex items-center gap-1">
+          <div className="order-3 min-w-0 max-w-full md:order-none">
+            <ChatSkillsPicker key={skillScope} scope={skillScope} value={selectedSkillId} onSelect={id => {
+              setSelectedSkillId(id);
+              selectedSkill.current = id ? { id, scope: skillScope } : null;
+            }} />
+          </div>
+
+          <div className="order-1 ml-auto flex items-center gap-1 md:order-none">
             <StatusPill status={status} />
             <button
               type="button"
@@ -241,9 +287,10 @@ export default function AIChatReliabilityShell(props: Props) {
               <RefreshCw size={14} className={loadingStatus ? "animate-spin" : ""} />
             </button>
           </div>
-        </div>
-
-        {!contextCollapsed && (
+          </div>
+  );
+  const settingsDetails = (
+        !agentMode && !contextCollapsed && (
           <>
             {mode === "selection" && (
               <textarea
@@ -340,11 +387,42 @@ export default function AIChatReliabilityShell(props: Props) {
                 )}
               </div>
           </>
-        )}
-      </section>
+        )
+  );
 
-      <div className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
-        <OriginalAIChatPanel {...props} />
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
+      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="inline-flex shrink-0 items-center rounded-lg bg-app-hover/70 p-0.5">
+            {([false, true] as const).map(isAgent => <button key={String(isAgent)} type="button" aria-pressed={agentMode === isAgent}
+              onClick={() => setAgentMode(isAgent)} className={cn("rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                agentMode === isAgent ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border" : "text-tx-tertiary hover:text-tx-primary")}>
+              {t(isAgent ? "agent.mode" : "agent.question")}
+            </button>)}
+          </div>
+          {isMobile && !agentMode && <button ref={settingsTrigger} type="button" onClick={() => setMobileSettingsOpen(true)}
+            aria-haspopup="dialog" aria-expanded={mobileSettingsOpen} aria-label={t("aiCollaboration.chatSettings")}
+            className="ml-auto inline-flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-tx-secondary hover:bg-app-hover">
+            <span className="truncate">{currentMode.label}</span><SlidersHorizontal size={15} className="shrink-0" />
+          </button>}
+          {!isMobile && settingsControls}
+        </div>
+
+        {!isMobile && settingsDetails}
+      </section>
+      {isMobile && <AIChatMobileSettings open={mobileSettingsOpen && !agentMode} onClose={() => setMobileSettingsOpen(false)} trigger={settingsTrigger}>
+        {settingsControls}{settingsDetails}
+      </AIChatMobileSettings>}
+
+      <div hidden={!agentMode} className={cn("min-h-0", agentMode && "flex min-h-0 flex-1 flex-col overflow-hidden")}><NotebookAgentPanel key={workflowWorkspace} workspaceId={workflowWorkspace} onNavigateToNote={props.onNavigateToNote} onOpenEditor={() => {
+        if (!activeNote) return;
+        props.onNavigateToNote?.(activeNote.id);
+        window.dispatchEvent(new Event("nowen:open-editor-agent")); props.onClose();
+      }} /></div>
+
+      <div hidden={agentMode} className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
+        <div className="h-full" hidden={agentMode}><OriginalAIChatPanel {...props} /></div>
       </div>
     </div>
   );

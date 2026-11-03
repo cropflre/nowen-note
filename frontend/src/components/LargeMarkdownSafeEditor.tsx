@@ -1,3 +1,5 @@
+﻿import { isolateHistory } from "@codemirror/commands";
+import { agentTextRanges } from "@/lib/agentEdits";
 import React, {
   forwardRef,
   useCallback,
@@ -31,6 +33,7 @@ import {
   bracketMatching,
   defaultHighlightStyle,
   syntaxHighlighting,
+  unfoldAll,
 } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -46,6 +49,7 @@ import type {
 } from "@/components/editors/types";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
+import { markdownFolding } from "@/lib/markdownFolding";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
 import {
   buildLargeMarkdownSearchText,
@@ -117,10 +121,11 @@ function isDarkMode(): boolean {
     && document.documentElement.classList.contains("dark");
 }
 
-function performanceExtensions(mode: EditorRuntimeMode) {
+function performanceExtensions(mode: EditorRuntimeMode, language?: string) {
   if (mode === "lightweight-edit") return [];
   return [
     markdown({ base: markdownLanguage }),
+    markdownFolding(language),
     syntaxHighlighting(defaultHighlightStyle),
     EditorView.lineWrapping,
   ];
@@ -152,7 +157,7 @@ const LargeMarkdownSafeEditor = forwardRef<
   },
   forwardedRef,
 ) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
@@ -318,6 +323,16 @@ const LargeMarkdownSafeEditor = forwardRef<
       };
     },
     isReady: () => !!viewRef.current,
+      getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
+      applyAgentEdits: (original, edits) => {
+        const view = viewRef.current;
+        if (!view || !editable || view.state.doc.toString() !== original) return false;
+        try {
+          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
+          return true;
+        } catch { return false; }
+      },
     insertMarkdownAtCursor: (markdownText: string) => {
       const view = viewRef.current;
       if (!view || !editable) return false;
@@ -380,7 +395,7 @@ const LargeMarkdownSafeEditor = forwardRef<
           EditorView.editable.of(editable),
           EditorState.readOnly.of(!editable),
         ]),
-        performanceCompartmentRef.current.of(performanceExtensions(runtimeDecision.mode)),
+        performanceCompartmentRef.current.of(performanceExtensions(runtimeDecision.mode, i18n.resolvedLanguage || i18n.language)),
         ...internalMarkdownMarkerExtensions,
         EditorView.contentAttributes.of({
           spellcheck: "false",
@@ -449,10 +464,10 @@ const LargeMarkdownSafeEditor = forwardRef<
     if (!view) return;
     view.dispatch({
       effects: performanceCompartmentRef.current.reconfigure(
-        performanceExtensions(runtimeDecision.mode),
+        performanceExtensions(runtimeDecision.mode, i18n.resolvedLanguage || i18n.language),
       ),
     });
-  }, [runtimeDecision.mode]);
+  }, [runtimeDecision.mode, i18n.resolvedLanguage, i18n.language]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -474,6 +489,7 @@ const LargeMarkdownSafeEditor = forwardRef<
     const noteChanged = lastNoteIdRef.current !== note.id;
 
     if (noteChanged) {
+      unfoldAll(view);
       if (saveTimerRef.current) globalThis.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
       dirtyRef.current = false;

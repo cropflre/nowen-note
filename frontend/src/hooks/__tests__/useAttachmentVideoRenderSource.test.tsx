@@ -59,7 +59,7 @@ const PERSISTED_SRC = "/api/attachments/123e4567-e89b-42d3-a456-426614174216";
 
 function Probe() {
   const source = useAttachmentVideoRenderSource(PERSISTED_SRC);
-  return <video data-testid="video" data-render-key={source.renderKey} data-error={source.error?.message || ""} src={source.renderSrc} />;
+  return <video data-testid="video" data-render-key={source.renderKey} data-error={source.error?.message || ""} src={source.renderSrc || undefined} />;
 }
 
 let host: HTMLDivElement;
@@ -137,7 +137,7 @@ describe("useAttachmentVideoRenderSource", () => {
     fixture.prepareNative.mockRejectedValueOnce(new Error("动态缓存失败"));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     await act(async () => root.render(<Probe />));
-    expect(host.querySelector("video")?.getAttribute("src")).toBe("");
+    expect(host.querySelector("video")?.getAttribute("src")).toBeNull();
     expect(host.querySelector("video")?.getAttribute("data-error")).toBe("动态缓存失败");
   });
 
@@ -148,7 +148,7 @@ describe("useAttachmentVideoRenderSource", () => {
       root.render(<Probe />);
     });
 
-    expect(host.querySelector("video")?.getAttribute("src")).toBe("");
+    expect(host.querySelector("video")?.getAttribute("src")).toBeNull();
     expect(host.querySelector("video")?.getAttribute("data-error")).toContain("未获取到附件授权");
     expect(fixture.prepareNative).not.toHaveBeenCalled();
 

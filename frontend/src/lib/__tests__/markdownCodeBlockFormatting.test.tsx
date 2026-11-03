@@ -13,7 +13,10 @@ import {
   formatMarkdownCodeBlock, markdownCodeBlockFormattingExtension, resolveMarkdownCodeBlockSource,
 } from "@/lib/markdownCodeBlockFormatting";
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...await importOriginal<typeof import("react-i18next")>(),
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const views: EditorView[] = [];
 beforeAll(() => {

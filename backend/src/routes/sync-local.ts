@@ -56,9 +56,11 @@ import {
   stopSyncEngine,
   triggerSyncNow,
 } from "../sync/runtime";
-import { SyncError, isSyncErrorCode } from "../sync/errors";
+import { SyncError, isSyncErrorCode, classifyHttpStatus } from "../sync/errors";
 import { SYNC_PERSONAL_SCOPE_KEY } from "../sync/constants";
 import { logSyncInfo } from "../sync/log";
+import { readOfflineReadiness } from "../sync/offlineReadiness";
+import { getBackupManager } from "../services/backup";
 import {
   buildWorkspaceScopeExport,
   copyWorkspaceScopeToPersonal,
@@ -77,6 +79,7 @@ import {
  * 用户只需要理解"是否同步"这一件事。
  */
 const app = new Hono();
+const migrationsInFlight = new WeakSet<object>();
 
 function guard(c: any): Response | null {
   if (!isLocalFirstSyncV2Enabled()) {
@@ -114,7 +117,7 @@ app.get("/settings", (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  const profiles = listProfiles(db).map((profile) => ({
+  const profiles = listProfiles(db).reverse().sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((profile) => ({
     id: profile.id,
     name: profile.name,
     serverUrl: profile.serverUrl,
@@ -611,11 +614,24 @@ app.post("/lite-migration", async (c) => {
   const userId = c.req.header("X-User-Id") as string;
   const normalized = serverUrl.replace(/\/+$/, "");
 
+  if (migrationsInFlight.has(db)) return c.json({ error: '正在下载到本机，请等待当前操作完成', code: 'MIGRATION_BUSY' }, 409);
+  migrationsInFlight.add(db);
   try {
+    const identityResponse = await fetch(`${normalized}/api/me`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
+    });
+    if (!identityResponse.ok) throw new SyncError(classifyHttpStatus(identityResponse.status),
+      identityResponse.status === 401 ? '请先重新登录原服务器账号' : `服务器身份核验失败（HTTP ${identityResponse.status}），原数据已保留`);
+    const identity = await identityResponse.json() as {id?: string};
+    if (typeof identity.id !== 'string' || !identity.id) throw new SyncError('INVALID_PAYLOAD', '无法核验迁移账号');
+    if (getLiteMigrationProgress(db).stage !== "complete") {
+      await getBackupManager().createBackup({ type: "full", description: "下载 NAS 数据到本机前的自动备份" });
+    }
     const progress = await runLiteMigration({
       db,
       remoteUrl: normalized,
       userId,
+      remoteUserId: identity.id,
       client: new SyncRemoteClient({ serverUrl: normalized, token }),
       blobClient: new SyncBlobClient({
         serverUrl: normalized,
@@ -642,6 +658,8 @@ app.post("/lite-migration", async (c) => {
       },
       500,
     );
+  } finally {
+    migrationsInFlight.delete(db);
   }
 });
 
@@ -677,7 +695,7 @@ app.post("/lite-migration/reset", (c) => {
  * 真实用户反馈同步问题时，这一页是唯一能定位的依据，
  * 因此字段要足够但不含任何笔记正文或凭据。
  */
-app.get("/diagnostics", (c) => {
+app.get("/diagnostics", async (c) => {
   const denied = guard(c);
   if (denied) return denied;
 
@@ -701,7 +719,13 @@ app.get("/diagnostics", (c) => {
     createdAt: row.createdAt,
   }));
 
+  const lastProfile = db.prepare('SELECT id FROM sync_profiles ORDER BY updatedAt DESC,rowid DESC LIMIT 1').get() as {id:string} | undefined;
+  const offline = await readOfflineReadiness(db, active?.id ?? lastProfile?.id ?? null, c.req.header("X-User-Id") as string);
+  const pendingUploads = (db.prepare(`SELECT COUNT(*) AS count FROM attachment_sync_state s JOIN attachments a ON a.id=s.attachmentId
+    WHERE s.profileId=? AND a.userId=? AND s.remoteOnly=0 AND s.status IN ('pending','failed','uploading')`).get(active?.id ?? null,c.req.header("X-User-Id")) as {count:number}).count;
   return c.json({
+    offline,
+    pendingAttachments: pendingUploads + offline.attachments.pendingDownloads + offline.attachments.failedDownloads + offline.attachments.missingFiles,
     profileId: active?.id ?? null,
     serverUrl: active?.serverUrl ?? null,
     deviceId: device?.id ?? null,

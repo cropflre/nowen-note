@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { Capacitor } from "@capacitor/core";
 import { AlertTriangle, CheckCircle2, Download, FolderInput, Loader2 } from "lucide-react";
 
@@ -32,6 +33,7 @@ import {
 import { getServerUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/authSession";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
+import { getQueueLength } from '@/lib/offlineQueue';
 import MobileSyncSettings from "./MobileSyncSettings";
 
 export default function SyncSettingsTab() {
@@ -39,12 +41,14 @@ export default function SyncSettingsTab() {
 }
 
 function SyncSettingsContent({ mobile }: { mobile: boolean }) {
+  const { t } = useTranslation();
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
   const [browserServer, setBrowserServer] = useState(false);
   const [checkingRuntime, setCheckingRuntime] = useState(!mobile);
   const [reloadKey, setReloadKey] = useState(0);
   const [legacyLite, setLegacyLite] = useState(false);
+  const [remoteOnly, setRemoteOnly] = useState(false);
   const [migration, setMigration] = useState<LiteMigrationProgress | null>(null);
 
   useEffect(() => {
@@ -57,7 +61,14 @@ function SyncSettingsContent({ mobile }: { mobile: boolean }) {
           return;
         }
         const completedThisSession = sessionStorage.getItem("nowen-lite-migration-complete-this-session") === "1";
-        if (appInfo?.mode === "lite" && (appInfo.runtime !== "local" || completedThisSession)) {
+        const connectedUrl = getServerUrl();
+        const directRemoteSession = !!appInfo && /^https?:\/\//i.test(connectedUrl)
+          && !/^(?:https?:\/\/)(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(connectedUrl);
+        if (appInfo && ((appInfo.mode === "lite" && appInfo.runtime !== "local") || directRemoteSession || completedThisSession)) {
+          if (appInfo.localRuntimeAvailable === false) {
+            if (!cancelled) setRemoteOnly(true);
+            return;
+          }
           const result = await getLiteMigrationProgress();
           if (!cancelled) {
             setLegacyLite(true);
@@ -85,6 +96,11 @@ function SyncSettingsContent({ mobile }: { mobile: boolean }) {
   if (legacyLite) {
     return <LiteMigrationWizard progress={migration} onProgress={setMigration} />;
   }
+  if (remoteOnly) return <section className="space-y-3 text-sm">
+    <h3 className="font-medium">{t('offlineAvailability.downloadTitle', {defaultValue:'下载到本机，支持离线使用'})}</h3>
+    <p>{t('offlineAvailability.installFull', {defaultValue:'当前 Lite 安装包提供在线访问。请安装完整版客户端，在同步设置连接原 NAS 账号后下载笔记和附件。'})}</p>
+    <p className="text-muted-foreground">{t('offlineAvailability.keepLiteData', {defaultValue:'安装前请先完成当前设备待同步修改的上传；原账号配置和本机缓存会保留。'})}</p>
+  </section>;
 
   if (disabled) {
     return (
@@ -119,6 +135,7 @@ function LiteMigrationWizard({progress,onProgress}:{
   progress: LiteMigrationProgress | null;
   onProgress: (value:LiteMigrationProgress) => void;
 }) {
+  const { t } = useTranslation();
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState<string|null>(null);
   const stage = progress?.stage || "pending";
@@ -134,6 +151,7 @@ function LiteMigrationWizard({progress,onProgress}:{
   },[running,onProgress]);
 
   const start = async () => {
+    if (getQueueLength() > 0) { setError(t('offlineAvailability.pendingWrites', {defaultValue:'请先完成本机待同步修改的上传，再下载到本机。原有修改会保留。'})); return; }
     const token = getAccessToken();
     if (!token) { setError("请先重新登录远端服务器，再开始迁移。"); return; }
     setBusy(true);setError(null);
@@ -151,9 +169,9 @@ function LiteMigrationWizard({progress,onProgress}:{
 
   return <section className="space-y-4 rounded-lg border p-4">
     <div>
-      <h3 className="font-medium">将数据安全保存到本机</h3>
+      <h3 className="font-medium">{t('offlineAvailability.downloadTitle', {defaultValue:'下载到本机，支持离线使用'})}</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        检测到旧版轻量模式。迁移会复制远端笔记与附件并核对完整性，完成前仍保持原有远端访问方式，且不会删除远端数据。
+        {t('offlineAvailability.migrationHint', {defaultValue:'当前正在直接访问服务器。下载会复制远端笔记与附件并核对完整性，完成前仍保持原有访问方式，且不会删除远端数据。本机已有笔记也将同步到该账号。'})}
       </p>
     </div>
     <div className="rounded-md bg-muted/50 p-3 text-sm">
@@ -169,7 +187,7 @@ function LiteMigrationWizard({progress,onProgress}:{
       </p> : null}
     </div>
     {(error || progress?.error) ? <p className="text-sm text-destructive">{error || progress?.error}</p> : null}
-    {stage === "complete" ? <p className="text-sm text-emerald-700">数据已完整落地。退出并重新打开应用后，将使用本地优先模式。</p>
+    {stage === "complete" ? <p className="text-sm text-emerald-700">{t('offlineAvailability.migrationComplete', {defaultValue:'笔记已保存到本机。退出并重新打开应用后，可继续下载剩余附件；附件离线状态请在同步设置中核验。'})}</p>
       : <button type="button" disabled={running} onClick={() => { void start(); }}
           className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

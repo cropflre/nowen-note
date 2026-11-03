@@ -91,11 +91,13 @@ test("service resolves chat and embedding settings by user", () => {
     ai_provider: "openai",
     ai_api_url: "https://api.openai.com/v1",
     ai_api_key: "key-a",
+    ai_custom_headers: "{}",
     ai_model: "model-a",
     ai_embedding_profile_id: "",
     ai_embedding_url: "",
     ai_embedding_key: "",
     ai_embedding_model: "embed-a",
+    ai_embedding_timeout_seconds: "30",
   });
   assert.equal(settingsService.getUserAISettings("service-b").ai_api_key, "key-b");
   assert.equal(settingsService.getUserAISettings("service-b").ai_model, "model-b");

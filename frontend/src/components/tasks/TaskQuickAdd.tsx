@@ -68,7 +68,7 @@ export function TaskQuickAdd({
   onChange: (v: string) => void;
   onSubmit: (orphanIds: string[], manual: TaskQuickAddManualMeta) => Promise<boolean>;
   defaults?: Partial<Task>;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const { t } = useTranslation();
   const fileRef = useRef<HTMLInputElement>(null);

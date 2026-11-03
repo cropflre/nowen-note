@@ -24,5 +24,7 @@ it("sends the Unicode filename as UTF-8 form metadata and uses WebView multipart
   expect(form.get("file")).toBe(file);
   expect(form.get("originalFilename")).toBe(file.name);
   expect(form.get("folderId")).toBe("folder-1");
-  expect(init.headers).toEqual({ Authorization: "Bearer upload-test-token" });
+  const headers = new Headers(init.headers);
+  expect(headers.get("Authorization")).toBe("Bearer upload-test-token");
+  expect(headers.has("Content-Type")).toBe(false);
 });

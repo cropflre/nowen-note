@@ -1,3 +1,4 @@
+import { buildAIHeaders, hasAIAuth, maskAIHeaders, normalizeAIHeaders, redactAICredentials } from "../services/ai-provider-config";
 import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
@@ -132,6 +133,7 @@ interface AIProfile {
   provider: string;
   apiUrl: string;
   apiKey: string;
+  customHeaders: Record<string, string>;
   model: string;
   createdAt: string;
   updatedAt: string;
@@ -140,7 +142,6 @@ interface AIProfile {
 const AI_PROFILES_KEY = "ai_profiles_v1";
 const AI_ACTIVE_PROFILE_KEY = "ai_active_profile_id";
 const MAX_AI_PROFILES = 30;
-const NO_KEY_AI_PROVIDERS = new Set(["ollama", "lmstudio"]);
 
 function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = true): AIProfile {
   const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -162,6 +163,7 @@ function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = tru
     provider: text(raw.provider, base?.provider || "openai", 40) || "openai",
     apiUrl,
     apiKey: text(raw.apiKey, base?.apiKey || "", 2000),
+    customHeaders: normalizeAIHeaders(raw.customHeaders, base?.customHeaders),
     model: text(raw.model, base?.model || "", 200),
     createdAt: text(raw.createdAt, base?.createdAt || now, 64),
     updatedAt: touchUpdatedAt ? now : text(raw.updatedAt, base?.updatedAt || now, 64),
@@ -174,6 +176,7 @@ function legacyProfile(userId: string): AIProfile {
     provider: getUserAISetting(userId, "ai_provider") || "openai",
     apiUrl: getUserAISetting(userId, "ai_api_url") || "https://api.openai.com/v1",
     apiKey: getUserAISetting(userId, "ai_api_key"),
+    customHeaders: normalizeAIHeaders(getUserAISetting(userId, "ai_custom_headers")),
     model: getUserAISetting(userId, "ai_model") || "gpt-4o-mini",
   });
 }
@@ -203,15 +206,17 @@ function saveAIProfiles(userId: string, profiles: AIProfile[], activeProfileId: 
 }
 
 function syncEffectiveAISettings(userId: string, profile: AIProfile): void {
+  setUserAISettings(userId, [{ key: "ai_active_shared_profile_id", value: "" }]);
   setGuardedUserAISettings(userId, [
     { key: "ai_provider", value: profile.provider },
     { key: "ai_api_url", value: profile.apiUrl },
     { key: "ai_api_key", value: profile.apiKey },
+    { key: "ai_custom_headers", value: JSON.stringify(profile.customHeaders) },
     { key: "ai_model", value: profile.model },
   ]);
 }
 
-function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
+export function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
   let profiles = parseStoredProfiles(userId);
   let activeProfileId = getUserAISetting(userId, AI_ACTIVE_PROFILE_KEY);
   if (profiles.length === 0) {
@@ -227,11 +232,12 @@ function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfil
   return { profiles, activeProfileId };
 }
 
-function publicAIProfile(profile: AIProfile) {
+export function publicAIProfile(profile: AIProfile) {
   return {
     ...profile,
     apiKey: profile.apiKey ? `****${profile.apiKey.slice(-4)}` : "",
     apiKeySet: !!profile.apiKey,
+    customHeaders: maskAIHeaders(profile.customHeaders),
   };
 }
 
@@ -251,6 +257,7 @@ function profileAISettings(profile: AIProfile): AISettings {
     ai_provider: profile.provider,
     ai_api_url: profile.apiUrl,
     ai_api_key: profile.apiKey,
+    ai_custom_headers: JSON.stringify(profile.customHeaders),
     ai_model: profile.model,
     ai_embedding_profile_id: "",
     ai_embedding_url: "",
@@ -261,11 +268,11 @@ function profileAISettings(profile: AIProfile): AISettings {
 
 function profileConnectionFailure(error: unknown, profile: AIProfile): { code: string; error: string } {
   const reason = error as { message?: unknown; cause?: { code?: unknown; message?: unknown } };
-  const detail = sanitizeError([
+  const detail = sanitizeError(redactAICredentials([
     reason?.message,
     reason?.cause?.code,
     reason?.cause?.message,
-  ].filter(Boolean).join(" "));
+  ].filter(Boolean).join(" "), profile.apiKey, profile.customHeaders));
   const unreachable = /fetch failed|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|timeout|aborted/i.test(detail);
   if (!unreachable) {
     return { code: "AI_UPSTREAM_ERROR", error: detail || "AI 服务连接失败" };
@@ -355,6 +362,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
   const stored = typeof body.profileId === "string"
     ? state.profiles.find((profile) => profile.id === body.profileId)
     : undefined;
+  if (body.profileId && !stored) return c.json({ error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND", models: [] }, 404);
 
   let profile: AIProfile;
   try {
@@ -369,15 +377,13 @@ app.post("/ai-profiles/discover-models", async (c) => {
   }
 
   if (!profile.apiUrl) return c.json({ error: "请先填写 AI API 地址", models: [] }, 400);
-  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
+  if (!hasAIAuth(profileAISettings(profile))) {
     return c.json({ error: "请先填写 API Key", models: [] }, 400);
   }
 
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (profile.apiKey) {
-    headers.Authorization = `Bearer ${profile.apiKey}`;
-    if (profile.provider === "gemini") headers["x-goog-api-key"] = profile.apiKey;
-  }
+  const headers = buildAIHeaders(profile.provider, profile.apiKey, profile.customHeaders);
+  if (!headers.accept) headers.accept = "application/json";
+  if (profile.provider === "gemini" && profile.apiKey && !headers["x-goog-api-key"]) headers["x-goog-api-key"] = profile.apiKey;
 
   const candidates = profile.provider === "ollama"
     ? [
@@ -389,10 +395,10 @@ app.post("/ai-profiles/discover-models", async (c) => {
   const failures: string[] = [];
   for (const endpoint of Array.from(new Set(candidates))) {
     try {
-      const response = await aiOutboundFetch(endpoint, { headers, signal: AbortSignal.timeout(12_000) });
+      const response = await aiOutboundFetch(endpoint, { headers, signal: AbortSignal.timeout(12_000), redirect: "error" });
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
-        failures.push(`${response.status} ${detail.slice(0, 160)}`.trim());
+        failures.push(`${response.status} ${sanitizeError(redactAICredentials(detail, profile.apiKey, profile.customHeaders)).slice(0, 160)}`.trim());
         continue;
       }
       const data = await response.json();
@@ -432,7 +438,7 @@ async function testAIProfile(c: any, userId: string, profile: AIProfile) {
       action: modelKind === "embedding" ? "embedding-settings" : null,
     }, 400);
   }
-  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
+  if (!hasAIAuth(profileAISettings(profile))) {
     return c.json({ success: false, error: "请先填写 API Key", code: "AI_API_KEY_REQUIRED" }, 400);
   }
 

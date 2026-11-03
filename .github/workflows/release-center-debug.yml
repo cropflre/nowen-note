@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
       - name: Validate inputs and select exact platforms
         id: matrix
         env:
@@ -77,7 +77,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
       - run: npm ci
       - name: Existing publisher and Store isolation contracts
         run: npm run test:update-release && npm run test:microsoft-store
@@ -99,7 +99,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
       - name: Verify immutable source and expected versions
         shell: bash
         env:

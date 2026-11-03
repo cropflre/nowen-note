@@ -229,3 +229,31 @@ export interface PublicationView {
   publishEnabled: boolean;
   buildDispatchEnabled: false;
 }
+
+export interface CloudPlan {
+  notes: string;
+  id: string;
+  branch: string;
+  sha: string;
+  version: string;
+  targets: import("../../scripts/lib/release-cloud-contract.mjs").BuildTarget[];
+  createdAt: string;
+}
+export interface CloudRequest {
+  id: string;
+  kind: "build" | "publish";
+  branch: string;
+  workflow: string;
+  workflowSha: string;
+  inputs: import("../../scripts/lib/release-cloud-contract.mjs").BuildRequest | import("../../scripts/lib/release-cloud-contract.mjs").PublishRequest;
+  state: "dispatching" | "unknown" | "running" | "succeeded" | "failed";
+  createdAt: string;
+  updatedAt: string;
+  runId?: number;
+  runAttempt?: number;
+  url?: string;
+  error?: string;
+  jobs: Job[];
+  artifacts: Artifact[];
+}
+export interface CloudView { enabled: boolean; publishEnabled: boolean; requests: CloudRequest[] }

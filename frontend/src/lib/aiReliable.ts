@@ -61,6 +61,8 @@ export interface ReliableDiagnostics {
 
 export interface ReliableStatus {
   enabled: boolean;
+  source?: "personal" | "shared";
+  configurationError?: { code: string; error: string } | null;
   provider: string | null;
   model: string | null;
   apiHost: string | null;
@@ -96,6 +98,7 @@ export interface ReliableStatus {
 
 export interface ReliableAskParams {
   question: string;
+  skillId?: string;
   history?: Array<{ role: string; content: string }>;
   mode: ReliableAskMode;
   currentNoteId?: string;

@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
@@ -111,9 +111,9 @@ jobs:
       - name: Enforce initial bundle budgets
         run: npm run verify:bundle
       - name: Install Playwright browsers for cold-start smoke
-        run: |
-          npm install --no-save --no-package-lock @playwright/test@1.48.2
-          npx playwright install --with-deps webkit chromium
+        # 直接使用 package-lock 里的 @playwright/test（1.63.x）。此前钉死 1.48.2，
+        # 其浏览器与 --with-deps 系统依赖包在 2026 的 ubuntu runner 镜像上已失效。
+        run: npx playwright install --with-deps webkit chromium
       - name: iPhone WebKit cold-start smoke
         run: |
           npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/nowen-vite-preview.log 2>&1 &
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci

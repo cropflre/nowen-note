@@ -124,4 +124,59 @@ describe("aiProfiles client", () => {
       model: "",
     })).rejects.toThrow("401 invalid api key");
   });
+  it("falls back to personal profiles only when the shared capability endpoint is absent", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ profiles: [{id: "p1"}], activeProfileId: "p1" }), { status: 200 }));
+    expect(await aiProfiles.available()).toMatchObject({ sharedSupported: false, sharedProfiles: [], active: {scope: "personal", id: "p1"} });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not treat permission or server errors as an old server", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({error: "Forbidden"}), {status: 403}));
+    await expect(aiProfiles.available()).rejects.toThrow("Forbidden");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("activates a shared profile using only its server reference", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ active: {scope: "shared", id: "team"} }), {status: 200}));
+    await aiProfiles.activateSelection({scope: "shared", id: "team"});
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://note.example.com/api/ai/profiles/active");
+    expect(JSON.parse(init.body)).toEqual({scope: "shared", id: "team"});
+  });
+
+  it("publishes existing profiles server-side and deletes with an explicit revision", async () => {
+    fetchMock.mockResolvedValue(new Response("{}", {status: 200}));
+    await aiProfiles.shared.create({sourceProfileId: "personal", enabled: true, memberIds: ["a"]});
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({sourceProfileId: "personal", enabled: true, memberIds: ["a"]});
+    fetchMock.mockResolvedValueOnce(new Response("{}", {status: 200}));
+    await aiProfiles.shared.remove("team", 4);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({method: "DELETE", body: JSON.stringify({revision: 4})});
+  });
+
+  it("rejects a delayed response after switching account (DCC-006)", async () => {
+    const token = (userId: string) => `e30.${btoa(JSON.stringify({userId}))}.signature`;
+    localStorage.setItem("nowen-token", token("a"));
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = aiProfiles.available();
+    localStorage.setItem("nowen-token", token("b"));
+    finish(new Response(JSON.stringify({sharedProfiles: [{id: "a-only"}]}), {status: 200}));
+    await expect(pending).rejects.toThrow("session changed");
+  });
+
+  it("does not contact a server in Native local-only mode (DCC-009)", async () => {
+    Object.assign(window, {Capacitor: {isNativePlatform: () => true, getPlatform: () => "android"}});
+    localStorage.setItem("nowen-mobile-force-local-mode", "1");
+    try { await expect(aiProfiles.available()).rejects.toMatchObject({code: "MOBILE_LOCAL_ONLY"}); expect(fetchMock).not.toHaveBeenCalled(); }
+    finally { delete (window as unknown as {Capacitor?: unknown}).Capacitor; }
+  });
+
+  it("rejects an HTML or malformed successful directory response", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("<html>Login</html>", {status: 200}));
+    await expect(aiProfiles.available()).rejects.toThrow("Invalid AI profile response");
+    fetchMock.mockResolvedValueOnce(new Response("{}", {status: 200}));
+    await expect(aiProfiles.available()).rejects.toThrow("Invalid AI profile directory");
+  });
+
 });

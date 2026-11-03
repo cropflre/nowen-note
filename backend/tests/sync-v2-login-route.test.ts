@@ -44,6 +44,24 @@ async function login(body: Record<string, unknown>) {
   return { response, json: await response.json() as any };
 }
 
+test('concurrent local downloads cannot mutate the same migration or persist rejected credentials', async () => {
+  let release!: (response: Response) => void;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered=resolve; });
+  globalThis.fetch = (async () => { entered(); return new Promise<Response>(resolve => { release=resolve; }); }) as typeof fetch;
+  const request = () => app.request('/api/sync/local/lite-migration', {
+    method:'POST',headers:{'Content-Type':'application/json','X-User-Id':'local-user'},
+    body:JSON.stringify({serverUrl:'https://migration.test',token:'rejected-token'}),
+  });
+  const first=request(); await started;
+  const second=await request();
+  assert.equal(second.status,409);
+  release(Response.json({code:'TOKEN_INVALID'},{status:401}));
+  assert.equal((await first).status,500);
+  assert.equal((getDb().prepare('SELECT COUNT(*) AS count FROM sync_profiles').get() as {count:number}).count,0);
+  globalThis.fetch=originalFetch;
+});
+
 test("远端账号登录支持 2FA，并只持久化 Token 后建立授权 Profile", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {

@@ -131,14 +131,24 @@ test("moved tags, changing assets, published releases and Docker failure block p
   }
 });
 
-test("hosted workflow gates publication on all build jobs and keeps secrets away from pull requests", () => {
+test("legacy hosted publication stays disabled and unified publication remains verified and environment-gated", () => {
   const require = createRequire(import.meta.url);
-  const workflow = require("js-yaml").load(fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8"));
+  const yaml = require("js-yaml");
+  const legacy = yaml.load(fs.readFileSync(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(legacy.on), ["workflow_dispatch"]);
+  assert.equal(legacy.permissions.contents, "read");
+  assert.deepEqual(Object.keys(legacy.jobs), ["disabled"]);
+  assert.match(legacy.jobs.disabled.steps[0].run, /exit 1/);
+  const workflow = yaml.load(fs.readFileSync(new URL("../../.github/workflows/release-publish.yml", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.equal(workflow.permissions.contents, "read");
-  assert.deepEqual(workflow.jobs.publish.needs, ["prepare", "desktop", "android", "docker", "packages", "upk"]);
-  assert.match(workflow.jobs.publish.if, /needs\.upk\.result == 'skipped'/);
-  assert.equal(workflow.jobs.publish.permissions.contents, "write");
+  assert.deepEqual(workflow.jobs.github.needs, ["verify", "docker"]);
+  assert.match(workflow.jobs.github.if, /needs\.docker\.result == 'skipped'/);
+  assert.equal(workflow.jobs.github.permissions.contents, "write");
+  assert.equal(workflow.jobs.github.environment, "release-github");
+  assert.equal(workflow.jobs.docker.needs, "verify");
+  assert.equal(workflow.jobs.docker.environment, "release-docker");
+  assert.ok(workflow.jobs.verify.steps.some(step => step.run === "node scripts/release-cloud-ci.mjs verify"));
   for (const job of Object.values(workflow.jobs)) {
     assert.doesNotMatch(JSON.stringify(job["runs-on"]), /self-hosted/);
     assert.ok(job.steps.filter(s => s.uses?.startsWith("actions/checkout@")).every(s => s.with?.["persist-credentials"] === false));

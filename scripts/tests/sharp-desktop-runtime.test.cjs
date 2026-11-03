@@ -72,7 +72,7 @@ test("source and copied desktop resources both validate and process an image", a
     const filter = config.extraResources.find(entry => entry.to === "backend/node_modules").filter;
     const { minimatch } = require("minimatch");
     const runtimePackages = ["sharp", "@img", "color", "color-string", "color-name", "color-convert", "simple-swizzle", "is-arrayish", "detect-libc", "semver"];
-    if (process.platform === "darwin") runtimePackages.push("ffmpeg-static");
+    if (process.platform === "darwin") runtimePackages.push("ffmpeg-static", "sqlite-vec", `sqlite-vec-darwin-${process.arch}`);
     for (const entry of runtimePackages) {
       if (!filter.includes(`${entry}/**/*`)) continue;
       fs.cpSync(path.join(root, "backend/node_modules", entry),

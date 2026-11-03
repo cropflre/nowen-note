@@ -76,11 +76,13 @@ test("an outbound AI request reaches an upstream through HTTP CONNECT proxy", as
   await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
   try {
     process.env.NOWEN_AI_PROXY_URL = "http://127.0.0.1:" + (proxy.address() as net.AddressInfo).port;
-    const response = await aiOutboundFetch("http://api.example.test/v1/models", {
-      headers: { Authorization: "Bearer example" }, signal: AbortSignal.timeout(3500),
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { data: [{ id: "routed" }] });
+    for (const timeoutMs of [undefined, 600_000, undefined]) {
+      const response = await aiOutboundFetch("http://api.example.test/v1/models", {
+        headers: { Authorization: "Bearer example" }, signal: AbortSignal.timeout(3500),
+      }, timeoutMs);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { data: [{ id: "routed" }] });
+    }
   } finally {
     for (const socket of sockets) socket.destroy();
     upstream.closeAllConnections();
@@ -89,5 +91,22 @@ test("an outbound AI request reaches an upstream through HTTP CONNECT proxy", as
       new Promise<void>((resolve) => upstream.close(() => resolve())),
       new Promise<void>((resolve) => proxy.close(() => resolve())),
     ]);
+  }
+});
+
+test("long indexing requests support local endpoints and caller cancellation", async () => {
+  process.env.NOWEN_AI_PROXY_URL = "http://127.0.0.1:1"; // Local endpoints still bypass it.
+  const upstream = http.createServer((request, response) => {
+    if (request.url === "/fast") response.end("long-request-ok");
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(upstream.address() as net.AddressInfo).port}`;
+  try {
+    const response = await aiOutboundFetch(`${url}/fast`, { signal: AbortSignal.timeout(3500) }, 600_000);
+    assert.equal(await response.text(), "long-request-ok");
+    await assert.rejects(aiOutboundFetch(`${url}/slow`, { signal: AbortSignal.timeout(30) }, 600_000), { name: "TimeoutError" });
+  } finally {
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
   }
 });

@@ -189,7 +189,7 @@ class MarkdownLivePreviewWidget extends WidgetType {
 
     host.addEventListener("mousedown", (event) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, button, a, video, audio, iframe")) return;
+      if (target?.closest("input, button, a, img, video, audio, iframe")) return;
       event.preventDefault();
       const anchor = markdownLivePreviewEditAnchor(this.markdown, this.from);
       view.dispatch({

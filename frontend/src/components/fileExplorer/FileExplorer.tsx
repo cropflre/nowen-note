@@ -94,7 +94,7 @@ function FileExplorerContent({ scope }: { scope: string }) {
   const [saving, setSaving] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const refresh = useCallback(() => setRevision((previous) => previous + 1), []);
   useEffect(() => {
     const applied = () => { if (isCurrent()) refresh(); };
@@ -290,7 +290,7 @@ function FileExplorerContent({ scope }: { scope: string }) {
           <div className="flex rounded-lg border border-app-border p-0.5">{(["grid", "list", ...(category === "image" ? ["masonry"] : [])] as AssetView[]).map((value) => { const Icon = value === "grid" ? LayoutGrid : value === "list" ? List : Columns3; return <button key={value} aria-label={t(`fileExplorer.views.${value}`)} aria-pressed={view === value} onClick={() => chooseView(value)} className={cn("rounded-md p-1.5", view === value && "bg-accent-primary/10 text-accent-primary")}><Icon size={17} /></button>; })}</div>
           <button className="text-xs text-tx-secondary" onClick={() => { setSelectionMode((previous) => !previous); setDetail(null); setSelected(new Set()); }}>{t("fileExplorer.select")}</button>
           {organization?.supported && <button aria-expanded={showFilters} className="text-xs text-accent-primary" onClick={() => setShowFilters((value) => !value)}>{t("assetOrganization.filters")}</button>}
-          {!Capacitor.isNativePlatform() && <><button disabled={loading || !(selection.length ? selection : items).some(file => file.canManage !== false)} onClick={() => setAIMode("organize")} className="text-xs text-accent-primary disabled:opacity-30">{t("assetAI.organize")}</button><button onClick={() => setAIMode("search")} className="text-xs text-accent-primary">{t("assetAI.search")}</button></>}
+          {!Capacitor.isNativePlatform() && <button onClick={() => setAIMode("search")} className="text-xs text-accent-primary">{t("assetAI.search")}</button>}
           {view === "masonry" && <input aria-label={t("fileExplorer.density")} type="range" min={130} max={260} step={10} value={density} onChange={(event) => setDensity(Number(event.target.value))} className="w-24" />}
         </div>
         {Capacitor.isNativePlatform() && <p className="text-xs text-tx-secondary">{t("assetAI.nativeUnavailable")}</p>}

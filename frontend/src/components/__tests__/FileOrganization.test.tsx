@@ -14,6 +14,8 @@ vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: mocks.error } }));
 vi.mock("@/lib/clipboard", () => ({ copyText: mocks.copied }));
 vi.mock("@/components/attachmentPreview/AttachmentPreview", () => ({ default: () => <div>Preview</div> }));
+vi.mock("@/components/fileExplorer/AssetTagEditor", () => ({ default: () => null }));
+vi.mock("@/components/fileExplorer/AssetDescription", () => ({ default: () => null }));
 vi.mock("@/components/ui/scroll-area", () => ({ ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 const detail = { id: "file-1", filename: "中文文件.pdf", mimeType: "application/pdf", size: 5, createdAt: "2026-10-14T00:00:00Z",
   category: "file", url: "/api/attachments/file-1", folderId: "a", folderName: "目录甲", references: [], primaryNote: null,
@@ -47,10 +49,9 @@ describe("file organization controls", () => {
   it("moves selected files to a chosen folder only after the API succeeds", async () => {
     const onMoved = vi.fn(); const onClose = vi.fn();
     await act(async () => { root.render(<FileMoveDialog ids={["file-1"]} currentFolderId="a" onMoved={onMoved} onClose={onClose} />); });
-    const select = container.querySelector("select")!;
-    await act(async () => { select.value = "b"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await click("目录乙");
     await click("fileManager.moveFiles");
-    expect(mocks.move).toHaveBeenCalledWith(["file-1"], "b");
+    expect(mocks.move).toHaveBeenCalledWith(["file-1"], "b", { "file-1": "a" });
     expect(onMoved).toHaveBeenCalledWith("b", "目录乙"); expect(onClose).toHaveBeenCalledOnce();
   });
 

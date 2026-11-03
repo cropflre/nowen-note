@@ -9,6 +9,7 @@ import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
 import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
 import { notifyMobileSyncStatusChanged, type MobileSyncAppliedDetail } from "./mobileSyncStatus";
 import { nativeReceiptKey } from "./mobileNoteSyncReceipt";
+import { offlineBaselineKey } from "./mobileOfflineReadiness";
 import { NATIVE_TASK_REPEAT_FIELDS, nativeTaskRepeatValues } from "./nativeTaskFields";
 import { validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 import { applyNativePersonalTree, assertNativePersonalTreeEntry, NATIVE_TREE_ENTITY_SET, NATIVE_TREE_PENDING_SUBSCRIPTION, nativeTreeSubscriptionKey, type NativeTreeEntry } from "./nativeKnowledgeTreeSync";
@@ -120,6 +121,9 @@ export function assertMobileSyncItems(items:unknown,kind:"snapshot"|"changes",tr
       throw syncFailure("SERVER_ERROR","远端同步操作无效");
     if(kind==="snapshot"&&(!entry.payload||typeof entry.payload!=="object"||Array.isArray(entry.payload)))
       throw syncFailure("SERVER_ERROR","远端同步快照载荷无效");
+    if(kind === "snapshot" && entry.entityType === "note" && (entry.payload as Record<string,unknown>).__delete !== true
+      && typeof (entry.payload as Record<string,unknown>).content !== "string")
+      throw syncFailure("SERVER_ERROR", "远端同步快照缺失笔记正文");
   }
 }
 
@@ -132,6 +136,7 @@ export class MobileSyncEngine {
   private assetSubscribed = false;
   private treeNegotiated = false;
   private treeSubscribed = false;
+  private attachmentRetryDelayMs = 1000;
 
   constructor(private readonly options: MobileSyncOptions) {}
 
@@ -203,7 +208,8 @@ export class MobileSyncEngine {
             "SELECT value FROM native_runtime_meta WHERE key=?", [nativeTreeSubscriptionKey(this.options.profileId)],
           ))[0]?.value === NATIVE_TREE_ENTITY_SET;
           const assetBinding = !this.assetSubscribed || (await this.options.db.query<{value:string}>("SELECT value FROM native_runtime_meta WHERE key=?",[nativeAssetBindingKey(this.options.profileId)]))[0]?.value===NATIVE_ASSET_ENTITY_SET;
-          if (!state || state.lastSequence === 0 || state.accessStatus === "replan_required" || !treeBinding || !assetBinding) {
+          const baseline = (await this.options.db.query("SELECT value FROM native_runtime_meta WHERE key=?", [offlineBaselineKey(this.options.profileId, scope.scopeKey)]))[0];
+          if (!state || state.lastSequence === 0 || state.accessStatus === "replan_required" || !treeBinding || !assetBinding || (this.hasTreeSubscription(scope) && !baseline)) {
             await this.bootstrap(scope);
             if (this.hasTreeSubscription(scope)) await this.push(scope);
           }
@@ -225,6 +231,7 @@ export class MobileSyncEngine {
           }
           await this.options.db.run(`UPDATE sync_state SET lastError=?
             WHERE profileId=? AND scopeKey=?`, [code || "NETWORK_UNAVAILABLE",this.options.profileId,scope.scopeKey]);
+          this.requestSync(30_000);
         }
       }
     } catch (error) {
@@ -242,6 +249,7 @@ export class MobileSyncEngine {
       }
       // Proxy and network errors must not discard local notes or pending writes.
       if ((error as { code?: string })?.code !== "NETWORK_UNAVAILABLE") throw error;
+      this.requestSync(30_000);
     } finally {
       this.running = false;
       this.syncAbort = null;
@@ -645,6 +653,8 @@ export class MobileSyncEngine {
     });
     if(scope.workspaceId)await this.pruneWorkspaceSnapshot(scope,seen);
     await this.advance(scope,sequence,this.hasTreeSubscription(scope));
+    await this.options.db.run(`INSERT INTO native_runtime_meta(key,value,updatedAt) VALUES (?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [offlineBaselineKey(this.options.profileId, scope.scopeKey), String(sequence), now()]);
   }
 
   private hasTreeSubscription(scope: ScopeDescriptor): boolean {
@@ -1023,6 +1033,7 @@ export class MobileSyncEngine {
     const applied: SnapshotEntry[] = [];
     await this.options.db.transaction(async (tx) => {
       // 即使远端内容进入冲突中心而未覆盖本地，它的存在也已得到确认。
+      if (bootstrap) await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [offlineBaselineKey(this.options.profileId, scope.scopeKey)]);
       await forgetUnsentLocalNotes(tx, scope.scopeKey, entries.filter((entry) => entry.entityType === "note").map((entry) => entry.entityId));
       const assetEntries: Record<string,unknown>[] = [];
       for(const entry of entries){
@@ -1248,15 +1259,17 @@ export class MobileSyncEngine {
   }
 
   private async transferAttachments(scope:ScopeDescriptor):Promise<void>{
-    const rows=await this.options.db.query<{id:string;mimeType:string;size:number;hash:string|null;transferStatus:string}>(`
-      SELECT id,mimeType,size,hash,transferStatus FROM attachments WHERE scopeKey=?
+    const rows=await this.options.db.query<{id:string;mimeType:string;size:number;hash:string|null;transferStatus:string;available:number;localPath:string|null}>(`
+      SELECT id,mimeType,size,hash,transferStatus,available,localPath FROM attachments WHERE scopeKey=?
         AND transferStatus IN ('pending_upload','failed','pending_download') ORDER BY updatedAt LIMIT 4`,[scope.scopeKey]);
     let completed = 0;
     for(const row of rows){
       if(this.stopped)return;
       const path=`/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
       try{
-        if(row.transferStatus==="pending_download"){
+        const needsDownload = row.transferStatus === "pending_download"
+          || (row.transferStatus === "failed" && (!row.available || !await this.options.attachments.exists(row.id)));
+        if(needsDownload){
           const response=await this.fetchResponse(path);
           if(response.status===409)continue;if(!response.ok)throw new Error(`HTTP ${response.status}`);
           const blob=await response.blob();
@@ -1279,6 +1292,10 @@ export class MobileSyncEngine {
       }
     }
     if(rows.length === 4 && completed > 0)this.rerun = true;
+    if (completed < rows.length) {
+      this.requestSync(this.attachmentRetryDelayMs);
+      this.attachmentRetryDelayMs = Math.min(this.attachmentRetryDelayMs * 2, 60_000);
+    } else this.attachmentRetryDelayMs = 1000;
   }
 }
 

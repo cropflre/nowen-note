@@ -106,6 +106,7 @@ function deriveRuntimeFields(raw, mode) {
   if (mode === "lite" && runtime === "local" && liteMigrationStatus !== "complete") {
     runtime = "remote";
   }
+  if (liteMigrationStatus === "complete") runtime = "local";
 
   // full 模式的数据库就在本机，不存在"远端权威"的情况。
   if (mode === "full") {
@@ -184,7 +185,10 @@ function readSettings() {
 
 function writeSettings(patch) {
   const file = getSettingsPath();
-  const merged = normalize({ ...readSettings(), ...patch });
+  const previous = readSettings();
+  const sourceChanged = previous.liteMigrationStatus === "complete" && typeof patch.remoteUrl === "string"
+    && patch.remoteUrl.replace(/\/+$/, "") !== previous.remoteUrl;
+  const merged = normalize({ ...previous, ...(sourceChanged ? { liteMigrationStatus: "none", runtime: "remote", activeSyncProfileId: null } : {}), ...patch });
 
   // 确保目录存在
   try {

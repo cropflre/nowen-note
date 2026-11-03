@@ -7,6 +7,8 @@ import { eventPublisher } from "./eventPublisher.js";
 import type { WorkflowDefinition, WorkflowRecord } from "./types.js";
 import { validateWorkflowDefinition } from "./workflowValidator.js";
 import { WorkflowRepository, type WorkflowInput } from "./workflowRepository.js";
+import { getAgentTemplate } from "../agent/templates.js";
+import { grantedExtensions } from "../agent/extensions.js";
 
 function coded(message: string, code: string): Error {
   return Object.assign(new Error(message), { code });
@@ -52,7 +54,13 @@ export class WorkflowService {
     if (!hasRole(getUserWorkspaceRole(workspaceId, userId), "admin")) throw coded("工作区自动化仅 owner/admin 可管理", "RESOURCE_FORBIDDEN");
   }
 
-  private validateActions(definition: WorkflowDefinition): void {
+  private validateActions(definition: WorkflowDefinition, userId: string, workspaceId: string | null = null): void {
+    for (const step of definition.steps) if (step.type === "agent") {
+      const template = getAgentTemplate(step.templateId, userId, workspaceId);
+      if (template.revision !== step.templateRevision) throw coded("TEMPLATE_CHANGED", "TEMPLATE_CHANGED");
+      grantedExtensions(userId, template.config.toolIds);
+      if (definition.trigger.type === "webhook" && !definition.trigger.requireSignature) throw coded("WEBHOOK_SIGNATURE_REQUIRED", "WEBHOOK_SIGNATURE_REQUIRED");
+    }
     const actions = new Set(getPluginService().listActions().map((item: any) => `${item.pluginId}:${item.id || item.actionId}`));
     for (const step of definition.steps) if (step.type === "action" && !actions.has(`${step.pluginId}:${step.actionId}`)) {
       throw coded(`插件 Action 不存在或未启用: ${step.pluginId}/${step.actionId}`, "PLUGIN_ACTION_NOT_FOUND");
@@ -73,7 +81,7 @@ export class WorkflowService {
   create(userId: string, raw: Omit<WorkflowInput, "definition"> & { definition: unknown }): Record<string, unknown> {
     this.assertWorkspaceManage(raw.workspaceId, userId);
     const definition = validateWorkflowDefinition(raw.definition);
-    this.validateActions(definition);
+    this.validateActions(definition, userId, raw.workspaceId || null);
     if (!raw.name?.trim() || raw.name.length > 120) throw coded("工作流名称无效", "INVALID_ARGUMENT");
     const result = this.repository.create(userId, { ...raw, name: raw.name.trim(), definition });
     logAudit(userId, "system", "workflow_create", { workflowId: result.workflow.id }, { targetType: "automation", targetId: result.workflow.id });
@@ -87,7 +95,7 @@ export class WorkflowService {
     assertWorkflowRevision(existing, raw.expectedRevision);
     this.assertWorkspaceManage(raw.workspaceId, userId);
     const definition = validateWorkflowDefinition(raw.definition);
-    this.validateActions(definition);
+    this.validateActions(definition, userId, raw.workspaceId || null);
     const result = this.repository.update(id, { ...raw, name: raw.name.trim(), definition });
     logAudit(userId, "system", "workflow_update", { workflowId: id }, { targetType: "automation", targetId: id });
     return { ...this.publicRecord(result.workflow), webhookCredentials: result.webhook };
@@ -98,7 +106,7 @@ export class WorkflowService {
     if (!record) throw coded("工作流不存在", "AUTOMATION_NOT_FOUND");
     this.assertManage(record, userId);
     assertWorkflowRevision(record, expectedRevision);
-    if (enabled) this.validateActions(JSON.parse(record.definitionJson) as WorkflowDefinition);
+    if (enabled) this.validateActions(JSON.parse(record.definitionJson) as WorkflowDefinition, record.userId, record.workspaceId);
     const updated = this.repository.setEnabled(id, enabled);
     logAudit(userId, "system", enabled ? "workflow_enable" : "workflow_disable", { workflowId: id }, { targetType: "automation", targetId: id });
     return this.publicRecord(updated);

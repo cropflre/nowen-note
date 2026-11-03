@@ -21,7 +21,7 @@ export default function AssetAIDialog({ mode, files, isCurrent, onClose, onAppli
   const [query,setQuery] = useState("");
   const [search,setSearch] = useState<AssetAISearch | null>(null);
   const [searchedQuery,setSearchedQuery] = useState("");
-  const controller = useRef<AbortController>();
+  const controller = useRef<AbortController>(undefined);
   const requestId = useRef(newLocalId());
   const attempt = useRef<{requestId:string;items:AssetAISuggestion[]} | null>(null);
   const dialog = useFileToolDialog(onClose,busy);

@@ -511,7 +511,9 @@ export class SyncEngine {
     this.phase = "applying";
     try {
       await pushAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
-      await pullAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
+      const result = await pullAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
+      // Drain another bounded batch promptly; all-failed batches use normal backoff.
+      if (result.downloaded > 0) this.rerunRequested = true;
     } catch (error) {
       // 只记日志：附件是次要通道，不能污染整轮同步的状态判定。
       logSyncWarn("engine.blob-cycle-failed", {

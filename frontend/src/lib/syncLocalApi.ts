@@ -45,7 +45,19 @@ export interface SyncSettingsResponse {
   engineRunning: boolean;
 }
 
+export interface OfflineReadiness {
+  supported: boolean;
+  scopeKey: string;
+  contentState: "not_started" | "downloading" | "ready" | "error" | "unknown";
+  verifiedSequence: number | null;
+  verifiedAt: string | null;
+  attachments: { total: number | null; available: number | null; pendingDownloads: number | null; failedDownloads: number | null; missingFiles: number | null };
+  fullyAvailable: boolean;
+  verificationPending: boolean;
+}
+
 export interface SyncDiagnostics {
+  offline?: OfflineReadiness;
   profileId: string | null;
   serverUrl: string | null;
   deviceId: string | null;
