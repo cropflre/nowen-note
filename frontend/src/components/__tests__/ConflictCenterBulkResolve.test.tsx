@@ -8,6 +8,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const {
   hasNativeSyncLocalAdminAdapterMock,
+  fetchKnowledgeTreeRepairBackupMock,
   downloadBlobMock,
   applyKnowledgeTreeRepairMock,
   previewKnowledgeTreeRepairMock,
@@ -20,6 +21,7 @@ const {
   resolveConflictMock,
 } = vi.hoisted(() => ({
   hasNativeSyncLocalAdminAdapterMock: vi.fn(),
+  fetchKnowledgeTreeRepairBackupMock: vi.fn(),
   downloadBlobMock: vi.fn(),
   applyKnowledgeTreeRepairMock: vi.fn(),
   previewKnowledgeTreeRepairMock: vi.fn(),
@@ -66,6 +68,7 @@ vi.mock("@/lib/syncLocalApi", () => ({
     "mindmap",
   ],
   applyKnowledgeTreeRepair: applyKnowledgeTreeRepairMock,
+  fetchKnowledgeTreeRepairBackup: fetchKnowledgeTreeRepairBackupMock,
   previewKnowledgeTreeRepair: previewKnowledgeTreeRepairMock,
   triggerSyncNow: triggerSyncNowMock,
   hasNativeSyncLocalAdminAdapter: hasNativeSyncLocalAdminAdapterMock,
@@ -130,6 +133,7 @@ describe("冲突中心批量处理", () => {
     fetchResolvedConflictsMock.mockResolvedValue({ total: 0, items: [] });
     hasNativeSyncLocalAdminAdapterMock.mockReset().mockReturnValue(false);
     downloadBlobMock.mockReset();
+    fetchKnowledgeTreeRepairBackupMock.mockReset();
     applyKnowledgeTreeRepairMock.mockReset();
     previewKnowledgeTreeRepairMock.mockReset();
     triggerSyncNowMock.mockReset();
@@ -527,6 +531,18 @@ describe("冲突中心批量处理", () => {
     expect([...card.querySelectorAll("button")].find((b) => b.textContent === "保留本机版本")?.disabled).toBe(false);
   });
 
+  it("Android 同步完成后重新读取冲突", async () => {
+    hasNativeSyncLocalAdminAdapterMock.mockReturnValue(true);
+    fetchConflictsMock.mockResolvedValue({ total: 0, items: [] });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="native-device" />); });
+    await waitFor(() => expect(host.textContent).toContain("没有需要处理的冲突。"));
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [conflicts[0]] });
+    await act(async () => { window.dispatchEvent(new Event("nowen:mobile-sync-status-changed")); });
+    await waitFor(() => expect(host.textContent).toContain(conflicts[0].localTitle!));
+    expect(host.querySelectorAll('input[type="checkbox"]').length).toBeGreaterThan(0);
+  });
+
   it("18 条知识树冲突独立预检，二次确认后批量采用云端并请求同步", async () => {
     const treeItems = Array.from({ length: 18 }, (_, index) => ({
       ...conflicts[0],
@@ -596,6 +612,31 @@ describe("冲突中心批量处理", () => {
     expect(host.textContent).toContain("当前列表还有 0 条知识树结构冲突。");
     expect(host.textContent).toContain("full-backup.zip");
     expect(host.textContent).toContain("冲突（1）");
+  });
+
+  it("Android 修复结束后可以重新导出保存的原始结构", async () => {
+    hasNativeSyncLocalAdminAdapterMock.mockReturnValue(true);
+    const item = { ...conflicts[0], id: "tree-native", entityType: "knowledge_tree_node" };
+    const local = { id: "note:note-1", parentId: "folder-a", sortOrder: 2, isDeleted: 0,
+      deletedAt: null, resourceType: "note", resourceId: "note-1", nodeType: "note" };
+    const changes = [{ id: item.id, title: item.localTitle, local, remote: { ...local, parentId: "folder-b" } }];
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [item] });
+    previewKnowledgeTreeRepairMock.mockResolvedValue({ token: "native-plan", changes });
+    applyKnowledgeTreeRepairMock.mockImplementation(async () => {
+      fetchConflictsMock.mockResolvedValue({ total: 0, items: [] });
+      return { resolved: 1, backupId: "saved-native" };
+    });
+    triggerSyncNowMock.mockResolvedValue({ engineRunning: true });
+    fetchKnowledgeTreeRepairBackupMock.mockResolvedValue({ id: "saved-native", strategy: "keep-remote", createdAt: "before", changes });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="native-device" />); });
+    const button = (label: string) => [...host.querySelectorAll("button")].find((entry) => entry.textContent === label);
+    await act(async () => { host.querySelector<HTMLInputElement>('[aria-label="全选冲突"]')?.click(); });
+    await act(async () => { button("预览以云端为准修复")?.click(); });
+    await act(async () => { button("确认修复目录结构")?.click(); });
+    await act(async () => { button("导出修复前保存的结构快照")?.click(); });
+    expect(fetchKnowledgeTreeRepairBackupMock).toHaveBeenCalledWith("saved-native");
+    expect(downloadBlobMock).toHaveBeenCalledWith(expect.any(Blob), "nowen-tree-before-repair-saved-native.json");
   });
 
   it("Android 回收站冲突逐项确认，沿用专门的生命周期处理", async () => {

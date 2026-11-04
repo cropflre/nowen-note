@@ -15,6 +15,7 @@ import {
 import {
   applyKnowledgeTreeRepair,
   fetchConflictDetail,
+  fetchKnowledgeTreeRepairBackup,
   fetchConflicts,
   fetchResolvedConflicts,
   forkConflict,
@@ -32,6 +33,7 @@ import { buildAutomaticConflictMerge } from "@/lib/syncConflictAutoMerge";
 import { isProtectedNotePayload } from "@/lib/encryptedNotes/blockDocument";
 import { getKnowledgeTreeExpansionScope } from "@/lib/knowledgeTreeExpansion";
 import { knowledgeTreeApi } from "@/lib/knowledgeTreeApi";
+import { MOBILE_SYNC_STATUS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
 import { downloadBlob } from "@/lib/mindmapExport";
 import { isAndroidNative, saveBlobToSystemFile } from "@/lib/nativeImageSave";
 import { TREE_CONFLICT_FIELDS, canSafelyChooseTreeSide, isTreeConflict, isTreeLifecycleConflict, treeConflictAvailability, treeConflictExplanation } from "@/lib/syncTreeConflictPresentation";
@@ -95,6 +97,8 @@ export function ConflictCenter({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const reloadRequestRef = useRef(0);
+  const [repairBackup, setRepairBackup] = useState<{ id: string; scope: string } | null>(null);
 
   const treeNameScope = getKnowledgeTreeExpansionScope();
   const [treeNameSnapshot, setTreeNameSnapshot] = useState<{ scope: string; names: Map<string, string> } | null>(null);
@@ -131,8 +135,11 @@ export function ConflictCenter({
       : item.entityId)
   );
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (quiet = false) => {
+    const requestId = ++reloadRequestRef.current;
+    const scope = getOfflineQueueStorageKey();
+    const isCurrent = () => requestId === reloadRequestRef.current && scope === getOfflineQueueStorageKey();
+    if (!quiet) setLoading(true);
     setTreePreview(null);
     try {
       const [result, history] = await Promise.all([
@@ -143,6 +150,7 @@ export function ConflictCenter({
           entityType: historyEntityType || undefined,
         }),
       ]);
+      if (!isCurrent()) return;
       setItems(result.items);
       setHistoryItems(history.items);
       setHistoryTotal(history.total);
@@ -152,13 +160,27 @@ export function ConflictCenter({
       ));
       return result.items;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [historyEntityType]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    const scope = getOfflineQueueStorageKey();
+    const onSyncStatus = () => {
+      if (hasNativeSyncLocalAdminAdapter() && scope === getOfflineQueueStorageKey()) {
+        setNotice(null);
+        void reload(true);
+      }
+    };
+    window.addEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onSyncStatus);
+    return () => {
+      ++reloadRequestRef.current;
+      window.removeEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onSyncStatus);
+    };
+  }, [reload]);
 
   const openDetail = async (id: string) => {
     const requestId = ++detailRequestRef.current;
@@ -222,7 +244,11 @@ export function ConflictCenter({
     try {
       if (getQueueLength() > 0) throw new Error(t("treeConflict.pendingOfflineWrites"));
       const result = await applyKnowledgeTreeRepair(treePreview.strategy, treePreview.ids, treePreview.preview.token);
+      if (treePreview.scope !== getOfflineQueueStorageKey()) return;
       setSelected(null);
+      if (result.backupId && hasNativeSyncLocalAdminAdapter()) {
+        setRepairBackup({ id: result.backupId, scope: treePreview.scope });
+      }
       const backupNotice = result.backupId
         ? ` ${t(hasNativeSyncLocalAdminAdapter() ? "treeConflict.backupSaved" : "treeConflict.desktopBackupSaved", {
             id: result.backupFilename || result.backupId,
@@ -250,6 +276,7 @@ export function ConflictCenter({
       }
       onResolved?.();
     } catch (err) {
+      if (treePreview.scope !== getOfflineQueueStorageKey()) return;
       setTreePreview({
         ...treePreview,
         preview: {
@@ -258,6 +285,25 @@ export function ConflictCenter({
           blocked: t("treeConflict.repairFailed", { reason: err instanceof Error ? err.message : String(err) }),
         },
       });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportRepairBackup = async () => {
+    if (!repairBackup || repairBackup.scope !== getOfflineQueueStorageKey()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await fetchKnowledgeTreeRepairBackup(repairBackup.id);
+      if (repairBackup.scope !== getOfflineQueueStorageKey()) return;
+      const fileName = `nowen-tree-before-repair-${saved.id}.json`;
+      const mimeType = "application/json";
+      const blob = new Blob([JSON.stringify({ version: 1, ...saved }, null, 2)], { type: mimeType });
+      if (isAndroidNative()) await saveBlobToSystemFile({ blob, fileName, mimeType });
+      else downloadBlob(blob, fileName);
+    } catch (err) {
+      setError(t("treeConflict.exportFailed", { reason: err instanceof Error ? err.message : String(err) }));
     } finally {
       setBusy(false);
     }
@@ -752,6 +798,13 @@ export function ConflictCenter({
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {notice}
         </p>
+      ) : null}
+
+      {repairBackup?.scope === getOfflineQueueStorageKey() ? (
+        <button type="button" disabled={busy} onClick={() => { void exportRepairBackup(); }}
+          className="rounded border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50">
+          {t("treeConflict.exportSavedStructure")}
+        </button>
       ) : null}
 
       {historyTotal > 0 || historyEntityType !== "" || historyOpen ? (

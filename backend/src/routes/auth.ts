@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { getDb } from "../db/schema";
-import { markOnboardingHandled } from "../lib/onboarding";
+import { markOnboardingHandled, recordOnboardingLogin } from "../lib/onboarding";
 import { userSessionsRepository } from "../repositories";
 import { v4 as uuid } from "uuid";
 import bcrypt from "bcryptjs";
@@ -281,7 +281,7 @@ auth.post("/register", async (c) => {
     throw e;
   }
 
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(id);
+  recordOnboardingLogin(db, id);
   const created = db
     .prepare("SELECT tokenVersion FROM users WHERE id = ?")
     .get(id) as { tokenVersion: number };
@@ -385,7 +385,10 @@ auth.post("/desktop/bootstrap-local", async (c) => {
       return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
     }
     resetLoginFailure(db, existing.id);
-    db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(existing.id);
+    db.transaction(() => {
+      markOnboardingHandled(db, existing.id);
+      recordOnboardingLogin(db, existing.id);
+    })();
     return issueDesktopLocalAuth(c, existing.id);
   }
 
@@ -440,7 +443,10 @@ auth.post("/desktop/reset-local", async (c) => {
   }
 
   resetLoginFailure(db, userId);
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+  db.transaction(() => {
+    markOnboardingHandled(db, userId);
+    recordOnboardingLogin(db, userId);
+  })();
 
   return issueDesktopLocalAuth(c, userId);
 });
@@ -556,7 +562,12 @@ auth.post("/login", async (c) => {
 
   // 登录成功：清理失败计数，刷新 lastLoginAt
   resetLoginFailure(db, user.id);
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(user.id);
+  db.transaction(() => {
+    if (process.env.ELECTRON_LOCAL_ACCOUNT_SECRET && user.username === "desktop") {
+      markOnboardingHandled(db, user.id);
+    }
+    recordOnboardingLogin(db, user.id);
+  })();
 
   // Phase 6: 2FA 拦截
   //

@@ -55,7 +55,6 @@ import { knowledgeTreePasswordMigration } from "./knowledgeTreePasswordMigration
 import { offlineSyncMigration } from "./offlineSyncMigration.js";
 import { newUserOnboardingMigration } from "./newUserOnboardingMigration.js";
 import { newUserOnboardingFirstLoginMigration } from "./newUserOnboardingFirstLoginMigration.js";
-import { onboardingWelcomePresentationMigration } from "./onboardingWelcomePresentationMigration.js";
 import { blockSchemaRepairMigration } from "./blockSchemaRepairMigration.js";
 import { taskDayPlansMigration } from "./taskDayPlansMigration.js";
 import { yjsOperationReceiptsMigration } from "./yjsOperationReceiptsMigration.js";
@@ -455,7 +454,6 @@ export const MIGRATIONS: Migration[] = [
   agentP2Migration,
   encryptedJsonEvaluationMigration,
   sharedAIProfilesMigration,
-  onboardingWelcomePresentationMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

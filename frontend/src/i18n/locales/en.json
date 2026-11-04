@@ -1,5 +1,6 @@
 {
   "treeConflict": {
+    "exportSavedStructure": "Export saved pre-repair structure",
     "heading": "Knowledge tree conflicts ({{count}})",
     "otherHeading": "Other conflicts ({{count}})",
     "selectionCounts": "Selected: {{ordinary}} eligible for bulk actions, {{tree}} need a tree repair check, and {{attachments}} attachment conflicts need individual review.",

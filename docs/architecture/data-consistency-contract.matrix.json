@@ -97,6 +97,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "repairs directory positions while retaining a failed cloud attachment download" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-003: lost upload responses recover the exact persisted PDF identity, including deduplicated uploads" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: automatic download replays retained legacy edits before starting the NAS baseline" },
@@ -207,6 +208,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
         { "file": "frontend/src/lib/__tests__/attachmentUploadRecovery.test.ts", "case": "does not recover into a changed server or account (DCC-006)" },

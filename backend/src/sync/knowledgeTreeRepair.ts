@@ -9,7 +9,7 @@ import { SyncError } from "./errors.js";
 import { enqueueMutation } from "./outbox.js";
 import { getActiveProfile, getSyncState } from "./profile.js";
 import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote.js";
-import { SYNC_V2_NEGOTIATED_ENTITY_TYPES, type SyncNegotiatedEntityType } from "./types.js";
+import { SYNC_V2_NEGOTIATED_ENTITY_TYPES, type SyncOutboxRow, type SyncNegotiatedEntityType } from "./types.js";
 
 export type TreeRepairStrategy = "keep-local" | "keep-remote";
 interface RepairRequest {
@@ -33,9 +33,39 @@ function blocked(reason: string): never {
 function assertSafeLocalState(db: Database.Database, request: RepairRequest) {
   const profile = getActiveProfile(db);
   if (profile?.id !== request.profileId) blocked("同步账号已变化，请重新打开冲突中心");
-  if (db.prepare(`SELECT 1 FROM sync_outbox WHERE profileId = ? AND scopeKey = ?
-      AND status IN ('pending', 'inflight', 'failed') LIMIT 1`).get(profile.id, scopeKey)) {
-    blocked("个人空间仍有待同步的修改，请先同步或导出备份");
+  const outbox = db.prepare(`SELECT * FROM sync_outbox WHERE profileId = ? AND scopeKey = ?
+    AND status IN ('pending', 'inflight', 'failed') ORDER BY rowid`)
+    .all(profile.id, scopeKey) as SyncOutboxRow[];
+  const selected = new Set(request.conflictIds);
+  const targets = new Set(listUnresolvedConflicts(db, profile.id, scopeKey)
+    .filter((row) => selected.has(row.id) && row.entityType === "knowledge_tree_node")
+    .map((row) => row.entityId));
+  const allowedFields = new Set([...snapshotFields, "scopeKey",
+    "baseParentId", "baseSortOrder", "baseIsDeleted", "baseDeletedAt"]);
+  const latest = new Map(outbox.map((mutation) => [mutation.entityId, mutation.id]));
+  for (const mutation of outbox) {
+    if (mutation.entityType !== "knowledge_tree_node" || !targets.has(mutation.entityId)
+      || mutation.operation !== "upsert" || mutation.status !== "pending") {
+      blocked("个人空间仍有其他待同步的修改，请先同步或导出备份");
+    }
+    let payload: Record<string, unknown> | null = null;
+    try { payload = JSON.parse(mutation.payload ?? "null"); } catch { /* Reject an unreadable intent. */ }
+    const local = db.prepare(`SELECT ${snapshotFields.join(", ")} FROM knowledge_tree_nodes
+      WHERE id = ? AND userId = ? AND workspaceId IS NULL AND scopeKey = ?`)
+      .get(mutation.entityId, request.userId, `personal:${request.userId}`) as Record<string, unknown> | undefined;
+    const identity = ["id", "resourceType", "resourceId", "nodeType"];
+    const position = ["parentId", "sortOrder", "isDeleted", "deletedAt"];
+    if (!payload || !local || Object.keys(payload).some((key) => !allowedFields.has(key))
+      || payload.userId !== request.userId || payload.workspaceId !== null
+      || payload.isDeleted !== 0 || payload.deletedAt !== null || payload.baseIsDeleted !== 0
+      || (payload.baseDeletedAt !== null && payload.baseDeletedAt !== undefined)
+      || (payload.baseParentId !== null && typeof payload.baseParentId !== "string")
+      || !Number.isSafeInteger(payload.baseSortOrder) || !Number.isSafeInteger(payload.sortOrder)
+      || (payload.parentId !== null && typeof payload.parentId !== "string")
+      || identity.some((key) => payload![key] !== local[key])
+      || (latest.get(mutation.entityId) === mutation.id && position.some((key) => payload![key] !== local[key]))) {
+      blocked("待同步结构与本机状态或安全基线不一致，请同步后重新预览");
+    }
   }
   if (db.prepare(`SELECT 1 FROM attachments a JOIN notes n ON n.id = a.noteId
       LEFT JOIN attachment_sync_state s ON s.attachmentId = a.id
@@ -50,7 +80,7 @@ function assertSafeLocalState(db: Database.Database, request: RepairRequest) {
   }
   const state = getSyncState(db, profile.id, scopeKey);
   if (!state) blocked("尚未建立同步游标，请先同步");
-  return { profile, sequence: state.lastSequence };
+  return { profile, sequence: state.lastSequence, outbox };
 }
 
 export async function fetchTreeRepairSnapshot(
@@ -140,7 +170,7 @@ function prepareRepair(
   db: Database.Database, request: RepairRequest,
   snapshot: Awaited<ReturnType<typeof fetchTreeRepairSnapshot>>,
 ) {
-  const { sequence } = assertSafeLocalState(db, request);
+  const { sequence, outbox } = assertSafeLocalState(db, request);
   if (sequence !== snapshot.sequence) blocked("本机同步游标已变化，请重新预览");
   const localRows = db.prepare(`SELECT ${snapshotFields.join(", ")} FROM knowledge_tree_nodes
     WHERE scopeKey = ? AND workspaceId IS NULL AND userId = ? ORDER BY id`)
@@ -198,10 +228,10 @@ function prepareRepair(
   const ordered = orderedRepairs(graph, selected);
   const token = createHash("sha256").update(JSON.stringify({
     request: { ...request, conflictIds: [...ids].sort() },
-    sequence, fingerprint: snapshot.fingerprint, rows, changes, localRows,
+    sequence, fingerprint: snapshot.fingerprint, rows, changes, localRows, outbox,
     remote: [...snapshot.items],
   })).digest("hex");
-  return { token, changes, ordered, rows, localGraph, selected };
+  return { token, changes, ordered, rows, localGraph, selected, outbox };
 }
 
 export function previewTreeRepair(
@@ -214,6 +244,9 @@ export function previewTreeRepair(
   // projection checks) without committing any tree or ledger updates.
   try {
     db.transaction(() => {
+      for (const mutation of plan.outbox) {
+        db.prepare("DELETE FROM sync_outbox WHERE id = ? AND profileId = ?").run(mutation.id, request.profileId);
+      }
       applyKnowledgeTreeSnapshotLocal(db, request.strategy === "keep-remote" ? plan.ordered
         : orderedRepairs(plan.localGraph, plan.selected), {
         userId: request.userId, workspaceId: null, allowMissingProjection: request.strategy === "keep-remote",
@@ -235,6 +268,9 @@ export function applyTreeRepair(
   return db.transaction(() => {
     const plan = prepareRepair(db, request, snapshot);
     if (token !== plan.token) blocked("预览后结构或同步状态已变化，请重新预览");
+    for (const mutation of plan.outbox) {
+      db.prepare("DELETE FROM sync_outbox WHERE id = ? AND profileId = ?").run(mutation.id, request.profileId);
+    }
     if (request.strategy === "keep-remote") {
       applyKnowledgeTreeSnapshotLocal(db, plan.ordered, {
         userId: request.userId, workspaceId: null, allowMissingProjection: true,

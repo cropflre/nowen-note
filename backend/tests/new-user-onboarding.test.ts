@@ -10,8 +10,7 @@ import {
   onboardingWelcomeNoteId,
 } from "../src/db/newUserOnboardingMigration.js";
 import { newUserOnboardingFirstLoginMigration } from "../src/db/newUserOnboardingFirstLoginMigration.js";
-import { onboardingWelcomePresentationMigration } from "../src/db/onboardingWelcomePresentationMigration.js";
-import { claimOnboardingWelcome } from "../src/lib/onboarding.js";
+import { claimOnboardingWelcome, markOnboardingHandled, recordOnboardingLogin } from "../src/lib/onboarding.js";
 
 function createDb(): Database.Database {
   const db = new Database(":memory:");
@@ -63,7 +62,7 @@ function installOnboarding(db: Database.Database): void {
 }
 
 function confirmLogin(db: Database.Database, userId: string): void {
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+  recordOnboardingLogin(db, userId);
 }
 
 test("seeds Chinese and English guides only on a new account's first confirmed login", () => {
@@ -210,9 +209,9 @@ test("upgrades suppress the welcome for seeded users and never seed an establish
       "INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')",
     );
     createUser.run("seeded-user", "seeded-user");
-    confirmLogin(db, "seeded-user");
+    db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = 'seeded-user'").run();
     createUser.run("pre-upgrade-desktop", "desktop");
-    onboardingWelcomePresentationMigration.up(db);
+    markOnboardingHandled(db, "pre-upgrade-desktop");
 
     for (const userId of ["seeded-user", "pre-upgrade-desktop"]) {
       confirmLogin(db, userId);
@@ -229,13 +228,15 @@ test("new accounts get exactly one welcome grant across devices", () => {
   const db = createDb();
   try {
     installOnboarding(db);
-    onboardingWelcomePresentationMigration.up(db);
     const createUser = db.prepare(
       "INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')",
     );
     for (const userId of ["alice", "bob"]) createUser.run(userId, userId);
+    const columnsBefore = db.prepare("PRAGMA table_info(user_onboarding_state)").all();
     confirmLogin(db, "alice");
     confirmLogin(db, "bob");
+    assert.deepEqual(db.prepare("PRAGMA table_info(user_onboarding_state)").all(), columnsBefore);
+    assert.equal(columnsBefore.some((column: any) => column.name === "welcomePresentedAt"), false);
     db.prepare("UPDATE notes SET isTrashed = 1 WHERE id = ?").run(onboardingWelcomeNoteId("bob"));
     assert.equal(claimOnboardingWelcome(db, "bob"), null);
     assert.equal(claimOnboardingWelcome(db, "alice"), onboardingWelcomeNoteId("alice"));
@@ -272,6 +273,16 @@ test("managed desktop bootstrap does not generate tutorial data on the next star
     assert.equal(second.status, 200);
     const { user } = await second.json() as { user: { id: string } };
     const db = getDb();
+    assert.equal(claimOnboardingWelcome(db, user.id), null);
+    // Older managed databases can require manual login before startup recovers.
+    db.prepare("DELETE FROM user_onboarding_state WHERE userId = ?").run(user.id);
+    db.prepare("UPDATE users SET lastLoginAt = NULL WHERE id = ?").run(user.id);
+    const manualLogin = await auth.request("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "desktop", password: process.env.ELECTRON_LOCAL_ACCOUNT_SECRET }),
+    });
+    assert.equal(manualLogin.status, 200);
     assert.equal(claimOnboardingWelcome(db, user.id), null);
     assert.deepEqual(db.prepare("SELECT id FROM notebooks WHERE userId = ?").all(user.id), []);
     assert.deepEqual(db.prepare("SELECT id FROM notes WHERE userId = ?").all(user.id), []);

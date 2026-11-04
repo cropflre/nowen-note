@@ -411,6 +411,12 @@ export function previewKnowledgeTreeRepair(
   });
 }
 
+export function fetchKnowledgeTreeRepairBackup(id: string): Promise<Omit<TreeRepairPreview, "token"> & {
+  id: string; strategy: TreeRepairStrategy; createdAt: string;
+}> {
+  return request(`/knowledge-tree/repair/backups/${encodeURIComponent(id)}`);
+}
+
 export function applyKnowledgeTreeRepair(
   strategy: TreeRepairStrategy,
   conflictIds: string[],

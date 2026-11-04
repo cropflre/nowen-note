@@ -106,6 +106,17 @@ test("tree repair previews and atomically converges 18 structural conflicts with
   remoteTree = completeTree;
   db.prepare("DELETE FROM knowledge_tree_nodes WHERE id = 'note:n0'").run();
   const incompleteLocal = prepareKnowledgeTreeSnapshot(db, "owner", null);
+  const queuedStructure = incompleteLocal.find((item) => item.entityId === "note:n2")!.payload;
+  enqueueMutation(db, {
+    profileId: profile.id, deviceId: device.id, entityType: "knowledge_tree_node", entityId: "note:n2",
+    operation: "upsert", mutationId: "earlier-selected-tree-intent",
+    payload: { ...queuedStructure, sortOrder: 5, baseParentId: queuedStructure.parentId, baseSortOrder: 3, baseIsDeleted: 0 },
+  });
+  enqueueMutation(db, {
+    profileId: profile.id, deviceId: device.id, entityType: "knowledge_tree_node", entityId: "note:n2",
+    operation: "upsert", mutationId: "selected-tree-intent",
+    payload: { ...queuedStructure, baseParentId: queuedStructure.parentId, baseSortOrder: 3, baseIsDeleted: 0, baseDeletedAt: null },
+  });
   snapshot = await readRemote();
   const preview = previewTreeRepair(db, input, snapshot);
   assert.equal(preview.changes.length, 18);
@@ -113,6 +124,7 @@ test("tree repair previews and atomically converges 18 structural conflicts with
   assert.equal(listUnresolvedConflicts(db, profile.id).length, 18);
   assert.equal(preview.changes.find((change) => change.title === "Note 0")?.local, null);
   assert.deepEqual(prepareKnowledgeTreeSnapshot(db, "owner", null), incompleteLocal);
+  assert.ok(db.prepare("SELECT 1 FROM sync_outbox WHERE mutationId = 'selected-tree-intent'").get());
 
   db.prepare("UPDATE knowledge_tree_nodes SET sortOrder = 7 WHERE id = 'note:n1'").run();
   assert.throws(() => applyTreeRepair(db, input, snapshot, preview.token, device.id), /重新预览/);
@@ -121,6 +133,7 @@ test("tree repair previews and atomically converges 18 structural conflicts with
     WHEN OLD.id = '${conflictIds.at(-1)}' BEGIN SELECT RAISE(ABORT, 'injected failure'); END;`);
   assert.throws(() => applyTreeRepair(db, input, snapshot, nextPreview.token, device.id), /injected failure/);
   assert.equal(listUnresolvedConflicts(db, profile.id).length, 18);
+  assert.ok(db.prepare("SELECT 1 FROM sync_outbox WHERE mutationId = 'selected-tree-intent'").get());
   assert.equal((db.prepare("SELECT sortOrder FROM knowledge_tree_nodes WHERE id = 'note:n1'").get() as { sortOrder: number }).sortOrder, 7);
   db.exec("DROP TRIGGER reject_repair");
 

@@ -72,7 +72,8 @@ export async function readNativeTreeRepairPlan(
     rejectNativeTreeRepair("还有删除、恢复或内容冲突。请先处理这些冲突，再批量修复目录位置。");
   }
   if ((await tx.query(`SELECT id FROM attachments WHERE scopeKey='personal'
-    AND transferStatus IN ('local','pending_upload','uploading','failed') LIMIT 1`)).length) {
+    AND (transferStatus IN ('local','pending_upload','uploading')
+      OR (transferStatus='failed' AND available=1)) LIMIT 1`)).length) {
     rejectNativeTreeRepair("个人空间还有未确认上传的附件，请先同步或导出备份。");
   }
 
@@ -199,4 +200,39 @@ export async function applyNativeTreeRepair(
     [newLocalId(), newLocalId(), profileId, deviceId, local.id, JSON.stringify(nativeTreeMutationPayload(local, remote)), timestamp]);
   }
   return { resolved: plan.selected.length, backupId };
+}
+
+export async function readNativeTreeRepairBackup(
+  db: NativeDatabase, context: NativeTreeWriteContext, id: string,
+) {
+  const profile = (await db.query<{enabled: number; authStatus: string; remoteUserId: string}>(
+    "SELECT enabled,authStatus,remoteUserId FROM sync_profiles WHERE id=?", [context.profileId],
+  ))[0];
+  if (profile?.enabled !== 1 || profile.authStatus !== "ready" || profile.remoteUserId !== context.userId) {
+    rejectNativeTreeRepair("当前账号已变化，请重新打开同步设置。");
+  }
+  const row = (await db.query<{value: string; updatedAt: string}>(
+    "SELECT value,updatedAt FROM native_runtime_meta WHERE key=?",
+    [`knowledgeTreeRepairBackup:${context.profileId}:${id}`],
+  ))[0];
+  if (!row) rejectNativeTreeRepair("当前账号中没有这份目录结构快照。");
+  const saved = JSON.parse(row.value) as {
+    strategy: NativeTreeRepairStrategy;
+    changes: Array<{id: string; title: string; local: Record<string, unknown> | null; remote: Record<string, unknown> | null}>;
+  };
+  if ((saved.strategy !== "keep-local" && saved.strategy !== "keep-remote") || !Array.isArray(saved.changes)) {
+    rejectNativeTreeRepair("目录结构快照格式无效。");
+  }
+  const snapshot = (node: Record<string, unknown> | null) => {
+    if (node === null) return null;
+    assertNativePersonalTreeEntry(String(node.id), node, context.userId);
+    const {id, parentId, sortOrder, isDeleted, deletedAt, resourceType, resourceId, nodeType} = node;
+    return {id, parentId, sortOrder, isDeleted, deletedAt, resourceType, resourceId, nodeType};
+  };
+  return {
+    id, strategy: saved.strategy, createdAt: row.updatedAt,
+    changes: saved.changes.map((change) => ({
+      id: change.id, title: change.title, local: snapshot(change.local), remote: snapshot(change.remote),
+    })),
+  };
 }

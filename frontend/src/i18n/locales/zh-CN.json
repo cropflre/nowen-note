@@ -1,5 +1,6 @@
 {
   "treeConflict": {
+    "exportSavedStructure": "导出修复前保存的结构快照",
     "heading": "知识树结构冲突（{{count}}）",
     "otherHeading": "其他冲突（{{count}}）",
     "selectionCounts": "选中项：{{ordinary}} 条可尝试批量处理，{{tree}} 条需预检知识树结构，{{attachments}} 条附件整理冲突需逐项核对。",

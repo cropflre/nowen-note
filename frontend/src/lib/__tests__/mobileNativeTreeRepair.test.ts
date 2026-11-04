@@ -6,6 +6,7 @@ import { URL as NodeURL } from "node:url";
 import { MobileSyncEngine } from "../mobileSyncEngine";
 import type { NativeDatabase } from "../nativeDatabase";
 import { NATIVE_TREE_ENTITY_SET } from "../nativeKnowledgeTreeSync";
+import { readNativeTreeRepairBackup } from "../nativeTreeConflictRepair";
 
 const { DatabaseSync: SQLiteDatabase } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 const context = { profileId: "p", deviceId: "d", userId: "u" };
@@ -101,7 +102,7 @@ function fixture(count = 1) {
   vi.stubGlobal("fetch", request);
   const engine = new MobileSyncEngine({ db, attachments: {} as never, serverUrl: "http://localhost:3001", token: "test", ...context });
   engine.start();
-  return { engine, raw, remote, server, request, ids: Array.from({ length: count }, (_, index) => `c-${index}`) };
+  return { engine, db, raw, remote, server, request, ids: Array.from({ length: count }, (_, index) => `c-${index}`) };
 }
 
 it("repairs 18 Android directory conflicts atomically, retaining business data, cursor and conflict history", async () => {
@@ -145,7 +146,7 @@ it("blocks a stale confirmation and preserves every queued mutation", async () =
   expect(raw.prepare("SELECT parentId FROM notebooks WHERE id='folder-0'").get()).toEqual({ parentId: "old" });
 });
 
-it.each(["body", "attachment", "delete", "cursor", "cycle", "missing-cloud", "missing-local-resource"] as const)(
+it.each(["body", "attachment", "failed-upload", "delete", "cursor", "cycle", "missing-cloud", "missing-local-resource"] as const)(
   "blocks %s before replacing directories",
   async (condition) => {
     const { engine, raw, ids, remote, server } = fixture();
@@ -153,6 +154,8 @@ it.each(["body", "attachment", "delete", "cursor", "cycle", "missing-cloud", "mi
       VALUES ('body','m-body','p','d','personal','note','n','upsert','created')`);
     if (condition === "attachment") raw.exec(`INSERT INTO attachments(id,noteId,userId,filename,mimeType,size,transferStatus,createdAt,updatedAt)
       VALUES ('a','n','u','x','text/plain',1,'pending_upload','created','created')`);
+    if (condition === "failed-upload") raw.exec(`INSERT INTO attachments(id,noteId,userId,filename,mimeType,size,available,localPath,transferStatus,createdAt,updatedAt)
+      VALUES ('a','n','u','x','text/plain',1,1,'local-path','failed','created','created')`);
     if (condition === "delete") raw.exec("UPDATE sync_outbox SET operation='delete'");
     if (condition === "cursor") server.sequence++;
     if (condition === "cycle") remote[1].parentId = "notebook:folder-0";
@@ -164,6 +167,26 @@ it.each(["body", "attachment", "delete", "cursor", "cycle", "missing-cloud", "mi
     expect(raw.prepare("SELECT key FROM native_runtime_meta WHERE key LIKE 'knowledgeTreeRepairBackup:%'").all()).toHaveLength(0);
   },
 );
+
+it("repairs directory positions while retaining a failed cloud attachment download", async () => {
+  const { engine, raw, ids } = fixture();
+  raw.exec(`INSERT INTO attachments(id,noteId,userId,filename,mimeType,size,available,transferStatus,transferError,createdAt,updatedAt)
+    VALUES ('download','n','u','cloud.txt','text/plain',1,0,'failed','HTTP 404','created','created')`);
+  const preview = await engine.repairPersonalTree("keep-remote", ids);
+  if (!("token" in preview)) throw new Error("Expected a repair preview");
+  await expect(engine.repairPersonalTree("keep-remote", ids, preview.token)).resolves.toMatchObject({ resolved: 1 });
+  expect(raw.prepare("SELECT available,transferStatus,transferError FROM attachments WHERE id='download'").get())
+    .toEqual({ available: 0, transferStatus: "failed", transferError: "HTTP 404" });
+});
+
+it("refreshes historical version-only tree conflict payloads from the current cloud snapshot", async () => {
+  const { engine, raw, ids } = fixture();
+  raw.exec("UPDATE sync_conflicts SET remotePayload='{\"version\":17}'");
+  const preview = await engine.repairPersonalTree("keep-remote", ids);
+  if (!("token" in preview)) throw new Error("Expected a repair preview");
+  expect(preview.changes[0].remote.parentId).toBe("notebook:new");
+  await expect(engine.repairPersonalTree("keep-remote", ids, preview.token)).resolves.toMatchObject({ resolved: 1 });
+});
 
 it("rolls back structure, history and the backup if apply cannot finish", async () => {
   const { engine, raw, ids } = fixture();
@@ -203,4 +226,35 @@ it("keeps validated local positions by replacing old queue entries with CAS agai
   expect(JSON.parse(String(queued[0].payload))).toMatchObject({
     parentId: "notebook:old", baseParentId: "notebook:new", baseSortOrder: 10, baseIsDeleted: 0,
   });
+});
+
+it("retrieves only saved structural fields and rejects another account or profile", async () => {
+  const { engine, db, raw, ids } = fixture();
+  const preview = await engine.repairPersonalTree("keep-remote", ids);
+  if (!("token" in preview)) throw new Error("Expected a repair preview");
+  const result = await engine.repairPersonalTree("keep-remote", ids, preview.token);
+  if (!("backupId" in result)) throw new Error("Expected a saved backup");
+  const backup = await readNativeTreeRepairBackup(db, context, result.backupId);
+  expect(backup).toMatchObject({ id: result.backupId, strategy: "keep-remote", changes: [{
+    id: "c-0", local: { parentId: "notebook:old" }, remote: { parentId: "notebook:new" },
+  }] });
+  expect(Object.keys(backup.changes[0].local!).sort()).toEqual([
+    "deletedAt", "id", "isDeleted", "nodeType", "parentId", "resourceId", "resourceType", "sortOrder",
+  ]);
+  expect(backup).not.toHaveProperty("outbox");
+  expect(backup).not.toHaveProperty("token");
+  await expect(readNativeTreeRepairBackup(db, {...context, userId: "other"}, result.backupId)).rejects.toThrow("账号已变化");
+  raw.exec(`INSERT INTO sync_profiles(id,name,serverUrl,remoteUserId,enabled,createdAt,updatedAt)
+    VALUES ('p2','Other','http://localhost:3001','u2',1,'created','created')`);
+  await expect(readNativeTreeRepairBackup(db, {...context, profileId: "p2", userId: "u2"}, result.backupId)).rejects.toThrow("没有这份");
+});
+
+it("exports a missing local tree node as a null saved before snapshot", async () => {
+  const { engine, db, raw, ids } = fixture();
+  raw.exec("DELETE FROM native_knowledge_tree_nodes WHERE id='notebook:folder-0'; DELETE FROM sync_outbox; UPDATE sync_conflicts SET localPayload=NULL");
+  const preview = await engine.repairPersonalTree("keep-remote", ids);
+  if (!("token" in preview)) throw new Error("Expected a repair preview");
+  const result = await engine.repairPersonalTree("keep-remote", ids, preview.token);
+  if (!("backupId" in result)) throw new Error("Expected a saved backup");
+  expect((await readNativeTreeRepairBackup(db, context, result.backupId)).changes[0].local).toBeNull();
 });

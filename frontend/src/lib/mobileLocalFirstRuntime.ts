@@ -1,4 +1,4 @@
-import { nativeTreeResourceTitle, rejectNativeTreeRepair } from "./nativeTreeConflictRepair";
+import { nativeTreeResourceTitle, readNativeTreeRepairBackup, rejectNativeTreeRepair } from "./nativeTreeConflictRepair";
 import { Capacitor } from "@capacitor/core";
 import { getCurrentWorkspace, getServerUrl, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "./api.impl";
 import { getAccessToken } from "./authSession";
@@ -352,6 +352,10 @@ function createNativeAdminAdapter(
       const apply = path.endsWith("/apply");
       if (apply && typeof body.token !== "string") rejectNativeTreeRepair("请先预览并确认目录修复。");
       return await engine.repairPersonalTree(body.strategy, body.conflictIds, apply ? body.token : undefined) as T;
+    }
+    const treeBackupMatch = path.match(/^\/knowledge-tree\/repair\/backups\/([^/]+)$/);
+    if (method === "GET" && treeBackupMatch) {
+      return await readNativeTreeRepairBackup(db, {profileId, deviceId, userId}, decodeURIComponent(treeBackupMatch[1])) as T;
     }
     if(path==="/conflicts"){
       const rows=await db.query<{id:string;entityType:string;entityId:string;localVersion:number|null;remoteVersion:number|null;localPayload:string|null;remotePayload:string|null;createdAt:string}>("SELECT * FROM sync_conflicts WHERE profileId=? AND status='unresolved' ORDER BY createdAt",[profileId]);
