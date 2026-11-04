@@ -4,21 +4,77 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import DesktopOfflineSyncGate from '@/components/DesktopOfflineSyncGate';
 import { enqueue, flushQueue, getQueue, getQueueLength, updateItem } from '@/lib/offlineQueue';
 
-const state=vi.hoisted(()=>({flush:vi.fn()}));
+const state=vi.hoisted(()=>({flush:vi.fn(),serverUrl:'https://nas.test'}));
 vi.mock('react-i18next',()=>({useTranslation:()=>({t:(key:string,values?:Record<string,unknown>)=>values?`${key} ${JSON.stringify(values)}`:key})}));
-vi.mock('@/lib/api',()=>({getServerUrl:()=> 'https://nas.test'}));
+vi.mock('@/lib/api',()=>({getServerUrl:()=>state.serverUrl}));
 vi.mock('@/lib/authSession',()=>({getAccessToken:()=> 'remote-token'}));
 vi.mock('@/lib/offlineScope',()=>({STORAGE_KEY_PREFIX:'nowen-offline-queue:v2',getOfflineQueueStorageKey:()=> 'nowen-offline-queue:v2:nas:user'}));
 vi.mock('@/lib/syncEngine',()=>({syncNow:state.flush}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 
-beforeEach(()=>{localStorage.clear();vi.clearAllMocks();});
+beforeEach(()=>{localStorage.clear();vi.clearAllMocks();state.serverUrl='https://nas.test';});
 afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 function retainEdit(noteId:string) {
   enqueue({type:'updateNote',noteId,url:`/notes/${noteId}`,method:'PUT',body:{content:`local edit ${noteId}`,contentFormat:'markdown',version:1}});
   return getQueue().find(item=>item.noteId===noteId)!;
 }
+
+it('DCC-006: local login recovery keeps remote credentials and retries download only after confirmation', async () => {
+  vi.useFakeTimers();
+  const migrate=vi.fn().mockResolvedValueOnce({ok:false,error:'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN'})
+    .mockResolvedValue({ok:false,error:'download interrupted'});
+  let finishReset!: (result:unknown)=>void;
+  const reset=vi.fn().mockResolvedValueOnce({ok:false,cancelled:true})
+    .mockImplementationOnce(()=>new Promise(resolve=>{finishReset=resolve;}));
+  const desktopWindow=window as unknown as {nowenDesktop?:object};
+  desktopWindow.nowenDesktop={isDesktop:true,getAppInfo:async()=>({runtime:'remote',localRuntimeAvailable:true}),startLiteMigration:migrate,resetLocalAuth:reset};
+  localStorage.setItem('nowen-token','remote-token');
+  localStorage.setItem('nowen-server-url','https://nas.test');
+  const host=document.createElement('div');document.body.appendChild(host);const root=createRoot(host);
+  const button=(key:string)=>[...host.querySelectorAll('button')].find(item=>item.textContent===key)!;
+  try {
+    await act(async()=>{root.render(<DesktopOfflineSyncGate><span>editor</span></DesktopOfflineSyncGate>);});
+    expect(host.textContent).toContain('offlineAvailability.localAccountRecoveryHint');
+    expect(reset).not.toHaveBeenCalled();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
+    expect(migrate).toHaveBeenCalledOnce();
+    await act(async()=>button('offlineAvailability.recoverLocalAccount').click());
+    expect(migrate).toHaveBeenCalledOnce();
+    expect(host.textContent).not.toContain('editor');
+    await act(async()=>button('offlineAvailability.recoverLocalAccount').click());
+    expect(button('offlineAvailability.continueOnline').disabled).toBe(true);
+    expect(button('offlineAvailability.recoverLocalAccount').disabled).toBe(true);
+    await act(async()=>finishReset({ok:true,token:'local-secret-token'}));
+    expect(migrate).toHaveBeenCalledTimes(2);
+    expect(migrate).toHaveBeenLastCalledWith('https://nas.test','remote-token');
+    expect(localStorage.getItem('nowen-token')).toBe('remote-token');
+    expect(localStorage.getItem('nowen-server-url')).toBe('https://nas.test');
+    expect(host.textContent).not.toContain('local-secret-token');
+  } finally {act(()=>root.unmount());host.remove();delete desktopWindow.nowenDesktop;}
+});
+
+it.each(['failure','server-change'])('local recovery %s cannot start a download or switch credentials', async (outcome) => {
+  vi.useFakeTimers();
+  const migrate=vi.fn().mockResolvedValue({ok:false,error:'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN'});
+  let finishReset!: (result:unknown)=>void;
+  const reset=vi.fn(()=>new Promise(resolve=>{finishReset=resolve;}));
+  const desktopWindow=window as unknown as {nowenDesktop?:object};
+  desktopWindow.nowenDesktop={isDesktop:true,getAppInfo:async()=>({runtime:'remote',localRuntimeAvailable:true}),startLiteMigration:migrate,resetLocalAuth:reset};
+  localStorage.setItem('nowen-token','remote-token');
+  const host=document.createElement('div');document.body.appendChild(host);const root=createRoot(host);
+  try {
+    await act(async()=>{root.render(<DesktopOfflineSyncGate><span>editor</span></DesktopOfflineSyncGate>);});
+    await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='offlineAvailability.recoverLocalAccount')!.click());
+    if (outcome==='server-change') state.serverUrl='https://other-nas.test';
+    await act(async()=>finishReset(outcome==='failure' ? {ok:false,error:'recovery failed'} : {ok:true,token:'local-token'}));
+    await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
+    expect(migrate).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('nowen-token')).toBe('remote-token');
+    expect(host.textContent).not.toContain('editor');
+    if (outcome==='failure') expect(host.textContent).toContain('recovery failed');
+  } finally {act(()=>root.unmount());host.remove();delete desktopWindow.nowenDesktop;}
+});
 
 it('DCC-003: automatic download replays retained legacy edits before starting the NAS baseline', async () => {
   retainEdit('legacy-note');

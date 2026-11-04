@@ -2,9 +2,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SyncSettingsTab from "../settings/SyncSettingsTab";
-const mocks = vi.hoisted(() => ({ info: vi.fn(), diagnostics: vi.fn(), android: false, native: false, serverUrl: 'http://127.0.0.1:1234' }));
+const mocks = vi.hoisted(() => ({ info: vi.fn(), diagnostics: vi.fn(), migrate: vi.fn(), reset: vi.fn(), android: false, native: false, serverUrl: 'http://127.0.0.1:1234' }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
-vi.mock("@/lib/desktopBridge", () => ({ getAppInfo: mocks.info, getLiteMigrationProgress: vi.fn(async () => ({progress:{stage:'pending'}})), startLiteMigration: vi.fn() }));
+vi.mock("@/lib/desktopBridge", () => ({ getAppInfo: mocks.info, getLiteMigrationProgress: vi.fn(async () => ({progress:{stage:'pending'}})), startLiteMigration: mocks.migrate, resetDesktopLocalAuth: mocks.reset }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isAndroidNativeRuntime: () => mocks.android }));
 vi.mock("@/lib/api", () => ({ getServerUrl: () => mocks.serverUrl }));
 vi.mock("@/lib/authSession", () => ({ getAccessToken: () => "token" }));
@@ -58,5 +58,21 @@ describe("sync settings across browser and clients", () => {
   it("does not identify other native apps as a server browser", async () => {
     mocks.native = true;
     await mount(); expect(host.textContent).toContain("客户端同步开关");
+  });
+  it('DCC-006: online users can confirm local login recovery and retry from sync settings', async () => {
+    mocks.serverUrl = 'https://nas.example.com';
+    mocks.info.mockResolvedValue({mode:'lite',runtime:'remote',localRuntimeAvailable:true});
+    mocks.migrate.mockResolvedValue({ok:false,error:'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN'});
+    mocks.reset.mockResolvedValueOnce({ok:false,cancelled:true}).mockResolvedValue({ok:true,token:'local-token'});
+    await mount();
+    await act(async()=>[...host.querySelectorAll('button')].find(item=>item.textContent==='开始迁移')!.click());
+    const recover=()=>[...host.querySelectorAll('button')].find(item=>item.textContent==='offlineAvailability.recoverLocalAccount')!;
+    expect(recover()).toBeDefined();
+    expect(mocks.reset).not.toHaveBeenCalled();
+    await act(async()=>recover().click());
+    expect(mocks.migrate).toHaveBeenCalledOnce();
+    await act(async()=>recover().click());
+    expect(mocks.migrate).toHaveBeenCalledTimes(2);
+    expect(mocks.migrate).toHaveBeenLastCalledWith('https://nas.example.com','token');
   });
 });

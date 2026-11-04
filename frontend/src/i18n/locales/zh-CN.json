@@ -65,6 +65,8 @@
     "exportLegacyEdits": "导出待同步修改",
     "retryLegacyEdits": "重新尝试",
     "continueOnline": "继续在线使用",
+    "recoverLocalAccount": "恢复本地登录并重试",
+    "localAccountRecoveryHint": "本地登录需要恢复，下载暂未开始。点击「恢复本地登录并重试」，核对弹窗中的说明后确认，即可恢复本机账号并重新下载。",
     "onlineOnlyHint": "本地副本尚未就绪。可继续在线访问原服务器，稍后在同步设置中重试下载；完成前请保持联网。",
     "downloadTitle": "下载到本机，支持离线使用",
     "installFull": "当前 Lite 安装包提供在线访问。请安装完整版客户端，在同步设置连接原 NAS 账号后下载笔记和附件。",

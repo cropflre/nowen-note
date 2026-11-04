@@ -9,6 +9,10 @@ interface DesktopStartupBridge {
 type DesktopDownloadBridge = Pick<DesktopStartupBridge,'getAppInfo'|'startLiteMigration'>;
 const downloads = new WeakMap<DesktopDownloadBridge, {serverUrl:string;token:string;work:Promise<boolean>}>();
 
+export function needsLocalAccountRecovery(error: string) {
+  return ['LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN','LOCAL_ACCOUNT_NOT_FOUND','local-account-unavailable'].includes(error);
+}
+
 /** Every remote desktop login establishes the local copy before opening editors. */
 export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBridge, serverUrl: string, token: string, pendingWrites: () => number): Promise<boolean> {
   const info = await bridge.getAppInfo?.();
