@@ -58,6 +58,11 @@ const diary = new Hono();
 //   - error 非空时路由应立即返回 403
 //   - scope === 'personal' 时 workspaceId 为 null（用于 SQL "IS NULL" 比较）
 //   - scope === 'workspace' 时 workspaceId 为具体 uuid 字符串
+function isRestrictedDiaryToken(c: Context): boolean {
+  return c.req.header("X-Auth-Mode") === "api-token"
+    && c.req.header("X-Api-Resource-Mode") === "restricted";
+}
+
 function resolveDiaryScope(
   c: Context,
   userId: string,
@@ -65,6 +70,9 @@ function resolveDiaryScope(
   const raw = c.req.query("workspaceId");
   if (!raw || raw === "personal") {
     return { scope: "personal", workspaceId: null };
+  }
+  if (isRestrictedDiaryToken(c)) {
+    return { scope: "workspace", workspaceId: raw, error: "API Token 仅可发布个人说说" };
   }
   const role = getUserWorkspaceRole(raw, userId);
   if (!role) {
@@ -239,6 +247,7 @@ function getValidDiaryMedia(
   ids: string[],
   userId: string,
   diaryId: string | null,
+  personalOnly = false,
 ): DiaryMediaItem[] {
   if (!ids.length) return [];
   const db = getDb();
@@ -256,9 +265,10 @@ function getValidDiaryMedia(
           `SELECT id, mimeType FROM diary_attachments
             WHERE id IN (${placeholders})
               AND userId = ?
-              AND diaryId IS NULL`,
+              AND diaryId IS NULL
+              AND (? = 0 OR workspaceId IS NULL)`,
         )
-        .all(...ids, userId) as { id: string; mimeType: string }[];
+        .all(...ids, userId, personalOnly ? 1 : 0) as { id: string; mimeType: string }[];
   const byId = new Map(rows.map((r) => [r.id, mediaTypeFromMime(r.mimeType)]));
   return ids
     .map((id) => {
@@ -347,10 +357,12 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
   const customCreatedAt = normalizeUtcInputToSql(body.createdAt);
 
   const id = crypto.randomUUID();
+  const personalOnly = isRestrictedDiaryToken(c);
   const orderedValidMedia = getValidDiaryMedia(
     requestedMedia.map((x) => x.id),
     userId,
     null,
+    personalOnly,
   );
   if (orderedValidMedia.length !== requestedMedia.length) {
     return c.json({ error: "媒体附件不存在或已被使用" }, 400);
@@ -400,9 +412,13 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
             SET diaryId = ?, workspaceId = ?
           WHERE id IN (${placeholders})
             AND userId = ?
-            AND diaryId IS NULL`,
+            AND diaryId IS NULL
+            AND (? = 0 OR workspaceId IS NULL)`,
       );
-      upd.run(id, scope.workspaceId, ...mediaIds, userId);
+      const { changes } = upd.run(id, scope.workspaceId, ...mediaIds, userId, personalOnly ? 1 : 0);
+      if (personalOnly && changes !== mediaIds.length) {
+        throw new Error("媒体附件已被使用或已移出个人空间");
+      }
     }
   });
 

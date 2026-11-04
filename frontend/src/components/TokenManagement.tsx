@@ -83,6 +83,7 @@ function scopeLabel(scope: string): string {
   const labels: Record<string, string> = {
     "tasks:read": "读取个人任务",
     "tasks:write": "创建和更新个人任务",
+    "diary:publish": "发布个人说说及上传媒体",
     "automations:read": "读取个人自动化工作流",
     "automations:write": "管理个人自动化工作流",
     "notes:read": "读取笔记",
