@@ -145,6 +145,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "blocks repair when the latest queued position differs from the previewed local tree" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "repairs 18 Android directory conflicts atomically, retaining business data, cursor and conflict history" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
         { "file": "backend/tests/agent.test.ts", "case": "expired editor snapshots and concurrent versions cannot approve (DCC-004)" },

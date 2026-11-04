@@ -81,7 +81,7 @@ export async function readNativeTreeRepairPlan(
     sortOrder,isDeleted,deletedAt,createdAt,updatedAt FROM native_knowledge_tree_nodes WHERE scopeKey='personal' ORDER BY id`);
   const localById = new Map(localNodes.map((node) => [node.id, node]));
   const outbox = await tx.query<Outbox>(`SELECT id,entityType,entityId,operation,status,payload FROM sync_outbox
-    WHERE profileId=? AND scopeKey='personal' ORDER BY id`, [profileId]);
+    WHERE profileId=? AND scopeKey='personal' ORDER BY rowid`, [profileId]);
   for (const row of outbox) {
     if (row.entityType !== "knowledge_tree_node" || !targetIds.has(row.entityId) || row.operation !== "upsert" || row.status !== "pending") {
       rejectNativeTreeRepair("还有待同步写入。请先同步正文、附件或其他目录更改，再重新预览。");
@@ -98,7 +98,8 @@ export async function readNativeTreeRepairPlan(
 
   for (const id of targetIds) {
     const queued = outbox.filter((row) => row.entityId === id);
-    if (queued.length && !queued.some((row) => sameNativeTreePosition(JSON.parse(row.payload!), localById.get(id)!))) {
+    const latest = queued.at(-1);
+    if (latest && !sameNativeTreePosition(JSON.parse(latest.payload!), localById.get(id)!)) {
       rejectNativeTreeRepair("待同步目录更改与本机结构不一致。请先导出备份并单条检查。");
     }
   }

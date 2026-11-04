@@ -258,3 +258,14 @@ it("exports a missing local tree node as a null saved before snapshot", async ()
   if (!("backupId" in result)) throw new Error("Expected a saved backup");
   expect((await readNativeTreeRepairBackup(db, context, result.backupId)).changes[0].local).toBeNull();
 });
+
+it("blocks repair when the latest queued position differs from the previewed local tree", async () => {
+  const { engine, raw, ids } = fixture();
+  const previous = raw.prepare("SELECT payload FROM sync_outbox WHERE id='o-0'").get() as {payload: string};
+  raw.prepare(`INSERT INTO sync_outbox(id,mutationId,profileId,deviceId,scopeKey,entityType,entityId,operation,payload,status,retryCount,createdAt)
+    VALUES ('a-newer','m-newer','p','d','personal','knowledge_tree_node','notebook:folder-0','upsert',?,'pending',0,'created')`)
+    .run(JSON.stringify({...JSON.parse(previous.payload), sortOrder: 123}));
+  await expect(engine.repairPersonalTree("keep-remote", ids)).rejects.toThrow("本机结构不一致");
+  expect(raw.prepare("SELECT mutationId FROM sync_outbox ORDER BY rowid").all())
+    .toEqual([{mutationId:"m-0"}, {mutationId:"m-newer"}]);
+});
