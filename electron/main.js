@@ -78,6 +78,7 @@ let ugreenWorkspaceWindow = null;
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
 let localAuthBootstrapSucceeded = false;
+let localAuthBootstrapError = null;
 let localAccountCreationAllowed = false;
 
 const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
@@ -844,12 +845,14 @@ async function provisionLocalAdminAccount(username, password) {
 
 async function ensureLocalAccount() {
   localAuthBootstrapSucceeded = false;
+  localAuthBootstrapError = null;
   if (isLiteOnlyBuild()) return null;
   if (!backendPort) return null;
 
   const password = getLocalAccountSecret();
   // 密码不匹配、锁定、限流或网络错误都不会触发 reset-local。
   const result = await requestLocalAccountBootstrap(localApiRequest, password, localAccountCreationAllowed);
+  localAuthBootstrapError = result.reason;
   if (result.account) {
     localAuthBootstrapSucceeded = true;
     console.log("[Electron] local desktop admin login OK");
@@ -860,7 +863,7 @@ async function ensureLocalAccount() {
 }
 
 async function resetLocalAccountAuth() {
-  if (currentMode !== "full") return { ok: false, error: "not-full-mode" };
+  if (isLiteOnlyBuild()) return { ok: false, error: "not-full-build" };
   if (!backendPort) return { ok: false, error: "backend-not-ready" };
   const password = getLocalAccountSecret();
   try {
@@ -868,6 +871,7 @@ async function resetLocalAccountAuth() {
     if (account) {
       localAuthCache = account;
       localAuthBootstrapSucceeded = true;
+      localAuthBootstrapError = null;
       return { ok: true, ...account };
     }
     return { ok: false, error: "local-admin-provisioning-failed" };
@@ -2122,7 +2126,7 @@ function registerAppIpc() {
       }
     }
     if (!localAuthCache?.token) {
-      return { ok: false, error: "local-account-unavailable" };
+      return { ok: false, error: localAuthBootstrapError || "local-account-unavailable" };
     }
 
     const previousSettings = readSettings();
@@ -2316,6 +2320,7 @@ ipcMain.handle("task:notify-permission", () => {
       type: "warning",
       title: "重置本地账号？",
       message: "此操作会把当前数据目录的 desktop 账号密码重置为本机托管凭据，并使该账号的旧登录会话失效；不会删除笔记或附件。请先确认本地数据位置及备份。是否继续？",
+      detail: `本地数据位置：${getUserDataPath()}`,
       buttons: ["取消", "重置"],
       defaultId: 0,  // 默认按钮是取消
       cancelId: 0,   // Esc / 关闭弹窗视为取消
@@ -2323,7 +2328,7 @@ ipcMain.handle("task:notify-permission", () => {
 
     // 用户点击"取消"或关闭弹窗
     if (response !== 1) {
-      return { success: false, cancelled: true };
+      return { ok: false, cancelled: true };
     }
 
     // 用户点击"重置"

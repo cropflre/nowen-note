@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { automaticallyDownloadDesktopCopy } from '@/lib/desktopLocalSession';
+import { automaticallyDownloadDesktopCopy, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import type { LiteMigrationProgress, NowenDesktopAPI } from '@/lib/desktopBridge';
 import { getAccessToken } from '@/lib/authSession';
 import { getServerUrl } from '@/lib/api';
@@ -18,21 +18,29 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
   const [busy,setBusy] = useState(false);
   const [progress,setProgress] = useState<LiteMigrationProgress | null>(null);
   const retry = useRef<(() => void) | null>(null);
+  const recoverLocalAccount = useRef<(() => void) | null>(null);
   const continueOnline = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!bridge?.isDesktop || ready) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     let running = false;
-    const run = async () => {
+    const run = async (recover = false) => {
       if (running || cancelled) return;
+      clearTimeout(timer);
       running = true;
       setBusy(true);
       setProgress(null);
       const token = getAccessToken() || '', serverUrl = getServerUrl();
       const scope = getOfflineQueueStorageKey();
-      const current = () => !cancelled && !!getAccessToken() && getOfflineQueueStorageKey() === scope && getServerUrl() === serverUrl;
+      const current = () => !cancelled && getAccessToken() === token && getOfflineQueueStorageKey() === scope && getServerUrl() === serverUrl;
       try {
+        if (recover) {
+          const result = await bridge.resetLocalAuth!();
+          if (!current() || result.cancelled) return;
+          if (!result.ok) throw new Error(result.error || 'local-account-unavailable');
+          setError('');
+        }
         if (getQueueLength() > 0) await syncNow();
         if (!current()) return;
         const changed = await automaticallyDownloadDesktopCopy(bridge,serverUrl,token,getQueueLength);
@@ -50,8 +58,9 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         setReady(true);
       } catch (reason) {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : String(reason));
-          timer = setTimeout(run,5000);
+          const message = reason instanceof Error ? reason.message : String(reason);
+          setError(message);
+          if (!recover && !needsLocalAccountRecovery(message)) timer = setTimeout(()=>void run(),5000);
         }
       } finally {
         running = false;
@@ -65,6 +74,7 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
       retryFailedQueueItems();
       online();
     };
+    recoverLocalAccount.current = () => { void run(true); };
     continueOnline.current = () => {
       if (running || cancelled) return;
       cancelled = true;
@@ -73,7 +83,7 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
     };
     window.addEventListener('online',online);
     void run();
-    return () => { cancelled = true; retry.current = null; continueOnline.current = null; clearTimeout(timer); window.removeEventListener('online',online); };
+    return () => { cancelled = true; retry.current = null; recoverLocalAccount.current = null; continueOnline.current = null; clearTimeout(timer); window.removeEventListener('online',online); };
   },[bridge,ready]);
   useEffect(() => {
     if (!bridge?.getLiteMigrationProgress || !busy || ready) return;
@@ -132,7 +142,7 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
           done:attachmentsDone,total:attachmentsTotal,
         })}</p>}
       </div>
-      {error && <p className="text-sm text-amber-600">{error}</p>}
+      {error && <p className="text-sm text-amber-600">{needsLocalAccountRecovery(error) ? t('offlineAvailability.localAccountRecoveryHint') : error}</p>}
       {failedEdits > 0 && <div className="space-y-3 text-sm">
         <p>{t('offlineAvailability.legacyEditsRetained',{count:failedEdits})}</p>
         <div className="flex justify-center gap-3">
@@ -141,7 +151,8 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
       </div>}
       {error && <div className="space-y-3 text-sm">
         <p className="text-tx-tertiary">{t('offlineAvailability.onlineOnlyHint')}</p>
-        <div className="flex justify-center gap-3">
+        <div className="flex flex-wrap justify-center gap-3">
+          {needsLocalAccountRecovery(error) && bridge?.resetLocalAuth && <button type="button" disabled={busy} onClick={()=>recoverLocalAccount.current?.()} className="rounded border border-app-border px-3 py-2 disabled:opacity-50">{t('offlineAvailability.recoverLocalAccount')}</button>}
           <button type="button" disabled={busy} onClick={()=>retry.current?.()} className="rounded border border-app-border px-3 py-2 disabled:opacity-50">{t('offlineAvailability.retryLegacyEdits')}</button>
           <button type="button" disabled={busy} onClick={()=>continueOnline.current?.()} className="rounded border border-app-border px-3 py-2 disabled:opacity-50">{t('offlineAvailability.continueOnline')}</button>
         </div>

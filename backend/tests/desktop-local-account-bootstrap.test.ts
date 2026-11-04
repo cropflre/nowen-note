@@ -114,6 +114,10 @@ test("desktop bootstrap creates only a missing account and never changes an exis
     (getDb().prepare("SELECT contentText FROM notes WHERE id = ?").get("issue-787-note") as { contentText: string }).contentText,
     "keep this note",
   );
+  closeDb();
+  assert.equal((await bootstrap()).status, 200);
+  assert.equal(desktop()?.id, created.id);
+  assert.equal(desktop()?.tokenVersion, 8);
 });
 
 test("desktop bootstrap leaves disabled and locked accounts unchanged", async () => {

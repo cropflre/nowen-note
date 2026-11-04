@@ -20,6 +20,8 @@
     "exportLegacyEdits": "Export pending edits",
     "retryLegacyEdits": "Try again",
     "continueOnline": "Continue online",
+    "recoverLocalAccount": "Restore local sign-in and retry",
+    "localAccountRecoveryHint": "Local sign-in needs recovery before downloading can begin. Select “Restore local sign-in and retry”, review the confirmation dialog, and confirm to restore the local account and retry the download.",
     "onlineOnlyHint": "Your local copy is not ready. Continue accessing your server online and retry the download in sync settings later. Stay connected until the download completes.",
     "downloadTitle": "Download to this device for offline use",
     "installFull": "The Lite package provides online access. Install the Full client, connect to your existing NAS account in sync settings, then download your notes and attachments.",

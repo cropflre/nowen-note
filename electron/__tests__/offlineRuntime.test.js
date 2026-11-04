@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const settings = require('../settings');
-const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8').replace(/\r\n/g, '\n');
 
 function migrationHandler(context) {
   const start = source.indexOf('  ipcMain.handle("sync:start-lite-migration",');
@@ -15,6 +15,61 @@ function migrationHandler(context) {
   vm.createContext(context);vm.runInContext(source.slice(start,end+6),context);
   return context.migrate;
 }
+
+test('DCC-006: remote full-build download reports local auth failure and resumes after confirmed recovery', async () => {
+  const calls = [];
+  const context = {
+    backendPort: 1234, localAuthCache: null, localAuthBootstrapError: null,
+    localAuthBootstrapSucceeded: false, currentMode: 'lite', currentRuntime: 'remote', console,
+    assertMainWindowSender: () => null, isLiteOnlyBuild: () => false,
+    ensureLocalAccount: async () => { context.localAuthBootstrapError = 'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN'; return null; },
+    getLocalAccountSecret: () => 'secret',
+    provisionLocalAdminAccount: async () => { calls.push('reset'); return {token:'local-token'}; },
+    readSettings: () => ({}), writeSettings: (patch) => patch,
+    fetch: async (_url, options) => {
+      assert.equal(options.headers.Authorization, 'Bearer local-token');
+      assert.equal(JSON.parse(options.body).token, 'remote-token');
+      return {ok:true,json:async()=>({stage:'complete',remoteUrl:'https://nas.test',profileId:'profile'})};
+    },
+  };
+  const migrate = migrationHandler(context);
+  const first = await migrate({}, {serverUrl:'https://nas.test',token:'remote-token'});
+  assert.equal(first.error, 'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN');
+  assert.deepEqual(calls, []);
+  const start = source.indexOf('async function resetLocalAccountAuth()');
+  const end = source.indexOf('\n}\n', start);
+  vm.runInContext(source.slice(start,end+2), context);
+  assert.equal((await context.resetLocalAccountAuth()).ok, true);
+  assert.equal((await migrate({}, {serverUrl:'https://nas.test',token:'remote-token'})).ok, true);
+  assert.equal(context.currentRuntime, 'local');
+  context.isLiteOnlyBuild = () => true;
+  assert.equal((await context.resetLocalAccountAuth()).ok, false);
+  assert.deepEqual(calls, ['reset']);
+});
+
+test('local account recovery requires a trusted sender and explicit native confirmation', async () => {
+  let resets = 0, prompts = 0;
+  const context = {
+    assertMainWindowSender: () => null,
+    BrowserWindow: {getFocusedWindow: () => null}, mainWindow: null,
+    getUserDataPath: () => 'local-data',
+    dialog: {showMessageBox: async () => { prompts++; return {response:0}; }},
+    resetLocalAccountAuth: async () => { resets++; return {ok:true}; },
+    ipcMain: {handle: (_name,handler) => { context.recover = handler; }},
+  };
+  vm.createContext(context);
+  const start = source.indexOf('  ipcMain.handle("desktop:reset-local-auth",');
+  const end = source.indexOf('\n  });', start);
+  vm.runInContext(source.slice(start,end+6), context);
+  assert.equal((await context.recover({})).cancelled, true);
+  assert.equal(resets, 0);
+  context.dialog.showMessageBox = async () => { prompts++; return {response:1}; };
+  assert.equal((await context.recover({})).ok, true);
+  context.assertMainWindowSender = () => ({ok:false,error:'forbidden'});
+  assert.equal((await context.recover({})).error, 'forbidden');
+  assert.equal(prompts, 2);
+  assert.equal(resets, 1);
+});
 
 test('DCC-006: a refused NAS switch cannot persist an old complete profile as the new source', async () => {
   for (const [status,remoteUrl] of [[500,'https://nas-a.test'],[200,'https://nas-a.test'],[500,'https://nas-b.test']]) {
