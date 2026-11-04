@@ -16,10 +16,6 @@ const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./vo
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
-// electron-builder places this Native Messaging module outside app.asar.
-const clipperHost = require(app.isPackaged
-  ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
-  : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { readWechatArticleClipboard } = require("./wechat-clipboard");
@@ -62,6 +58,7 @@ initLogger({
 });
 
 let mainWindow = null;
+let clipperHost = null;
 let splashWindow = null;
 let backendProcess = null;
 let backendPort = 0;
@@ -627,6 +624,10 @@ async function startBackend() {
   // Clipper Native Host 需要知道本次 Backend 的端口。
   // 首选端口被占用时会动态回退，因此仍须落盘实际端口；未配对时 token 为空。
   try {
+    // 只有完整版带 asar 外的 Native Messaging 资源，启动本地后端时才加载。
+    clipperHost ??= require(app.isPackaged
+      ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
+      : "./clipper-host");
     clipperHost.setRuntimeDir(userDataPath);
     clipperHost.publishRuntime({ port: backendPort, token: "" });
   } catch (e) {
@@ -639,10 +640,12 @@ async function startBackend() {
   // 路径会随目录移动而变化，清单里的旧路径会让浏览器拉起不存在的程序。
   //
   // 失败只降级剪藏（用户需先手动打开 Desktop），绝不影响应用启动。
-  try {
-    registerClipperNativeHost();
-  } catch (e) {
-    console.warn("[Electron] register clipper native host failed:", e?.message || e);
+  if (clipperHost) {
+    try {
+      registerClipperNativeHost();
+    } catch (e) {
+      console.warn("[Electron] register clipper native host failed:", e?.message || e);
+    }
   }
 
   // 轮询健康端点，确认服务真正就绪
@@ -715,7 +718,7 @@ function registerClipperNativeHost() {
 
 function stopBackend() {
   // 先清理 Clipper 运行时文件：否则扩展会连到已失效的端口并长时间等待。
-  try { clipperHost.clearRuntime(); } catch { /* ignore */ }
+  try { clipperHost?.clearRuntime(); } catch { /* ignore */ }
   if (backendProcess) {
     const proc = backendProcess;
     backendProcess = null;
