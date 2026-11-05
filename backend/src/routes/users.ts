@@ -20,6 +20,7 @@ import { invalidateUserAuthCache, verifySudoFromRequest, extractClientIp } from 
 import { disconnectUser } from "../services/realtime";
 import { noteAclRepository, workspaceInvitesRepository, noteYupdatesRepository, workspaceMembersRepository, shareCommentsRepository, noteVersionsRepository } from "../repositories";
 import { logAudit } from "../services/audit";
+import { AIMemoryError, assertAIMemoryOwnershipTransferAllowed } from "../services/aiMemoryService";
 
 const users = new Hono();
 
@@ -548,6 +549,8 @@ function transferAndDeleteUser(
   };
 
   const tx = db.transaction(() => {
+    // Do not let the existing user CASCADE silently discard authoritative AI archives.
+    assertAIMemoryOwnershipTransferAllowed(db, fromId);
     // --- 1) tags：先处理重名冲突，避免 UNIQUE(userId,name) ---
     // 把 fromId 的 tag 若在 toId 下已同名存在，先把 note_tags 的 tagId 指到 toId 的 tag，再删原 tag。
     const conflictTags = db
@@ -687,8 +690,11 @@ users.delete("/:id", requireAdmin, async (c) => {
   let moved: Record<string, number> | undefined;
   if (receiver) {
     // L3 分支：先迁移再删除，全部在单个事务中完成，不会出现半迁移半删除的中间态。
-    const r = transferAndDeleteUser(db, targetId, receiver.id);
-    moved = r.moved;
+    try { moved = transferAndDeleteUser(db, targetId, receiver.id).moved; }
+    catch (error) {
+      if (error instanceof AIMemoryError) return c.json({ code: error.code, error: error.message }, error.status as never);
+      throw error;
+    }
   } else {
     // 原有路径：直接 DELETE，users 表的 ON DELETE CASCADE 连带清理 notebooks/notes/...
     db.prepare("DELETE FROM users WHERE id = ?").run(targetId);

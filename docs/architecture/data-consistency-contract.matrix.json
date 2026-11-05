@@ -7,6 +7,7 @@
       "title": "已同步的声明必须有服务端版本确认",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-001 archive receipts are idempotent and require persisted matching operations"},
         { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
         { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
@@ -26,6 +27,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-002 archive note projection enters existing Sync V2 outbox in the same transaction"},
         { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
         { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
@@ -149,6 +151,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
         { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },
@@ -211,6 +214,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-006 deleted archive listings still enforce projection protection and the current token notebook grant"},
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
@@ -274,6 +278,7 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-007 permanent notebook deletion removes its archive graph and preserves a moved edited projection"},
         { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
