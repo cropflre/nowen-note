@@ -89,3 +89,19 @@ ingest 成功只在事务提交后返回 `{conversationId,noteId,revision,operat
 2026-11-05 核对官方文档：OpenAI [数据导出](https://help.openai.com/en/articles/7260999-how-do-i-export-my-chatgpt-history-and-)提供 ZIP；[导出会话转移说明](https://help.openai.com/en/articles/9106926-transfer-exported-conversations-between-chatgpt-accounts)明确可能包含 conversations.json 或编号 JSON，未承诺稳定的内部字段 Schema。解析器支持的版本应由 Fixture 清楚限定。
 
 Chrome [权限声明](https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions)支持运行时可选网站权限；现有普通 Clipper 的广泛 host permission 不代表网站级 AI 采集同意。[alarms 文档](https://developer.chrome.com/docs/extensions/reference/api/alarms)说明旧浏览器的会话持久性不可靠，关键重试唤醒应在 service worker 启动时检查重建，休眠和关闭不承诺及时执行。
+
+## MVP 实施收尾（2026-11-06）
+
+Phase 1–3 已形成可运行代码，具体协议见 [API 文档](../api/ai-memory.md)，用户步骤见 [教程](../tutorials/ai-memory.md)，真实测试与剩余门槛见 [验收记录](../qa/ai-memory-hub-2026-11-05.md)。新增 SQLite schema 为 v146，PostgreSQL 提供结构镜像，未宣称 PostgreSQL 运行时通过。
+
+最终保守边界：
+
+- 自动授权限定精确会话；在线每次采集前查询 `GET /sources/:id`，断网不能即时获知异地撤销，最近授权/验证七天内允许有界暂存。
+- 增量归档累计最多 10,000 消息 / 16 MiB 正文及块；不清理原消息以满足限额。单批/导入限额独立且更低。
+- 消息顺序无法确认时返回冲突，不把新加载历史追加到错误位置。活跃或已有 Yjs 历史的投影不自动重写，通过新副本重建。
+- 原始 JSON 通过单个读事务导出，原生 v1 导入保留块、角色、消息状态、时间和来源 URL；不同来源重绑定在预览中明确报告。超出单项导入限额的累计归档 JSON 不能直接整篇重新导入。
+- 永久删除绑定的个人笔记本级联删除其原始归档图谱；已经移出的用户笔记保留。回收站列表继续校验当前投影保护与 Token 范围。
+- 现有管理员账号转移链路无法完整迁移新归档及知识树图谱，因此含 AI 来源时在写入前明确拒绝，保留原用户数据。未采用临时关闭知识树守卫的方法。
+- 凭据刷新按服务器、用户与刷新会话写入独立本地条目；迟到响应不修改当前账号/服务器选择。
+
+Phase 4–6 未实现，真实站点、安装扩展、NAS/设备及正式发布验收仍独立进行，不据 Fixture 测试认定完成。
