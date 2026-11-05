@@ -1,0 +1,83 @@
+{
+  "date": "2026-11-05",
+  "runtime": "v24.22.1",
+  "checks": [
+    {
+      "name": "production HTTP ingestion, exact replay and persisted message reread",
+      "status": "passed"
+    },
+    {
+      "name": "light 1280px real archive component, reduced motion and no horizontal overflow",
+      "status": "passed"
+    },
+    {
+      "name": "light 360px real archive component, reduced motion and no horizontal overflow",
+      "status": "passed"
+    },
+    {
+      "name": "dark 1280px real archive component, reduced motion and no horizontal overflow",
+      "status": "passed"
+    },
+    {
+      "name": "dark 360px real archive component, reduced motion and no horizontal overflow",
+      "status": "passed"
+    },
+    {
+      "name": "user export retains raw message text and content blocks",
+      "status": "passed"
+    },
+    {
+      "name": "long-term memories are explicitly marked unavailable",
+      "status": "passed"
+    },
+    {
+      "name": "real file preview, inert script text, explicit review, background import and persisted reread",
+      "status": "passed"
+    },
+    {
+      "name": "chatgpt real MV3 manual preview, visible code capture and durable receipt",
+      "status": "passed"
+    },
+    {
+      "name": "chatgpt streaming reply stays transient and stable reply is archived once",
+      "status": "passed"
+    },
+    {
+      "name": "chatgpt refresh preserves the archive without duplicate or inferred deletion",
+      "status": "passed"
+    },
+    {
+      "name": "chatgpt outage keeps a pending local operation and reconnect replays it once",
+      "status": "passed"
+    },
+    {
+      "name": "chatgpt explicit revocation stops subsequent capture",
+      "status": "passed"
+    },
+    {
+      "name": "doubao real MV3 manual preview, visible code capture and durable receipt",
+      "status": "passed"
+    },
+    {
+      "name": "doubao streaming reply stays transient and stable reply is archived once",
+      "status": "passed"
+    },
+    {
+      "name": "doubao refresh preserves the archive without duplicate or inferred deletion",
+      "status": "passed"
+    },
+    {
+      "name": "doubao outage keeps a pending local operation and reconnect replays it once",
+      "status": "passed"
+    },
+    {
+      "name": "doubao explicit revocation stops subsequent capture",
+      "status": "passed"
+    }
+  ],
+  "boundaries": [
+    "Disposable SQLite and synthetic account only",
+    "Local UI harness mounts the production component",
+    "Real ChatGPT/Doubao accounts, physical devices and store installation are not accepted by this runner"
+  ]
+}
