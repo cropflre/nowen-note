@@ -7,6 +7,7 @@
       "title": "已同步的声明必须有服务端版本确认",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-001 archive receipts are idempotent and require persisted matching operations"},
         { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
         { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
@@ -28,6 +29,7 @@
       "checks": [
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },
         { "file": "frontend/src/components/__tests__/KnowledgeTreeInlineRename.test.tsx", "case": "DCC-002: failed template rename preserves the typed name for retry and the created document" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-002 archive note projection enters existing Sync V2 outbox in the same transaction"},
         { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
         { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
@@ -171,6 +173,7 @@
       "status": "covered",
       "checks": [
         { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
         { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },
@@ -278,6 +281,7 @@
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-006 deleted archive listings still enforce projection protection and the current token notebook grant"},
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
@@ -359,6 +363,7 @@
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: opening a trashed journal restores its identity and content without duplicate dates" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: restoring a journal under a deleted archive leaves unrelated siblings in trash" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-007 permanent notebook deletion removes its archive graph and preserves a moved edited projection"},
         { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },

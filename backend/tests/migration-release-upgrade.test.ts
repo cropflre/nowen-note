@@ -8,6 +8,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import test from "node:test";
 import Database from "better-sqlite3";
 import jwt from "jsonwebtoken";
+import { CURRENT_SCHEMA_VERSION } from "../src/db/migrations";
 
 const backendRoot = path.resolve(__dirname, ".."), repositoryRoot = path.resolve(backendRoot, "..");
 const histories = [{ mode: "p0", commit: "fb93d4932639c3967b883e416b1233b8b65198b0", schema: 142, entry: "bundle" },
@@ -112,7 +113,7 @@ for (const historical of histories) {
       const verify = () => {
         const db = new Database(dbPath, { readonly: true });
         try {
-          assert.equal((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version, 145);
+          assert.equal((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version, CURRENT_SCHEMA_VERSION);
           assert.deepEqual(db.prepare("SELECT id,title,content,version FROM notes WHERE id=?").get(receipt.existing.id), receipt.existing);
           for (const original of receipt.originalOutbox) assert.deepEqual(db.prepare("SELECT mutationId,entityType,entityId,payload,baseVersion FROM sync_outbox WHERE mutationId=?").get(original.mutationId), original);
           for (const original of receipt.importedIds) assert.ok(db.prepare("SELECT 1 FROM notes WHERE id=? AND isTrashed=0").get(original.targetNoteId));
@@ -125,7 +126,7 @@ for (const historical of histories) {
       const imported = verify();
       await start(); await wait(receipt.recoveryJobId, "COMPLETED"); await stop(server!); server = undefined; verify();
       assert.ok(!output.includes(receipt.tokenRaw));
-      console.log("[migration-upgrade] " + JSON.stringify({ historicalCommit: historical.commit, fromSchema: historical.schema, toSchema: 145, packagedEntry: historical.entry, imported,
+      console.log("[migration-upgrade] " + JSON.stringify({ historicalCommit: historical.commit, fromSchema: historical.schema, toSchema: CURRENT_SCHEMA_VERSION, packagedEntry: historical.entry, imported,
         priorImportedIdsRetained: receipt.importedIds.length, originalPendingMutationsRetained: receipt.originalOutbox.length, resumedOffset, unapprovedPreviewImported: 0, repeatRestartDuplicates: 0, sourceFallback: false }));
     } finally { if (server) await stop(server); fs.rmSync(directory, { recursive: true, force: true }); }
   });

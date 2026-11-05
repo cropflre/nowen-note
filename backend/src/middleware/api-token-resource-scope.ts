@@ -211,6 +211,8 @@ function requiredScope(pathname: string, method: string, restricted: boolean): s
   }
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
+  if (pathname === "/api/ai-memory/imports" || pathname.startsWith("/api/ai-memory/imports/")) return "export:import";
+  if (pathname === "/api/ai-memory" || pathname.startsWith("/api/ai-memory/")) return write ? "notes:write" : "notes:read";
   if (pathname === "/api/migrations" || pathname.startsWith("/api/migrations/")) return "export:import";
   if (pathname.startsWith("/api/onboarding/")) return "__login_only__";
   if (pathname.startsWith("/api/tokens")) return "__login_only__";
