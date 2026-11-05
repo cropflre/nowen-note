@@ -26,6 +26,47 @@
       </div>
 
       <main id="main" class="hidden">
+        <section id="ai-conversation-panel" class="card ai-conversation-panel hidden" aria-labelledby="ai-capture-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="ai-capture-heading">保存这段 AI 对话 · <span id="ai-provider"></span></h2>
+              <p>仅在你授权后读取。当前适配器仍需真实网站验收。</p>
+            </div>
+          </div>
+          <p class="hint">选择已有的个人笔记本。来源账户名称由你区分，不读取网站登录凭据。</p>
+          <label class="field">
+            <span class="field-label">来源账户名称</span>
+            <input id="ai-source-name" class="control" maxlength="120" autocomplete="off" />
+          </label>
+          <button id="ai-preview" class="btn primary" type="button">授权读取并预览当前对话</button>
+          <div id="ai-preview-panel" class="hidden">
+            <p id="ai-preview-title" class="hint"></p>
+            <label class="field">
+              <span class="field-label">即将保存的全部文字</span>
+              <textarea id="ai-preview-content" class="control ai-preview-content" rows="8" readonly></textarea>
+            </label>
+            <p id="ai-capture-warnings" class="hint ai-capture-warnings"></p>
+            <label class="check-option">
+              <input id="ai-autosave" type="checkbox" />
+              <span>同时为此会话开启自动保存</span>
+            </label>
+            <p class="hint">授权限定此会话地址；切换会话需重新授权。不同网站账号请使用不同来源名称。</p>
+            <button id="ai-save" class="btn primary" type="button" disabled>确认保存已预览的内容</button>
+          </div>
+          <p id="ai-capture-status" class="hint" role="status" aria-live="polite">自动保存默认关闭，尚未读取聊天正文。</p>
+          <a id="ai-note-link" class="note-link hidden" target="_blank" rel="noopener noreferrer">打开 Nowen 归档笔记 ↗</a>
+          <details>
+            <summary>暂停、撤销与暂存管理</summary>
+            <div class="ai-action-list">
+              <button class="text-button" type="button" data-ai-action="pause">暂停此会话</button>
+              <button class="text-button" type="button" data-ai-action="pause-source">暂停此来源</button>
+              <button class="text-button" type="button" data-ai-action="revoke">撤销此来源</button>
+              <button class="text-button" type="button" data-ai-action="retry">重试当前账号待同步项</button>
+              <button class="text-button" type="button" data-ai-action="clear">清空当前账号暂存队列</button>
+            </div>
+            <p class="hint">正文仅传给已配置的 Nowen 实例。本地暂存不等于备份；最多 40 项 / 3 MiB，重试最多 8 次、7 天，超限后保留内容并停止自动重试。暂存未声明静态加密。</p>
+          </details>
+        </section>
         <section class="card mode-card">
           <label class="field-label" for="clip-mode">采集方式</label>
           <select id="clip-mode" class="control mode-select">

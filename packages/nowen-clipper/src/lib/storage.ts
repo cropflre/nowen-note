@@ -92,6 +92,19 @@ const DEFAULT_ACCOUNT_STATE: AccountCaptureState = {
 const CONFIG_KEY = "nowenClipperConfig";
 const ACCOUNT_STATE_KEY = "nowenClipperAccountStateV1";
 
+async function sessionTokenKey(cfg: Pick<NowenClipperConfig, "serverUrl" | "userId" | "username" | "refreshToken">): Promise<string | null> {
+  if (!cfg.serverUrl || !cfg.refreshToken) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(cfg.refreshToken));
+  const session = Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, "0")).join("");
+  return `nowenClipperSession:${JSON.stringify([normalizeBaseUrl(cfg.serverUrl), cfg.userId, cfg.username, session])}`;
+}
+
+/** Late refreshes write only their destination/session key, never the active account selection. */
+export async function storeRefreshedCredentials(cfg: NowenClipperConfig, token: string, revoked = false): Promise<void> {
+  const key = await sessionTokenKey(cfg);
+  if (key) await chrome.storage.local.set({ [key]: { token, revoked } });
+}
+
 export async function getConfig(): Promise<NowenClipperConfig> {
   const store = chrome.storage.sync || chrome.storage.local;
   const data = (await store.get(CONFIG_KEY)) as Record<string, unknown>;
@@ -99,6 +112,12 @@ export async function getConfig(): Promise<NowenClipperConfig> {
   const merged = { ...DEFAULTS, ...raw } as NowenClipperConfig;
   if (raw.aiEnhanceTasks) {
     merged.aiEnhanceTasks = { ...DEFAULTS.aiEnhanceTasks, ...raw.aiEnhanceTasks };
+  }
+  const sessionKey = await sessionTokenKey(merged);
+  if (sessionKey) {
+    const sessionData = (await chrome.storage.local.get(sessionKey))[sessionKey] as { token?: unknown; revoked?: boolean } | undefined;
+    if (typeof sessionData?.token === "string") merged.token = sessionData.token;
+    if (sessionData?.revoked) merged.refreshToken = "";
   }
   return merged;
 }
