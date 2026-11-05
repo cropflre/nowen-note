@@ -111,3 +111,58 @@ test("keeps credentials when the refresh service is temporarily unavailable", as
   assert.equal(stored.token, "expired-access-token");
   assert.equal(stored.refreshToken, "valid-refresh-token");
 });
+
+test("a delayed old-account refresh cannot replace the newly selected account credentials", async (t) => {
+  installChromeStorage();
+  const cfg = await setConfig({ serverUrl: "https://old.example.com", username: "old", userId: "old-id", token: "old-access", refreshToken: "old-refresh" });
+  let release!: () => void;
+  let started!: () => void;
+  const refreshStarted = new Promise<void>((resolve) => { started = resolve; });
+  t.mock.method(globalThis, "fetch", async (input) => {
+    if (String(input).endsWith("/api/auth/refresh")) {
+      started();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return Response.json({ token: "late-old-access" });
+    }
+    return Response.json({ error: "Expired" }, { status: 401 });
+  });
+  const request = ping(cfg);
+  await refreshStarted;
+  await setConfig({ serverUrl: "https://new.example.com", username: "new", userId: "new-id", token: "new-access", refreshToken: "new-refresh" });
+  release();
+  await assert.rejects(() => request, /账号或服务器已切换/);
+  const current = await getConfig();
+  assert.equal(current.token, "new-access");
+  assert.equal(current.refreshToken, "new-refresh");
+  assert.equal(current.userId, "new-id");
+});
+
+test("switching destinations at refresh persistence writes only the old session overlay", async (t) => {
+  const data = installChromeStorage();
+  const cfg = await setConfig({ serverUrl: "https://old.example.com/Path", username: "old", userId: "old-id", token: "old-access", refreshToken: "old-refresh" });
+  const originalSet = chrome.storage.local.set.bind(chrome.storage.local);
+  let switched = false;
+  t.mock.method(chrome.storage.local, "set", async (items) => {
+    if (Object.keys(items).some((key) => key.startsWith("nowenClipperSession:"))) {
+      switched = true;
+      data.nowenClipperConfig = { ...cfg, serverUrl: "https://new.example.com/OtherPath", username: "new", userId: "new-id", token: "new-access", refreshToken: "new-refresh" };
+    }
+    await originalSet(items);
+  });
+  const requests: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input, init) => {
+    requests.push(String(input));
+    if (String(input).endsWith("/api/auth/refresh")) return Response.json({ token: "late-old-access" });
+    if (new Headers(init?.headers).get("Authorization") === "Bearer old-access") return Response.json({ error: "Expired" }, { status: 401 });
+    return Response.json({ id: "old-id", username: "old", role: "user" });
+  });
+  await ping(cfg);
+  assert.equal(switched, true);
+  const selected = await getConfig();
+  assert.equal(selected.serverUrl, "https://new.example.com/OtherPath");
+  assert.equal(selected.token, "new-access");
+  assert.equal(selected.refreshToken, "new-refresh");
+  assert.equal(selected.userId, "new-id");
+  assert.equal(requests.every((url) => url.startsWith("https://old.example.com/Path/")), true);
+  assert.equal(Object.keys(data).some((key) => key.includes("old-refresh")), false);
+});

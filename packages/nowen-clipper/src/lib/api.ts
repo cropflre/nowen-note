@@ -1,4 +1,4 @@
-import { normalizeBaseUrl, setConfig, type NowenClipperConfig } from "./storage";
+import { getConfig, normalizeBaseUrl, storeRefreshedCredentials, type NowenClipperConfig } from "./storage";
 
 export interface ImportNotePayload {
   title: string;
@@ -127,7 +127,12 @@ const refreshInFlight = new Map<string, Promise<string>>();
 
 async function refreshAccessToken(cfg: NowenClipperConfig): Promise<string> {
   const base = normalizeBaseUrl(cfg.serverUrl);
-  const key = `${base}\n${cfg.refreshToken}`;
+  const key = `${base}\n${cfg.userId}\n${cfg.username}\n${cfg.refreshToken}`;
+  const stillCurrent = async () => {
+    const current = await getConfig();
+    return normalizeBaseUrl(current.serverUrl) === base && current.userId === cfg.userId
+      && current.username === cfg.username && current.refreshToken === cfg.refreshToken;
+  };
   let pending = refreshInFlight.get(key);
 
   if (!pending) {
@@ -141,15 +146,16 @@ async function refreshAccessToken(cfg: NowenClipperConfig): Promise<string> {
         const error = await parseErr(res);
         if (res.status === 400 || res.status === 401 || res.status === 403) {
           (error as NowenApiError & { terminal?: boolean }).terminal = true;
-          await setConfig({ token: "", refreshToken: "" });
+          await storeRefreshedCredentials(cfg, "", true);
         }
         throw error;
       }
 
       const payload = (await res.json()) as { token?: string };
       if (!payload.token) throw new Error("登录续期响应缺少访问令牌");
+      if (!await stillCurrent()) throw new NowenApiError(401, "AI_CONTEXT_SCOPE_DENIED", "账号或服务器已切换，已停止旧会话续期");
       cfg.token = payload.token;
-      await setConfig({ token: payload.token });
+      await storeRefreshedCredentials(cfg, payload.token);
       return payload.token;
     })().finally(() => refreshInFlight.delete(key));
     refreshInFlight.set(key, pending);
@@ -166,6 +172,14 @@ async function refreshAccessToken(cfg: NowenClipperConfig): Promise<string> {
     }
     throw error;
   }
+}
+
+/** Archive requests reuse the existing authenticated transport; no Desktop pairing-token fallback. */
+export async function requestAIArchive<T>(cfg: NowenClipperConfig, path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
+  return requestJson<T>(cfg, `/ai-memory${path}`, {
+    method, signal: AbortSignal.timeout(20_000),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 export async function login(
@@ -201,7 +215,7 @@ export async function verify2FA(
 export async function ping(
   cfg: NowenClipperConfig,
 ): Promise<{ id?: string; username: string; role: string; displayName?: string | null }> {
-  return requestJson(cfg, "/me");
+  return requestJson(cfg, "/me", { signal: AbortSignal.timeout(20_000) });
 }
 
 export async function listWorkspaces(cfg: NowenClipperConfig): Promise<WorkspaceSummary[]> {

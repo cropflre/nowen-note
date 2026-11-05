@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   BrainCircuit,
+  Archive,
   CircleDot,
   Bell,
   CloudOff,
@@ -26,6 +27,7 @@ import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import { openAICollaboration } from "@/lib/aiCollaboration";
+import { openAIMemory } from "@/lib/aiMemory";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
 import { pushAppPathState } from "@/lib/appPathNavigation";
@@ -381,6 +383,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
         {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
         <button onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAICollaboration(); }} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Sparkles size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiCollaboration.entry")}</span>}</button>
+        <button onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAIMemory(); }} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Archive size={RAIL_ICON_SIZE}/>{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiMemory.title")}</span>}</button>
         {renderItem(ALL_NOTES_ITEM)}
         {orderedNavigationModuleIds.map((id) => {
           if (id === "notifications") return renderNotificationItem();

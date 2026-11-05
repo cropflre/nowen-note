@@ -116,7 +116,7 @@ async function preflightZip(filePath: string): Promise<void> {
   } finally { await handle.close(); }
 }
 
-async function extractArchive(filePath: string, destination: string, budget: number, assertActive?: () => void): Promise<Map<string, StagedFile>> {
+export async function extractArchive(filePath: string, destination: string, budget: number, assertActive?: () => void): Promise<Map<string, StagedFile>> {
   await preflightZip(filePath);
   const directory = await unzipper.Open.file(filePath) as { files: ZipEntry[] };
   if (directory.files.length > MIGRATION_LIMITS.files) return fail("MIGRATION_ARCHIVE_LIMIT");
