@@ -8,6 +8,7 @@
     "scripting",
     "contextMenus",
     "storage",
+    "alarms",
     "notifications",
     "debugger",
     "declarativeNetRequestWithHostAccess"

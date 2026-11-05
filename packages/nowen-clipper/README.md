@@ -1,5 +1,7 @@
 # Nowen Note Web Clipper
 
+v1.6.0 开发分支新增的 AI 对话预览、授权保存与有界重试见 [AI 对话采集说明](./AI_CONVERSATION_CAPTURE.md)。真实网站与商店发布验收尚未完成。
+
 Nowen Note 的 MV3 浏览器扩展，把 **速记、网页正文、当前选区、截图和完整页面** 保存到自己的 Nowen Note 实例。
 
 ## 主要能力
