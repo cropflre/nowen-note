@@ -1,4 +1,5 @@
 import { enMigrationTranslations, zhCNMigrationTranslations } from "./migrationTranslations";
+import { enAIMemoryTranslations, zhCNAIMemoryTranslations } from "./aiMemoryTranslations";
 import { enAssetAITranslations, zhCNAssetAITranslations } from "./assetAITranslations";
 import { enAICollaborationTranslations, zhCNAICollaborationTranslations } from "./aiCollaborationTranslations";
 import { enAssetReliabilityTranslations, zhCNAssetReliabilityTranslations } from "./assetReliabilityTranslations";
@@ -101,6 +102,7 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNPluginAppTranslations,
   zhCNAutomationTranslations,
   zhCNMigrationTranslations,
+  zhCNAIMemoryTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -129,6 +131,7 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enPluginAppTranslations,
   enAutomationTranslations,
   enMigrationTranslations,
+  enAIMemoryTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

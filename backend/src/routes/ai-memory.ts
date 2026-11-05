@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { ZodError } from "zod";
+import imports from "./ai-memory-imports.js";
 import {
   AI_MEMORY_LIMITS, AIMemoryError, createAIMemorySource, deleteAIConversation, exportAIConversation, getAIConversation, getAIMemorySource,
   getAIConversationMessages, ingestAIConversation, listAIConversations, listAIMemorySources,
@@ -22,6 +23,7 @@ app.onError((error, c) => {
   return c.json({ code: "AI_MEMORY_REQUEST_FAILED", error: "对话归档请求失败，请重试" }, 500);
 });
 app.get("/capabilities", (c) => c.json({ schemaVersion: 1, platforms: { chatgpt: "fixture-tested", doubao: "fixture-tested", claude: "planned", gemini: "planned", deepseek: "planned" }, limits: AI_MEMORY_LIMITS, rawArchiveSync: "instance-local", noteProjectionSync: "existing-note-sync", autoCaptureDefault: false, sourceScope: "personal-notebook" }));
+app.route("/imports", imports);
 app.get("/sources", (c) => c.json(listAIMemorySources(actor(c))));
 app.get("/sources/:id", (c) => c.json(getAIMemorySource(actor(c), c.req.param("id"))));
 app.post("/sources", async (c) => c.json(createAIMemorySource(actor(c), await c.req.json()), 201));

@@ -50,6 +50,7 @@ import BackupCenter from "./dataManagement/BackupCenter";
 import DataTransferCenter from "./dataManagement/DataTransferCenter";
 import MigrationHub from "./MigrationHub";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { openAIMemory } from "@/lib/aiMemory";
 
 // Scope is selected only inside import/export workflows.
 type Scope = "personal" | "workspace";
@@ -1176,6 +1177,7 @@ export default function DataManager() {
         </div>
       )}
 
+      {activeSubTab !== "export" && <button type="button" className="mb-4 min-h-10 rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-accent-primary)] hover:bg-[var(--color-hover)]" onClick={() => openAIMemory("connections")}>{t("aiMemory.importEntry")}</button>}
       {activeSubTab === "migration" && <MigrationHub
         key={`migration-${currentUser?.id}-${effectiveWorkspaceId}`}
         workspaceId={effectiveWorkspaceId}
