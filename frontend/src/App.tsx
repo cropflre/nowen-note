@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { fetchWebUiEnabled } from "@/lib/webUiAccess";
 import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, Sparkles } from "lucide-react";
+import { Archive, Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
 import { useViewSwitchFade } from "@/hooks/useViewSwitchFade";
 import { MOTION_DURATION, MOTION_EASE, MOTION_SPRING, overlayMotion } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
+import AIMemoryCenter from "@/components/AIMemoryCenter";
+import { openAIMemory } from "@/lib/aiMemory";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
@@ -1095,6 +1097,7 @@ function MobileTopBar() {
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
       <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
+      <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>
     </header>
   );
 }
@@ -1573,6 +1576,7 @@ function AuthGate() {
     <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
       <AICollaborationCenter />
+      <AIMemoryCenter />
       <SidebarSearchExperienceBridge />
       {user && <WechatClipboardBridge key={`${getServerUrl() || "local"}:${user.id}`} />}
       <TooltipProvider>

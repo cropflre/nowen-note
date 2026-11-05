@@ -104,6 +104,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "AI import cancellation preserves completed work and retry resumes only unsaved records"},
         { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
         { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
         { "file": "backend/tests/migration-service.test.ts", "case": "partial failures retry only failed items and persist successful mappings" },
@@ -442,6 +443,7 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "DCC-008 native archive export and reimport preserve structured evidence and timestamps"},
         { "file": "backend/tests/migration-service.test.ts", "case": "a failed partial source scan cannot be previewed as a complete import (DCC-008)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "rolls back structure, history and the backup if apply cannot finish" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
