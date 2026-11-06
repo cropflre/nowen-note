@@ -134,6 +134,7 @@ export class MobileSyncEngine {
   private running = false;
   private rerun = false;
   private debounce: ReturnType<typeof setTimeout> | null = null;
+  private debounceDueAt = 0;
   private stopped = true;
   private syncAbort: AbortController | null = null;
   private assetSubscribed = false;
@@ -160,7 +161,12 @@ export class MobileSyncEngine {
 
   requestSync(delayMs = 800): void {
     if (this.stopped) return;
+    const dueAt = Date.now() + Math.max(0, delayMs);
+    // Keep the earliest pending wake. A later, slower request (a 30 s retry or a
+    // continuous stream of notices) must not postpone or starve a pending Pull.
+    if (this.debounce && this.debounceDueAt <= dueAt) return;
     if (this.debounce) clearTimeout(this.debounce);
+    this.debounceDueAt = dueAt;
     this.debounce = setTimeout(() => {
       this.debounce = null;
       // 后台调度不能留下未处理的 Promise rejection。同步游标、Outbox 和原笔记
@@ -1046,7 +1052,7 @@ export class MobileSyncEngine {
       [this.options.profileId,scope.scopeKey],
     ))[0];
     const after = state?.lastSequence || 0;
-    const changes = await this.request<{ resetRequired:boolean;nextSequence:number;items:Array<{entityType:RemoteEntityType;entityId:string;operation:string}> }>(
+    const changes = await this.request<{ resetRequired:boolean;nextSequence:number;hasMore?:boolean;items:Array<{entityType:RemoteEntityType;entityId:string;operation:string}> }>(
       `/changes?${this.subscriptionParams(scope,{after:String(after)})}`,
     );
     assertMobileSyncItems(changes.items,"changes",this.hasTreeSubscription(scope),this.assetSubscribed && !scope.workspaceId);
@@ -1076,6 +1082,9 @@ export class MobileSyncEngine {
     );
     await this.applyEntries(scope,[...entries,...deletes],false);
     await this.advance(scope,changes.nextSequence);
+    // A full feed page leaves committed changes behind the cursor; continue now
+    // instead of waiting for the next notice or the 30 s fallback Pull.
+    if (changes.hasMore) this.rerun = true;
   }
 
   private async advance(scope: ScopeDescriptor, sequence: number, replaceCursor=false): Promise<void> {
@@ -1196,7 +1205,9 @@ export class MobileSyncEngine {
     });
     if (applied.length && !this.stopped) this.options.onApplied?.({
       scopeKey: scope.scopeKey,
-      noteIds: applied.filter((entry) => entry.entityType === "note" && !entry.payload.__delete).map((entry) => entry.entityId),
+      // Tag links change the open note's visible metadata without a note row change.
+      noteIds: [...new Set(applied.flatMap((entry) => entry.entityType === "note" && !entry.payload.__delete ? [entry.entityId]
+        : entry.entityType === "note_tag" ? [String(entry.payload.noteId || entry.entityId.split(":")[0])] : []))],
       deletedNoteIds: applied.filter((entry) => entry.entityType === "note" && entry.payload.__delete).map((entry) => entry.entityId),
     });
   }
