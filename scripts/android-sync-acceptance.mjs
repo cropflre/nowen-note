@@ -118,7 +118,7 @@ try {
   const restoredStructure = await native("structure",folder.id);
   assert.equal(restoredStructure.parentId,`note:${ids[1]}`); assert.equal(restoredStructure.sortOrder,29);
   assert.equal((await native("pendingTree")).length,1);
-  assert.equal((await native("schema"))[0].user_version,7);
+  assert.equal((await native("schema"))[0].user_version,13);
   const serverTree = async () => (await fetch(`${base}/acceptance/tree/${encodeURIComponent(folder.id)}`)).json();
   adb("reverse","tcp:47831","tcp:47831");
   await native("start");
@@ -210,7 +210,7 @@ try {
     nativeOfflineFolderCreate:true,nestedOfflineFolderCreate:true,offlineFolderUnderDocument:true,noteInsideOfflineFolder:true,
     folderCreationMutationIdentitySurvivesRestart:true,folderCreationOfflineListRecovery:true,automaticFolderCreationPush:true,nativeFolderCreationMs,
     knowledgeTreeRootCreate: true, readWriteThroughProductionApiBridge: true,
-    negotiatedPersonalTreePull:true,remoteFolderUnderDocument:true,remoteTreeMove:true,structureForceStopRecovery:true,nativeSchemaVersion:7,
+    negotiatedPersonalTreePull:true,remoteFolderUnderDocument:true,remoteTreeMove:true,structureForceStopRecovery:true,nativeSchemaVersion:13,
     nativeOfflineTreeMoveAndSort:true,pendingTreeForceStopRecovery:true,automaticStructurePush:true,nativeConcurrentMoveKeepLocal:true,
     missingTreeNoticePoll:true,remoteFolderCreateMs,remoteTreeMoveMs,
     offlineNetworkIsolation: "adb reverse removed; HTTP server unreachable from Android",
