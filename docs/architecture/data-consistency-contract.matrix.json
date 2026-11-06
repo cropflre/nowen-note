@@ -98,6 +98,7 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-003: lost upload responses recover the exact persisted PDF identity, including deduplicated uploads" },
+        { "file": "frontend/src/lib/__tests__/rtfImageUploader.test.ts", "case": "keeps a failed image available while uploading the remaining photos (DCC-003)" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: automatic download replays retained legacy edits before starting the NAS baseline" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-003: failed automatic download retains its session and can retry after connectivity returns" },
@@ -204,6 +205,7 @@
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
         { "file": "frontend/src/lib/__tests__/attachmentUploadRecovery.test.ts", "case": "does not recover into a changed server or account (DCC-006)" },
+        { "file": "frontend/src/lib/__tests__/rtfImageUploader.test.ts", "case": "stops queued uploads and ignores late results after the note changes (DCC-006)" },
         { "file": "backend/tests/ai-collaboration.test.ts", "case": "chat rejects foreign, deleted and malformed Skills before provider access (DCC-006)" },
         { "file": "backend/tests/agent.test.ts", "case": "editor rejects foreign, deleted and malformed Skills before creating runs or calling models (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
@@ -221,6 +223,7 @@
         { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "rejects account changes while decrypting (DCC-006)" },
         { "file": "backend/tests/attachment-file-share.test.ts", "case": "named image URLs retain bytes, MIME and ACL through upload, deduplication, sharing and revocation (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/fileShareClipboard.test.ts", "case": "does not silently copy private named images when sharing is denied (DCC-006)" },
+        { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT diary publishing is opt-in and confined to personal posts (DCC-006)" },
         { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },

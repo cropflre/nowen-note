@@ -7,6 +7,7 @@ import { Hono } from "hono";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-token-scope-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
+process.env.ELECTRON_USER_DATA = tmpDir;
 
 let db: any;
 let enforceApiTokenAccess: any;
@@ -502,4 +503,62 @@ test("P1 task snapshot PAT requires owned personal task, writable notebook and e
   assert.equal((await call("p1-task", "nb-b", "2026-10-16T09:00:00Z")).status, 403);
   assert.equal((await call("p1-task", "nb-a", "2026-10-16T09:00:00Z")).status, 201);
   assert.equal((await call("token-other-task", "nb-a", "2026-10-16T09:00:00Z")).status, 403);
+});
+
+test("PAT diary publishing is opt-in and confined to personal posts (DCC-006)", async () => {
+  const { default: diary } = await import("../src/routes/diary");
+  const { isValidScope } = await import("../src/lib/api-tokens");
+  const app = new Hono();
+  let scopes = "notes:write";
+  let mode = "restricted";
+  app.use("*", async (c, next) => {
+    c.req.raw.headers.set("X-Auth-Mode", "api-token");
+    c.req.raw.headers.set("X-Api-Token-Id", "token-1");
+    c.req.raw.headers.set("X-Api-Resource-Mode", mode);
+    c.req.raw.headers.set("X-Api-Scopes", scopes);
+    c.req.raw.headers.set("X-User-Id", "user-1");
+    return enforceApiTokenAccess(c, next);
+  });
+  app.route("/api/diary", diary);
+  const publish = (query = "", images: string[] = []) => app.request(`/api/diary${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contentText: "Tips post", images, userId: "user-2", workspaceId: "ws-1" }),
+  });
+
+  assert.equal((await publish()).status, 403);
+  scopes = "diary:publish";
+  const created = await publish();
+  assert.equal(created.status, 201);
+  const { id } = await created.json() as { id: string };
+  assert.deepEqual(db.prepare("SELECT userId, workspaceId FROM diaries WHERE id = ?").get(id), {
+    userId: "user-1", workspaceId: null,
+  });
+  assert.ok(isValidScope(scopes));
+  assert.equal((await publish("?workspaceId=ws-1")).status, 403);
+  assert.equal((await app.request("/api/diary/attachments?workspaceId=ws-1", { method: "POST" })).status, 403);
+  const form = new FormData();
+  form.set("file", new File([Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0n0AAAAASUVORK5CYII=",
+    "base64",
+  )], "test.png", { type: "image/png" }));
+  const upload = await app.request("/api/diary/attachments", { method: "POST", body: form });
+  assert.equal(upload.status, 201);
+  const { id: mediaId } = await upload.json() as { id: string };
+  db.exec(`INSERT INTO diary_attachments (id, userId, workspaceId, mimeType, size, path) VALUES
+    ('team-diary-media', 'user-1', 'ws-1', 'image/png', 1, 'team.png'),
+    ('foreign-diary-media', 'user-2', NULL, 'image/png', 1, 'foreign.png')`);
+  for (const media of ["team-diary-media", "foreign-diary-media"]) {
+    assert.equal((await publish("", [media])).status, 400);
+    assert.equal(db.prepare("SELECT diaryId FROM diary_attachments WHERE id = ?").get(media).diaryId, null);
+  }
+  const withMedia = await publish("", [mediaId]);
+  assert.equal(withMedia.status, 201);
+  const published = await withMedia.json() as { id: string };
+  assert.equal(db.prepare("SELECT diaryId FROM diary_attachments WHERE id = ?").get(mediaId).diaryId, published.id);
+  assert.equal((await app.request("/api/diary/timeline")).status, 403);
+  assert.equal((await app.request(`/api/diary/${id}`, { method: "DELETE" })).status, 403);
+  mode = "unrestricted";
+  scopes = "notes:write";
+  assert.equal((await publish()).status, 201);
 });
