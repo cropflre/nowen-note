@@ -1,3 +1,4 @@
+import { markAiMarkdown } from "@/lib/aiContentProvenance";
 import { api, getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
@@ -78,7 +79,7 @@ export function makeCollaborationSave(draft: CollaborationDraft, originalLabel: 
     ? `\n\n## ${referencesLabel}\n\n${draft.references.map(ref => `- [${ref.title.replace(/[[\]\\]/g, "\\$&")}](/notes/${encodeURIComponent(ref.id)})`).join("\n")}` : "";
   return { id: newLocalId(), notebookId: draft.targetId,
     title: (draft.title.trim() || content.split("\n").find(line => line.trim())?.replace(/^#+\s*/, "") || "Note").slice(0, 120),
-    content: raw ? content : `${content}\n\n---\n\n## ${originalLabel}\n\n${draft.input}${sourceList}`, contentFormat: "markdown" };
+    content: raw ? content : markAiMarkdown(`${content}\n\n---\n\n## ${originalLabel}\n\n${draft.input}${sourceList}`), contentFormat: "markdown" };
 }
 
 /** Reuse the normal API (including Native / Web offline adapters). A lost response

@@ -1,3 +1,5 @@
+import type { AiProvenance } from "@/lib/aiContentProvenance";
+
 
 // ir/document.ts —— Word 文档的内部数据模型（IR / Document Model）
 //
@@ -31,6 +33,7 @@ export interface DocxIR {
 }
 
 export interface DocMeta {
+  aiProvenance?: AiProvenance;
   title?: string;
   author?: string;
   created?: string;

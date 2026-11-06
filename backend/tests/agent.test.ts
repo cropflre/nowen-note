@@ -18,7 +18,7 @@ const headers = { "Content-Type": "application/json", "X-User-Id": "agent-a" };
 const call = (name: string, args: unknown, id = "call-1") => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const reply = (calls: unknown[]) => new Response(JSON.stringify({ choices: [{ message: { tool_calls: calls } }], usage: { total_tokens: 10 } }));
 const send = (url: string, body = {}, extra = {}) => app.request(`/api/agent${url}`, { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body) });
-const create = (patch = {}, extra = {}) => send("/runs", { noteId: "note-a", instruction: "Improve wording", content: "Original text", format: "markdown", version: 1, ...patch }, extra);
+const create = (patch = {}, extra = {}) => send("/runs", { noteId: "note-a", instruction: "Improve wording", content: "Original text", format: "markdown", version: 1, aiContentLabels: "v1", ...patch }, extra);
 function shortenModelDeadline(t: TestContext, ms: number) {
   const timeout = globalThis.setTimeout;
   t.mock.method(globalThis, "setTimeout", ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => timeout(callback, delay === 45_000 ? ms : delay, ...args)) as typeof setTimeout);
@@ -49,11 +49,13 @@ test("real tool loop preserves unsaved snapshot; approval never writes; receipt 
   const run = await settled((await (await create({ content: "Original text UNSAVED" })).json()).id); assert.equal(run.status, "waiting_approval");
   assert.ok(JSON.stringify(requests[1]).includes("UNSAVED")); assert.ok(!JSON.stringify(requests).includes("SECRET"));
   assert.equal(db.prepare("SELECT content FROM notes WHERE id='note-a'").get().content, "Original text");
+  assert.ok(run.proposal!.result.includes("AI 生成内容"));
+  assert.ok(run.proposal!.result.includes(run.id));
   const token = run.proposal!.token!;
   assert.equal((await send(`/runs/${run.id}/approve`, { token, snapshot: "Original text UNSAVED" })).status, 200);
   assert.equal((await send(`/runs/${run.id}/approve`, { token, snapshot: "Original text UNSAVED" })).status, 409);
   assert.equal((await send(`/runs/${run.id}/receipt`)).status, 409);
-  const saved = await app.request("/api/notes/note-a", { method: "PUT", headers, body: JSON.stringify({ content: "Improved text UNSAVED", contentText: "Improved text UNSAVED", contentFormat: "markdown", version: 1 }) });
+  const saved = await app.request("/api/notes/note-a", { method: "PUT", headers, body: JSON.stringify({ content: run.proposal!.result, contentText: "Improved text UNSAVED", contentFormat: "markdown", version: 1 }) });
   assert.equal(saved.status, 200, await saved.text());
   const receipt = await (await send(`/runs/${run.id}/receipt`)).json();
   assert.equal(receipt.status, "completed", JSON.stringify({ receipt, note: db.prepare("SELECT content,contentFormat,version FROM notes WHERE id='note-a'").get() }));
@@ -292,8 +294,10 @@ test("approved editor save captures Outbox intent and keeps it after reopening (
   db.prepare("UPDATE sync_profiles SET bootstrapStatus='ready' WHERE id=?").run(profile.id); ensureDevice(db, { profileId: profile.id, platform: "win32" });
   const run = await settled((await (await create()).json()).id);
   assert.equal((await send(`/runs/${run.id}/approve`, { token: run.proposal!.token, snapshot: "Original text" })).status, 200);
-  const saved = await app.request("/api/notes/note-a", { method: "PUT", headers, body: JSON.stringify({ content: "Improved text", contentText: "Improved text", contentFormat: "markdown", version: 1 }) }); assert.equal(saved.status, 200);
+  const saved = await app.request("/api/notes/note-a", { method: "PUT", headers, body: JSON.stringify({ content: run.proposal!.result, contentText: "AI 生成内容\nImproved text", contentFormat: "markdown", version: 1 }) }); assert.equal(saved.status, 200);
   const pending = db.prepare("SELECT * FROM sync_outbox WHERE entityId='note-a'").all(); assert.ok(pending.length > 0);
+  assert.ok(JSON.stringify(pending).includes(run.id));
+  assert.equal((await send(`/runs/${run.id}/receipt`)).status, 200);
   closeDb(); db = (await import("../src/db/schema.js")).getDb();
   assert.deepEqual(db.prepare("SELECT * FROM sync_outbox WHERE entityId='note-a'").all(), pending);
   assert.ok((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content.includes("Improved text"));
@@ -306,6 +310,6 @@ test("same-version collaborative changes invalidate approval; exact durable resu
   db.prepare("UPDATE notes SET content='Original text' WHERE id='note-a'").run();
   const next = await settled((await (await create()).json()).id);
   assert.equal((await send(`/runs/${next.id}/approve`, { token: next.proposal!.token, snapshot: "Original text" })).status, 200);
-  db.prepare("UPDATE notes SET content='Improved text' WHERE id='note-a'").run();
+  db.prepare("UPDATE notes SET content=? WHERE id='note-a'").run(next.proposal!.result);
   assert.equal((await (await send(`/runs/${next.id}/receipt`)).json()).status, "completed");
 });

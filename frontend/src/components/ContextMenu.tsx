@@ -677,7 +677,7 @@ export default function ContextMenu({
         const fresh = await api.getNote(currentTargetId);
         const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
         const title = fresh.title || t("common.untitledNote") || "未命名笔记";
-        const blob = await exportNoteAsDocx(fresh.content || "", title);
+        const blob = await exportNoteAsDocx(fresh.content || "", title, undefined, fresh.id);
         await downloadDocxBlob(blob, title);
         toast.dismiss(toastId);
         toast.success(t("export.exportComplete"));

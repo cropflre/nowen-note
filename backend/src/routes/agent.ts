@@ -27,7 +27,7 @@ app.onError((error, c) => {
 app.get("/capabilities", c => {
   const userId = c.req.header("X-User-Id")!;
   const enabled = process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(userId);
-  return c.json({ enabled, ...(enabled ? agentModelCapabilities(resolveUserChatSettings(userId)) : { chat: false, toolCalling: false }), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 });
+  return c.json({ enabled, aiContentLabels: "v1", ...(enabled ? agentModelCapabilities(resolveUserChatSettings(userId)) : { chat: false, toolCalling: false }), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 });
 });
 app.route("/library", p2Routes);
 const workspace = (value: string | undefined) => !value || value === "personal" ? null : value;

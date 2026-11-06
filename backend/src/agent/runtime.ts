@@ -1,3 +1,4 @@
+import { createAiProvenance, prependAiDeclaration, readAiProvenance } from "../lib/aiContentProvenance.js";
 import { resolveUserChatSettings } from "../services/user-chat-settings.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -11,7 +12,7 @@ import { applyProposal, proposalSchema, toolRegistry, type Format, type TextEdit
 import { aiCustomPromptsRepository } from "../repositories/aiCustomPromptsRepository.js";
 
 export class AgentError extends Error { constructor(readonly code: string, readonly status = 409) { super(code); } }
-export const runInput = z.object({ noteId: z.string().min(1).max(128), skillId: z.string().trim().min(1).max(200).optional(), instruction: z.string().trim().min(1).max(4000), content: z.string().max(48_000), format: z.enum(["markdown", "tiptap-json"]), selectedText: z.string().max(48000).optional(), version: z.number().int().nonnegative() }).strict();
+export const runInput = z.object({ noteId: z.string().min(1).max(128), skillId: z.string().trim().min(1).max(200).optional(), instruction: z.string().trim().min(1).max(4000), content: z.string().max(48_000), format: z.enum(["markdown", "tiptap-json"]), aiContentLabels: z.literal("v1").optional(), selectedText: z.string().max(48000).optional(), version: z.number().int().nonnegative() }).strict();
 export const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 export function contentDigest(content: string, format: string) { return digest(format === "tiptap-json" ? JSON.stringify(JSON.parse(content)) : content); }
 /** Persistence may assign new system block IDs. Existing IDs and every other byte stay significant. */
@@ -27,6 +28,14 @@ export function savedContentMatches(expected: string, actual: string, format: Fo
       if (b?.attrs?.blockId && !a?.attrs?.blockId) {
         delete b.attrs.blockId;
         if (!Object.keys(b.attrs).length && !a.attrs) delete b.attrs;
+      }
+      // Only the newly inserted declaration may acquire harmless schema defaults.
+      // All original blocks and all non-default attributes remain significant.
+      if (a?.type === "paragraph" && !a.attrs && readAiProvenance(JSON.stringify({ type: "doc", content: [a] }))) {
+        for (const [key, value] of Object.entries({ textAlign: null, indent: 0, firstLineIndent: 0 })) {
+          if (b?.attrs?.[key] === value) delete b.attrs[key];
+        }
+        if (b?.attrs && !Object.keys(b.attrs).length) delete b.attrs;
       }
       if (Array.isArray(a?.content) && Array.isArray(b?.content)) a.content.forEach((child: unknown, i: number) => visit(child, b.content[i]));
     };
@@ -153,6 +162,8 @@ export class AgentRuntime {
             if (proposal) throw new AgentError("MULTIPLE_PROPOSALS");
             proposal = proposalSchema.parse(args).edits;
             session.result = applyProposal(session.content, session.format, proposal);
+            if (input.aiContentLabels === "v1") session.result = prependAiDeclaration(session.result, session.format, createAiProvenance(id));
+            if (session.result.length > 48_000) throw new AgentError("UNSAFE_DOCUMENT");
             output = { status: "pending_user_approval" };
           } else throw new AgentError("TOOL_NOT_ALLOWED");
           this.event(id, call.function.name, "completed");

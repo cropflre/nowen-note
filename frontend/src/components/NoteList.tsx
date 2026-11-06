@@ -2986,7 +2986,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           // 右键菜单只持有 noteId，需要先拉一次完整笔记拿到 content
           const fresh = await api.getNote(targetId);
           const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
-          const blob = await exportNoteAsDocx(fresh.content || "", fresh.title || "未命名笔记");
+          const blob = await exportNoteAsDocx(fresh.content || "", fresh.title || "未命名笔记", undefined, fresh.id);
           await downloadDocxBlob(blob, fresh.title || "未命名笔记");
           toast.dismiss(toastId);
           toast.success(t('export.exportComplete'));

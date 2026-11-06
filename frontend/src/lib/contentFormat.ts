@@ -22,6 +22,8 @@
  *   老格式笔记才会真正跑到那段代码。
  */
 
+import { AiProvenanceMark, addAiProvenanceMarkdownRule } from "@/components/extensions/AiProvenanceMark";
+import { aiMarkdownWithHtmlProvenance } from "@/lib/aiContentProvenance";
 import { generateHTML, generateJSON, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
@@ -140,6 +142,7 @@ export function getTiptapExtensions() {
   if (_extensions) return _extensions;
   const lowlight = createLowlight(common);
   _extensions = [
+    AiProvenanceMark,
     StarterKit.configure({
       codeBlock: false,
       underline: false,
@@ -542,6 +545,7 @@ function getTurndown(): TurndownService {
     },
   });
 
+  addAiProvenanceMarkdownRule(td);
   _turndown = td;
   return td;
 }
@@ -1379,6 +1383,7 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
 }
 
 export function markdownToHtml(md: string): string {
+  md = aiMarkdownWithHtmlProvenance(md);
   if (!md) return "";
   try {
     // 第 -1 步：把 Nowen 内部链接/块嵌入转换成可由 Tiptap schema 识别的 HTML。

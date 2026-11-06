@@ -1,3 +1,4 @@
+import { AI_CONTENT_LABEL, AI_PROVENANCE_ATTRIBUTE, parseAiProvenance } from "./aiContentProvenance";
 import { api } from "@/lib/api";
 import type { MindMap } from "@/types";
 import {
@@ -53,6 +54,8 @@ export function renderMindMapExportSnapshot(
   if (!data) return renderUnavailable(map.id);
 
   try {
+    const provenance = parseAiProvenance(data.aiProvenance);
+    const declaration = provenance ? ` ${AI_PROVENANCE_ATTRIBUTE}="${escapeHtml(JSON.stringify(provenance))}"` : "";
     const snapshot = buildMindMapSnapshot(data, { maxNodes: 240, padding: 38 });
     const svg = mindMapSnapshotToSvg(snapshot, {
       title: map.title || "思维导图",
@@ -65,8 +68,8 @@ export function renderMindMapExportSnapshot(
       ? '<div style="font-size:11px;color:#b45309;padding:0 12px 8px">节点较多，导出快照仅展示前 240 个节点。</div>'
       : "";
     return [
-      `<section data-nowen-mindmap-export="${escapeHtml(map.id)}" style="margin:16px 0;border:1px solid #d0d7de;border-radius:12px;overflow:hidden;background:#fff;break-inside:avoid;page-break-inside:avoid">`,
-      `<div style="padding:9px 12px;border-bottom:1px solid #d8dee4;font-size:13px;font-weight:600;color:#24292f">${escapeHtml(map.title || "思维导图")}</div>`,
+      `<section data-nowen-mindmap-export="${escapeHtml(map.id)}"${declaration} style="margin:16px 0;border:1px solid #d0d7de;border-radius:12px;overflow:hidden;background:#fff;break-inside:avoid;page-break-inside:avoid">`,
+      `<div style="padding:9px 12px;border-bottom:1px solid #d8dee4;font-size:13px;font-weight:600;color:#24292f">${provenance ? AI_CONTENT_LABEL + " · " : ""}${escapeHtml(map.title || "思维导图")}</div>`,
       `<div style="height:${height}px;min-height:180px;overflow:hidden;padding:10px">${svg}</div>`,
       truncated,
       '<div style="padding:7px 12px;border-top:1px solid #d8dee4;font-size:11px;color:#6e7781">思维导图静态快照 · 导出后不再与源导图联动</div>',

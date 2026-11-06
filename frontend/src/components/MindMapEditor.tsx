@@ -1,3 +1,6 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { AI_CONTENT_LABEL, parseAiProvenance } from "@/lib/aiContentProvenance";
+import { addAiImageMetadata, aiXmpMetadata } from "@/lib/aiExportMetadata";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   BrainCircuit, Plus, Edit2,
@@ -541,9 +544,14 @@ export function buildMindMapExportSvg(data: MindMapData) {
     maxY = Math.max(maxY, n.y + n.height);
   });
   const w = maxX - minX + pad * 2;
-  const h = maxY - minY + pad * 2;
+  const contentHeight = maxY - minY + pad * 2;
+  const provenance = parseAiProvenance(data.aiProvenance);
+  const labelFont = Math.max(16, Math.ceil(Math.min(w, contentHeight) * 0.06));
+  const labelHeight = provenance ? Math.ceil(labelFont * 1.8) : 0;
+  const h = contentHeight + labelHeight;
 
-  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" style="background:#fff">\n`;
+  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad - labelHeight} ${w} ${h}" style="background:#fff">\n`;
+  if (provenance) svgContent += `<metadata>${aiXmpMetadata(provenance)}</metadata><text x="${minX - pad + 16}" y="${minY - pad - labelHeight + labelFont + 8}" font-size="${labelFont}" font-family="sans-serif" fill="#475569">${AI_CONTENT_LABEL}</text>\n`;
 
   edgeList.forEach((e) => {
     const x1 = e.from.x + e.from.width;
@@ -2712,17 +2720,20 @@ export default function MindMapCenter({
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
         assertExportCanvasHasContent(canvas, "mindmap-png");
-        canvas.toBlob((blob) => {
+        canvas.toBlob(async (blob) => {
+          try {
           if (!blob?.size) {
             toast.error(EXPORT_CANVAS_CONTENT_ERROR);
             return;
           }
-          const pngUrl = URL.createObjectURL(blob);
+          const labeled = await addAiImageMetadata(blob, parseAiProvenance(result.data.aiProvenance));
+          const pngUrl = URL.createObjectURL(labeled);
           const a = document.createElement("a");
           a.href = pngUrl;
           a.download = `${title || "mindmap"}.png`;
           a.click();
           URL.revokeObjectURL(pngUrl);
+          } catch (error) { toast.error(error instanceof Error ? error.message : EXPORT_CANVAS_CONTENT_ERROR); }
         }, "image/png");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : EXPORT_CANVAS_CONTENT_ERROR);
@@ -2769,8 +2780,10 @@ export default function MindMapCenter({
     if (!result) return;
 
     const content = buildXmindContent(result.data, title);
+    const provenance = parseAiProvenance(result.data.aiProvenance);
+    if (provenance) content[0].rootTopic.title = `${AI_CONTENT_LABEL} · ${content[0].rootTopic.title}`;
     const contentJson = JSON.stringify(content);
-    const metadata = JSON.stringify({ creator: { name: "nowen-note", version: "1.0.0" } });
+    const metadata = JSON.stringify({ creator: { name: "nowen-note", version: "1.0.0" }, ...(provenance ? { AIGC: JSON.stringify(provenance) } : {}) });
     const manifest = JSON.stringify({ "file-entries": { "content.json": {}, "metadata.json": {} } });
 
     // 使用简易 ZIP 打包（无压缩），xmind 本质是 ZIP
@@ -2921,6 +2934,7 @@ export default function MindMapCenter({
 
       {/* Center: Mind Map Canvas */}
       <div className={cn("flex-1 flex flex-col overflow-hidden transition-colors duration-150 ease-out", !activeMap && !documentMode && !embeddedMode && "hidden")} ref={containerRef} style={{ background: MT.canvasBg }}>
+        {parseAiProvenance(mapData?.aiProvenance) && <AiGeneratedNotice />}
         {activeMap && mapData ? (
           <>
             {/* Toolbar */}

@@ -1,3 +1,4 @@
+import { readAiProvenance, stripAiProvenanceComments } from "../src/lib/aiContentProvenance.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Hono } from "hono";
@@ -14,7 +15,7 @@ let plan: any;
 let respond: (body: any, signal: AbortSignal) => Promise<Response>;
 const userId = "workflow-a";
 const headers = { "Content-Type": "application/json", "X-User-Id": userId };
-const input = (patch = {}) => ({ notebookId: "workflow-book", includeChildren: true, instruction: "Summarize alpha, create a summary note and tasks", timezone: "Asia/Shanghai", lang: "en" as const, ...patch });
+const input = (patch = {}) => ({ aiContentLabels: "v1" as const, notebookId: "workflow-book", includeChildren: true, instruction: "Summarize alpha, create a summary note and tasks", timezone: "Asia/Shanghai", lang: "en" as const, ...patch });
 const tool = (name: string, args: unknown) => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: name, type: "function", function: { name, arguments: JSON.stringify(args) } }] } }] }), { headers: { "Content-Type": "application/json" } });
 async function settled(id: string) {
   for (let i = 0; i < 150; i++) { const run = runtime.get(id, userId); if (!["queued", "running"].includes(run.status)) return run; await new Promise(resolve => setTimeout(resolve, 10)); }
@@ -61,6 +62,8 @@ test("real RAG and task composer produce previews without writes; approval creat
   assert.ok(requests.some(body => !body.tools && body.messages[0].content.includes("You compose task DRAFTS")));
   const result = await runtime.approve(run.id, userId, run.preview!.token!);
   assert.equal(result.status, "completed");
+  assert.ok(run.preview!.note!.content.includes("AI 生成内容"));
+  assert.ok(run.preview!.note!.content.includes(run.id));
   const note = result.actions.find(action => action.kind === "note")!.resourceIds[0];
   const task = db.prepare("SELECT * FROM tasks").get() as { id: string; noteId: string; dueAt: string | null };
   assert.equal(task.noteId, note); assert.equal(task.dueAt, null);
@@ -94,7 +97,8 @@ test("reviewed task edits rotate approval, exclude drafts and persist only the s
   const completed = await runtime.approve(run.id, userId, edited.preview!.token!);
   assert.equal(completed.status, "completed"); assert.equal(count("tasks"), 1);
   const stored = db.prepare("SELECT title,description,priority,dueDate,noteId FROM tasks").get() as Record<string, unknown>;
-  assert.deepEqual(stored, { title: "Reviewed title", description: "User-approved details", priority: 3, dueDate: "2026-11-02", noteId: completed.actions.find(a => a.kind === "note")!.resourceIds[0] });
+  assert.ok(readAiProvenance(String(stored.description))?.ProduceID.startsWith(run.id));
+  assert.deepEqual({ ...stored, description: stripAiProvenanceComments(String(stored.description)).trim().replace(/^> AI 生成内容\s*/, "") }, { title: "Reviewed title", description: "User-approved details", priority: 3, dueDate: "2026-11-02", noteId: completed.actions.find(a => a.kind === "note")!.resourceIds[0] });
   await assert.rejects(runtime.approve(run.id, userId, edited.preview!.token!), /APPROVAL_INVALID/);
   assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(edited)), /APPROVAL_INVALID/);
   closeDb(); db = (await import("../src/db/schema.js")).getDb();

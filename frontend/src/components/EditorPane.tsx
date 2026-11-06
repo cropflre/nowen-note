@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText, createAiProvenance, markAiMarkdown } from "@/lib/aiContentProvenance";
 ﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
@@ -2252,12 +2254,13 @@ function OrdinaryEditorPane({
     if (!activeNote) return;
     const toastId = toast.info(t("note.exportImageExporting"), 0);
     try {
+      const snapshot = editorHandleRef.current?.getSnapshot?.();
       const ok = await exportNoteAsImage(
         {
           id: activeNote.id,
           title: activeNote.title,
-          content: activeNote.content,
-          contentText: activeNote.contentText,
+          content: snapshot?.content ?? activeNote.content,
+          contentText: snapshot?.contentText ?? activeNote.contentText,
           contentFormat: activeNote.contentFormat,
           updatedAt: activeNote.updatedAt,
         },
@@ -2383,7 +2386,7 @@ const moveToTrash = useCallback(async () => {
       //    MD �༭�� debounce ��Ȼ�� flush���� AI �����ʱ���û��Կ��ܼ�������
       //    �� ���� �� version ������������� 409�������������±ʼ����� version ���ԡ�
       const doUpdate = async (version: number) =>
-        api.updateNote(activeNote.id, { title: cleaned, contentFormat: activeNote.contentFormat, version } as any);
+        api.updateNote(activeNote.id, { title: `${t("ai.generatedTitlePrefix")}${cleaned}`, contentFormat: activeNote.contentFormat, version } as any);
 
       let updated;
       try {
@@ -2506,7 +2509,7 @@ const moveToTrash = useCallback(async () => {
   const handleSummaryCopy = useCallback(async () => {
     if (!aiSummaryResult) return;
     try {
-      await navigator.clipboard.writeText(aiSummaryResult);
+      await navigator.clipboard.writeText(aiClipboardText(aiSummaryResult, true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制");
     } catch {
       toast.error(t("common.copyFailed"));
@@ -2515,12 +2518,12 @@ const moveToTrash = useCallback(async () => {
 
   const handleSummaryAppend = useCallback(async () => {
     if (!activeNote || !aiSummaryResult) return;
-      const md = "\n\n## AI 总结\n\n" + aiSummaryResult + "\n";
+      const md = "\n\n" + markAiMarkdown("## AI 总结\n\n" + aiSummaryResult, undefined, t("ai.generatedLabel")) + "\n";
     const appended = editorHandleRef.current?.appendMarkdown?.(md);
     if (!appended) {
       // �༭����֧�� appendMarkdown��fallback ��������
       try {
-        await navigator.clipboard.writeText(aiSummaryResult);
+        await navigator.clipboard.writeText(aiClipboardText(aiSummaryResult, true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
       } catch {
       toast.error(t("editorOps.appendFailed"));
@@ -2594,11 +2597,11 @@ const moveToTrash = useCallback(async () => {
 
   const handleMermaidInsert = useCallback(() => {
     if (!activeNote || !aiMermaidResult) return;
-    const md = "\n\n```mermaid\n" + aiMermaidResult + "\n```\n";
+    const md = "\n\n" + markAiMarkdown("```mermaid\n" + aiMermaidResult + "\n```", undefined, t("ai.generatedLabel")) + "\n";
     const appended = editorHandleRef.current?.appendMarkdown?.(md);
     if (!appended) {
       try {
-        navigator.clipboard.writeText("```mermaid\n" + aiMermaidResult + "\n```");
+        navigator.clipboard.writeText(aiClipboardText("```mermaid\n" + aiMermaidResult + "\n```", true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
     } catch { toast.error(t("common.copyFailed")); }
       return;
@@ -2628,6 +2631,7 @@ const moveToTrash = useCallback(async () => {
     setMermaidSavingMindMap(true);
     try {
       const title = data.root.text.slice(0, 50) || t("editorOps.mindmapDefaultTitle");
+      data.aiProvenance = createAiProvenance();
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
       toast.success(t("editorOps.mindmapSaved"));
       setShowMermaidDialog(false);
@@ -4111,6 +4115,7 @@ const moveToTrash = useCallback(async () => {
                   </div>
                 ) : (
                   <div className="text-sm text-tx-primary whitespace-pre-wrap leading-relaxed">
+                    <AiGeneratedNotice />
                     {aiSummaryResult}
                   </div>
                 )}
@@ -4190,6 +4195,7 @@ const moveToTrash = useCallback(async () => {
                   </div>
                 ) : aiMermaidResult ? (
                   <div className="rounded-lg border border-app-border overflow-hidden">
+                    <AiGeneratedNotice />
                     <MermaidView source={aiMermaidResult} debounceMs={0} />
                   </div>
                 ) : null}
@@ -4197,7 +4203,7 @@ const moveToTrash = useCallback(async () => {
               {!aiMermaidLoading && aiMermaidResult && (
                 <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-app-border">
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(aiMermaidResult); toast.success("已复制"); }}>
+                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(aiClipboardText(aiMermaidResult, true, t("ai.generatedLabel"))); toast.success("已复制"); }}>
                       复制源码
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleMermaidInsert}>

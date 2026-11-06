@@ -1,3 +1,4 @@
+import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
 import { useEffect } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -8,7 +9,7 @@ export default function EncryptedNoteRichTextEditor({ initialContent, editable, 
   initialContent: string; editable: boolean; onChange: (content: string) => void;
 }) {
   const editor = useEditor({
-    extensions: [StarterKit.configure({ link: false, underline: false })],
+    extensions: [AiProvenanceMark, StarterKit.configure({ link: false, underline: false })],
     content: readEncryptedRichTextContent(initialContent),
     editable,
     onUpdate: ({ editor }) => onChange(JSON.stringify(editor.getJSON())),

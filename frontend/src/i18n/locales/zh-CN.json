@@ -2583,6 +2583,8 @@
     "starred": "收藏"
   },
   "ai": {
+    "generatedTitlePrefix": "AI 生成标题：",
+    "generatedLabel": "AI 生成内容",
     "title": "AI 智能配置",
     "description": "配置 AI 模型以启用智能分类和 AI 助手",
     "configured": "已配置",
@@ -2896,6 +2898,7 @@
     "github": "GitHub",
     "website": "Nowen 官网",
     "microsoftStoreDownload": "微软商店下载",
+    "appFilingNumber": "APP 备案号",
     "license": "MIT License",
     "sponsor": "支持作者",
     "sponsorDesc": "如果这个项目对你有帮助，欢迎请作者喝杯咖啡 ☕",
@@ -3521,6 +3524,7 @@
       "create_extensions": "执行已审批工具"
     },
     "errors": {
+      "AI_LABELING_UNSUPPORTED": "服务器尚不支持 AI 内容标识，请更新服务器后使用此功能。",
       "AGENT_REQUEST_FAILED": "请求失败，请检查连接后重试。",
       "VERSION_CONFLICT": "笔记已变化，请拒绝旧提案并重新生成。",
       "UNSAFE_DOCUMENT": "此内容暂不能安全自动修改，请使用问答模式生成草稿。",
