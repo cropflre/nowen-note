@@ -425,3 +425,97 @@ test("Android edit replaces persisted Yjs state so a Markdown session never resu
   assert.equal(yjsText(id), serverNote(id).content, "a cold Markdown session loads the Android body too");
   android.retire();
 });
+
+type AndroidDevice = Awaited<ReturnType<typeof androidDevice>>;
+
+async function localVersion(device: AndroidDevice, noteId: string): Promise<number> {
+  return (await device.db.query<{ version: number }>("SELECT version FROM notes WHERE id=?", [noteId]))[0].version;
+}
+
+/** Push until the note has no queued mutation left (applied or turned into a conflict). */
+async function pushUntilDrained(device: AndroidDevice, noteId: string) {
+  for (let i = 0; i < 80; i++) {
+    const left = await device.db.query("SELECT id FROM sync_outbox WHERE profileId=? AND entityType='note' AND entityId=?",
+      [device.profileId, noteId]);
+    if (!left.length) return;
+    device.engine.requestSync(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`note ${noteId} still has queued mutations`);
+}
+
+async function noteConflicts(device: AndroidDevice, noteId: string) {
+  return device.db.query<{ status: string; localPayload: string; remotePayload: string }>(
+    "SELECT status,localPayload,remotePayload FROM sync_conflicts WHERE profileId=? AND entityType='note' AND entityId=?",
+    [device.profileId, noteId]);
+}
+
+/** A Web save lands; realtime Pull applies it underneath an Android editor that still holds an unsaved edit. */
+async function webSaveUnderOpenAndroidEditor(name: string) {
+  const android = await androidDevice(name);
+  await android.connect();
+  const id = await openSharedNote(android, `concurrent ${name}`, "shared body");
+  await android.quiesce();
+  // The version the open Android editor rendered and keeps typing on.
+  const edited = await localVersion(android, id);
+  const response = await restSave(id, { title: `concurrent ${name}`, content: "Web wrote this", contentText: "Web wrote this", version: serverNote(id).version });
+  assert.equal(response.status, 200, await response.clone().text());
+  const remote = serverNote(id);
+  await android.waitForNote(id, (note) => note.version === remote.version);
+  return { android, id, edited, remote };
+}
+
+test("a Web save that lands under an unsaved Android edit becomes a conflict that keeps both bodies", async () => {
+  const { android, id, edited, remote } = await webSaveUnderOpenAndroidEditor("android-unsaved-race");
+  // EditorPane's debounced autosave sends the version the user was editing.
+  await android.repository.notes.update(id, { content: "Android typed this", contentText: "Android typed this", contentFormat: "markdown", version: edited });
+  await pushUntilDrained(android, id);
+
+  const server = serverNote(id);
+  assert.equal(server.version, remote.version, "the Android save must not silently supersede the Web version");
+  assert.ok(server.content.includes("Web wrote this"));
+  const conflicts = await noteConflicts(android, id);
+  assert.equal(conflicts.length, 1, "one conflict holds both versions");
+  assert.equal(conflicts[0].status, "unresolved");
+  assert.ok(conflicts[0].localPayload.includes("Android typed this"), "the local intent is retained");
+  assert.ok(conflicts[0].remotePayload.includes("Web wrote this"), "the server body is retained for the choice");
+  const local = (await android.db.query<{ content: string }>("SELECT content FROM notes WHERE id=?", [id]))[0];
+  assert.ok(local.content.includes("Android typed this"), "the device keeps what the user typed");
+  android.retire();
+});
+
+test("a later Android save in the same Push batch cannot bypass that conflict", async () => {
+  const { android, id, edited, remote } = await webSaveUnderOpenAndroidEditor("android-unsaved-race-batch");
+  await android.repository.notes.update(id, { content: "Android first save", contentText: "Android first save", contentFormat: "markdown", version: edited });
+  // The adapter hands the editor the local row it just wrote; the next save carries that version.
+  const afterFirst = await localVersion(android, id);
+  await android.repository.notes.update(id, { content: "Android second save", contentText: "Android second save", contentFormat: "markdown", version: afterFirst });
+  // Both queued mutations go out in one Push.
+  await pushUntilDrained(android, id);
+
+  const server = serverNote(id);
+  assert.equal(server.version, remote.version, "the second save must not be rebased past the conflict and applied");
+  assert.ok(server.content.includes("Web wrote this"));
+  const conflicts = await noteConflicts(android, id);
+  assert.equal(conflicts.length, 1);
+  assert.ok(conflicts[0].localPayload.includes("Android second save"), "the conflict keeps the latest local intent");
+  assert.ok(conflicts[0].remotePayload.includes("Web wrote this"));
+  android.retire();
+});
+
+test("consecutive Android saves that carry the version they were given never raise a conflict", async () => {
+  const android = await androidDevice("android-sequential-saves");
+  await android.connect();
+  const id = await openSharedNote(android, "sequential saves", "start");
+  await android.quiesce();
+  // Like EditorPane: each save sends the version returned by the previous one; ACKs are not observed.
+  let version = await localVersion(android, id);
+  for (let i = 1; i <= 4; i++) {
+    await android.repository.notes.update(id, { content: `local save ${i}`, contentText: `local save ${i}`, contentFormat: "markdown", version });
+    version = await localVersion(android, id);
+    if (i !== 2) await pushUntilDrained(android, id); // saves 2 and 3 share one Push batch
+  }
+  assert.equal((await noteConflicts(android, id)).length, 0);
+  assert.ok(serverNote(id).content.includes("local save 4"));
+  android.retire();
+});

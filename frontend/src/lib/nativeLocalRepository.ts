@@ -750,7 +750,13 @@ export class NativeLocalRepository implements LocalRepository {
         scope.scopeKey, id, ...(encrypted ? [current.version] : []),
       ]);
       if (encrypted && changed.changes !== 1) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
-      await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version, scope.scopeKey);
+      // The editor sends the version it rendered. If a Pull applied a newer remote body
+      // underneath an unsaved edit, this body is concurrent with it: queue the edit against
+      // the version the user actually edited so Push keeps both in a conflict (DCC-004).
+      const editedVersion = Number(patch.version);
+      const baseVersion = patch.content !== undefined && Number.isSafeInteger(editedVersion) && editedVersion < current.version
+        ? editedVersion : current.version;
+      await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, baseVersion, scope.scopeKey);
       return { id, savedAt: next.updatedAt };
     });
     // Refresh per-note receipt from committed Outbox, even while a push is in flight.
