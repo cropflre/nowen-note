@@ -28,7 +28,7 @@ test.beforeAll(async ({ request }) => {
   tokens = await response.json();
 });
 
-for (const width of [1600, 1024]) {
+for (const width of [1600, 1024, 768, 800, 839]) {
   test(`All Notes honors standard layout and restores three columns (${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(({ tokens }) => {
@@ -45,11 +45,15 @@ for (const width of [1600, 1024]) {
     await trigger.click();
     await page.getByRole("menuitemradio", { name: "标准模式" }).click();
     await expect(list).toBeHidden();
+    const directory = page.locator('[data-sidebar-variant="desktop"]');
+    await expect(directory).toBeVisible();
+    await expect(directory.locator('[data-knowledge-tree-node-id]').first()).toBeVisible();
     await expect(editor).toBeVisible();
     const standardWidth = (await editor.boundingBox())!.width;
     await page.reload();
     await expect(trigger).toBeVisible();
     await expect(list).toBeHidden();
+    await expect(directory).toBeVisible();
     await allNotes.click();
     await expect(list).toBeHidden();
     await page.screenshot({ path: test.info().outputPath(`standard-${width}.png`) });
@@ -62,9 +66,17 @@ for (const width of [1600, 1024]) {
       await page.setViewportSize({ width: 1600, height: 900 });
     }
     await expect(list).toBeVisible();
+    await expect(directory).toBeVisible();
     if (width === 1600) expect((await editor.boundingBox())!.width).toBeLessThan(standardWidth);
     await expect.poll(() => page.locator("body").evaluate(el => el.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ path: test.info().outputPath(`three-column-${width}.png`) });
+    await page.setViewportSize({ width: 800, height: 1280 });
+    await expect(list).toBeHidden();
+    await expect(directory).toBeVisible();
+    await expect(editor).toBeVisible();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("nowen-note-workspace-layout"))).toBe("three-column");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(list).toBeVisible();
   });
 }
 

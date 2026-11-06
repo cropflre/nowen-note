@@ -34,6 +34,7 @@ describe("note workspace layout", () => {
     expect(supportsWideNoteWorkspaceLayout("web", 680)).toBe(true);
     expect(supportsWideNoteWorkspaceLayout("desktop", 680)).toBe(true);
     expect(supportsWideNoteWorkspaceLayout("native-mobile", 680)).toBe(false);
+    expect(supportsWideNoteWorkspaceLayout("native-mobile", 768)).toBe(true);
     expect(supportsWideNoteWorkspaceLayout("native-mobile", 840)).toBe(true);
   });
 
