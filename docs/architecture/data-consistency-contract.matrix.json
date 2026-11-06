@@ -145,6 +145,9 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/editorRemoteReconcile.test.ts", "case": "reports user edits made after the clean rendering" },
+        { "file": "frontend/src/lib/__tests__/editorRemoteReconcile.test.ts", "case": "stays conservative when no matching clean rendering exists" },
+        { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Android edit replaces persisted Yjs state so a Markdown session never resurrects the old body" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "blocks repair when the latest queued position differs from the previewed local tree" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "repairs 18 Android directory conflicts atomically, retaining business data, cursor and conflict history" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
@@ -180,6 +183,7 @@
       "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a full Change Feed page keeps pulling instead of waiting for the next wake-up" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "keeps validated local positions by replacing old queue entries with CAS against the current cloud baseline" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-005: shows live desktop download stages and actual attachment progress without claiming a completed local copy" },
@@ -504,6 +508,8 @@
       "title": "Native independent SQLite clients preserve durable edits across sync failures",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Web REST save reaches an open Android note through /ws, Pull and native SQLite without a manual refresh" },
+        { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Android edit reaches an open Web editor through note:updated and note:list-updated" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native permanent deletion retains its recoverable body and attachment metadata in the durable Outbox"},
         { "file": "frontend/src/lib/__tests__/assetAITransport.test.ts", "case": "Native local mode refuses every new AI transport before making a network request" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent asset folder edits preserve both versions and explicit keep-local converges" },

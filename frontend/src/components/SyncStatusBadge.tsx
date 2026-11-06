@@ -25,7 +25,13 @@ import { useSyncIndicator } from "@/lib/useSyncIndicator";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import { useNoteSyncReceipt } from "@/lib/useNoteSyncReceipt";
 
-export default function SyncStatusBadge({ className, saving = false, noteId }: { className?: string; saving?: boolean; noteId?: string }) {
+export default function SyncStatusBadge({ className, saving = false, noteId, remotePending = false }: {
+  className?: string;
+  saving?: boolean;
+  noteId?: string;
+  /** The open editor knows a newer persisted version it has not applied yet. */
+  remotePending?: boolean;
+}) {
   const { t } = useTranslation();
   const sync = useSyncIndicator(saving);
   const android = isAndroidNativeRuntime();
@@ -34,7 +40,10 @@ export default function SyncStatusBadge({ className, saving = false, noteId }: {
   // 未启用同步：不占用任何空间。
   if (!sync.syncEnabled) return null;
   if (noteId) {
-    const phase = saving ? "saving" : receipt;
+    // A receipt only confirms this device's own write; never show it as current
+    // while a newer version from another device is still waiting to be applied.
+    const phase = saving ? "saving"
+      : remotePending && receipt !== "conflict" && receipt !== "error" ? "remotePending" : receipt;
     const warning = phase === "conflict" || phase === "error";
     return (
       <span role="status" aria-live="polite" title={t("syncBadge.receiptHint")}

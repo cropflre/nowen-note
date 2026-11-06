@@ -6,7 +6,7 @@ import { getDb } from "../db/schema.js";
 import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 import { getUserWorkspaceRole, hasRole, isFeatureEnabled, isSystemAdmin, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
-import { notifySyncChanged } from "../sync/notify";
+import { syncChangeNoticeMiddleware } from "../sync/feedNotifier";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { resolvePasswordAuthorizedNotes, resolveUnlockedFolderNodeIds, signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
@@ -36,22 +36,7 @@ const app = new Hono();
 
 // REST tree writes also enter the durable V2 feed. Wake subscribed devices only
 // after a successful request has committed; Pull retains authorization/filtering.
-app.use("*", async (c, next) => {
-  if (!["POST","PUT","PATCH","DELETE"].includes(c.req.method)) return next();
-  const db = getDb();
-  const before = Number((db.prepare("SELECT MAX(sequence) AS sequence FROM sync_changes_v2").get() as {sequence:number|null}).sequence || 0);
-  await next();
-  if (c.res.status < 200 || c.res.status >= 300) return;
-  const changed = db.prepare(`SELECT DISTINCT userId,workspaceId FROM sync_changes_v2
-    WHERE sequence > ? AND entityType='knowledge_tree_node'`).all(before) as Array<{userId:string;workspaceId:string|null}>;
-  const sent = new Set<string>();
-  for (const row of changed) {
-    const key = row.workspaceId ? `workspace:${row.workspaceId}` : `personal:${row.userId}`;
-    if (sent.has(key)) continue;
-    sent.add(key);
-    notifySyncChanged(db,row.userId,row.workspaceId ? key : "personal");
-  }
-});
+app.use("*", syncChangeNoticeMiddleware);
 
 function userIdOf(c: any): string {
   return c.req.header("X-User-Id") || "";
