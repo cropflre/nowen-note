@@ -85,7 +85,7 @@ function absoluteStableShareUrl(value: string, apiBase: string): string {
   }
 }
 
-async function createStableFileShareUrl(attachmentId: string): Promise<string> {
+export async function createStableFileShareUrl(attachmentId: string): Promise<string> {
   const apiBase = getBaseUrl();
   const token = getAccessToken();
   const response = await fetchWithAuthRefresh(`${apiBase}/attachments/file-share`, {
