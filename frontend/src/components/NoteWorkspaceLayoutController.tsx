@@ -120,11 +120,10 @@ export default function NoteWorkspaceLayoutController() {
   ], [t]);
 
   useEffect(() => {
-    if (!wideLayoutSupported) return;
     const update = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [wideLayoutSupported]);
+  }, []);
 
   useEffect(() => {
     if (!wideLayoutSupported) return;
