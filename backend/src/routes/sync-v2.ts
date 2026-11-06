@@ -24,6 +24,7 @@ import { applyMutation } from "../sync/apply";
 import type { ApplyMutationResult } from "../sync/apply";
 import { SyncError, isSyncErrorCode } from "../sync/errors";
 import { notifySyncChanged } from "../sync/notify";
+import { announceSyncPushedNotes, type SyncPushedNoteChange } from "../services/syncPushWebAnnounce";
 import {
   assertSyncMutationAccess,
   listAuthorizedScopes,
@@ -727,6 +728,7 @@ app.post("/push", async (c) => {
   const results: Array<ApplyMutationResult & { error?: string }> = [];
   let applied = 0;
   let conflicts = 0;
+  const appliedNotes: SyncPushedNoteChange[] = [];
 
   for (const raw of body.mutations) {
     const parsed = validateMutation(raw);
@@ -789,7 +791,10 @@ app.post("/push", async (c) => {
         workspaceId: scope.workspaceId,
       }))();
       results.push(result);
-      if (result.status === "applied") applied += 1;
+      if (result.status === "applied") {
+        applied += 1;
+        if (parsed.entityType === "note") appliedNotes.push({ noteId: parsed.entityId, operation: parsed.operation });
+      }
     } catch (error: any) {
       const code = error instanceof SyncError && isSyncErrorCode(error.code)
         ? error.code
@@ -864,6 +869,9 @@ app.post("/push", async (c) => {
   // 通知内容只有 sequence，数据仍以 Change Feed 为唯一来源。
   await finishSyncNoteDeletions(db);
   if (applied > 0) notifySyncChanged(db, userId, scope.scopeKey);
+  // Browsers have no Sync V2 cursor: give open Web/desktop editors the same
+  // committed-update signals (and Yjs state) as a REST save.
+  if (appliedNotes.length) announceSyncPushedNotes(db, userId, appliedNotes);
 
   return c.json({
     scopeKey: scope.scopeKey,

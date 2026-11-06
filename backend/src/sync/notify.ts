@@ -39,6 +39,10 @@ export function setSyncBroadcaster(fn: UserBroadcaster | null): void {
   broadcaster = fn;
 }
 
+export function hasSyncBroadcaster(): boolean {
+  return broadcaster !== null;
+}
+
 /**
  * 通知某用户的其他设备："有新变更，来拉。"
  *

@@ -90,6 +90,7 @@ import { getBackupManager } from "./services/backup";
 import { attachRealtimeServer, broadcastToUser, getRealtimeStats, shutdownRealtime } from "./services/realtime";
 import { isLocalFirstSyncV2Enabled } from "./sync/flag";
 import { setSyncBroadcaster } from "./sync/notify";
+import { startSyncChangeNoticeFlusher, syncChangeNoticeMiddleware } from "./sync/feedNotifier";
 import { resetChangeFeedSuppression } from "./sync/suppression";
 import { recoverInflightMutations } from "./sync/outbox";
 import { recoverStuckUploads } from "./sync/attachments";
@@ -599,6 +600,9 @@ app.use("/api/*", async (c, next) => {
 // JWT login requests pass through unchanged.
 app.use("/api/*", enforceApiTokenAccess);
 app.use("/api/*", automationEventCaptureMiddleware);
+// Sync V2: every committed Change Feed row wakes subscribed native devices.
+// No-op until the Sync V2 broadcaster is registered below.
+app.use("/api/*", syncChangeNoticeMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
@@ -1004,6 +1008,10 @@ if (isLocalFirstSyncV2Enabled()) {
   setSyncBroadcaster((userId, message) => {
     broadcastToUser(userId, message as never);
   });
+
+  // Yjs 落盘、导入任务等非 HTTP 写入同样进入 Change Feed；后台冲刷兜住它们的唤醒。
+  try { startSyncChangeNoticeFlusher(getDb()); }
+  catch (error) { console.warn("[sync-v2] change notice flusher unavailable:", (error as Error)?.message || error); }
 
   // 崩溃恢复：上次进程若在抑制窗口或上传中途被强杀，
   // 开关会卡在 1、附件会卡在 uploading，之后永远不再同步。
