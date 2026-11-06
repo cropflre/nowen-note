@@ -209,7 +209,8 @@ export const zhCNCoverageTranslations = {
       "pending": "等待云端确认",
       "confirmed": "云端已确认",
       "conflict": "版本冲突待处理",
-      "error": "同步遇到问题"
+      "error": "同步遇到问题",
+      "remotePending": "其他设备有新版本待应用"
     },
     "conflicts": "{{count}} 个冲突待处理",
     "pending": "待同步 {{count}}",
@@ -833,7 +834,8 @@ export const enCoverageTranslations = {
       "pending": "Awaiting cloud confirmation",
       "confirmed": "Cloud confirmed",
       "conflict": "Version conflict",
-      "error": "Sync issue"
+      "error": "Sync issue",
+      "remotePending": "Newer version from another device pending"
     },
     "conflicts": "{{count}} conflicts to resolve",
     "pending": "{{count}} pending changes",
