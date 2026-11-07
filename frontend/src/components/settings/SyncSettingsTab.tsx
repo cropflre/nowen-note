@@ -35,7 +35,7 @@ import { getServerUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/authSession";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import { getQueueLength } from '@/lib/offlineQueue';
-import { needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
+import { isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import MobileSyncSettings from "./MobileSyncSettings";
 
 export default function SyncSettingsTab() {
@@ -196,7 +196,9 @@ function LiteMigrationWizard({progress,onProgress}:{
         {stage === "attachments" ? ` · 附件完成 ${progress.attachmentsDone || 0}，剩余 ${progress.attachmentsPending || 0}` : ""}
       </p> : null}
     </div>
-    {(error || progress?.error) ? <p className="text-sm text-destructive">{needsLocalAccountRecovery(error || progress?.error || '') ? t('offlineAvailability.localAccountRecoveryHint') : error || progress?.error}</p> : null}
+    {(error || progress?.error) ? <p className="text-sm text-destructive">{needsLocalAccountRecovery(error || progress?.error || '') ? t('offlineAvailability.localAccountRecoveryHint')
+      : isLocalAccountBootstrapFailure(error || progress?.error || '') ? t('offlineAvailability.localAccountUnavailableHint', { code: error || progress?.error })
+        : error || progress?.error}</p> : null}
     {needsLocalAccountRecovery(error || '') && <button type="button" disabled={running} onClick={()=>void start(true)}
       className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">{t('offlineAvailability.recoverLocalAccount')}</button>}
     {stage === "complete" ? <p className="text-sm text-emerald-700">{t('offlineAvailability.migrationComplete', {defaultValue:'笔记已保存到本机。退出并重新打开应用后，可继续下载剩余附件；附件离线状态请在同步设置中核验。'})}</p>

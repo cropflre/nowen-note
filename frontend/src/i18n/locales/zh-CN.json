@@ -68,6 +68,7 @@
     "continueOnline": "继续在线使用",
     "recoverLocalAccount": "恢复本地登录并重试",
     "localAccountRecoveryHint": "本地登录需要恢复，下载暂未开始。点击「恢复本地登录并重试」，核对弹窗中的说明后确认，即可恢复本机账号并重新下载。",
+    "localAccountUnavailableHint": "本机账号暂时无法使用（{{code}}），下载暂未开始。请完全退出并重新打开应用后再试；仍失败时，请在「设置 → 数据管理」查看日志目录，并把最新日志反馈给开发者。",
     "onlineOnlyHint": "本地副本尚未就绪。可继续在线访问原服务器，稍后在同步设置中重试下载；完成前请保持联网。",
     "downloadTitle": "下载到本机，支持离线使用",
     "installFull": "当前 Lite 安装包提供在线访问。请安装完整版客户端，在同步设置连接原 NAS 账号后下载笔记和附件。",

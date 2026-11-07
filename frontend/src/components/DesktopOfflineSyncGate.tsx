@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { automaticallyDownloadDesktopCopy, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
+import { automaticallyDownloadDesktopCopy, isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import type { LiteMigrationProgress, NowenDesktopAPI } from '@/lib/desktopBridge';
 import { getAccessToken } from '@/lib/authSession';
 import { getServerUrl } from '@/lib/api';
@@ -142,7 +142,8 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
           done:attachmentsDone,total:attachmentsTotal,
         })}</p>}
       </div>
-      {error && <p className="text-sm text-amber-600">{needsLocalAccountRecovery(error) ? t('offlineAvailability.localAccountRecoveryHint') : error}</p>}
+      {error && <p className="text-sm text-amber-600">{needsLocalAccountRecovery(error) ? t('offlineAvailability.localAccountRecoveryHint')
+        : isLocalAccountBootstrapFailure(error) ? t('offlineAvailability.localAccountUnavailableHint',{code:error}) : error}</p>}
       {failedEdits > 0 && <div className="space-y-3 text-sm">
         <p>{t('offlineAvailability.legacyEditsRetained',{count:failedEdits})}</p>
         <div className="flex justify-center gap-3">

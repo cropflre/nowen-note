@@ -251,3 +251,47 @@ it('a failed progress read does not fail the download and late polling results c
     expect(host.textContent).toBe('editor');
   } finally {act(()=>root.unmount());host.remove();delete desktopWindow.nowenDesktop;}
 });
+
+async function mountFailingGate(migrateResult:unknown) {
+  vi.useFakeTimers();
+  const migrate=vi.fn().mockResolvedValue(migrateResult);
+  const reset=vi.fn().mockResolvedValue({ok:true,token:'local-token'});
+  const desktopWindow=window as unknown as {nowenDesktop?:object};
+  desktopWindow.nowenDesktop={isDesktop:true,getAppInfo:async()=>({runtime:'remote',localRuntimeAvailable:true}),startLiteMigration:migrate,resetLocalAuth:reset};
+  localStorage.setItem('nowen-token','remote-token');
+  const host=document.createElement('div');document.body.appendChild(host);const root=createRoot(host);
+  await act(async()=>{root.render(<DesktopOfflineSyncGate><span>editor</span></DesktopOfflineSyncGate>);});
+  return {
+    host,migrate,reset,
+    recoverButton:()=>[...host.querySelectorAll('button')].find(item=>item.textContent==='offlineAvailability.recoverLocalAccount'),
+    cleanup:()=>{act(()=>root.unmount());host.remove();delete desktopWindow.nowenDesktop;},
+  };
+}
+
+async function expectRecoveryOffered(code:string) {
+  const gate=await mountFailingGate({ok:false,error:code});
+  try {
+    expect(gate.host.textContent).toContain('offlineAvailability.localAccountRecoveryHint');
+    expect(gate.recoverButton()).toBeDefined();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(15000);});
+    expect(gate.migrate).toHaveBeenCalledOnce();
+    expect(gate.reset).not.toHaveBeenCalled();
+    expect(gate.host.textContent).not.toContain('editor');
+  } finally {gate.cleanup();}
+}
+
+it('DCC-006: a disabled local account is offered confirmed recovery instead of silent retries', () => expectRecoveryOffered('LOCAL_ACCOUNT_DISABLED'));
+
+it('DCC-006: a locked local account is offered confirmed recovery instead of silent retries', () => expectRecoveryOffered('ACCOUNT_LOCKED'));
+
+it('DCC-006: a transient local backend failure explains itself and keeps retrying without offering a reset', async () => {
+  const gate=await mountFailingGate({ok:false,error:'BACKEND_UNAVAILABLE'});
+  try {
+    expect(gate.host.textContent).toContain('offlineAvailability.localAccountUnavailableHint');
+    expect(gate.host.textContent).toContain('BACKEND_UNAVAILABLE');
+    expect(gate.recoverButton()).toBeUndefined();
+    await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+    expect(gate.migrate.mock.calls.length).toBeGreaterThan(1);
+    expect(gate.reset).not.toHaveBeenCalled();
+  } finally {gate.cleanup();}
+});

@@ -75,4 +75,23 @@ describe("sync settings across browser and clients", () => {
     expect(mocks.migrate).toHaveBeenCalledTimes(2);
     expect(mocks.migrate).toHaveBeenLastCalledWith('https://nas.example.com','token');
   });
+  async function failMigrationWith(error:string) {
+    mocks.serverUrl = 'https://nas.example.com';
+    mocks.info.mockResolvedValue({mode:'lite',runtime:'remote',localRuntimeAvailable:true});
+    mocks.migrate.mockResolvedValue({ok:false,error});
+    await mount();
+    await act(async()=>[...host.querySelectorAll('button')].find(item=>item.textContent==='开始迁移')!.click());
+  }
+  const recoverButton=()=>[...host.querySelectorAll('button')].find(item=>item.textContent==='offlineAvailability.recoverLocalAccount');
+  it.each(['LOCAL_ACCOUNT_DISABLED','ACCOUNT_LOCKED'])('DCC-006: a %s local account is offered the confirmed recovery button in sync settings', async (code) => {
+    await failMigrationWith(code);
+    expect(host.textContent).toContain('offlineAvailability.localAccountRecoveryHint');
+    expect(host.textContent).not.toContain(code);
+    expect(recoverButton()).toBeDefined();
+  });
+  it.each(['BACKEND_UNAVAILABLE','HTTP_403'])('explains a %s local account failure instead of showing the bare code, without a reset button', async (code) => {
+    await failMigrationWith(code);
+    expect(host.textContent).toContain('offlineAvailability.localAccountUnavailableHint');
+    expect(recoverButton()).toBeUndefined();
+  });
 });
