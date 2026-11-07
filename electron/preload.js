@@ -23,8 +23,6 @@ const allowedChannels = new Set([
   "file:open",
   // 自动更新状态
   "updater:status",
-  // 局域网服务发现：主进程发现/丢失 mDNS 服务后向 renderer 推送最新列表
-  "discovery:update",
   "ugreen:gateway-ready",
   "ugreen:auth-cancelled",
 ]);
@@ -313,35 +311,6 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     },
     remove(id) {
       return ipcRenderer.invoke("account-history:remove", typeof id === "string" ? id.slice(0, 128) : "");
-    },
-  },
-
-  /**
-   * 局域网服务发现（mDNS）：
-   *   - start():  启动扫描 _nowen-note._tcp.local.；返回 { ok, available }
-   *                available=false 表示主进程缺 bonjour-service 依赖（不会报错，前端
-   *                仅显示"未发现"）
-   *   - stop():   停止扫描并取消订阅
-   *   - list():   主动获取当前已知服务列表（通常用不到，start 后会自动推送）
-   *   - onUpdate(cb): 订阅列表变化；返回反注册函数
-   *
-   * 返回的 service 结构：
-   *   { name, host, port, ipv4, addresses: string[], txt: Record<string,string>, lastSeen: number }
-   */
-  discovery: {
-    start() {
-      return ipcRenderer.invoke("discovery:start");
-    },
-    stop() {
-      return ipcRenderer.invoke("discovery:stop");
-    },
-    list() {
-      return ipcRenderer.invoke("discovery:list");
-    },
-    onUpdate(listener) {
-      const wrapped = (_event, payload) => listener(payload);
-      ipcRenderer.on("discovery:update", wrapped);
-      return () => ipcRenderer.removeListener("discovery:update", wrapped);
     },
   },
 

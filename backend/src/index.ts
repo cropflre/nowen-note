@@ -1034,7 +1034,7 @@ if (isLocalFirstSyncV2Enabled()) {
 }
 console.log(`🛰  WebSocket endpoint: ws://localhost:${port}/ws`);
 
-// mDNS 广播：让同局域网内的桌面/移动客户端免输入发现本实例。
+// mDNS 广播：让同局域网内的移动客户端在自动选路时找回本实例的局域网地址。
 //   - 仅在"对外暴露的端口"上广播才有意义（127.0.0.1 绑定的 Electron 内嵌后端
 //     也可以广播，但旁路设备根本连不上）。这里不做 bind 地址判断，保持无脑广播；
 //     如果想限制，可加 DISABLE_MDNS=1 环境变量。
