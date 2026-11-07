@@ -766,7 +766,7 @@ export function broadcastAuthChanged(reason?: string) {
 /**
  * H2: sudo 二次验证辅助工具。
  *
- * 敏感操作（删除用户 / 重置他人密码 / 改角色 / 禁用 / 恢复出厂设置 / 创建管理员）
+ * 敏感操作（删除用户 / 改角色 / 禁用 / 恢复出厂设置 / 创建管理员）
  * 必须先调 `/auth/sudo`（输入当前密码）拿到一张 5 分钟的 sudoToken，随后在业务请求
  * 里通过 `X-Sudo-Token` header 携带。
  *
