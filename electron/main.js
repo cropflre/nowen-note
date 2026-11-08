@@ -547,7 +547,30 @@ async function offerLiteRecovery() {
 }
 
 // ---------- 启动后端 ----------
+// 子进程是否还活着：spawn 失败时没有 pid，退出后 exitCode / signalCode 非空。
+function isBackendProcessAlive() {
+  const proc = backendProcess;
+  return !!proc && proc.pid !== undefined && proc.exitCode === null && proc.signalCode === null;
+}
+
 async function startBackend() {
+  try {
+    await launchBackend();
+  } catch (e) {
+    // 端口在启动前就已分配，而调用方都用 `!backendPort` 判断"后端还没启动"。
+    // 启动失败且子进程已不存在时必须清零，否则之后的重试会跳过启动，
+    // 只得到连接失败（BACKEND_UNAVAILABLE），真实原因被掩盖，后端也永远不会再被拉起。
+    // 子进程仍活着（只是超过探测时限还没就绪）则保留端口：后续请求会等到它启动完成，
+    // 不能在同一个数据库上再起第二个后端。
+    if (!isBackendProcessAlive()) {
+      backendPort = 0;
+      backendProcess = null;
+    }
+    throw e;
+  }
+}
+
+async function launchBackend() {
   backendPort = await getFreePort();
   const backendEntry = getBackendEntry();
   const userDataPath = getUserDataPath();
@@ -648,9 +671,16 @@ async function startBackend() {
     }
   }
 
-  // 轮询健康端点，确认服务真正就绪
+  // 轮询健康端点，确认服务真正就绪。
+  // 子进程在探测通过前退出（原生模块加载失败等）或根本没能 spawn 时立即失败：
+  // 探测本身只会等满 30 秒并报"启动超时"，每次重试都白等，真实原因也被盖住。
+  const child = backendProcess;
+  const stoppedBeforeReady = new Promise((_, reject) => {
+    child.once("exit", (code, signal) => reject(new Error(`后端进程已退出（code=${code} signal=${signal || ""}）`)));
+    child.once("error", () => reject(new Error("后端进程未能启动")));
+  });
   try {
-    await waitForBackendReady(backendPort, 30000);
+    await Promise.race([waitForBackendReady(backendPort, 30000), stoppedBeforeReady]);
   } catch (e) {
     // 附带 spawn 错误信息一起抛给 UI 弹窗
     if (spawnErr) {
