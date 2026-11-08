@@ -484,6 +484,10 @@ export const zhCNCoverageTranslations = {
     "enabledMessage": "分享已启用",
     "viewSessions": "访问会话 {{total}}",
     "expiresOn": " · 到期 {{date}}",
+    "riskSummary": "外部访客可能打不开此链接",
+    "moreOptions": "更多选项（密码、有效期、会话数）",
+    "openLink": "打开链接",
+    "delete": "删除",
   },
   editorOps: {
     "convertLocked": "请先解锁笔记再转换格式",
@@ -1109,6 +1113,10 @@ export const enCoverageTranslations = {
     "enabledMessage": "Share enabled",
     "viewSessions": "Sessions: {{total}}",
     "expiresOn": " · Expires {{date}}",
+    "riskSummary": "Guests may not be able to open this link",
+    "moreOptions": "More options (password, expiry, sessions)",
+    "openLink": "Open link",
+    "delete": "Delete",
   },
   editorOps: {
     "convertLocked": "Unlock the note before converting formats",
