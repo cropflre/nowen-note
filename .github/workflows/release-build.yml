@@ -201,7 +201,9 @@ jobs:
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: '24.22.1', cache: npm, cache-dependency-path: packages/nowen-clipper/package-lock.json }
-      - run: npm ci && npm run pack:all
+      - run: |
+          rm -f releases/*.zip
+          npm ci && npm run pack:all
         working-directory: packages/nowen-clipper
       - uses: actions/upload-artifact@v4
         with: { name: release-clipper, path: 'packages/nowen-clipper/releases/*.zip', if-no-files-found: error, retention-days: 7 }
