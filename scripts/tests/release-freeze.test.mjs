@@ -11,33 +11,33 @@ const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const read = path => readFile(resolve(root, path), 'utf8');
 const json = async path => JSON.parse(await read(path));
 
-test('v1.5.4 root and backend package/lock versions are identical', async () => {
+test('v1.5.5 root and backend package/lock versions are identical', async () => {
   for (const prefix of ['', 'backend/']) {
     const pkg = await json(prefix + 'package.json');
     const lock = await json(prefix + 'package-lock.json');
-    assert.equal(pkg.version, '1.5.4', prefix + 'package.json');
+    assert.equal(pkg.version, '1.5.5', prefix + 'package.json');
     assert.equal(lock.version, pkg.version);
     assert.equal(lock.packages[''].version, pkg.version);
     assert.deepEqual(lock.packages[''].engines, pkg.engines);
   }
 });
 
-test('Android identity and versionCode advance beyond released v1.5.3', async () => {
+test('Android identity and versionCode advance beyond released v1.5.4', async () => {
   const gradle = await read('frontend/android/app/build.gradle');
   assert.match(gradle, /applicationId\s+"com\.nowen\.note"/);
-  assert.equal(gradle.match(/versionName\s+"([^"]+)"/)?.[1], '1.5.4');
+  assert.equal(gradle.match(/versionName\s+"([^"]+)"/)?.[1], '1.5.5');
   const code = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);
-  assert.ok(Number.isSafeInteger(code) && code > 10509, 'must exceed published v1.5.3 code 10509');
+  assert.ok(Number.isSafeInteger(code) && code > 10510, 'must exceed published v1.5.4 code 10510');
 });
 
-test('source Xcode build configurations carry v1.5.4 defaults', async () => {
+test('source Xcode build configurations carry v1.5.5 defaults', async () => {
   const project = await read('frontend/ios/App/App.xcodeproj/project.pbxproj');
   const versions = [...project.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(match => match[1]);
   assert.ok(versions.length >= 2);
-  assert.ok(versions.every(value => value === '1.5.4'));
+  assert.ok(versions.every(value => value === '1.5.5'));
   const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = ([0-9]+);/g)].map(match => Number(match[1]));
   assert.equal(codes.length, versions.length);
-  assert.ok(codes.every(value => value >= 10510));
+  assert.ok(codes.every(value => value >= 10511));
   const workflow = await read('.github/workflows/ios-release.yml');
   assert.match(workflow, /CURRENT_PROJECT_VERSION/);
   assert.equal(workflow.includes('BUILD_NUMBER="${GITHUB_RUN_NUMBER}"'), false);
