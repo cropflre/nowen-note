@@ -8,6 +8,7 @@ import { AlertTriangle, BadgeAlert, ExternalLink, Info, Lightbulb, ShieldAlert }
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { remarkSiyuanCallouts, type SiyuanCalloutType } from "@/lib/markdownCallouts";
+import { remarkPreserveLineBreaks } from "@/lib/markdownLineBreaks";
 import {
   buildMarkdownPreviewHeadingIndex,
   headingDataAttrs,
@@ -505,7 +506,7 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
       style={{ containIntrinsicSize: `auto ${estimatedHeight}px` }}
     >
       {mounted ? (
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSiyuanCallouts]} rehypePlugins={rehypePlugins} components={components}>
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkSiyuanCallouts, remarkPreserveLineBreaks]} rehypePlugins={rehypePlugins} components={components}>
           {segment.markdown}
         </ReactMarkdown>
       ) : <div aria-hidden="true" style={{ minHeight: estimatedHeight }} />}
@@ -600,7 +601,7 @@ export function MarkdownPreview({ markdown, noteId, className, compact, containe
         />
       )) : (
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkSiyuanCallouts]}
+          remarkPlugins={[remarkGfm, remarkSiyuanCallouts, remarkPreserveLineBreaks]}
           rehypePlugins={rehypePlugins}
           components={components}
         >
