@@ -63,8 +63,8 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   const previous = process.env.GITHUB_STEP_SUMMARY;
   process.env.GITHUB_STEP_SUMMARY = join(directory,'summary');
   t.after(() => { if(previous === undefined) delete process.env.GITHUB_STEP_SUMMARY; else process.env.GITHUB_STEP_SUMMARY=previous; });
-  const file = {name:'clipper.zip',size:10,sha256:'c'.repeat(64)};
-  const manifest = {version:'1.5.3',run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-clipper',files:[file]}]};
+  const file = {name:'Nowen-Note-1.5.3-arm64.dmg',size:10,sha256:'c'.repeat(64)};
+  const manifest = {version:'1.5.3',run_id:101,run_attempt:1,commit_sha:sha,targets:['macos'],artifacts:[{name:'release-macos',files:[file]}]};
   let tag=null, release=null, assets=[], uploads=0, publishes=0, drafts=0, loseUpload=true;
   const api = async (path, method='GET', body) => {
     if (path.startsWith('git/ref/tags/')) return tag;
@@ -78,6 +78,7 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   const execute = () => { uploads++; assets=[{name:file.name,size:10,digest:`sha256:${file.sha256}`}]; if(loseUpload) throw Error('response lost'); };
   await assert.rejects(publishGitHub(manifest,api,execute),/response lost/);
   assert.equal(publishes,0); assert.equal(release.draft,true);
+  assert.match(release.body,/macOS 安装包未进行 Apple Developer ID 签名或公证/);
   loseUpload=false;
   await publishGitHub(manifest,api,execute);
   assert.equal(uploads,1); assert.equal(drafts,1); assert.equal(publishes,1);
