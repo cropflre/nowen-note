@@ -32,6 +32,20 @@ export async function publishGitHub(manifest, api = githubAPI, execute = cmd) {
   const ref = await api(`git/ref/tags/${tag}`);
   if (ref && (ref.object?.type !== 'commit' || ref.object.sha !== manifest.commit_sha)) throw Error('同名 Tag 已指向其他来源；禁止覆盖');
   let release = await api(`releases/tags/${tag}`);
+  // The tag endpoint only returns published releases; drafts require the release list.
+  if (!release) {
+    const matches = [];
+    let complete = false;
+    for (let page = 1; page <= 10; page++) {
+      const items = await api(`releases?per_page=100&page=${page}`);
+      if (!Array.isArray(items)) throw Error('无法读取发布列表，停止创建草稿');
+      matches.push(...items.filter(item => item.tag_name === tag));
+      if (items.length < 100) { complete = true; break; }
+    }
+    if (!complete) throw Error('发布列表超过分页上限，停止创建草稿');
+    if (matches.length > 1) throw Error('存在多个同标签 Release；请核对草稿，不自动选择或覆盖');
+    release = matches[0];
+  }
   if (release && !release.body?.includes(marker)) throw Error('已有 Release 不属于本次构建；禁止接管');
   if (!ref) await api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: manifest.commit_sha });
   // Always disclose the unsigned macOS distribution policy to end users.
