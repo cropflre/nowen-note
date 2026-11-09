@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   verified-build-and-publish:
-    # Retry after verified pinned-asset CDN fixes (FFmpeg, sqlite-vec, Gradle).
+    # Retry with explicit unsigned macOS distribution and unchanged provenance checks.
     if: >-
       github.ref == 'refs/heads/release/v1.5.5' &&
       github.event.head_commit.message == 'ci(release): initiate one-shot v1.5.5 build and publish'
@@ -53,7 +53,7 @@ jobs:
             -f "commit_sha=$GITHUB_SHA" \
             -f 'version=1.5.5' \
             -f 'targets=pc,android,docker,fpk,upk,clipper' \
-            -f 'notes=v1.5.5: realtime sync reliability, migration compatibility, desktop recovery and UI motion.'
+            -f 'notes=v1.5.5: realtime sync reliability, migration compatibility, desktop recovery and UI motion. macOS installers are unsigned and unnotarized.'
           echo "Build request UUID: $request_id" >> "$GITHUB_STEP_SUMMARY"
           build_run=''
           for attempt in $(seq 1 45); do
