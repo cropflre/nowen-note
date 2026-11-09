@@ -69,7 +69,8 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   const api = async (path, method='GET', body) => {
     if (path.startsWith('git/ref/tags/')) return tag;
     if (path==='git/refs') { tag={object:{type:'commit',sha:body.sha}}; return tag; }
-    if (path.startsWith('releases/tags/')) return release;
+    if (path.startsWith('releases/tags/')) return release?.draft ? null : release;
+    if (path.startsWith('releases?per_page=100&page=')) return release ? [release] : [];
     if (path==='releases' && method==='POST') { drafts++; release={...body,id:1}; return release; }
     if (path.includes('/assets?')) return assets;
     if (path==='releases/1' && method==='PATCH') { publishes++; release.draft=false; return release; }
@@ -88,6 +89,26 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   release.body='foreign release'; tag=null;
   await assert.rejects(publishGitHub(manifest,api,execute),/禁止接管/);
   assert.equal(tag,null);
+});
+
+test('GitHub draft discovery refuses foreign and duplicate drafts before writing', async () => {
+  const manifest={version:'1.5.4',run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-clipper',files:[{name:'clipper.zip',size:1,sha256:'c'.repeat(64)}]}]};
+  const marker=`<!-- nowen-cloud:101:1:${sha} -->`;
+  for(const [drafts,error] of [
+    [[{id:1,tag_name:'v1.5.4',draft:true,body:'foreign'}],/禁止接管/],
+    [[{id:1,tag_name:'v1.5.4',draft:true,body:marker},{id:2,tag_name:'v1.5.4',draft:true,body:marker}],/多个同标签/],
+  ]) {
+    let writes=0;
+    const api=async (path,method='GET')=>{
+      if(method!=='GET'){writes++;throw Error('unexpected write');}
+      if(path.startsWith('git/ref/tags/'))return {object:{type:'commit',sha}};
+      if(path.startsWith('releases/tags/'))return null;
+      if(path.startsWith('releases?per_page=100&page='))return drafts;
+      throw Error('unexpected API '+path);
+    };
+    await assert.rejects(publishGitHub(manifest,api,()=>{writes++;}),error);
+    assert.equal(writes,0);
+  }
 });
 
 import { spawnSync } from 'node:child_process';
