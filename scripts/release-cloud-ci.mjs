@@ -194,14 +194,25 @@ async function macProof() {
       run('xcrun', ['stapler', 'validate', app]);
     }
   }
-  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
+  // Policy: public GitHub macOS builds are distributed unsigned and unnotarized.
+  // Record the actual state; never fabricate a Developer ID / notarization proof.
+  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), distribution: 'unsigned', signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
   await mkdir('mac-proof', { recursive: true });
   await writeFile('mac-proof/signature.json', JSON.stringify(proof));
 }
 export async function verifyMacProof(manifest, directory) {
   if (!manifest.targets.includes('macos')) return;
   const proof = await json(join(directory, 'release-macos-proof/signature.json'));
-  if (proof.signed !== true || proof.notarized !== true || proof.sha !== manifest.commit_sha || proof.version !== manifest.version || proof.request_id !== manifest.request_id || proof.run_id !== manifest.run_id || proof.run_attempt !== manifest.run_attempt || JSON.stringify(proof.files) !== JSON.stringify(manifest.artifacts.find(a => a.name === 'release-macos').files)) throw Error('macOS 正式分发需要与本次产物绑定的签名与公证证据；未签名候选不能晋升');
+  // An unsigned macOS download is allowed by release policy, but its provenance,
+  // exact SHA-256 file inventory and explicit UNSIGNED status remain mandatory.
+  // Mixed or forged signed/notarized states must never be accepted.
+  if (proof.distribution !== 'unsigned' || proof.signed !== false || proof.notarized !== false ||
+      proof.sha !== manifest.commit_sha || proof.version !== manifest.version ||
+      proof.request_id !== manifest.request_id || proof.run_id !== manifest.run_id ||
+      proof.run_attempt !== manifest.run_attempt ||
+      JSON.stringify(proof.files) !== JSON.stringify(manifest.artifacts.find(a => a.name === 'release-macos')?.files)) {
+    throw Error('macOS 未签名分发证明、构建来源或 SHA-256 产物清单不匹配；禁止发布');
+  }
 }
 async function manifest() {
   if (e.GITHUB_RUN_ATTEMPT !== '1') throw Error('请使用新请求 UUID 完整重建；不混用旧 attempt 的产物');
