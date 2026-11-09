@@ -194,7 +194,8 @@ async function macProof() {
       run('xcrun', ['stapler', 'validate', app]);
     }
   }
-  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
+  // Record the real distribution status; never invent Apple signing evidence.
+  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), distribution: signed ? 'signed' : 'unsigned', signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
   await mkdir('mac-proof', { recursive: true });
   await writeFile('mac-proof/signature.json', JSON.stringify(proof));
 }
@@ -202,7 +203,12 @@ export async function verifyMacProof(manifest, directory, unsignedMacosVersion) 
   if (!manifest.targets.includes('macos')) return;
   const proof = await json(join(directory, 'release-macos-proof/signature.json'));
   const signed = proof.signed === true && proof.notarized === true;
-  const authorizedUnsigned = typeof unsignedMacosVersion === 'string' && unsignedMacosVersion === manifest.version && proof.signed === false && proof.notarized === false;
+  // New builds carry explicit unsigned provenance and need no Apple credentials
+  // or version-specific repository variable. Keep the legacy exact-version
+  // exception for older artifacts without a distribution field.
+  const authorizedUnsigned = proof.signed === false && proof.notarized === false &&
+    (proof.distribution === 'unsigned' ||
+     (typeof unsignedMacosVersion === 'string' && unsignedMacosVersion === manifest.version));
   if ((!signed && !authorizedUnsigned) || proof.sha !== manifest.commit_sha || proof.version !== manifest.version || proof.request_id !== manifest.request_id || proof.run_id !== manifest.run_id || proof.run_attempt !== manifest.run_attempt || JSON.stringify(proof.files) !== JSON.stringify(manifest.artifacts.find(a => a.name === 'release-macos').files)) throw Error('macOS 分发需要与本次产物绑定的签名与公证证据；未签名包必须获得准确版本授权');
 }
 async function manifest() {
