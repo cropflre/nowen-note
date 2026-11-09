@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   verified-build-and-publish:
-    # A future edit to this workflow must not repeat the release.
+    # Retry after verified pinned-asset CDN fixes (FFmpeg, sqlite-vec, Gradle).
     if: >-
       github.ref == 'refs/heads/release/v1.5.5' &&
       github.event.head_commit.message == 'ci(release): initiate one-shot v1.5.5 build and publish'
