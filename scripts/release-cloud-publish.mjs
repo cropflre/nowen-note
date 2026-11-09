@@ -4,6 +4,7 @@ import { readFile, writeFile, mkdir, appendFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CLOUD_REPO, normalizePublish, assertBuildRun, compareVersions } from './lib/release-cloud-contract.mjs';
+import { loadImage } from './release-cloud-ci.mjs';
 const e = process.env;
 const cmd = (name, args, options = {}) => execFileSync(name, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options }).trim();
 const readJSON = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -72,8 +73,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   const images = [];
   for (const arch of ['amd64', 'arm64']) {
     const dir = join(directory, `release-docker-${arch}`);
-    const image = await readJSON(join(dir, 'image.json'));
-    if (image.sha !== manifest.commit_sha || image.version !== manifest.version || image.arch !== arch || image.ref !== `${CLOUD_REPO}:${versionTag}-${arch}`) throw Error('Docker 来源不一致');
+    const image = await loadImage(dir, manifest.version, manifest.commit_sha, arch, execute);
     images.push(image);
   }
   // Docker Hub GET distinguishes an absent tag from network/auth errors. Never overwrite a version.
@@ -85,8 +85,9 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   };
   const checkRemote = (ref, image) => {
     execute('docker', ['pull', '--platform', `linux/${image.arch}`, ref]);
-    const actual = JSON.parse(execute('docker', ['image', 'inspect', ref]))[0];
-    if (actual.Id !== image.id || actual.Architecture !== image.arch) throw Error('Docker 已有版本内容不同；禁止覆盖');
+    // Select the child manifest; containerd otherwise returns the multi-platform index ID.
+    const actual = JSON.parse(execute('docker', ['image', 'inspect', '--platform', `linux/${image.arch}`, ref]))[0];
+    if (actual.Id !== image.loadedImageId || actual.Architecture !== image.arch || actual.Os !== 'linux') throw Error(`Docker 已有版本内容不同；禁止覆盖：${ref} linux/${image.arch} (${actual.Id} != ${image.loadedImageId})`);
   };
   if (await exists(versionTag)) {
     for (const image of images) checkRemote(`${CLOUD_REPO}:${versionTag}`, image);
@@ -94,9 +95,6 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
     for (const image of images) {
       const tag = `${versionTag}-${image.arch}`;
       if (await exists(tag)) { checkRemote(image.ref, image); continue; }
-      execute('docker', ['load', '-i', join(directory, `release-docker-${image.arch}`, 'image.tar')]);
-      const loaded = JSON.parse(execute('docker', ['image', 'inspect', image.ref]))[0];
-      if (loaded.Id !== image.id || loaded.Architecture !== image.arch) throw Error('Docker 归档内容不匹配');
       execute('docker', ['push', image.ref]);
       checkRemote(image.ref, image);
     }
@@ -116,7 +114,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   if (await exists('latest')) {
     const latestRef = `${CLOUD_REPO}:latest`;
     execute('docker', ['pull', '--platform', 'linux/amd64', latestRef]);
-    const latest = JSON.parse(execute('docker', ['image', 'inspect', latestRef]))[0];
+    const latest = JSON.parse(execute('docker', ['image', 'inspect', '--platform', 'linux/amd64', latestRef]))[0];
     const currentVersion = latest.Config.Labels?.['org.opencontainers.image.version']?.replace(/^v/, '');
     const comparison = compareVersions(currentVersion, manifest.version);
     if (comparison > 0) { await appendFile(e.GITHUB_STEP_SUMMARY, `已发布 ${versionTag}；latest 保留更新版本 ${currentVersion}。\n`); return; }
