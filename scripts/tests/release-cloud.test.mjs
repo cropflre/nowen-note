@@ -113,15 +113,30 @@ else process.exit(2);
 });
 
 import { verifyMacProof } from '../release-cloud-ci.mjs';
-test('an unsigned Mac candidate cannot acquire release eligibility from a renamed artifact', async t => {
+test('unsigned macOS release requires explicit truthful status and exact pinned source/inventory', async t => {
  const directory=await mkdtemp(join(tmpdir(),'nowen-cloud-mac-proof-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  await mkdir(join(directory,'release-macos-proof'));
- const manifest={targets:['macos'],version:'1.5.3',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files:[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}]}]};
- const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,signed:false,notarized:false,files:manifest.artifacts[0].files};
+ const manifest={targets:['macos'],version:'1.5.5',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files:[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}]}]};
+ const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,distribution:'unsigned',signed:false,notarized:false,files:manifest.artifacts[0].files};
  const file=join(directory,'release-macos-proof','signature.json');
- await writeFile(file,JSON.stringify(proof));await assert.rejects(verifyMacProof(manifest,directory),/签名与公证/);
- await writeFile(file,JSON.stringify({...proof,signed:true,notarized:true}));await verifyMacProof(manifest,directory);
- await writeFile(file,JSON.stringify({...proof,signed:true,notarized:true,run_attempt:2}));await assert.rejects(verifyMacProof(manifest,directory));
+ await writeFile(file,JSON.stringify(proof));
+ await verifyMacProof(manifest,directory);
+ for (const invalid of [
+  {...proof,distribution:'signed'},
+  {...proof,distribution:undefined},
+  {...proof,signed:true},
+  {...proof,notarized:true},
+  {...proof,signed:true,notarized:true},
+  {...proof,sha:'f'.repeat(40)},
+  {...proof,run_attempt:2},
+  {...proof,request_id:'999'},
+  {...proof,files:[{...proof.files[0],sha256:'f'.repeat(64)}]},
+ ]) {
+   await writeFile(file,JSON.stringify(invalid));
+   await assert.rejects(verifyMacProof(manifest,directory),/未签名分发证明|清单不匹配/);
+ }
+ await writeFile(file,JSON.stringify(proof));
+ await verifyMacProof(manifest,directory);
 });
 
 import { compareVersions } from '../lib/release-cloud-contract.mjs';
