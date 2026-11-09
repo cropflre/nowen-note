@@ -152,6 +152,8 @@
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a Web save that lands under an unsaved Android edit becomes a conflict that keeps both bodies" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a later Android save in the same Push batch cannot bypass that conflict" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "consecutive Android saves that carry the version they were given never raise a conflict" },
+        { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Android 未推送的编辑 + Web 保存 → 冲突保留两端正文" },
+        { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Web 用旧 version 保存被拒 409，PC 的新正文不被覆盖" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "blocks repair when the latest queued position differs from the previewed local tree" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "repairs 18 Android directory conflicts atomically, retaining business data, cursor and conflict history" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
@@ -188,6 +190,7 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a full Change Feed page keeps pulling instead of waiting for the next wake-up" },
+        { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Web 键入 → Yjs 持久化 → Android native SQLite 自动收敛（无需手动刷新）" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "keeps validated local positions by replacing old queue entries with CAS against the current cloud baseline" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-005: shows live desktop download stages and actual attachment progress without claiming a completed local copy" },
@@ -521,6 +524,7 @@
       "checks": [
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Web REST save reaches an open Android note through /ws, Pull and native SQLite without a manual refresh" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Android edit reaches an open Web editor through note:updated and note:list-updated" },
+        { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Android 断线期间 Web 保存：重连后是否自动补齐（实时缺口诊断）" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native permanent deletion retains its recoverable body and attachment metadata in the durable Outbox"},
         { "file": "frontend/src/lib/__tests__/assetAITransport.test.ts", "case": "Native local mode refuses every new AI transport before making a network request" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent asset folder edits preserve both versions and explicit keep-local converges" },
