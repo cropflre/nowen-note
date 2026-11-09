@@ -14,7 +14,11 @@ const TooltipContent = React.forwardRef<
     ref={ref}
     sideOffset={sideOffset}
     className={cn(
-      "z-50 overflow-hidden rounded-md bg-app-elevated px-3 py-1.5 text-xs text-tx-primary shadow-md animate-in fade-in-0 zoom-in-95",
+      // Radix Presence 会等待 data-state=closed 的退出动画结束再卸载，进入 / 退出成对出现。
+      "z-50 overflow-hidden rounded-md border border-app-border bg-app-elevated px-3 py-1.5 text-xs text-tx-primary shadow-popover",
+      "animate-in fade-in-0 zoom-in-95 duration-fast ease-enter",
+      "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1",
+      "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:duration-instant data-[state=closed]:ease-exit",
       className
     )}
     {...props}
