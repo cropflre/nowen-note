@@ -1,0 +1,86 @@
+name: v1.5.5 Publish Existing Verified Build
+run-name: Publish v1.5.5 from successful build 42576386477
+
+on:
+  push:
+    branches:
+      - release/v1.5.5
+    paths:
+      - .github/workflows/v155-reuse-verified-publish.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  publish-verified-existing-build:
+    if: >-
+      github.ref == 'refs/heads/release/v1.5.5' &&
+      github.event.head_commit.message == 'ci(release): publish v1.5.5 from verified build 42576386477'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify immutable successful source and exact version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(node -p "require('./package.json').version")" = '1.5.5'
+          test "$(node -p "require('./backend/package.json').version")" = '1.5.5'
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/42576386477")"
+          test "$(jq -r '.status' <<< "$run")" = 'completed'
+          test "$(jq -r '.conclusion' <<< "$run")" = 'success'
+          test "$(jq -r '.run_attempt' <<< "$run")" = '1'
+          test "$(jq -r '.event' <<< "$run")" = 'workflow_dispatch'
+          test "$(jq -r '.path' <<< "$run")" = '.github/workflows/release-build.yml'
+          test "$(jq -r '.head_sha' <<< "$run")" = '41177ba40f56eecaddb03d7b2f2b30d8ceb4c9ee'
+          test "$(jq -r '.head_branch' <<< "$run")" = 'release/v1.5.5'
+          test "$(jq -r '.repository.full_name' <<< "$run")" = "$GITHUB_REPOSITORY"
+          if gh release view v1.5.5 --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx false; then
+            echo 'Already published v1.5.5: refusing to dispatch a duplicate.' >&2
+            exit 1
+          fi
+          echo 'Verified successful immutable build: 42576386477 attempt 1' >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch official Publish Verified Release and monitor outcome
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          request_id="$(cat /proc/sys/kernel/random/uuid)"
+          gh workflow run release-publish.yml --repo "$GITHUB_REPOSITORY" --ref release/v1.5.5 \
+            -f "request_id=$request_id" \
+            -f 'source_run_id=42576386477' \
+            -f 'source_attempt=1' \
+            -f 'version=1.5.5' \
+            -f 'channels=github,docker' \
+            -f 'confirmation=1.5.5'
+          echo "Publish request UUID: $request_id" >> "$GITHUB_STEP_SUMMARY"
+          publish_run=''
+          for attempt in $(seq 1 60); do
+            publish_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&per_page=100" | jq -r --arg title "Release publish $request_id" '[.workflow_runs[] | select(.display_title == $title) | .id] | first // empty')"
+            if [ -n "$publish_run" ]; then break; fi
+            sleep 10
+          done
+          test -n "$publish_run" || { echo 'Official publisher did not start' >&2; exit 1; }
+          echo "Publisher run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$publish_run" >> "$GITHUB_STEP_SUMMARY"
+          outcome=''
+          for attempt in $(seq 1 180); do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run" --jq '.status')"
+            if [ "$state" = completed ]; then
+              outcome="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run" --jq '.conclusion')"
+              break
+            fi
+            sleep 40
+          done
+          if [ "$outcome" != success ]; then
+            echo "Official release failed or timed out: ${outcome:-pending}" >&2
+            exit 1
+          fi
+          gh release view v1.5.5 --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,url,tagName \
+            --jq 'select(.isDraft == false and .isPrerelease == false and .tagName == "v1.5.5") | .url'
+          echo 'v1.5.5 verified GitHub and Docker release completed.' >> "$GITHUB_STEP_SUMMARY"
