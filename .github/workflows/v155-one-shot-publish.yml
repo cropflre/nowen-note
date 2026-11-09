@@ -1,0 +1,121 @@
+name: v1.5.5 One-shot Verified Release
+run-name: Build and publish v1.5.5 once
+
+on:
+  push:
+    branches: [release/v1.5.5]
+    paths:
+      - ".github/workflows/v155-one-shot-publish.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  verified-build-and-publish:
+    # A future edit to this workflow must not repeat the release.
+    if: >-
+      github.ref == 'refs/heads/release/v1.5.5' &&
+      github.event.head_commit.message == 'ci(release): initiate one-shot v1.5.5 build and publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned source and existing release/tag absence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(node -p "require('./package.json').version")" = '1.5.5'
+          test "$(node -p "require('./backend/package.json').version")" = '1.5.5'
+          if gh release view v1.5.5 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Refusing to publish over an existing v1.5.5 release' >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.5.5" >/dev/null 2>&1; then
+            echo 'Refusing to overwrite an existing v1.5.5 tag' >&2
+            exit 1
+          fi
+          echo "Pinned release SHA: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch verified Unified Release Build and wait for success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          request_id="$(cat /proc/sys/kernel/random/uuid)"
+          gh workflow run release-build.yml --repo "$GITHUB_REPOSITORY" --ref release/v1.5.5 \
+            -f "request_id=$request_id" \
+            -f "commit_sha=$GITHUB_SHA" \
+            -f 'version=1.5.5' \
+            -f 'targets=pc,android,docker,fpk,upk,clipper' \
+            -f 'notes=v1.5.5: realtime sync reliability, migration compatibility, desktop recovery and UI motion.'
+          echo "Build request UUID: $request_id" >> "$GITHUB_STEP_SUMMARY"
+          build_run=''
+          for attempt in $(seq 1 45); do
+            build_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-build.yml/runs?event=workflow_dispatch&per_page=100" | jq -r --arg id "$request_id" '[.workflow_runs[] | select(.display_title == ("Release build " + $id)) | .id] | first // empty')"
+            if [ -n "$build_run" ]; then break; fi
+            sleep 10
+          done
+          test -n "$build_run" || { echo 'Build workflow did not start' >&2; exit 1; }
+          echo "BUILD_RUN_ID=$build_run" >> "$GITHUB_ENV"
+          echo "Build run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$build_run" >> "$GITHUB_STEP_SUMMARY"
+          result=''
+          for attempt in $(seq 1 340); do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build_run" --jq '.status')"
+            if [ "$state" = 'completed' ]; then
+              result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build_run" --jq '.conclusion')"
+              break
+            fi
+            sleep 40
+          done
+          if [ "$result" != 'success' ]; then
+            echo "Build failed or timed out: ${result:-pending}" >&2
+            exit 1
+          fi
+          build_attempt="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build_run" --jq '.run_attempt')"
+          echo "BUILD_ATTEMPT=$build_attempt" >> "$GITHUB_ENV"
+          echo 'Verified build succeeded.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch Publish Verified Release and wait for success
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          request_id="$(cat /proc/sys/kernel/random/uuid)"
+          gh workflow run release-publish.yml --repo "$GITHUB_REPOSITORY" --ref release/v1.5.5 \
+            -f "request_id=$request_id" \
+            -f "source_run_id=$BUILD_RUN_ID" \
+            -f "source_attempt=$BUILD_ATTEMPT" \
+            -f 'version=1.5.5' \
+            -f 'channels=github,docker' \
+            -f 'confirmation=1.5.5'
+          echo "Publish request UUID: $request_id" >> "$GITHUB_STEP_SUMMARY"
+          publish_run=''
+          for attempt in $(seq 1 45); do
+            publish_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-publish.yml/runs?event=workflow_dispatch&per_page=100" | jq -r --arg id "$request_id" '[.workflow_runs[] | select(.display_title == ("Release publish " + $id)) | .id] | first // empty')"
+            if [ -n "$publish_run" ]; then break; fi
+            sleep 10
+          done
+          test -n "$publish_run" || { echo 'Publish workflow did not start' >&2; exit 1; }
+          echo "Publish run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$publish_run" >> "$GITHUB_STEP_SUMMARY"
+          result=''
+          for attempt in $(seq 1 125); do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run" --jq '.status')"
+            if [ "$state" = 'completed' ]; then
+              result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run" --jq '.conclusion')"
+              break
+            fi
+            sleep 35
+          done
+          if [ "$result" != 'success' ]; then
+            echo "Publication failed or timed out: ${result:-pending}" >&2
+            exit 1
+          fi
+          gh release view v1.5.5 --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,url,tagName \
+            --jq 'select(.isDraft == false and .isPrerelease == false)'
+          echo 'Verified v1.5.5 publication completed.' >> "$GITHUB_STEP_SUMMARY"
