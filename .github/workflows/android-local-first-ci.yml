@@ -7,6 +7,7 @@ on:
       - release/v1.5.1
       - release/v1.5.2
       - release/v1.5.4
+      - release/v1.5.5
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
@@ -41,6 +42,7 @@ on:
       - release/v1.5.1
       - release/v1.5.2
       - release/v1.5.4
+      - release/v1.5.5
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
