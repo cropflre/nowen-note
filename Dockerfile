@@ -51,6 +51,11 @@ COPY frontend/ .
 COPY backend/src/lib/aiContentProvenance.ts /app/backend/src/lib/aiContentProvenance.ts
 COPY scripts/precompress-frontend.mjs /app/scripts/precompress-frontend.mjs
 COPY scripts/verify-sync-notification-ui.cjs /app/scripts/verify-sync-notification-ui.cjs
+# In-app What's New is generated from curated release notes during frontend build.
+# The Docker builder must contain the same build-time inputs as desktop packaging.
+COPY scripts/generate-changelog.mjs scripts/verify-in-app-changelog.mjs /app/scripts/
+COPY docs/releases/in-app-changelog.json /app/docs/releases/in-app-changelog.json
+COPY CHANGELOG.md /app/CHANGELOG.md
 # Web/Docker 产物生成 .br/.gz；Electron 与 Capacitor 继续使用普通 build，避免安装包重复携带压缩副本。
 RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build:web
 
