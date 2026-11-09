@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # =============================================================================
 # nowen-note 多架构 Dockerfile（Alpine 精简版）
 # =============================================================================
@@ -9,7 +10,17 @@ WORKDIR /build
 RUN apk add --no-cache build-base curl sqlite-dev
 # 与 backend/package-lock.json 中的 sqlite-vec 版本一致；源码固定校验和。
 # v0.1.9 的 BSD u_int*_t 别名不适用于 musl；使用源码已包含的 stdint.h 类型。
-RUN curl -fSL --retry 3 https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz -o sqlite-vec.tar.gz \
+RUN --mount=type=secret,id=github_token,required=false \
+    if [ -s /run/secrets/github_token ]; then \
+      curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 120 \
+        -H "Accept: application/octet-stream" \
+        -H "Authorization: Bearer $(cat /run/secrets/github_token)" \
+        https://api.github.com/repos/asg017/sqlite-vec/releases/assets/385377719 -o sqlite-vec.tar.gz; \
+    else \
+      curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 120 \
+        -H "Accept: application/octet-stream" \
+        https://api.github.com/repos/asg017/sqlite-vec/releases/assets/385377719 -o sqlite-vec.tar.gz; \
+    fi \
     && echo "3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61  sqlite-vec.tar.gz" | sha256sum -c - \
     && tar -xzf sqlite-vec.tar.gz \
     && sed -i '/^typedef u_int[0-9]*_t uint[0-9]*_t;$/d' sqlite-vec.c \
