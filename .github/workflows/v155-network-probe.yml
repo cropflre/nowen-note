@@ -1,0 +1,30 @@
+name: v1.5.5 Release Dependency Network Probe
+on:
+  push:
+    branches: [release/v1.5.5]
+    paths:
+      - .github/workflows/v155-network-probe.yml
+permissions:
+  contents: read
+jobs:
+  release-download-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify pinned FFmpeg and sqlite-vec binaries through GitHub Assets API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p probe && cd probe
+          opts=(--fail --location --retry 2 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 90)
+          echo 'FFmpeg 6.1.1 Linux x64 from GitHub API'
+          curl "${opts[@]}" -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/eugeneware/ffmpeg-static/releases/assets/316528626 -o ffmpeg-linux-x64.gz
+          echo "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  ffmpeg-linux-x64.gz" | sha256sum -c -
+          echo 'sqlite-vec v0.1.9 amalgamation from GitHub API'
+          curl "${opts[@]}" -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/asg017/sqlite-vec/releases/assets/385377719 -o sqlite-vec.tar.gz
+          echo "3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61  sqlite-vec.tar.gz" | sha256sum -c -
+          echo 'Gradle direct CDN HEAD probe'
+          curl "${opts[@]}" --head https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip | head -n 30
+          echo 'Verified pinned download sources.' >> "$GITHUB_STEP_SUMMARY"
