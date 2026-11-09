@@ -79,6 +79,7 @@ import workspacesRouter from "./routes/workspaces";
 import workspaceIssuesRouter from "./routes/workspace-issues";
 import notificationsRouter from "./routes/notifications";
 import authRouter from "./routes/auth";
+import onboardingRouter from "./routes/onboarding";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
 import userPreferencesRouter from "./routes/user-preferences";
@@ -94,6 +95,7 @@ import { getBackupManager } from "./services/backup";
 import { attachRealtimeServer, broadcastToUser, getRealtimeStats, shutdownRealtime } from "./services/realtime";
 import { isLocalFirstSyncV2Enabled } from "./sync/flag";
 import { setSyncBroadcaster } from "./sync/notify";
+import { startSyncChangeNoticeFlusher, syncChangeNoticeMiddleware } from "./sync/feedNotifier";
 import { resetChangeFeedSuppression } from "./sync/suppression";
 import { recoverInflightMutations } from "./sync/outbox";
 import { recoverStuckUploads } from "./sync/attachments";
@@ -610,6 +612,9 @@ app.use("/api/*", async (c, next) => {
 // JWT login requests pass through unchanged.
 app.use("/api/*", enforceApiTokenAccess);
 app.use("/api/*", automationEventCaptureMiddleware);
+// Sync V2: every committed Change Feed row wakes subscribed native devices.
+// No-op until the Sync V2 broadcaster is registered below.
+app.use("/api/*", syncChangeNoticeMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
@@ -668,6 +673,7 @@ app.route("/api/notifications", notificationsRouter);
 app.route("/api/users", usersRouter);
 app.route("/api/tokens", tokensRouter);
 app.route("/api/user-preferences", userPreferencesRouter);
+app.route("/api/onboarding", onboardingRouter);
 
 app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
@@ -1022,6 +1028,10 @@ if (isLocalFirstSyncV2Enabled()) {
     broadcastToUser(userId, message as never);
   });
 
+  // Yjs 落盘、导入任务等非 HTTP 写入同样进入 Change Feed；后台冲刷兜住它们的唤醒。
+  try { startSyncChangeNoticeFlusher(getDb()); }
+  catch (error) { console.warn("[sync-v2] change notice flusher unavailable:", (error as Error)?.message || error); }
+
   // 崩溃恢复：上次进程若在抑制窗口或上传中途被强杀，
   // 开关会卡在 1、附件会卡在 uploading，之后永远不再同步。
   // 启动复位是唯一可靠的兜底。
@@ -1043,7 +1053,7 @@ if (isLocalFirstSyncV2Enabled()) {
 }
 console.log(`🛰  WebSocket endpoint: ws://localhost:${port}/ws`);
 
-// mDNS 广播：让同局域网内的桌面/移动客户端免输入发现本实例。
+// mDNS 广播：让同局域网内的移动客户端在自动选路时找回本实例的局域网地址。
 //   - 仅在"对外暴露的端口"上广播才有意义（127.0.0.1 绑定的 Electron 内嵌后端
 //     也可以广播，但旁路设备根本连不上）。这里不做 bind 地址判断，保持无脑广播；
 //     如果想限制，可加 DISABLE_MDNS=1 环境变量。

@@ -303,9 +303,15 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
     }
     setResetLoading(true);
     try {
-      const result = await runWithSudo(t("userManagement.sudoDesc"), (tk) =>
-        api.adminResetUserPassword(resetPwd.user.id, resetPwd.password, tk),
-      );
+      const reset = (tk?: string) => api.adminResetUserPassword(resetPwd.user.id, resetPwd.password, tk);
+      let result: { success: boolean } | null;
+      try {
+        result = await reset();
+      } catch (err: any) {
+        // 旧版服务端仍要求二次验证：回退到密码弹窗，新客户端连旧服务端时也能重置。
+        if (err?.code !== "SUDO_REQUIRED") throw err;
+        result = await runWithSudo(t("userManagement.sudoDesc"), reset);
+      }
       if (result === null) return;
       toast.success(t("userManagement.passwordResetSuccess"));
       setResetPwd(null);
@@ -557,7 +563,8 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                         </button>
                         <button
                           onClick={() => setResetPwd({ user: u, password: "", confirm: "" })}
-                          className="p-1.5 rounded-md text-zinc-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors"
+                          disabled={isSelf}
+                          className="p-1.5 rounded-md text-zinc-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           title={t("userManagement.resetPassword")}
                         >
                           <KeyRound className="w-3.5 h-3.5" />

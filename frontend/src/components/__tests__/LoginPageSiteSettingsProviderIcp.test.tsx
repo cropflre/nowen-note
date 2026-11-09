@@ -32,10 +32,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-vi.mock("@/components/LanDiscoveryPanel", () => ({
-  default: () => null,
-}));
-
 async function waitFor(assertion: () => void) {
   const startedAt = Date.now();
   let lastError: unknown;

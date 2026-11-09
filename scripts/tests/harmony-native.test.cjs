@@ -143,6 +143,42 @@ test('Harmony native filesystem rejects traversal and foreign sandbox paths', ()
   }
 });
 
+test('Harmony export preserves file bytes and only succeeds after the picker write closes', async () => {
+  let destination = [];
+  let written;
+  let closed = false;
+  const uri = 'file://docs/Download/养花.png';
+  const source = Uint8Array.of(137, 80, 78, 71, 0, 255);
+  const { HarmonyFiles } = loadAdapter('NativeFiles.ets', {
+    '@kit.CoreFileKit': {
+      picker: { DocumentViewPicker: class {
+        async save(options) {
+          assert.equal(options.newFileNames[0], '养花.png');
+          return destination;
+        }
+      } },
+      fileIo: {
+        OpenMode: { WRITE_ONLY: 1, TRUNC: 2 },
+        async open(target) { assert.equal(target, uri); return { fd: 1 }; },
+        async write(_fd, bytes) { written = new Uint8Array(bytes); return written.byteLength; },
+        async fsync() {},
+        async close() { closed = true; },
+      },
+    },
+    '@kit.ArkTS': { util: { Base64Helper: class {
+      decodeSync(base64) { return Uint8Array.from(Buffer.from(base64, 'base64')); }
+    } } },
+  });
+  const files = new HarmonyFiles({});
+  const options = { fileName: '养花.png', base64Data: Buffer.from(source).toString('base64') };
+  assert.equal((await files.saveExport(options)).canceled, true);
+  assert.equal(written, undefined);
+  destination = [uri];
+  assert.equal((await files.saveExport(options)).uri, uri);
+  assert.deepEqual(written, source);
+  assert.equal(closed, true);
+});
+
 test('Harmony attachment chunks preserve bytes and signal EOF without encoding an empty native buffer', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nowen-harmony-files-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

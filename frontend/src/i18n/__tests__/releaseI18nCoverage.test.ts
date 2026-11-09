@@ -279,20 +279,6 @@ describe("release i18n coverage", () => {
     );
   });
 
-  it("defines the complete LAN discovery key set in both languages", () => {
-    for (const key of [
-      "lanDiscoveryTitle",
-      "lanUnavailable",
-      "lanNotFound",
-      "lanRescan",
-      "lanScanning",
-      "lanUseThis",
-    ]) {
-      expect(getPath(zh, `server.${key}`), `zh-CN server.${key}`).toBeTypeOf("string");
-      expect(getPath(en, `server.${key}`), `en server.${key}`).toBeTypeOf("string");
-    }
-  });
-
   it("patches the known sidebar locale drift in both directions", () => {
     for (const key of [
       "emptyTrash",

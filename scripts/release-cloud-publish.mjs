@@ -4,14 +4,44 @@ import { readFile, writeFile, mkdir, appendFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CLOUD_REPO, normalizePublish, assertBuildRun, compareVersions } from './lib/release-cloud-contract.mjs';
+import { loadImage } from './release-cloud-ci.mjs';
 const e = process.env;
 const cmd = (name, args, options = {}) => execFileSync(name, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options }).trim();
 const readJSON = async path => JSON.parse(await readFile(path, 'utf8'));
 async function githubAPI(path, method = 'GET', body) {
-  const response = await fetch(`https://api.github.com/repos/${CLOUD_REPO}/${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${e.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  if (response.status === 404 && method === 'GET') return null;
-  if (!response.ok) throw Error(`GitHub ${method} ${path} 失败 (${response.status})；请先对账再重试`);
-  return response.status === 204 ? null : response.json();
+  const url = `https://api.github.com/repos/${CLOUD_REPO}/${path}`;
+  const headers = {
+    Authorization: `Bearer ${e.GH_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(body ? { 'Content-Type': 'application/json' } : {}),
+  };
+  // A transient GitHub GET failure must not require uploading large assets again.
+  // Never retry writes automatically: their responses may be lost after success.
+  const attempts = method === 'GET' ? 4 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method, redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers, ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (error) {
+      if (attempt < attempts) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+        continue;
+      }
+      throw Error(`GitHub ${method} ${path} 网络请求失败；请检查已创建的草稿和附件后重试（${error?.message || 'network error'}）`);
+    }
+    if (attempt < attempts && [429, 502, 503, 504].includes(response.status)) {
+      await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+      continue;
+    }
+    if (response.status === 404 && method === 'GET') return null;
+    if (!response.ok) throw Error(`GitHub ${method} ${path} 失败 (${response.status})；请先对账再重试`);
+    return response.status === 204 ? null : response.json();
+  }
+  throw Error(`GitHub ${method} ${path} 网络请求失败`);
 }
 async function preflight() {
   if (e.RC_PUBLISH_ENABLED !== '1') throw Error('正式发布默认关闭；请配置 NOWEN_RELEASE_CLOUD_PUBLISH 仓库变量并审阅渠道环境');
@@ -31,9 +61,29 @@ export async function publishGitHub(manifest, api = githubAPI, execute = cmd) {
   const ref = await api(`git/ref/tags/${tag}`);
   if (ref && (ref.object?.type !== 'commit' || ref.object.sha !== manifest.commit_sha)) throw Error('同名 Tag 已指向其他来源；禁止覆盖');
   let release = await api(`releases/tags/${tag}`);
+  // The tag endpoint only returns published releases; drafts require the release list.
+  if (!release) {
+    const matches = [];
+    let complete = false;
+    for (let page = 1; page <= 10; page++) {
+      const items = await api(`releases?per_page=100&page=${page}`);
+      if (!Array.isArray(items)) throw Error('无法读取发布列表，停止创建草稿');
+      matches.push(...items.filter(item => item.tag_name === tag));
+      if (items.length < 100) { complete = true; break; }
+    }
+    if (!complete) throw Error('发布列表超过分页上限，停止创建草稿');
+    if (matches.length > 1) throw Error('存在多个同标签 Release；请核对草稿，不自动选择或覆盖');
+    release = matches[0];
+  }
   if (release && !release.body?.includes(marker)) throw Error('已有 Release 不属于本次构建；禁止接管');
   if (!ref) await api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: manifest.commit_sha });
-  const body = `${marker}\n${manifest.notes || ""}\n\n源码：${manifest.commit_sha}\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\n\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。`;
+  // Always disclose the unsigned macOS distribution policy to end users.
+  // The integrity/provenance checks remain mandatory, but no Apple ID
+  // signature or notarization is asserted for these GitHub downloads.
+  const macWarning = manifest.targets?.includes('macos')
+    ? '\n\n⚠️ macOS 安装包未进行 Apple Developer ID 签名或公证，可能受到 Gatekeeper 拦截；请仅通过官方发布页面获取安装包。'
+    : '';
+  const body = `${marker}\n${manifest.notes || ""}\n\n源码：${manifest.commit_sha}\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\n\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。${macWarning}`;
   if (!release) release = await api('releases', 'POST', { tag_name: tag, target_commitish: manifest.commit_sha, name: tag, body, draft: true, prerelease: false });
   const listAssets = async () => {
     const assets = [];
@@ -66,8 +116,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   const images = [];
   for (const arch of ['amd64', 'arm64']) {
     const dir = join(directory, `release-docker-${arch}`);
-    const image = await readJSON(join(dir, 'image.json'));
-    if (image.sha !== manifest.commit_sha || image.version !== manifest.version || image.arch !== arch || image.ref !== `${CLOUD_REPO}:${versionTag}-${arch}`) throw Error('Docker 来源不一致');
+    const image = await loadImage(dir, manifest.version, manifest.commit_sha, arch, execute);
     images.push(image);
   }
   // Docker Hub GET distinguishes an absent tag from network/auth errors. Never overwrite a version.
@@ -79,8 +128,9 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   };
   const checkRemote = (ref, image) => {
     execute('docker', ['pull', '--platform', `linux/${image.arch}`, ref]);
-    const actual = JSON.parse(execute('docker', ['image', 'inspect', ref]))[0];
-    if (actual.Id !== image.id || actual.Architecture !== image.arch) throw Error('Docker 已有版本内容不同；禁止覆盖');
+    // Select the child manifest; containerd otherwise returns the multi-platform index ID.
+    const actual = JSON.parse(execute('docker', ['image', 'inspect', '--platform', `linux/${image.arch}`, ref]))[0];
+    if (actual.Id !== image.loadedImageId || actual.Architecture !== image.arch || actual.Os !== 'linux') throw Error(`Docker 已有版本内容不同；禁止覆盖：${ref} linux/${image.arch} (${actual.Id} != ${image.loadedImageId})`);
   };
   if (await exists(versionTag)) {
     for (const image of images) checkRemote(`${CLOUD_REPO}:${versionTag}`, image);
@@ -88,9 +138,6 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
     for (const image of images) {
       const tag = `${versionTag}-${image.arch}`;
       if (await exists(tag)) { checkRemote(image.ref, image); continue; }
-      execute('docker', ['load', '-i', join(directory, `release-docker-${image.arch}`, 'image.tar')]);
-      const loaded = JSON.parse(execute('docker', ['image', 'inspect', image.ref]))[0];
-      if (loaded.Id !== image.id || loaded.Architecture !== image.arch) throw Error('Docker 归档内容不匹配');
       execute('docker', ['push', image.ref]);
       checkRemote(image.ref, image);
     }
@@ -110,7 +157,7 @@ export async function publishDocker(manifest, execute = cmd, directory = 'cloud-
   if (await exists('latest')) {
     const latestRef = `${CLOUD_REPO}:latest`;
     execute('docker', ['pull', '--platform', 'linux/amd64', latestRef]);
-    const latest = JSON.parse(execute('docker', ['image', 'inspect', latestRef]))[0];
+    const latest = JSON.parse(execute('docker', ['image', 'inspect', '--platform', 'linux/amd64', latestRef]))[0];
     const currentVersion = latest.Config.Labels?.['org.opencontainers.image.version']?.replace(/^v/, '');
     const comparison = compareVersions(currentVersion, manifest.version);
     if (comparison > 0) { await appendFile(e.GITHUB_STEP_SUMMARY, `已发布 ${versionTag}；latest 保留更新版本 ${currentVersion}。\n`); return; }

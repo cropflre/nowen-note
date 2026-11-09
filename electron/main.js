@@ -14,12 +14,7 @@ const { initLogger, getLogDir } = require("./logger");
 const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./voice-permissions");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
-const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
-// electron-builder places this Native Messaging module outside app.asar.
-const clipperHost = require(app.isPackaged
-  ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
-  : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { readWechatArticleClipboard } = require("./wechat-clipboard");
@@ -62,6 +57,7 @@ initLogger({
 });
 
 let mainWindow = null;
+let clipperHost = null;
 let splashWindow = null;
 let backendProcess = null;
 let backendPort = 0;
@@ -81,6 +77,7 @@ let ugreenWorkspaceWindow = null;
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
 let localAuthBootstrapSucceeded = false;
+let localAuthBootstrapError = null;
 let localAccountCreationAllowed = false;
 
 const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
@@ -550,7 +547,30 @@ async function offerLiteRecovery() {
 }
 
 // ---------- 启动后端 ----------
+// 子进程是否还活着：spawn 失败时没有 pid，退出后 exitCode / signalCode 非空。
+function isBackendProcessAlive() {
+  const proc = backendProcess;
+  return !!proc && proc.pid !== undefined && proc.exitCode === null && proc.signalCode === null;
+}
+
 async function startBackend() {
+  try {
+    await launchBackend();
+  } catch (e) {
+    // 端口在启动前就已分配，而调用方都用 `!backendPort` 判断"后端还没启动"。
+    // 启动失败且子进程已不存在时必须清零，否则之后的重试会跳过启动，
+    // 只得到连接失败（BACKEND_UNAVAILABLE），真实原因被掩盖，后端也永远不会再被拉起。
+    // 子进程仍活着（只是超过探测时限还没就绪）则保留端口：后续请求会等到它启动完成，
+    // 不能在同一个数据库上再起第二个后端。
+    if (!isBackendProcessAlive()) {
+      backendPort = 0;
+      backendProcess = null;
+    }
+    throw e;
+  }
+}
+
+async function launchBackend() {
   backendPort = await getFreePort();
   const backendEntry = getBackendEntry();
   const userDataPath = getUserDataPath();
@@ -627,6 +647,10 @@ async function startBackend() {
   // Clipper Native Host 需要知道本次 Backend 的端口。
   // 首选端口被占用时会动态回退，因此仍须落盘实际端口；未配对时 token 为空。
   try {
+    // 只有完整版带 asar 外的 Native Messaging 资源，启动本地后端时才加载。
+    clipperHost ??= require(app.isPackaged
+      ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
+      : "./clipper-host");
     clipperHost.setRuntimeDir(userDataPath);
     clipperHost.publishRuntime({ port: backendPort, token: "" });
   } catch (e) {
@@ -639,15 +663,24 @@ async function startBackend() {
   // 路径会随目录移动而变化，清单里的旧路径会让浏览器拉起不存在的程序。
   //
   // 失败只降级剪藏（用户需先手动打开 Desktop），绝不影响应用启动。
-  try {
-    registerClipperNativeHost();
-  } catch (e) {
-    console.warn("[Electron] register clipper native host failed:", e?.message || e);
+  if (clipperHost) {
+    try {
+      registerClipperNativeHost();
+    } catch (e) {
+      console.warn("[Electron] register clipper native host failed:", e?.message || e);
+    }
   }
 
-  // 轮询健康端点，确认服务真正就绪
+  // 轮询健康端点，确认服务真正就绪。
+  // 子进程在探测通过前退出（原生模块加载失败等）或根本没能 spawn 时立即失败：
+  // 探测本身只会等满 30 秒并报"启动超时"，每次重试都白等，真实原因也被盖住。
+  const child = backendProcess;
+  const stoppedBeforeReady = new Promise((_, reject) => {
+    child.once("exit", (code, signal) => reject(new Error(`后端进程已退出（code=${code} signal=${signal || ""}）`)));
+    child.once("error", () => reject(new Error("后端进程未能启动")));
+  });
   try {
-    await waitForBackendReady(backendPort, 30000);
+    await Promise.race([waitForBackendReady(backendPort, 30000), stoppedBeforeReady]);
   } catch (e) {
     // 附带 spawn 错误信息一起抛给 UI 弹窗
     if (spawnErr) {
@@ -715,7 +748,7 @@ function registerClipperNativeHost() {
 
 function stopBackend() {
   // 先清理 Clipper 运行时文件：否则扩展会连到已失效的端口并长时间等待。
-  try { clipperHost.clearRuntime(); } catch { /* ignore */ }
+  try { clipperHost?.clearRuntime(); } catch { /* ignore */ }
   if (backendProcess) {
     const proc = backendProcess;
     backendProcess = null;
@@ -841,12 +874,14 @@ async function provisionLocalAdminAccount(username, password) {
 
 async function ensureLocalAccount() {
   localAuthBootstrapSucceeded = false;
+  localAuthBootstrapError = null;
   if (isLiteOnlyBuild()) return null;
   if (!backendPort) return null;
 
   const password = getLocalAccountSecret();
   // 密码不匹配、锁定、限流或网络错误都不会触发 reset-local。
   const result = await requestLocalAccountBootstrap(localApiRequest, password, localAccountCreationAllowed);
+  localAuthBootstrapError = result.reason;
   if (result.account) {
     localAuthBootstrapSucceeded = true;
     console.log("[Electron] local desktop admin login OK");
@@ -857,7 +892,7 @@ async function ensureLocalAccount() {
 }
 
 async function resetLocalAccountAuth() {
-  if (currentMode !== "full") return { ok: false, error: "not-full-mode" };
+  if (isLiteOnlyBuild()) return { ok: false, error: "not-full-build" };
   if (!backendPort) return { ok: false, error: "backend-not-ready" };
   const password = getLocalAccountSecret();
   try {
@@ -865,6 +900,7 @@ async function resetLocalAccountAuth() {
     if (account) {
       localAuthCache = account;
       localAuthBootstrapSucceeded = true;
+      localAuthBootstrapError = null;
       return { ok: true, ...account };
     }
     return { ok: false, error: "local-admin-provisioning-failed" };
@@ -1532,10 +1568,9 @@ async function clearWebStorage() {
 function relaunchApp() {
   // 标记退出意图，避免 close → hide 拦截
   markQuitting();
-  // 先停掉 backend（如果有），关闭托盘 / discovery
+  // 先停掉 backend（如果有），关闭托盘
   try { stopBackend(); } catch { /* ignore */ }
   try { destroyTray(); } catch { /* ignore */ }
-  try { shutdownDiscovery(); } catch { /* ignore */ }
 
   app.relaunch();
   app.exit(0);
@@ -2120,7 +2155,7 @@ function registerAppIpc() {
       }
     }
     if (!localAuthCache?.token) {
-      return { ok: false, error: "local-account-unavailable" };
+      return { ok: false, error: localAuthBootstrapError || "local-account-unavailable" };
     }
 
     const previousSettings = readSettings();
@@ -2314,6 +2349,7 @@ ipcMain.handle("task:notify-permission", () => {
       type: "warning",
       title: "重置本地账号？",
       message: "此操作会把当前数据目录的 desktop 账号密码重置为本机托管凭据，并使该账号的旧登录会话失效；不会删除笔记或附件。请先确认本地数据位置及备份。是否继续？",
+      detail: `本地数据位置：${getUserDataPath()}`,
       buttons: ["取消", "重置"],
       defaultId: 0,  // 默认按钮是取消
       cancelId: 0,   // Esc / 关闭弹窗视为取消
@@ -2321,7 +2357,7 @@ ipcMain.handle("task:notify-permission", () => {
 
     // 用户点击"取消"或关闭弹窗
     if (response !== 1) {
-      return { success: false, cancelled: true };
+      return { ok: false, cancelled: true };
     }
 
     // 用户点击"重置"
@@ -2567,7 +2603,6 @@ app.whenReady().then(async () => {
   // Lite-only 首启没有服务器地址：立刻弹 setup 窗口
   if (liteOnly && currentMode === "lite" && !currentRemoteUrl) {
     console.log("[Electron] lite-only first launch, opening setup window");
-    registerDiscoveryIpc(); // setup 依赖
     const r = await openSetupWindow({ initialUrl: "" });
     if (!r.ok) {
       // 用户取消 → 直接退出
@@ -2592,10 +2627,6 @@ app.whenReady().then(async () => {
         ? `正在连接开发服务 ${safeHost(getDevelopmentBackendUrl())}`
       : "正在启动本地服务"
   );
-
-  // discovery IPC 必须先注册：setup 窗口（首启失败 / 切换模式时）依赖它做 mDNS 列表。
-  // 它本身不会启动 mDNS 浏览器，只有 renderer 调 discovery:start 才会启动，因此空跑无副作用。
-  registerDiscoveryIpc();
 
   try {
     await recoverCompletedLocalMigration();
@@ -2827,5 +2858,4 @@ app.on("before-quit", () => {
   markQuitting();
   stopBackend();
   destroyTray();
-  try { shutdownDiscovery(); } catch { /* ignore */ }
 });

@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText } from "@/lib/aiContentProvenance";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -567,13 +569,13 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
 
   const handleCopyMessage = useCallback(async (message: ChatMessage) => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(aiClipboardText(message.content, message.role === "assistant", t("ai.generatedLabel")));
       setCopiedMessageId(message.id);
       window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1500);
     } catch {
       // Clipboard permission may be denied in an embedded WebView.
     }
-  }, []);
+  }, [t]);
 
   const handleStartEditMessage = (message: ChatMessage) => {
     setEditingMessageId(message.id);
@@ -1078,15 +1080,15 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             )}
 
             {!historyLoading && !messages.length && (
-              <div className="flex flex-col items-center justify-center py-4 text-center md:py-16">
-                <div className="mb-3 flex h-10 w-10 md:mb-5 md:h-14 md:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-500 shadow-lg shadow-violet-500/15">
+              <div className="flex flex-col items-center justify-center py-2 text-center md:py-16">
+                <div className="mb-3 hidden h-10 w-10 md:mb-5 md:flex md:h-14 md:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-500 shadow-lg shadow-violet-500/15">
                   <Sparkles size={24} className="text-white" />
                 </div>
                 <p className="mb-1 text-base font-semibold text-tx-primary">{t("aiChat.empty")}</p>
                 <p className="mb-3 md:mb-6 max-w-sm text-xs leading-5 text-tx-tertiary">{t("aiChat.emptyHint")}</p>
 
                 {stats && stats.noteCount > 0 && (
-                  <div className="mb-3 md:mb-6 w-full max-w-md">
+                  <div className="mb-3 hidden md:block md:mb-6 w-full max-w-md">
                     <div className="mb-3 grid grid-cols-3 gap-2">
                       <div className="flex flex-col items-center rounded-xl border border-app-border bg-app-surface px-2 py-2.5">
                         <BookOpen size={16} className="mb-1 text-indigo-500/70" />
@@ -1253,12 +1255,12 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                     <MessageCircleQuestion size={10} />
                     {t("aiChat.trySuggestions")}
                   </p>
-                  {suggestedQuestions.map((question) => (
+                  {suggestedQuestions.map((question, index) => (
                     <button
                       key={question}
                       type="button"
                       onClick={() => { if (!isLoading) void handleSend(question); }}
-                      className="group flex w-full items-center justify-between rounded-xl border border-app-border bg-app-surface px-3.5 py-2.5 text-left text-xs text-tx-secondary shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent-primary/30 hover:bg-accent-primary/5 hover:text-accent-primary"
+                      className={cn("group w-full items-center justify-between rounded-xl border border-app-border bg-app-surface px-3.5 py-2.5 text-left text-xs text-tx-secondary shadow-sm transition-all hover:-translate-y-0.5 hover:border-accent-primary/30 hover:bg-accent-primary/5 hover:text-accent-primary", index > 1 ? "hidden md:flex" : "flex")}
                     >
                       <span>{question}</span>
                       <ArrowRight size={12} className="ml-2 shrink-0 text-tx-tertiary transition-colors group-hover:text-accent-primary" />
@@ -1276,7 +1278,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 <div
                   key={message.id}
                   className={cn(
-                    "group/message flex w-full min-w-0 max-w-full gap-3",
+                    // 新消息上浮淡入；流式输出期间 key 不变，内容增长不会重播动画。
+                    "animate-nowen-rise-in group/message flex w-full min-w-0 max-w-full gap-3",
                     isUser ? "flex-row-reverse pl-12" : "pr-4",
                   )}
                 >
@@ -1349,6 +1352,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                           [&_a]:[overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere]
                           [&_p]:max-w-full [&_pre]:max-w-full [&_pre_code]:whitespace-pre [&_pre_code]:break-normal [&_pre_code]:[overflow-wrap:normal]"
                         >
+                          <AiGeneratedNotice />
                           {message.content && (
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={aiChatMarkdownComponents}>{message.content}</ReactMarkdown>
                           )}

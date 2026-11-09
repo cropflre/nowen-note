@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, Pencil,
-  RefreshCw, RotateCcw, Settings2, Shield, Trash2, X,
+  AlertTriangle, Check, ChevronDown, Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, Loader2,
+  Pencil, Power, PowerOff, RefreshCw, RotateCcw, Settings2, Shield, Trash2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,10 @@ interface ShareModalProps {
   initialShareId?: string;
   onClose: () => void;
 }
+
+// Below the `sm` breakpoint the per-share actions collapse into square 36px icon buttons
+// (index.css already enforces a 36px minimum touch target on small screens).
+const ACTION_BUTTON = "max-sm:h-9 max-sm:w-9 max-sm:px-0";
 
 function toLocalDateTime(value: string | null | undefined): string {
   if (!value) return "";
@@ -51,6 +55,12 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
   const [canManagePublicOrigin, setCanManagePublicOrigin] = useState(false);
   const [originDraft, setOriginDraft] = useState(siteConfig.publicWebOrigin);
   const [originSaving, setOriginSaving] = useState(false);
+  // Narrow screens only: collapsed summary of the public-origin panel and the optional form fields.
+  const [originOpen, setOriginOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const optionsOpen = Boolean(editingId) || moreOpen;
+  const originPanelId = useId();
+  const optionsId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
   const initialShareAppliedRef = useRef<string | null>(null);
   const copySessionRef = useRef(new ShareCopySession());
@@ -136,6 +146,7 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
     setExpiresAt("");
     setMaxViews("");
     setShowPassword(false);
+    setMoreOpen(false);
   };
 
   const editShare = (share: Share) => {
@@ -144,6 +155,8 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
     setPassword("");
     setExpiresAt(toLocalDateTime(share.expiresAt));
     setMaxViews(share.maxViews ? String(share.maxViews) : "");
+    // On narrow screens the whole dialog scrolls and the form sits above the list; bring it back into view.
+    modalRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
   };
 
   const submit = async () => {
@@ -256,72 +269,132 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
   return (
     <AnimatePresence>
       <motion.div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 px-3 py-5 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <motion.div ref={modalRef} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl" initial={{ y: 18, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 18, scale: .98 }}>
-          <header className="flex items-center justify-between border-b border-app-border px-5 py-4">
-            <div><h2 className="font-semibold">{t("shareUi.shareNote")}</h2><p className="mt-0.5 max-w-xl truncate text-xs text-tx-tertiary">{noteTitle}</p></div>
-            <button onClick={onClose} className="rounded-lg p-2 hover:bg-app-hover" aria-label={t("shareUi.close")}><X size={17} /></button>
+        <motion.div ref={modalRef} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl max-sm:overflow-y-auto" initial={{ y: 18, scale: .98 }} animate={{ y: 0, scale: 1 }} exit={{ y: 18, scale: .98 }}>
+          <header className="flex items-center justify-between border-b border-app-border px-5 py-4 max-sm:sticky max-sm:top-0 max-sm:z-10 max-sm:bg-app-surface max-sm:px-4 max-sm:py-2.5">
+            <div className="min-w-0"><h2 className="font-semibold">{t("shareUi.shareNote")}</h2><p className="mt-0.5 max-w-xl truncate text-xs text-tx-tertiary">{noteTitle}</p></div>
+            <button onClick={onClose} className="rounded-lg p-2 hover:bg-app-hover max-sm:p-1.5" aria-label={t("shareUi.close")}><X size={17} /></button>
           </header>
 
           <div className={cn(
-            "flex items-start gap-2.5 border-b px-5 py-3 text-xs",
+            "flex items-start gap-2.5 border-b px-5 py-3 text-xs max-sm:gap-2 max-sm:px-3 max-sm:py-1",
             publicOrigin.requiresAnonymousCheck
               ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
               : "border-app-border bg-emerald-500/5 text-tx-secondary",
           )}>
             {publicOrigin.requiresAnonymousCheck
-              ? <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              : <Shield size={16} className="mt-0.5 shrink-0 text-emerald-600" />}
-            <div className="min-w-0 flex-1 space-y-1">
-              <p>{publicOrigin.requiresAnonymousCheck ? riskMessage : t("shareUi.dedicatedOrigin")}</p>
-              <p className="break-all text-[11px] opacity-80">
-                {t("shareUi.sourcePrefix")}{publicOriginLabel} · {publicOrigin.origin || t("shareUi.relativeAddress")}
-              </p>
-              {canManagePublicOrigin ? (
-                <div className="flex flex-col gap-1.5 pt-1 sm:flex-row">
-                  <Input
-                    value={originDraft}
-                    onChange={(event) => setOriginDraft(event.target.value)}
-                    onKeyDown={(event) => { if (event.key === "Enter") void savePublicOrigin(); }}
-                    placeholder="https://note.example.com"
-                    className="h-8 min-w-0 flex-1 bg-app-surface text-xs text-tx-primary"
-                    aria-label={t("shareUi.originInput")}
-                  />
-                  <Button size="sm" variant="outline" disabled={originSaving} onClick={savePublicOrigin} className="h-8 shrink-0">
-                    {originSaving && <Loader2 size={13} className="mr-1 animate-spin" />}
-                    {t("shareUi.saveOrigin")}
-                  </Button>
-                </div>
-              ) : publicOrigin.requiresAnonymousCheck ? (
-                <p className="text-[11px] opacity-80">{t("shareUi.adminOriginHint")}</p>
-              ) : null}
-              {canManagePublicOrigin && (
-                <p className="text-[11px] opacity-70">{t("shareUi.originResetHint")}</p>
-              )}
+              ? <AlertTriangle size={16} className="mt-0.5 shrink-0 max-sm:mt-2.5" />
+              : <Shield size={16} className="mt-0.5 shrink-0 text-emerald-600 max-sm:mt-2.5" />}
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => setOriginOpen((open) => !open)}
+                aria-expanded={originOpen}
+                aria-controls={originPanelId}
+                className="flex w-full items-center gap-1.5 text-left sm:hidden"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {publicOrigin.requiresAnonymousCheck ? t("shareUi.riskSummary") : t("shareUi.dedicatedOrigin")}
+                </span>
+                <ChevronDown size={14} className={cn("shrink-0 transition-transform", originOpen && "rotate-180")} />
+              </button>
+              <div id={originPanelId} className={cn("space-y-1 max-sm:pb-2", !originOpen && "max-sm:hidden")}>
+                <p className={publicOrigin.requiresAnonymousCheck ? undefined : "max-sm:hidden"}>{publicOrigin.requiresAnonymousCheck ? riskMessage : t("shareUi.dedicatedOrigin")}</p>
+                <p className="break-all text-[11px] opacity-80">
+                  {t("shareUi.sourcePrefix")}{publicOriginLabel} · {publicOrigin.origin || t("shareUi.relativeAddress")}
+                </p>
+                {canManagePublicOrigin ? (
+                  <div className="flex flex-col gap-1.5 pt-1 sm:flex-row">
+                    <Input
+                      value={originDraft}
+                      onChange={(event) => setOriginDraft(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === "Enter") void savePublicOrigin(); }}
+                      placeholder="https://note.example.com"
+                      className="h-8 min-w-0 flex-1 bg-app-surface text-xs text-tx-primary"
+                      aria-label={t("shareUi.originInput")}
+                    />
+                    <Button size="sm" variant="outline" disabled={originSaving} onClick={savePublicOrigin} className="h-8 shrink-0">
+                      {originSaving && <Loader2 size={13} className="mr-1 animate-spin" />}
+                      {t("shareUi.saveOrigin")}
+                    </Button>
+                  </div>
+                ) : publicOrigin.requiresAnonymousCheck ? (
+                  <p className="text-[11px] opacity-80">{t("shareUi.adminOriginHint")}</p>
+                ) : null}
+                {canManagePublicOrigin && (
+                  <p className="text-[11px] opacity-70">{t("shareUi.originResetHint")}</p>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_1fr]">
-            <section className="border-b border-app-border p-5 lg:border-b-0 lg:border-r">
-              <div className="mb-4 flex items-center gap-2"><Settings2 size={16} className="text-accent-primary" /><h3 className="text-sm font-semibold">{editingId ? t("shareUi.editShareSettings") : t("shareUi.createNewShare")}</h3></div>
-              <div className="space-y-3">
-                <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.permission")}</span><select className="h-10 w-full rounded-lg border border-app-border bg-app-bg px-3 text-sm" value={permission} onChange={(event) => setPermission(event.target.value as SharePermission)}><option value="view">{t("shareUi.viewOnly")}</option><option value="comment">{t("shareUi.viewAndComment")}</option><option value="edit">{t("shareUi.guestCanEdit")}</option><option value="edit_auth">{t("shareUi.signedInCanEdit")}</option></select></label>
-                <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.accessPassword")}</span><div className="relative"><Input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={editingId ? t("shareUi.passwordUnchanged") : t("shareUi.passwordMin")} className="pr-10" /><button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-2.5 text-tx-tertiary">{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
-                <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.expiresAt")}</span><Input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
-                <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.maxSessions")}</span><Input type="number" min={1} value={maxViews} onChange={(event) => setMaxViews(event.target.value)} placeholder={t("shareUi.refreshNote")} /></label>
+          <div className="grid min-h-0 flex-1 max-sm:flex-none lg:grid-cols-[300px_1fr]">
+            <section className="border-b border-app-border p-5 max-sm:p-3 lg:border-b-0 lg:border-r">
+              <div className="mb-4 flex items-center gap-2 max-sm:mb-2"><Settings2 size={16} className="text-accent-primary" /><h3 className="text-sm font-semibold">{editingId ? t("shareUi.editShareSettings") : t("shareUi.createNewShare")}</h3></div>
+              <div className="space-y-3 max-sm:space-y-2">
+                <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.permission")}</span><select className="h-10 w-full rounded-lg border border-app-border bg-app-bg px-3 text-sm max-sm:h-9" value={permission} onChange={(event) => setPermission(event.target.value as SharePermission)}><option value="view">{t("shareUi.viewOnly")}</option><option value="comment">{t("shareUi.viewAndComment")}</option><option value="edit">{t("shareUi.guestCanEdit")}</option><option value="edit_auth">{t("shareUi.signedInCanEdit")}</option></select></label>
+                {!editingId && (
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen((open) => !open)}
+                    aria-expanded={moreOpen}
+                    aria-controls={optionsId}
+                    className="flex w-full items-center justify-between gap-2 text-xs text-tx-secondary hover:text-tx-primary sm:hidden"
+                  >
+                    <span className="min-w-0 truncate">{t("shareUi.moreOptions")}</span>
+                    <ChevronDown size={14} className={cn("shrink-0 transition-transform", moreOpen && "rotate-180")} />
+                  </button>
+                )}
+                <div id={optionsId} className={cn("space-y-3 max-sm:space-y-2", !optionsOpen && "max-sm:hidden")}>
+                  <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.accessPassword")}</span><div className="relative"><Input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={editingId ? t("shareUi.passwordUnchanged") : t("shareUi.passwordMin")} className="pr-10" /><button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-2.5 text-tx-tertiary">{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
+                  <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.expiresAt")}</span><Input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+                  <label className="block space-y-1"><span className="text-xs text-tx-secondary">{t("shareUi.maxSessions")}</span><Input type="number" min={1} value={maxViews} onChange={(event) => setMaxViews(event.target.value)} placeholder={t("shareUi.refreshNote")} /></label>
+                </div>
                 <div className="flex gap-2 pt-1"><Button onClick={submit} disabled={saving} className="flex-1">{saving ? <Loader2 size={15} className="mr-1 animate-spin" /> : <Link2 size={15} className="mr-1" />}{editingId ? t("shareUi.saveSettings") : t("shareUi.createLink")}</Button>{editingId && <Button variant="outline" onClick={resetForm}>{t("shareUi.cancel")}</Button>}</div>
               </div>
             </section>
 
-            <section className="min-h-0 overflow-y-auto p-5">
-              <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">{t("shareUi.existingShares")}</h3><Button variant="ghost" size="sm" onClick={loadShares}><RefreshCw size={14} /></Button></div>
+            <section className="min-h-0 overflow-y-auto p-5 max-sm:p-3">
+              <div className="mb-3 flex items-center justify-between max-sm:mb-2"><h3 className="text-sm font-semibold">{t("shareUi.existingShares")}</h3><Button variant="ghost" size="sm" onClick={loadShares}><RefreshCw size={14} /></Button></div>
               {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-tx-tertiary" /></div> : shares.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-app-border py-14 text-center text-sm text-tx-tertiary">{t("shareUi.noShares")}</div>
-              ) : <div className="space-y-3">{shares.map((share) => {
+                <div className="rounded-xl border border-dashed border-app-border py-14 text-center text-sm text-tx-tertiary max-sm:py-8">{t("shareUi.noShares")}</div>
+              ) : <div className="space-y-3 max-sm:space-y-2">{shares.map((share) => {
                 const active = Boolean(share.isActive);
                 const url = shareUrl(share.shareToken);
-                return <article key={share.id} className={cn("rounded-xl border border-app-border p-3", !active && "opacity-60")}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? t("shareUi.active") : t("shareUi.inactive")}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">{t("shareUi.password")}</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary">{t("shareUi.viewSessions", { total: share.viewCount || 0 })}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? t("shareUi.expiresOn", { date: new Date(share.expiresAt).toLocaleString(i18n.language) }) : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary" /></div>
-                  <div className="mt-3 flex flex-wrap gap-1.5"><Button size="sm" variant="outline" onClick={() => copy(url, share.id)}>{copied === share.id ? <Check size={13} /> : <Copy size={13} />}<span className="ml-1">{t("shareUi.copy")}</span></Button>{share.hasPassword && <Button size="sm" variant="outline" onClick={() => void copyWithPassword(share)} title={copySessionRef.current.get(share) ? t("shareUi.copyWithPasswordHint") : t("shareUi.passwordMustReset")}><Copy size={13} /><span className="ml-1">{copySessionRef.current.get(share) ? t("shareUi.copyWithPassword") : t("shareUi.resetPasswordToCopy")}</span></Button>}<Button size="sm" variant="outline" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}><ExternalLink size={13} /></Button><Button size="sm" variant="outline" onClick={() => editShare(share)}><Pencil size={13} className="mr-1" />{t("shareUi.edit")}</Button><Button size="sm" variant="outline" onClick={() => resetViews(share)}><RotateCcw size={13} className="mr-1" />{t("shareUi.reset")}</Button><Button size="sm" variant="outline" onClick={() => rotate(share)}><RefreshCw size={13} className="mr-1" />{t("shareUi.replaceLink")}</Button><Button size="sm" variant="outline" onClick={() => mutate(() => api.updateShare(share.id, { isActive: active ? 0 : 1 }), active ? t("shareUi.disabledMessage") : t("shareUi.enabledMessage"))}>{active ? t("shareUi.disable") : t("shareUi.enable")}</Button><Button size="sm" variant="outline" className="text-red-500" onClick={() => remove(share)}><Trash2 size={13} /></Button></div>
+                const toggleLabel = active ? t("shareUi.disable") : t("shareUi.enable");
+                const copyPasswordLabel = copySessionRef.current.get(share) ? t("shareUi.copyWithPassword") : t("shareUi.resetPasswordToCopy");
+                return <article key={share.id} className={cn("rounded-xl border border-app-border p-3 max-sm:p-2.5", !active && "opacity-60")}>
+                  <div className="flex items-start justify-between gap-3 max-sm:gap-2"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? t("shareUi.active") : t("shareUi.inactive")}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">{t("shareUi.password")}</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary max-sm:mt-0.5">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary max-sm:mt-0.5">{t("shareUi.viewSessions", { total: share.viewCount || 0 })}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? t("shareUi.expiresOn", { date: new Date(share.expiresAt).toLocaleString(i18n.language) }) : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary max-sm:hidden" /></div>
+                  <div className="mt-3 flex flex-wrap gap-1.5 max-sm:mt-2 max-sm:gap-1">
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.copy")} title={t("shareUi.copy")} onClick={() => copy(url, share.id)}>
+                      {copied === share.id ? <Check size={13} /> : <Copy size={13} />}
+                      <span className="ml-1 max-sm:hidden">{t("shareUi.copy")}</span>
+                    </Button>
+                    {share.hasPassword && (
+                      <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={copyPasswordLabel} onClick={() => void copyWithPassword(share)} title={copySessionRef.current.get(share) ? t("shareUi.copyWithPasswordHint") : t("shareUi.passwordMustReset")}>
+                        <Copy size={13} className="max-sm:hidden" />
+                        <KeyRound size={13} className="sm:hidden" />
+                        <span className="ml-1 max-sm:hidden">{copyPasswordLabel}</span>
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.openLink")} title={t("shareUi.openLink")} onClick={() => window.open(url, "_blank", "noopener,noreferrer")}><ExternalLink size={13} /></Button>
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.edit")} title={t("shareUi.edit")} onClick={() => editShare(share)}>
+                      <Pencil size={13} className="mr-1 max-sm:mr-0" />
+                      <span className="max-sm:hidden">{t("shareUi.edit")}</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.reset")} title={t("shareUi.reset")} onClick={() => resetViews(share)}>
+                      <RotateCcw size={13} className="mr-1 max-sm:mr-0" />
+                      <span className="max-sm:hidden">{t("shareUi.reset")}</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.replaceLink")} title={t("shareUi.replaceLink")} onClick={() => rotate(share)}>
+                      <RefreshCw size={13} className="mr-1 max-sm:mr-0" />
+                      <span className="max-sm:hidden">{t("shareUi.replaceLink")}</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={toggleLabel} title={toggleLabel} onClick={() => mutate(() => api.updateShare(share.id, { isActive: active ? 0 : 1 }), active ? t("shareUi.disabledMessage") : t("shareUi.enabledMessage"))}>
+                      {active ? <PowerOff size={13} className="sm:hidden" /> : <Power size={13} className="sm:hidden" />}
+                      <span className="max-sm:hidden">{toggleLabel}</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className={`text-red-500 max-sm:ml-auto ${ACTION_BUTTON}`} aria-label={t("shareUi.delete")} title={t("shareUi.delete")} onClick={() => remove(share)}><Trash2 size={13} /></Button>
+                  </div>
                 </article>;
               })}</div>}
             </section>

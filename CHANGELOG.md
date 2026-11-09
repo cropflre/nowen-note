@@ -1,8 +1,8 @@
 # 更新日志 / Changelog
 
-本文档由 `scripts/generate-changelog.mjs` 从 git commit（Conventional Commits）自动生成，并在每次
-`scripts/release.sh` 发版时新增或替换同版本条目。手写待发布草稿应在自动生成后重新复核；
-用户发布说明草稿保存在 `docs/releases/`。
+本文档由 `scripts/generate-changelog.mjs` 从 git commit（Conventional Commits）生成。
+当前 `scripts/release.sh` 是 Release Center 的安全编排入口，不会自动修改本文件；
+每次正式发布前应在代码冻结后生成对应版本条目并人工复核。用户发布说明草稿保存在 `docs/releases/`。
 
 格式说明：
 
@@ -11,6 +11,61 @@
 - Commit 以 Conventional Commits 为规范（feat / fix / perf / refactor / docs / chore / style / test / build / ci）
 
 <!-- ADD_NEW_HERE -->
+
+## v1.5.5 - 2026-11-09
+
+### ✨ 新增与优化
+
+- Web / PC / Android 双向实时同步与打开中笔记自动更新（#910）；补充三端变更互达测试。在线通知受网络、账号和服务器状态影响。
+- 知识树结构冲突修复强化预检与操作意图校验，完善新用户首次引导状态。
+- 统一核心交互动效设计系统，优化窗口伸缩和宽屏工作区布局。
+- 新增 AI 生成内容标识、授权范围内个人日记发布接口及鸿蒙导出能力。
+
+### 🐛 修复
+
+- 并发编辑时保留双方正文，避免静默覆盖；真实内容冲突仍需用户确认。
+- 修复桌面初次下载进度与登录恢复、后端失败重试、Lite 启动异常。
+- 修复 Word 粘贴图片、Markdown 预览与分享单个换行、手机分享弹窗裁切及公开图片链接复制。
+- 完善历史加密触发器迁移、账号验证限流和手动备份时间本地化。
+
+### 📦 发布说明
+
+- 2026-11-09 正式发布，GitHub Release 共 **28 个附件**（其中 17 个是下载中心展示的安装包 / 扩展 ZIP），包含 Windows、macOS、Linux、Android、fnOS、UGOS 与 Clipper。
+- Docker AMD64 / ARM64 已发布版本镜像；macOS GitHub 包未做 Apple Developer ID 签名或公证，Windows 直装 EXE 未签名。
+- 升级前备份数据库、附件和配置；镜像回退不回滚数据库。Workspace、个人应用 Studio、扩展平台 V3 留在 v1.6.0 规划。
+
+[完整 v1.5.5 更新说明](./docs/releases/v1.5.5.md) · [正式下载](https://github.com/cropflre/nowen-note/releases/tag/v1.5.5)
+
+## v1.5.4 - 2026-11-02
+
+### ✨ 新增
+
+- **AI 写作与 Agent**：编辑器内预览并确认 AI 修改；按笔记本范围生成笔记、任务草稿，支持逐项筛选后应用。
+- **自定义 Skills**：在 AI 对话和编辑器助手中复用指令，不运行脚本或增加权限。
+- **共享模型配置**：管理员可集中配置 AI 模型并授权成员使用，密钥保留在服务端；支持自定义网关请求头和 Anthropic Messages 接口。
+- **Markdown 章节折叠**：支持标题层级、折叠栏与快捷键；搜索自动展开隐藏命中，折叠不改写正文（#890）。
+- **NAS 离线副本**：桌面完整版登录后自动准备个人笔记与受管附件，断网读写、重连自动回传；加强 Android 本地优先和附件下载恢复。
+- **导入与入口**：DOCX 文件大小上限提高到 1 GB，保留安全校验；新增 Microsoft Store 下载入口。
+
+### 🐛 修复
+
+- 修复附件上传响应丢失后的文件恢复，保留已保存附件的准确身份，避免错误引用与重复上传（#894）。
+- 改进图片缩放、拖动、双指手势、旋转适配和多图切换；全屏使用已授权的原始分辨率地址，修复图片比例异常（#892）。
+- 修复 Markdown Live 图片预览闪烁和附件链接授权，缩短稳定附件分享链接，并增强 HEIC/HEIF 兼容预览。
+- 增强 Mermaid 对流程图标签括号和独立 `//` 注释的兼容性；隔离并发剪藏的图片 Referer 规则。
+- 优化移动端 AI 面板及大字体笔记卡片；改善模型连接诊断与后台索引超时配置。
+- 完善数据库版本不兼容提示、Docker 升级与回滚保护，以及 SDK 独立构建依赖。
+
+### ⚙️ 兼容性与升级
+
+- 升级至 Node.js 24.22.1、Electron 43.8.4 和 React 19.3.1；桌面包自带运行时。
+- macOS 桌面版要求 macOS 12+；独立源码、CLI/MCP 使用的官方 Node 24 二进制要求 macOS 13.5+。
+- 本次 macOS 包未做 Developer ID 签名和 Apple 公证；Windows GitHub 直接下载包也未提供代码签名。
+- 升级前完整备份数据库、附件及配置并验证可恢复；回滚程序或镜像不会自动回滚数据库。
+- 离线增强覆盖个人笔记与受管附件，桌面 Lite 不包含本地后端；共享空间等其他内容不因此获得完整离线承诺。
+- Workspace、个人应用 Studio 和扩展平台 V3 仍归入 v1.6.0 规划。本次下载范围以实际发布附件为准，商店上架单独处理。
+
+完整用户说明见 [v1.5.4 更新说明](./docs/releases/v1.5.4.md)。
 
 ## v1.5.3 - 2026-10-23
 

@@ -1,5 +1,6 @@
-﻿import { closeHistory } from "@tiptap/pm/history";
-import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
+import { readAiProvenance } from "@/lib/aiContentProvenance";
+import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
+﻿import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -97,6 +98,7 @@ import {
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
+import { mergeRtfImagesIntoHtml } from "@/lib/rtfPastedImages";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
 import {
   extractRemoteImageUrls,
@@ -417,45 +419,6 @@ function extractImagesFromRtf(rtf: string): string[] {
     }
   }
   return result;
-}
-
-// 把 HTML 里的占位 <img>（file:///、v:imagedata、空 src 等）按出现顺序
-// 替换成从 RTF 提取出来的 data URL。返回替换后的 HTML。
-// 若 rtfImages 数量少于 HTML 里的 <img>，多出来的 <img> 保持原样（让后续
-// rescue 流程去清理 / 标记为 failed）。
-function mergeRtfImagesIntoHtml(html: string, rtfImages: string[]): string {
-  if (!rtfImages.length || !html) return html;
-  try {
-    const doc = new DOMParser().parseFromString(
-      `<div id="__root">${html}</div>`,
-      "text/html"
-    );
-    const root = doc.getElementById("__root");
-    if (!root) return html;
-    // Word 有时会用 <v:imagedata src="file://..."/>（VML）承载图片占位，
-    // 这些节点本身不是 <img>；但它们通常被 <img> 包裹或与 <img> 成对出现。
-    // 这里只按顺序替换普通 <img> 的 src，已能覆盖 Word 的主流情况。
-    const imgs = Array.from(root.querySelectorAll("img"));
-    let cursor = 0;
-    for (const img of imgs) {
-      if (cursor >= rtfImages.length) break;
-      const src = img.getAttribute("src") || "";
-      // 只替换"显然无法加载"的占位：file:///、空、vml 协议等。
-      // 若 src 已经是 http/https/data/blob，保留不动。
-      const needReplace =
-        !src ||
-        /^file:\/\//i.test(src) ||
-        /^about:/i.test(src) ||
-        src.trim().length === 0;
-      if (needReplace) {
-        img.setAttribute("src", rtfImages[cursor]);
-        cursor += 1;
-      }
-    }
-    return root.innerHTML;
-  } catch {
-    return html;
-  }
 }
 
 function normalizePastedHtmlForBlocks(html: string): { html: string; imageStats: RescueStats; isWordSource: boolean } {
@@ -868,7 +831,8 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
       disabled={disabled}
       title={title}
       className={cn(
-        compact ? "shrink-0 p-1 rounded-md transition-colors" : "shrink-0 p-1.5 rounded-md transition-colors",
+        // nowen-press：按下轻微缩放；onMouseDown 已 preventDefault，不影响编辑器选区。
+        compact ? "shrink-0 p-1 rounded-md nowen-press" : "shrink-0 p-1.5 rounded-md nowen-press",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -1709,6 +1673,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (pasteToastTimer.current) clearTimeout(pasteToastTimer.current);
     setPasteToast(null);
   }, []);
+  useEffect(() => dismissPasteToast(), [note.id, dismissPasteToast]);
 
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const outlineToolbarRef = useRef<HTMLDivElement | null>(null);
@@ -1790,6 +1755,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     extensions: [
+      AiProvenanceMark,
       keyboardExtension.current,
       StarterKit.configure({
         codeBlock: false,
@@ -2358,12 +2324,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               const htmlSnapshot = html;
               const textSnapshot = text;
               const noteAtPaste = noteRef.current;
+              const scope = pasteNoteScopeRef.current;
+              const isCurrentPaste = () => !view.isDestroyed && pasteNoteScopeRef.current === scope;
+              const anchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(anchor);
 
               // 3) 丢给 worker。Worker 通信失败/不可用时 client 内部会自动
               //    降级为主线程同步实现（只会卡，不会错）。
               extractRtfImagesAsync(rtfForImg)
                 .then((rtfImages) => {
-                  if (view.isDestroyed) return;
+                  if (!isCurrentPaste()) return;
                   console.log("[paste-diag] RTF images extracted (worker)=", rtfImages.length);
                   if (rtfImages.length === 0) {
                     dismissPasteToast();
@@ -2395,6 +2365,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                     htmlForParse = textHtml + imgHtml;
                   }
 
+                  if (!restoreAsyncInsertAnchor(view, anchor)) {
+                    dismissPasteToast();
+                    return;
+                  }
                   const { state, dispatch } = view;
                   const parser = ProseMirrorDOMParser.fromSchema(state.schema);
                   const tempDiv = document.createElement("div");
@@ -2434,15 +2408,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                     const noteId = noteAtPaste.id;
                     // 稍作延迟让渲染先落地，避免上传 HTTP 请求和大图解码抢资源
                     setTimeout(() => {
-                      if (editor.isDestroyed) return;
-                      showPasteToast(
-                        "converting",
-                        t("tiptap.rtfRescueUploading", {
-                          done: 0,
-                          total: rtfImages.length,
-                        })
-                      );
+                      if (editor.isDestroyed || !isCurrentPaste()) return;
                       replaceDataUrlImagesWithAttachments(editor, noteId, {
+                        isCurrent: isCurrentPaste,
                         onProgress: (done, total) => {
                           showPasteToast(
                             "converting",
@@ -2451,8 +2419,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                         },
                       })
                         .then(({ total, uploaded, failed }) => {
-                          if (editor.isDestroyed) return;
-                          if (total === 0) return;
+                          if (editor.isDestroyed || !isCurrentPaste()) return;
+                          if (total === 0) {
+                            dismissPasteToast();
+                            return;
+                          }
                           if (failed === 0) {
                             showPasteToast(
                               "success",
@@ -2478,15 +2449,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                             "[paste-diag] background upload failed:",
                             err
                           );
-                          // 静默失败：base64 兜底图仍然在编辑器里，用户看得见。
+                          if (isCurrentPaste()) showPasteToast("error", t("tiptap.imageUploadFailed"));
                         });
                     }, 200);
                   }
                 })
                 .catch((err) => {
                   console.error("[paste-diag] rtf-rescue failed:", err);
-                  showPasteToast("error", t("tiptap.imageUploadFailed"));
-                });
+                  if (isCurrentPaste()) showPasteToast("error", t("tiptap.imageUploadFailed"));
+                })
+                .finally(() => releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor));
 
               // 6) 同步返回 true：event.preventDefault 已调，PM 不会再插入
               //    原始剪贴板内容；真正的插入由上面的异步任务完成。
@@ -3258,24 +3230,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       },
       isReady: () => !!editor && !editor.isDestroyed,
       getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
-      applyAgentEdits: (original, edits) => {
+      applyAgentEdits: (original, edits, provenance) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
         if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
         try {
-          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
-          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
-          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
-            parts.push({ text: "", pos: 1, marks: [] });
-          }
-          const ranges = agentTextRanges(parts, edits);
-          const tr = editor.state.tr;
-          for (const range of ranges.reverse()) {
-            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
-            else tr.delete(range.from, range.to);
-          }
-          editor.view.dispatch(closeHistory(tr));
-          editor.view.dispatch(closeHistory(editor.state.tr));
+          applyAgentTiptapChanges(editor, edits, provenance);
           return true;
         } catch { return false; }
       },
@@ -5052,11 +5012,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (!editor) return;
     const view = editor.view;
     const hasInternalBlockMarkers = findInternalMarkdownMarkerRanges(text).length > 0;
+    const hasAiProvenance = !!readAiProvenance(text);
 
-    if (hasInternalBlockMarkers || looksLikeMarkdown(text)) {
+    if (hasAiProvenance || hasInternalBlockMarkers || looksLikeMarkdown(text)) {
       // 直接转换为富文本 HTML 后插入，一步到位
       try {
-        const convertedHtml = hasInternalBlockMarkers
+        const convertedHtml = hasAiProvenance ? sanitizeForPaste(mdToFullHtml(text)) : hasInternalBlockMarkers
           ? mdToFullHtml(text) || markdownToSimpleHtml(text)
           : markdownToSimpleHtml(text);
         const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);

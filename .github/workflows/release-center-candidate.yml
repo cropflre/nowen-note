@@ -121,11 +121,17 @@ jobs:
         env:
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: node scripts/release-cloud-ci.mjs prepare
+      - name: Preload SHA-256 verified FFmpeg 6.1.1 for release packaging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node scripts/release-cloud-ffmpeg.mjs --prepare
       - name: Build app source
         shell: bash
         run: |
           npm ci
           (cd backend && npm ci)
+          node scripts/release-cloud-ffmpeg.mjs --install
           (cd frontend && npm ci)
           npm run fetch:node
           npm run build:all
@@ -154,13 +160,17 @@ jobs:
           APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
+          GH_TOKEN: ${{ github.token }}
           NOWEN_MAC_ARCH: x64
           TARGET_ARCH: x64
           npm_config_target_arch: x64
         run: |
           if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
             test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
+          node scripts/release-cloud-ffmpeg.mjs --install --platform=darwin --arch=x64
           npm run rebuild:native -- --target-platform=darwin --target-arch=x64
           npx electron-builder --config electron/builder.config.js --mac --publish never
       - name: Build macOS Apple Silicon
@@ -172,13 +182,17 @@ jobs:
           APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
+          GH_TOKEN: ${{ github.token }}
           NOWEN_MAC_ARCH: arm64
           TARGET_ARCH: arm64
           npm_config_target_arch: arm64
         run: |
           if [ "$CSC_IDENTITY_AUTO_DISCOVERY" = "true" ]; then
             test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
+          node scripts/release-cloud-ffmpeg.mjs --install --platform=darwin --arch=arm64
           npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
           npx electron-builder --config electron/builder.config.js --mac --publish never
       - name: Linux desktop contract tests

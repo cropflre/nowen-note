@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { Migration } from "./migrations.impl.js";
 
-const ONBOARDING_VERSION = 1;
+export const ONBOARDING_VERSION = 1;
 const ID_PREFIX = `onboarding-v${ONBOARDING_VERSION}-`;
 
 interface GuideNote {

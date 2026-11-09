@@ -1,3 +1,4 @@
+import { readAiProvenance } from "@/lib/aiContentProvenance";
 import { TaskSaveNoteDialog } from "./TaskSaveNoteDialog";
 import PluginInspector from "../PluginInspector";
 import TaskAttachmentSection from "./TaskAttachmentSection";
@@ -189,7 +190,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const dueDateForDisplay = parseTaskDate(task.dueDate);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
-  const [descriptionMode, setDescriptionMode] = useState<"edit" | "preview">(task.archivedAt ? "preview" : "edit");
+  const [descriptionMode, setDescriptionMode] = useState<"edit" | "preview">(task.archivedAt || readAiProvenance(task.description || "") ? "preview" : "edit");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [snapshotDraft, setSnapshotDraft] = useState<{ title: string; description: string } | null>(null);
   const [archiving, setArchiving] = useState(false);

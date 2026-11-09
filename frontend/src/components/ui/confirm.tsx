@@ -22,10 +22,11 @@
  */
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useIsPresent } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { dialogMotion, overlayMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,25 @@ function DialogShell({
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const cancelBtnRef = React.useRef<HTMLButtonElement | null>(null);
   const confirmBtnRef = React.useRef<HTMLButtonElement | null>(null);
+  const shellRef = React.useRef<HTMLDivElement | null>(null);
+  // 退出动画期间（已从栈移除但仍在 DOM 中）不再拦截点击，避免吞掉紧随其后的操作。
+  const isPresent = useIsPresent();
+  // 记录弹窗出现前的焦点（自动聚焦在 30ms 后才执行，挂载时仍是触发元素 / 编辑器）。
+  const [returnFocusTarget] = React.useState<HTMLElement | null>(() =>
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+
+  // 卸载（退出动画结束）时：只有焦点仍留在弹窗内或已丢到 body，才还给原元素；
+  // 调用方在 then 里主动移动过焦点、或原元素已被删除时不干预。
+  React.useLayoutEffect(() => () => {
+    const target = returnFocusTarget;
+    if (!target || !target.isConnected || target === document.body) return;
+    const active = document.activeElement;
+    const focusLost = !active || active === document.body || !!shellRef.current?.contains(active);
+    if (focusLost) target.focus({ preventScroll: true });
+  }, [returnFocusTarget]);
 
   React.useEffect(() => {
     // 自动聚焦：prompt 优先聚焦输入框；danger 默认聚焦取消（防误回车）；其它聚焦确认
@@ -321,17 +341,17 @@ function DialogShell({
 
   return (
     <motion.div
+      ref={shellRef}
       className={cn(
         "fixed inset-0 z-[10000] flex items-center justify-center px-4",
-        isTop ? "pointer-events-auto" : "pointer-events-none",
+        isTop && isPresent ? "pointer-events-auto" : "pointer-events-none",
       )}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
+      initial={overlayMotion.initial}
+      animate={overlayMotion.animate}
+      exit={overlayMotion.exit}
       onMouseDown={(e) => {
         // 点击遮罩 = 取消（仅最顶层；点 dialog 本体不会冒泡到这里）
-        if (isTop && e.target === e.currentTarget) onCancel();
+        if (isTop && isPresent && e.target === e.currentTarget) onCancel();
       }}
     >
       {/* 遮罩 */}
@@ -341,11 +361,10 @@ function DialogShell({
       <motion.div
         role="dialog"
         aria-modal="true"
-        initial={{ scale: 0.95, opacity: 0, y: 10 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.97, opacity: 0, y: 4 }}
-        transition={{ duration: 0.16, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-md rounded-xl border border-app-border bg-app-surface shadow-xl overflow-hidden"
+        initial={dialogMotion.initial}
+        animate={dialogMotion.animate}
+        exit={dialogMotion.exit}
+        className="relative z-10 w-full max-w-md rounded-xl border border-app-border bg-app-surface shadow-dialog overflow-hidden"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !isChoice && (isPrompt || !danger)) {
             // prompt：回车提交；confirm 非危险：回车确认；危险确认默认要点

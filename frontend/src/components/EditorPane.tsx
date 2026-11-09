@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText, createAiProvenance, markAiMarkdown } from "@/lib/aiContentProvenance";
 ﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import PluginInspector from "./PluginInspector";
@@ -94,9 +96,13 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
+  captureEditorCleanBaseline,
+  hasUnsavedEditorChanges,
+  isFetchedRemoteNoteNewer,
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
   shouldSkipUnchangedTitleOnlyUpdate,
+  type EditorCleanBaseline,
 } from "@/lib/editorSyncGuards";
 import { canWriteNote } from "@/lib/notePermissions";
 import {
@@ -898,6 +904,12 @@ function OrdinaryEditorPane({
   // ---------------------------------------------------------------------------
   /** Զ�̸��º���������˱�����ͬһƪ�ʼǣ���ʾ�û����¼��� / ������ͻ */
   const lastAutoAppliedRemoteRef = useRef<string>("");
+  /** The editor's clean rendering of the persisted body (see hasUnsavedEditorChanges). */
+  const editorCleanBaselineRef = useRef<EditorCleanBaseline | null>(null);
+  /** A newer persisted version skipped because of local edits; retried until applied or conflicted. */
+  const deferredRemoteRef = useRef<{ noteId: string; fromStore: boolean } | null>(null);
+  const deferredRemoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [remotePendingNoteId, setRemotePendingNoteId] = useState<string | null>(null);
   /** Զ��ɾ����� */
   const [remoteDelete, setRemoteDelete] = useState<{ actorUserId?: string; trashed?: boolean } | null>(null);
 
@@ -1151,11 +1163,81 @@ function OrdinaryEditorPane({
     const cur = activeNoteRef.current;
     if (!cur) return false;
     if (syncStatusRef.current === "saving" || !!saveInflightRef.current) return true;
-    const snap = getCurrentEditorSnapshot();
-    if (!snap) return false;
-    return snap.content !== cur.content
-      || snap.contentText !== cur.contentText
-      || (snap.title ?? cur.title) !== cur.title;
+    // Compare with the editor's own rendering of the persisted body: a rich-text
+    // editor re-serializes Markdown/older JSON, which is not a user edit and must
+    // not block remote updates forever.
+    return hasUnsavedEditorChanges({
+      note: cur,
+      snapshot: getCurrentEditorSnapshot(),
+      baseline: editorCleanBaselineRef.current,
+      editorMode: editorModeRef.current,
+    });
+  }
+
+  /**
+   * Record the editor's clean rendering after a persisted body was loaded into it
+   * (note open, editor switch or remote apply). Local saves need no baseline: the
+   * persisted body is then the editor's own serialization.
+   */
+  function scheduleCleanBaselineCapture(noteId: string, noteContent: string): () => void {
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let frame = 0;
+    const capture = () => {
+      if (cancelled) return;
+      const cur = activeNoteRef.current;
+      if (!cur || cur.id !== noteId) return;
+      const saving = syncStatusRef.current === "saving" || !!saveInflightRef.current;
+      const ready = !saving && editorHandleRef.current?.isReady?.() !== false;
+      const snapshot = ready && cur.content === noteContent ? getCurrentEditorSnapshot() : null;
+      if (!snapshot) {
+        // Editors mount lazily, the body may not be rendered yet or a previous
+        // save may still be in flight; retry briefly instead of guessing.
+        // A newer local body needs no baseline.
+        if (++attempts < 20) timer = setTimeout(capture, 150);
+        return;
+      }
+      editorCleanBaselineRef.current = captureEditorCleanBaseline(cur, snapshot, editorModeRef.current);
+    };
+    if (typeof requestAnimationFrame === "function") {
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(capture); });
+    } else {
+      timer = setTimeout(capture, 0);
+    }
+    return () => {
+      cancelled = true;
+      if (frame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+    };
+  }
+  const cancelCleanBaselineCaptureRef = useRef<(() => void) | null>(null);
+  function recaptureCleanBaseline(noteId: string, noteContent: string) {
+    cancelCleanBaselineCaptureRef.current?.();
+    cancelCleanBaselineCaptureRef.current = scheduleCleanBaselineCapture(noteId, noteContent);
+  }
+
+  function clearDeferredRemote() {
+    deferredRemoteRef.current = null;
+    if (deferredRemoteTimerRef.current) clearTimeout(deferredRemoteTimerRef.current);
+    deferredRemoteTimerRef.current = null;
+    setRemotePendingNoteId(null);
+  }
+
+  /** Retry a skipped remote version later; never drop it after a single skip. */
+  function deferRemoteReconcile(noteId: string, fromStore: boolean) {
+    deferredRemoteRef.current = { noteId, fromStore };
+    setRemotePendingNoteId(noteId);
+    if (deferredRemoteTimerRef.current) return;
+    deferredRemoteTimerRef.current = setTimeout(() => {
+      deferredRemoteTimerRef.current = null;
+      const deferred = deferredRemoteRef.current;
+      const cur = activeNoteRef.current;
+      if (!deferred || !cur || deferred.noteId !== cur.id) { clearDeferredRemote(); return; }
+      void (deferred.fromStore
+        ? reconcileActiveNoteFromStore("deferred")
+        : checkActiveNoteRemoteVersion("deferred"));
+    }, 2000);
   }
 
   function getCollabMarkdownSnapshot(): string | null {
@@ -1226,9 +1308,10 @@ function OrdinaryEditorPane({
     title?: string;
     contentText?: string;
     actorUserId?: string;
-  }) {
+  }, prefetched?: Note) {
     const cur = activeNoteRef.current;
-    if (!isRemoteVersionNewer(cur, msg)) return;
+    // A prefetched persisted note may carry a same-version body (live Yjs persistence).
+    if (!prefetched && !isRemoteVersionNewer(cur, msg)) return;
 
     actions.updateNoteInList({
       id: msg.noteId,
@@ -1239,7 +1322,7 @@ function OrdinaryEditorPane({
     } as any);
 
     const applyKey = `${msg.noteId}:${msg.version}`;
-    if (lastAutoAppliedRemoteRef.current === applyKey) return;
+    if (!prefetched && lastAutoAppliedRemoteRef.current === applyKey) return;
 
     try {
       const collabDoc = collabYDocRef.current;
@@ -1248,16 +1331,20 @@ function OrdinaryEditorPane({
         try { collabProviderRef.current?.requestResync?.(); } catch { /* ignore */ }
       }
 
-      const fresh = await api.getNote(msg.noteId);
+      const fresh = prefetched ?? await api.getNote(msg.noteId);
       const latest = activeNoteRef.current;
       if (!latest || latest.id !== msg.noteId) return;
-      if (latest.version >= fresh.version) return;
+      if (prefetched ? !isFetchedRemoteNoteNewer(latest, fresh) : latest.version >= fresh.version) {
+        if (deferredRemoteRef.current?.noteId === msg.noteId) clearDeferredRemote();
+        return;
+      }
 
       const freshMarkdown = normalizeToMarkdown(fresh.content, fresh.contentText);
       const currentYText = getCollabMarkdownSnapshot();
       const yTextAlreadyFresh = currentYText !== null && currentYText === freshMarkdown;
       if (!yTextAlreadyFresh && hasLocalUnsavedChanges()) {
         logSkippedRemoteApply("local-unsaved", msg.noteId, fresh.version);
+        deferRemoteReconcile(msg.noteId, !!prefetched);
         return;
       }
 
@@ -1267,6 +1354,8 @@ function OrdinaryEditorPane({
 
       lastAutoAppliedRemoteRef.current = applyKey;
       applyFetchedRemoteNote(fresh);
+      if (deferredRemoteRef.current?.noteId === fresh.id) clearDeferredRemote();
+      recaptureCleanBaseline(fresh.id, fresh.content);
     } catch (e) {
       console.warn("[EditorPane] auto apply remote note failed:", e);
     }
@@ -1279,7 +1368,9 @@ function OrdinaryEditorPane({
       const slim = await api.getNoteSlim(cur.id);
       const latest = activeNoteRef.current;
       if (!latest || latest.id !== cur.id) return;
-      if (typeof slim.version === "number" && slim.version > latest.version) {
+      if (!(typeof slim.version === "number" && slim.version > latest.version)) {
+        if (deferredRemoteRef.current?.noteId === cur.id) clearDeferredRemote();
+      } else {
         await applyRemoteNoteUpdate({
           noteId: cur.id,
           version: slim.version,
@@ -1293,13 +1384,57 @@ function OrdinaryEditorPane({
     }
   }
 
+  /**
+   * Native Sync V2 has committed remote entities to local SQLite. Read the
+   * persisted note itself: a body or tag change may arrive without a version bump.
+   */
+  async function reconcileActiveNoteFromStore(reason: string) {
+    const cur = activeNoteRef.current;
+    if (!cur) return;
+    try {
+      const fresh = await api.getNote(cur.id);
+      const latest = activeNoteRef.current;
+      if (!latest || latest.id !== cur.id) return;
+      if (!isFetchedRemoteNoteNewer(latest, fresh)) {
+        if (deferredRemoteRef.current?.noteId === cur.id) clearDeferredRemote();
+        return;
+      }
+      await applyRemoteNoteUpdate({
+        noteId: fresh.id,
+        version: fresh.version,
+        updatedAt: fresh.updatedAt,
+        title: fresh.title,
+        contentText: fresh.contentText,
+      }, fresh);
+    } catch (e) {
+      console.warn(`[EditorPane] active note reconcile failed (${reason}):`, e);
+      // A transient read failure must not silently drop a known pending update.
+      if (deferredRemoteRef.current?.noteId === cur.id) deferRemoteReconcile(cur.id, true);
+    }
+  }
+
+  // A body loaded into the editor (open, switch, editor engine change) needs a
+  // fresh clean rendering; pending deferred remote work belongs to the old note.
+  useEffect(() => {
+    const note = activeNoteRef.current;
+    if (deferredRemoteRef.current && deferredRemoteRef.current.noteId !== note?.id) clearDeferredRemote();
+    editorCleanBaselineRef.current = null;
+    if (note) recaptureCleanBaseline(note.id, note.content);
+    return () => { cancelCleanBaselineCaptureRef.current?.(); cancelCleanBaselineCaptureRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNote?.id, editorMode]);
+
+  useEffect(() => () => {
+    if (deferredRemoteTimerRef.current) clearTimeout(deferredRemoteTimerRef.current);
+  }, []);
+
   useEffect(() => {
     const applied = (event: Event) => {
       const cur = activeNoteRef.current;
       const detail = (event as CustomEvent<MobileSyncAppliedDetail>).detail;
       if (!cur || !detail) return;
       if (detail.deletedNoteIds.includes(cur.id)) setRemoteDelete({ trashed: false });
-      else if (detail.noteIds.includes(cur.id)) void checkActiveNoteRemoteVersion("native-sync");
+      else if (detail.noteIds.includes(cur.id)) void reconcileActiveNoteFromStore("native-sync");
     };
     window.addEventListener(MOBILE_SYNC_APPLIED_EVENT, applied);
     return () => window.removeEventListener(MOBILE_SYNC_APPLIED_EVENT, applied);
@@ -2120,12 +2255,13 @@ function OrdinaryEditorPane({
     if (!activeNote) return;
     const toastId = toast.info(t("note.exportImageExporting"), 0);
     try {
+      const snapshot = editorHandleRef.current?.getSnapshot?.();
       const ok = await exportNoteAsImage(
         {
           id: activeNote.id,
           title: activeNote.title,
-          content: activeNote.content,
-          contentText: activeNote.contentText,
+          content: snapshot?.content ?? activeNote.content,
+          contentText: snapshot?.contentText ?? activeNote.contentText,
           contentFormat: activeNote.contentFormat,
           updatedAt: activeNote.updatedAt,
         },
@@ -2251,7 +2387,7 @@ const moveToTrash = useCallback(async () => {
       //    MD �༭�� debounce ��Ȼ�� flush���� AI �����ʱ���û��Կ��ܼ�������
       //    �� ���� �� version ������������� 409�������������±ʼ����� version ���ԡ�
       const doUpdate = async (version: number) =>
-        api.updateNote(activeNote.id, { title: cleaned, contentFormat: activeNote.contentFormat, version } as any);
+        api.updateNote(activeNote.id, { title: `${t("ai.generatedTitlePrefix")}${cleaned}`, contentFormat: activeNote.contentFormat, version } as any);
 
       let updated;
       try {
@@ -2374,7 +2510,7 @@ const moveToTrash = useCallback(async () => {
   const handleSummaryCopy = useCallback(async () => {
     if (!aiSummaryResult) return;
     try {
-      await navigator.clipboard.writeText(aiSummaryResult);
+      await navigator.clipboard.writeText(aiClipboardText(aiSummaryResult, true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制");
     } catch {
       toast.error(t("common.copyFailed"));
@@ -2383,12 +2519,12 @@ const moveToTrash = useCallback(async () => {
 
   const handleSummaryAppend = useCallback(async () => {
     if (!activeNote || !aiSummaryResult) return;
-      const md = "\n\n## AI 总结\n\n" + aiSummaryResult + "\n";
+      const md = "\n\n" + markAiMarkdown("## AI 总结\n\n" + aiSummaryResult, undefined, t("ai.generatedLabel")) + "\n";
     const appended = editorHandleRef.current?.appendMarkdown?.(md);
     if (!appended) {
       // �༭����֧�� appendMarkdown��fallback ��������
       try {
-        await navigator.clipboard.writeText(aiSummaryResult);
+        await navigator.clipboard.writeText(aiClipboardText(aiSummaryResult, true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
       } catch {
       toast.error(t("editorOps.appendFailed"));
@@ -2462,11 +2598,11 @@ const moveToTrash = useCallback(async () => {
 
   const handleMermaidInsert = useCallback(() => {
     if (!activeNote || !aiMermaidResult) return;
-    const md = "\n\n```mermaid\n" + aiMermaidResult + "\n```\n";
+    const md = "\n\n" + markAiMarkdown("```mermaid\n" + aiMermaidResult + "\n```", undefined, t("ai.generatedLabel")) + "\n";
     const appended = editorHandleRef.current?.appendMarkdown?.(md);
     if (!appended) {
       try {
-        navigator.clipboard.writeText("```mermaid\n" + aiMermaidResult + "\n```");
+        navigator.clipboard.writeText(aiClipboardText("```mermaid\n" + aiMermaidResult + "\n```", true, t("ai.generatedLabel")));
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
     } catch { toast.error(t("common.copyFailed")); }
       return;
@@ -2496,6 +2632,7 @@ const moveToTrash = useCallback(async () => {
     setMermaidSavingMindMap(true);
     try {
       const title = data.root.text.slice(0, 50) || t("editorOps.mindmapDefaultTitle");
+      data.aiProvenance = createAiProvenance();
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
       toast.success(t("editorOps.mindmapSaved"));
       setShowMermaidDialog(false);
@@ -2681,7 +2818,7 @@ const moveToTrash = useCallback(async () => {
       <MobileEditorToolbarPortal location="trailing">
         {compactMobileEditing ? (
           <div className="flex items-center gap-1">
-            <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />
+            <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />
             {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
             <Button
               data-mobile-note-menu-trigger
@@ -2792,7 +2929,7 @@ const moveToTrash = useCallback(async () => {
               本地写入成功就是"已保存"，同步失败只叫"等待同步"，
               绝不能让一次网络抖动显示成"保存失败"。
               Android 保留轻量文字，未开启同步时不渲染。 */}
-          {!compactMobileEditing && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />}
+          {!compactMobileEditing && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />}
           <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
             {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
@@ -3982,6 +4119,7 @@ const moveToTrash = useCallback(async () => {
                   </div>
                 ) : (
                   <div className="text-sm text-tx-primary whitespace-pre-wrap leading-relaxed">
+                    <AiGeneratedNotice />
                     {aiSummaryResult}
                   </div>
                 )}
@@ -4061,6 +4199,7 @@ const moveToTrash = useCallback(async () => {
                   </div>
                 ) : aiMermaidResult ? (
                   <div className="rounded-lg border border-app-border overflow-hidden">
+                    <AiGeneratedNotice />
                     <MermaidView source={aiMermaidResult} debounceMs={0} />
                   </div>
                 ) : null}
@@ -4068,7 +4207,7 @@ const moveToTrash = useCallback(async () => {
               {!aiMermaidLoading && aiMermaidResult && (
                 <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-app-border">
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(aiMermaidResult); toast.success("已复制"); }}>
+                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(aiClipboardText(aiMermaidResult, true, t("ai.generatedLabel"))); toast.success("已复制"); }}>
                       复制源码
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleMermaidInsert}>

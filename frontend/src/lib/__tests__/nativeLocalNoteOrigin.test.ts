@@ -1,3 +1,4 @@
+import { createAiProvenance, markAiMarkdown, readAiProvenance } from "../aiContentProvenance";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -131,5 +132,27 @@ describe("persisted provenance for unsent native notes", () => {
     await db.transaction((tx) => forgetUnsentLocalNotes(tx, "personal", ["local", ...ids]));
     expect(await marker()).toBeUndefined(); expect(await marker(other)).toBe("1");
     expect(await db.query("SELECT key FROM native_runtime_meta WHERE key LIKE 'unsentLocalNote:%'")).toHaveLength(1);
+  });
+});
+
+describe("AI declarations in the native business transaction (DCC-002/003)", () => {
+  it("preserves the same producer ID in the note and Outbox after SQLite reopen", async () => {
+    const metadata = createAiProvenance("native-generation");
+    const content = markAiMarkdown("离线生成正文\n![附件](attachment:keep)", metadata);
+    await repository.notes.create({ id: "generated", notebookId: "public", content, contentFormat: "markdown" });
+    const pending = await db.query<{ payload: string }>("SELECT payload FROM sync_outbox WHERE entityId='generated'");
+    expect(pending).toHaveLength(1);
+    expect(JSON.parse(pending[0].payload).content).toBe(content);
+    const bytes = sqlite.export(); await db.close(); db = connect(bytes);
+    expect(readAiProvenance((await db.query<{ content: string }>("SELECT content FROM notes WHERE id='generated'"))[0].content)).toEqual(metadata);
+    expect(await db.query("SELECT payload FROM sync_outbox WHERE entityId='generated'")).toEqual(pending);
+  });
+  it("rolls back the generated body and declaration when capturing its mutation fails", async () => {
+    await repository.notes.create({ id: "manual", notebookId: "public", content: "原始手写正文" });
+    const pending = await db.query("SELECT * FROM sync_outbox");
+    sqlite.run("CREATE TRIGGER reject_ai_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT,'outbox rejected'); END");
+    await expect(repository.notes.update("manual", { content: markAiMarkdown("不能部分写入", createAiProvenance("failed")) })).rejects.toThrow("outbox rejected");
+    expect((await repository.notes.get("manual"))?.content).toBe("原始手写正文");
+    expect(await db.query("SELECT * FROM sync_outbox")).toEqual(pending);
   });
 });

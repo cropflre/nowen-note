@@ -1,0 +1,41 @@
+name: In-app Changelog Contract
+on:
+  push:
+    branches: [main, release/v1.5.5]
+    paths:
+      - docs/releases/in-app-changelog.json
+      - frontend/public/changelog.json
+      - frontend/package.json
+      - package.json
+      - scripts/generate-changelog.mjs
+      - scripts/verify-in-app-changelog.mjs
+      - scripts/tests/in-app-changelog.test.mjs
+      - .github/workflows/in-app-changelog-ci.yml
+  pull_request:
+    paths:
+      - docs/releases/in-app-changelog.json
+      - frontend/public/changelog.json
+      - frontend/package.json
+      - package.json
+      - scripts/generate-changelog.mjs
+      - scripts/verify-in-app-changelog.mjs
+      - scripts/tests/in-app-changelog.test.mjs
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Curated release notes and version contract
+        run: |
+          node --test scripts/tests/in-app-changelog.test.mjs
+          node scripts/verify-in-app-changelog.mjs
+      - name: Generator does not modify the committed frontend asset
+        run: |
+          node scripts/generate-changelog.mjs --emit-json
+          git diff --exit-code -- frontend/public/changelog.json

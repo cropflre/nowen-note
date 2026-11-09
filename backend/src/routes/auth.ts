@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { timingSafeEqual } from "node:crypto";
 import { getDb } from "../db/schema";
+import { markOnboardingHandled, recordOnboardingLogin } from "../lib/onboarding";
 import { userSessionsRepository } from "../repositories";
 import { v4 as uuid } from "uuid";
 import bcrypt from "bcryptjs";
@@ -280,7 +281,7 @@ auth.post("/register", async (c) => {
     throw e;
   }
 
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(id);
+  recordOnboardingLogin(db, id);
   const created = db
     .prepare("SELECT tokenVersion FROM users WHERE id = ?")
     .get(id) as { tokenVersion: number };
@@ -339,6 +340,18 @@ function issueDesktopLocalAuth(c: Context, userId: string) {
   return c.json({ ...tokens, user });
 }
 
+function createManagedDesktopUser(userId: string, passwordHash: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO users (id, username, email, passwordHash, role, displayName)
+      VALUES (?, 'desktop', 'desktop@nowen-note.local', ?, 'admin', 'Local Desktop User')
+    `).run(userId, passwordHash);
+    // This per-install identity can later bind an existing cloud account.
+    markOnboardingHandled(db, userId);
+  })();
+}
+
 // Startup may create the managed account, but must never repair an existing one
 // by overwriting its password, role, disabled state, or token version.
 auth.post("/desktop/bootstrap-local", async (c) => {
@@ -372,7 +385,10 @@ auth.post("/desktop/bootstrap-local", async (c) => {
       return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
     }
     resetLoginFailure(db, existing.id);
-    db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(existing.id);
+    db.transaction(() => {
+      markOnboardingHandled(db, existing.id);
+      recordOnboardingLogin(db, existing.id);
+    })();
     return issueDesktopLocalAuth(c, existing.id);
   }
 
@@ -388,10 +404,7 @@ auth.post("/desktop/bootstrap-local", async (c) => {
   if (db.prepare("SELECT id FROM users WHERE username = 'desktop'").get()) {
     return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
   }
-  db.prepare(`
-    INSERT INTO users (id, username, email, passwordHash, role, displayName)
-    VALUES (?, 'desktop', 'desktop@nowen-note.local', ?, 'admin', 'Local Desktop User')
-  `).run(userId, passwordHash);
+  createManagedDesktopUser(userId, passwordHash);
   return issueDesktopLocalAuth(c, userId);
 });
 
@@ -426,14 +439,14 @@ auth.post("/desktop/reset-local", async (c) => {
     `).run(passwordHash, userId);
   } else {
     userId = uuid();
-    db.prepare(`
-      INSERT INTO users (id, username, email, passwordHash, role, displayName)
-      VALUES (?, ?, ?, ?, 'admin', ?)
-    `).run(userId, username, "desktop@nowen-note.local", passwordHash, "Local Desktop User");
+    createManagedDesktopUser(userId, passwordHash);
   }
 
   resetLoginFailure(db, userId);
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+  db.transaction(() => {
+    markOnboardingHandled(db, userId);
+    recordOnboardingLogin(db, userId);
+  })();
 
   return issueDesktopLocalAuth(c, userId);
 });
@@ -549,7 +562,12 @@ auth.post("/login", async (c) => {
 
   // 登录成功：清理失败计数，刷新 lastLoginAt
   resetLoginFailure(db, user.id);
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(user.id);
+  db.transaction(() => {
+    if (process.env.ELECTRON_LOCAL_ACCOUNT_SECRET && user.username === "desktop") {
+      markOnboardingHandled(db, user.id);
+    }
+    recordOnboardingLogin(db, user.id);
+  })();
 
   // Phase 6: 2FA 拦截
   //
@@ -745,29 +763,29 @@ auth.post("/change-password", async (c) => {
 
 // ========== Sudo 二次验证（H2）==========
 //
-// 管理员对破坏性极强的操作（delete user、reset-password、role change、disable admin、
+// 管理员对破坏性极强的操作（delete user、role change、disable admin、
 // factory-reset）必须先调用 /auth/sudo 输入当前密码，换取一张 5 分钟有效的 sudo token，
 // 后续敏感请求通过 Header `X-Sudo-Token: <token>` 传递。
 //
 // 设计说明：
 //   - 普通用户也可签发 sudo token，但当前只有 admin 路由强制校验（为未来扩展留口子）
-//   - 同一账号连续失败 3 次以上走 IP 限流（checkAndIncrementIpRate 已在登录路径覆盖，
-//     此处复用 IP 限流避免暴力探测密码）
-//   - 不记录失败计数到 DB（避免通过乱刷 sudo 把自己账号锁了），仅 IP 限流
+//   - 按已登录用户单独限流（窗口与次数同登录 IP 限流），避免暴力探测密码；
+//     不与匿名登录共用 IP 计数：未经反向代理时取不到客户端 IP，所有设备共用一个计数，
+//     其他账号用旧密码反复登录失败会把管理员的二次验证一起挡住
+//   - 不记录失败计数到 DB（避免通过乱刷 sudo 把自己账号锁了），仅内存限流
 auth.post("/sudo", async (c) => {
-  // 复用 IP 限流（这是一个与登录同等敏感的密码校验接口）
+  const userId = extractUserId(c);
+  if (!userId) return c.json({ error: "未授权", code: "UNAUTHENTICATED" }, 401);
+
   const ip = extractClientIp(c);
-  const ipBlocked = checkAndIncrementIpRate(ip);
-  if (ipBlocked) {
-    c.header("Retry-After", String(ipBlocked.retryAfterSec));
+  const rateBlocked = checkAndIncrementIpRate(`sudo:${userId}`);
+  if (rateBlocked) {
+    c.header("Retry-After", String(rateBlocked.retryAfterSec));
     return c.json(
-      { error: `请求过于频繁，请 ${ipBlocked.retryAfterSec} 秒后重试`, code: "RATE_LIMITED" },
+      { error: `请求过于频繁，请 ${rateBlocked.retryAfterSec} 秒后重试`, code: "RATE_LIMITED" },
       429,
     );
   }
-
-  const userId = extractUserId(c);
-  if (!userId) return c.json({ error: "未授权", code: "UNAUTHENTICATED" }, 401);
 
   const body = await c.req.json().catch(() => ({}));
   const { password } = body as { password?: string };

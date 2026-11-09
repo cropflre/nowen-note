@@ -5,6 +5,7 @@ import { getBaseUrl, resolveAttachmentUrl } from "@/lib/api";
 import { extractNoteIdFromSignedAttachmentUrl } from "@/lib/attachmentSignedUrlRecovery";
 import {
   acquireAttachmentRenderUrl,
+  extractAttachmentId,
   getAttachmentAccessSnapshot,
   getAttachmentRenderSource,
   invalidateOfflineAttachmentRenderUrl,
@@ -50,7 +51,7 @@ function refreshSignedAccess(noteId: string): Promise<number> {
  */
 export function useAttachmentImageRenderSource(
   rawSrc: string | null | undefined,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; preferOriginal?: boolean } = {},
 ): AttachmentImageRenderSource {
   const enabled = options.enabled !== false;
   const noteId = useContext(AttachmentNoteContext);
@@ -66,9 +67,17 @@ export function useAttachmentImageRenderSource(
   // more importantly, lets the attachment access bridge atomically replace a raw/stale
   // attachment URL with the latest signed/offline render URL as soon as that mapping arrives.
   // The persisted document still stays stable through source.persistentSrc.
-  const resolvedSrc = !rawSrc
+  let resolvedSrc = !rawSrc
     ? ""
     : rawSrc.startsWith("//") ? rawSrc : resolveAttachmentUrl(rawSrc);
+  // Only Nowen's attachment endpoint defines `w` as a thumbnail request. Resolve access
+  // first so offline/native blobs and HEIC previews keep their existing compatibility path.
+  // Signatures bind id/exp/scope, not w; every other query parameter stays intact.
+  if (options.preferOriginal && extractAttachmentId(resolvedSrc)) {
+    const url = new URL(resolvedSrc, window.location.href);
+    url.searchParams.delete("w");
+    resolvedSrc = url.href;
+  }
   const unsignedAttachment = enabled && requiresVerifiedAttachmentAccess(resolvedSrc);
   const needsSignedAccess = unsignedAttachment && !!noteId && !!getAccessToken();
   const needsAndroidBlob = enabled
@@ -166,9 +175,7 @@ export function useAttachmentImageRenderSource(
           const normalized = error instanceof Error ? error : new Error("图片加载失败");
           console.error("[attachment-image-render] Android blob fetch failed:", {
             attachmentId: source.attachmentId,
-            originalSrc: rawSrc,
-            resolvedSrc,
-            error: normalized,
+            errorName: normalized.name,
           });
           setState((current) => {
             if (current.requestKey !== requestKey) return current;

@@ -29,15 +29,12 @@ const backendPort = parsePort(
   process.env.NOWEN_DEV_BACKEND_PORT ?? process.env.PORT,
   3001,
 )
-const frontendPort = parsePort(process.env.NOWEN_DEV_FRONTEND_PORT, 5173)
+let frontendPort = parsePort(process.env.NOWEN_DEV_FRONTEND_PORT, 5173)
 
 if (backendPort === frontendPort) {
   console.error(`\n[dev] 前后端不能使用同一个端口：${backendPort}\n`)
   process.exit(1)
 }
-
-const backendUrl = `http://127.0.0.1:${backendPort}`
-const frontendUrl = `http://localhost:${frontendPort}`
 
 console.log("\n[dev] 正在检查项目依赖...")
 try {
@@ -63,14 +60,18 @@ assertFile(viteDevConfig, "确认 frontend/vite.dev.config.ts 是否存在")
 
 console.log("\n[dev] 正在检查开发端口...")
 try {
-  await forceReleasePorts([
+  const ports = await forceReleasePorts([
     { label: "后端", port: backendPort },
-    { label: "前端", port: frontendPort },
+    { label: "前端", port: frontendPort, allowFallback: !process.env.NOWEN_DEV_FRONTEND_PORT },
   ])
+  frontendPort = ports[1].port
 } catch (error) {
   console.error(`\n[dev] 无法释放开发端口：${error instanceof Error ? error.message : String(error)}\n`)
   process.exit(1)
 }
+
+const backendUrl = `http://127.0.0.1:${backendPort}`
+const frontendUrl = `http://localhost:${frontendPort}`
 
 console.log("\n🚀 Nowen Note 开发环境")
 console.log(`   前端: ${frontendUrl}`)

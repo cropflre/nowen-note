@@ -35,9 +35,11 @@ jobs:
           RC_TARGETS: ${{ inputs.targets }}
           RC_NOTES: ${{ inputs.notes }}
           RC_ANDROID_SIGNING_READY: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' }}
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
           RC_IOS_SIGNING_READY: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' }}
-          RC_MAC_SIGNING_ENABLED: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
-          RC_MAC_SIGNING_READY: ${{ secrets.MAC_CSC_LINK != '' && secrets.MAC_CSC_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+          # Official GitHub macOS distribution is always unsigned/unnotarized.
+          RC_MAC_SIGNING_ENABLED: 'false'
+          RC_MAC_SIGNING_READY: 'false'
           FNPACK_URL: ${{ vars.FNPACK_URL }}
           FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
@@ -54,13 +56,7 @@ jobs:
       commit_sha: ${{ inputs.commit_sha }}
       version: ${{ inputs.version }}
       platforms: ${{ needs.plan.outputs.platforms }}
-      mac_signing: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
-    secrets:
-      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      mac_signing: false
   ios:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.targets), 'ios')
@@ -104,8 +100,11 @@ jobs:
           cd frontend && npx cap sync android
       - name: Install the pinned Android SDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Verify Java Properties signing-secret escaping
+        run: node --test scripts/tests/release-cloud-android-signing.test.mjs
       - name: Inject signing material
         env:
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
           NOWEN_ANDROID_KEYSTORE_B64: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 }}
           NOWEN_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD }}
           NOWEN_ANDROID_KEY_ALIAS: ${{ secrets.NOWEN_ANDROID_KEY_ALIAS }}
@@ -114,9 +113,10 @@ jobs:
       - name: Build signed APK and AAB
         working-directory: frontend/android
         run: bash gradlew --no-daemon assembleRelease bundleRelease
-      - name: Verify Android package identity, version and signature
+      - name: Verify Android package identity, version and pinned signing certificate
         env:
           RC_VERSION: ${{ inputs.version }}
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
         run: node scripts/release-cloud-ci.mjs android-stage
       - uses: actions/upload-artifact@v4
         with:
@@ -145,11 +145,12 @@ jobs:
       - name: Prepare source and build image without pushing
         env:
           RC_ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
           RC_VERSION: ${{ inputs.version }}
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: |
           node scripts/release-cloud-ci.mjs prepare
-          docker buildx build --platform "linux/$RC_ARCH" --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
+          docker buildx build --platform "linux/$RC_ARCH" --secret id=github_token,env=GH_TOKEN --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
           node scripts/release-cloud-ci.mjs docker-stage
       - uses: actions/upload-artifact@v4
         with:
@@ -196,7 +197,9 @@ jobs:
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: '24.22.1', cache: npm, cache-dependency-path: packages/nowen-clipper/package-lock.json }
-      - run: npm ci && npm run pack:all
+      - run: |
+          rm -f releases/*.zip
+          npm ci && npm run pack:all
         working-directory: packages/nowen-clipper
       - uses: actions/upload-artifact@v4
         with: { name: release-clipper, path: 'packages/nowen-clipper/releases/*.zip', if-no-files-found: error, retention-days: 7 }

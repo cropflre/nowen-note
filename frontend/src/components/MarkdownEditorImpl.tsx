@@ -1,5 +1,5 @@
 ﻿import { isolateHistory } from "@codemirror/commands";
-import { agentTextRanges } from "@/lib/agentEdits";
+import { agentMarkdownChanges } from "@/lib/agentEdits";
 import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
@@ -57,11 +57,11 @@ import {
 } from "@codemirror/search";
 import {
   bracketMatching,
-  foldKeymap,
   indentOnInput,
   syntaxHighlighting,
   HighlightStyle,
   syntaxTree,
+  unfoldAll,
 } from "@codemirror/language";
 import {
   autocompletion,
@@ -116,6 +116,7 @@ import {
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { markdownLivePreviewNoteId } from "@/lib/markdownLivePreview";
+import { markdownFolding } from "@/lib/markdownFolding";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -802,7 +803,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const attachmentNoteCompartmentRef = useRef(new Compartment());
   const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
-  const searchPhraseCompartmentRef = useRef(new Compartment());
+  const localizedExtensionsCompartmentRef = useRef(new Compartment());
 
   // ���һ�δ��� pointer ʱ���������"ѡ�����ݴ������� Android ϵͳ���Ʋ˵�"�߼�
   const lastTouchAtRef = useRef<number>(0);
@@ -1316,11 +1317,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       },
       isReady: () => !!viewRef.current,
       getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
-      applyAgentEdits: (original, edits) => {
+      applyAgentEdits: (original, edits, provenance) => {
         const view = viewRef.current;
         if (!view || !editable || view.state.doc.toString() !== original) return false;
         try {
-          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          const changes = agentMarkdownChanges(original, edits, provenance);
           collabUndoManagerRef.current?.stopCapturing();
           view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
           collabUndoManagerRef.current?.stopCapturing();
@@ -1545,7 +1546,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         baseTheme,
         themeCompartmentRef.current.of(isDarkMode() ? oneDark : []),
         editableCompartmentRef.current.of(EditorView.editable.of(editable)),
-        searchPhraseCompartmentRef.current.of(markdownSearchPhrases(i18n.resolvedLanguage || i18n.language)),
+        localizedExtensionsCompartmentRef.current.of([
+          markdownSearchPhrases(i18n.resolvedLanguage || i18n.language),
+          markdownFolding(i18n.resolvedLanguage || i18n.language),
+        ]),
         searchPanelTheme,
 
         // ��ݼ�������Ĭ�� keymap ע�ᣬ��֤ Mod-s ���� chrome �̣�
@@ -1555,7 +1559,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           ...defaultKeymap,
           ...searchKeymap,
           ...historyKeymap,
-          ...foldKeymap,
           ...completionKeymap,
           indentWithTab,
         ]),
@@ -1757,6 +1760,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // Phase 3: CRDT ģʽ���ĵ��� yCollab �йܣ���Ҫ�ֶ� dispatch setContent��
     // ������������ update ����Զ��״̬��ֻ����ͳ��/���ˢ�¡�
     const isSwitchingNote = lastSyncedNoteIdRef.current !== note.id;
+    if (isSwitchingNote) unfoldAll(view);
 
     if (collabEnabledRef.current) {
       if (isSwitchingNote) {
@@ -2183,9 +2187,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: searchPhraseCompartmentRef.current.reconfigure(
+      effects: localizedExtensionsCompartmentRef.current.reconfigure([
         markdownSearchPhrases(i18n.resolvedLanguage || i18n.language),
-      ),
+        markdownFolding(i18n.resolvedLanguage || i18n.language),
+      ]),
     });
   }, [i18n.language, i18n.resolvedLanguage]);
 
@@ -2633,7 +2638,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         )}
         {/* Preview area */}
         {(viewMode === "preview" || viewMode === "split") && (
+          // Preview fades in when entering preview / split; returning to editing stays instant.
           <div className={cn(
+            "animate-nowen-fade-in",
             viewMode === "split" ? "min-h-0 overflow-auto px-4 md:px-8 shrink-0" : "h-full"
           )} style={viewMode === "split" ? { width: `${100 - sourcePaneWidthPercent}%` } : undefined}>
             <MarkdownPreview

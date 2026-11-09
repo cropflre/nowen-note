@@ -8,7 +8,7 @@ const katexMocks = vi.hoisted(() => ({ renderKatex: vi.fn() }));
 vi.mock("@/lib/katexRenderer", () => ({ renderKatex: katexMocks.renderKatex }));
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal<typeof import("react-i18next")>(),
-  useTranslation: () => ({ t: (value: string) => value }),
+  useTranslation: () => ({ t: (value: string) => value, i18n: { language: "zh-CN" } }),
 }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));

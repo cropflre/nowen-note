@@ -1,3 +1,5 @@
+import { readAiProvenance } from "@/lib/aiContentProvenance";
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -6,6 +8,8 @@ import type { NoteEditorHandle } from "@/components/editors/types";
 import type { Note } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Sparkles, X } from "lucide-react";
+import ChatSkillsPicker from "../aiCollaboration/ChatSkillsPicker";
+import { collaborationScope } from "@/lib/aiCollaboration";
 
 export default function EditorAgentPanel({ note, editor, onClose }: { note: Note; editor: () => NoteEditorHandle | null; onClose: () => void }) {
   const { t } = useTranslation();
@@ -15,6 +19,8 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [skillScope, setSkillScope] = useState(collaborationScope);
+  const selectedSkill = useRef<{ id: string; scope: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   function readContext() {
     const handle = editor(), snapshot = handle?.getSnapshot?.();
@@ -38,8 +44,20 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   const canStart = !run || ["completed", "failed", "cancelled", "interrupted"].includes(run.status);
   const errorText = useCallback((value: unknown) => {
     const code = (value as { code?: string; message?: string }).code || (value as Error).message || "AGENT_REQUEST_FAILED";
+    if (code === "SKILL_UNAVAILABLE") return t("aiCollaboration.skillUnavailable");
+    if (code === "SCOPE_CHANGED") return t("aiCollaboration.chatScopeChanged");
     return t(`agent.errors.${code}`, { defaultValue: t("agent.errors.AGENT_REQUEST_FAILED") });
   }, [t]);
+  useEffect(() => {
+    const changed = () => {
+      const scope = collaborationScope();
+      if (selectedSkill.current?.scope !== scope) selectedSkill.current = null;
+      setSkillScope(scope);
+    };
+    const events = ["nowen:workspace-changed", "nowen:token-changed", "nowen:server-url-changed", "storage"];
+    events.forEach(event => window.addEventListener(event, changed));
+    return () => events.forEach(event => window.removeEventListener(event, changed));
+  }, []);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
@@ -48,6 +66,7 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   useEffect(() => {
     alive.current = true; cancelled.current = false;
     void api.agent.capabilities().then(async capabilities => {
+      if (capabilities.enabled && capabilities.aiContentLabels !== "v1") throw new Error("AI_LABELING_UNSUPPORTED");
       const latest = capabilities.enabled ? await api.agent.latest(note.id) : null;
       if (alive.current) { setEnabled(capabilities.enabled); setLoaded(true); setRun(latest); runId.current = latest?.id || null; }
     }).catch(e => { if (alive.current) { setLoaded(true); setError(errorText(e)); } });
@@ -67,11 +86,14 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(""); cancelled.current = false;
     try {
+      const scope = collaborationScope(), skill = selectedSkill.current;
+      if (scope !== skillScope || (skill && skill.scope !== scope)) throw new Error("SCOPE_CHANGED");
       const persisted = await api.getNote(note.id);
       const handle = editor(), snapshot = handle?.getSnapshot?.();
       if (!alive.current || cancelled.current) return;
+      if (collaborationScope() !== scope) throw new Error("SCOPE_CHANGED");
       if (!snapshot || !handle?.applyAgentEdits || !["markdown", "tiptap-json"].includes(note.contentFormat || "")) throw new Error("UNSAFE_DOCUMENT");
-      const created = await api.agent.create({ noteId: note.id, instruction, selectedText: handle.getAgentSelection?.(), content: snapshot.content, format: note.contentFormat!, version: persisted.version });
+      const created = await api.agent.create({ noteId: note.id, ...(skill ? { skillId: skill.id } : {}), instruction, selectedText: handle.getAgentSelection?.(), content: snapshot.content, format: note.contentFormat!, version: persisted.version });
       runId.current = created.id;
       if (!alive.current || cancelled.current) { await api.agent.action(created.id, "cancel"); return; }
       const latest = await api.agent.get(created.id);
@@ -97,7 +119,9 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
       if (!alive.current || cancelled.current) return;
       // Revalidate after the network round trip; the editor may have changed meanwhile.
       const handle = editor();
-      if (!handle?.applyAgentEdits?.(approved.original, approved.edits)) { await stop(); throw new Error("VERSION_CONFLICT"); }
+      const provenance = readAiProvenance(approved.result);
+      if (!provenance) throw new Error("AI_LABELING_UNSUPPORTED");
+      if (!handle?.applyAgentEdits?.(approved.original, approved.edits, provenance)) { await stop(); throw new Error("VERSION_CONFLICT"); }
       handle.flushSave();
       setRun({ ...run, status: "applying", proposal: undefined });
       const deadline = Date.now() + 20000;
@@ -122,9 +146,10 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     finally { lock.current = false; if (alive.current) setBusy(false); }
   }
   return <aside id="editor-ai-assistant" aria-label={t("agent.title")} onKeyDown={event => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (event.key === "Escape") { event.stopPropagation(); onClose(); }
     if (event.key === "Tab" && window.matchMedia?.("(max-width: 767px)").matches) {
-      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, summary')];
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, select:not(:disabled), summary')];
       const first = controls[0], last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -153,13 +178,16 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
       {steps.map(step => <div className="rounded border border-app-border p-2 text-sm" key={step.sequence}>{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status === "running" && run && ["failed", "cancelled", "interrupted"].includes(run.status) ? run.status : step.status}`)}</div>)}
       {run?.proposal?.edits.map((edit, index) => <div className="rounded border border-app-border p-2 text-sm whitespace-pre-wrap break-words" key={index}>
         <div className="text-xs text-tx-secondary">{t("agent.before")}</div><del className="block bg-red-500/10">{edit.before || t("agent.emptyNote")}</del>
-        <div className="text-xs text-tx-secondary">{t("agent.after")}</div><ins className="block bg-green-500/10 no-underline">{edit.after}</ins>
+        <div className="text-xs text-tx-secondary">{t("agent.after")}</div><AiGeneratedNotice /><ins className="block bg-green-500/10 no-underline">{edit.after}</ins>
       </div>)}
       {(error || run?.errorCode) && <p role="alert" className="text-sm text-red-500">{error || errorText({ code: run?.errorCode })}</p>}
       {run?.status === "completed" && <p className="text-sm">{t("agent.saved")}</p>}
     </div>
     <div className="shrink-0 border-t border-app-border p-4">
     {run?.status === "waiting_approval" && <div className="flex gap-2 pb-3"><Button disabled={busy} onClick={() => void approve()}>{t("agent.accept")}</Button><Button variant="outline" disabled={busy} onClick={() => void stop("reject")}>{t("agent.reject")}</Button></div>}
+    <div className="mb-3"><ChatSkillsPicker key={skillScope} scope={skillScope} onSelect={id => {
+      selectedSkill.current = id ? { id, scope: skillScope } : null;
+    }} /></div>
     <label className="text-sm mt-2" htmlFor="agent-instruction">{t("agent.request")}</label>
     <textarea ref={inputRef} id="agent-instruction" className="mt-2 min-h-24 max-h-48 w-full resize-y rounded-lg border border-app-border bg-app-bg p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary" maxLength={4000} value={instruction} onFocus={() => { if (canStart) setContext(readContext()); }} onChange={e => setInstruction(e.target.value)} placeholder={t(`agent.guidance.${context.kind}.placeholder`)} />
     <div className="flex gap-2 pt-2"><Button disabled={!enabled || busy || !canStart || !instruction.trim()} onClick={() => void generate()}>{run ? t("agent.regenerate") : t("agent.generate")}</Button>{(!canStart || busy) && <Button variant="outline" onClick={() => void stop()}>{t("agent.stop")}</Button>}</div>

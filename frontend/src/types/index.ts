@@ -665,6 +665,7 @@ export interface MindMapViewport {
 }
 
 export interface MindMapData {
+  aiProvenance?: import("@/lib/aiContentProvenance").AiProvenance;
   root: MindMapNode;
   layout?: "right" | "left-right";
   relations?: MindMapRelation[];

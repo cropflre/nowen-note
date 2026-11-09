@@ -11,10 +11,9 @@ import {
   testServerConnection,
   type ServerProbeResult,
 } from "@/lib/api";
-import { buildServerUrl, getResolvedApiBaseUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { buildServerUrl, getResolvedApiBaseUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
 import ServerAddressInput from "@/components/ServerAddressInput";
-import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
@@ -108,7 +107,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
   const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
   const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
-  const showLanDiscovery = !serverParts.host.trim() || isLanServerHostname(serverParts.host);
 
   useEffect(() => {
     if (!isClientMode || !isDesktopClient) return;
@@ -888,17 +886,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
                       {serverNotice}
                     </p>
-                  )}
-                  {showLanDiscovery && (
-                    <LanDiscoveryPanel
-                      currentHostIsEmpty={!serverParts.host.trim()}
-                      onSelect={(next) => {
-                        serverProbeEpochRef.current += 1;
-                        setServerParts(next);
-                        setServerStatus("idle");
-                        setServerNotice("");
-                      }}
-                    />
                   )}
                 </motion.div>
               )}

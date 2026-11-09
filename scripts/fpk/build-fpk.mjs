@@ -71,9 +71,13 @@ function injectInto(filePath, replacements) {
     }
     writeFileSync(filePath, content);
 }
+const RELEASE_NOTES = VERSION === '1.5.5'
+    ? '优化多端双向同步与知识树冲突处理、桌面恢复和交互动效；修复应用内更新日志缺少 v1.5.4 / v1.5.5 且展示大量英文开发提交的问题。'
+    : '完善笔记体验与运行稳定性，详细更新内容请查看对应版本的官方发布说明。';
 injectInto(join(WORK_DIR, 'manifest'), {
     VERSION,
     DOCKERHUB_REPO,
+    UPDATE_NOTES: RELEASE_NOTES,
 });
 injectInto(join(WORK_DIR, 'app', 'docker', 'docker-compose.yaml'), {
     IMAGE_TAG,

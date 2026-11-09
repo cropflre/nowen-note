@@ -8,6 +8,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal<typeof import("react-i18next")>(),
   useTranslation: () => ({
     t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue || _key,
+    i18n: { language: "zh-CN" },
   }),
 }));
 
@@ -125,6 +126,7 @@ describe("LargeMarkdownSafeEditor 大文档预览", () => {
       root.render(<LargeMarkdownSafeEditor note={note("note-a", "旧内容")} onUpdate={vi.fn()} />);
     });
     const view = editorView(host);
+    expect(host.querySelector(".cm-foldGutter")).toBeNull(); // Lightweight mode keeps parsing disabled.
     expect(view.dom.closest("[data-large-markdown-source]")?.hasAttribute("hidden")).toBe(false);
 
     await act(async () => {

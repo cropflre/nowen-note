@@ -1,3 +1,4 @@
+import { readAiProvenance } from "./aiContentProvenance";
 ﻿import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
@@ -765,7 +766,7 @@ export function broadcastAuthChanged(reason?: string) {
 /**
  * H2: sudo 二次验证辅助工具。
  *
- * 敏感操作（删除用户 / 重置他人密码 / 改角色 / 禁用 / 恢复出厂设置 / 创建管理员）
+ * 敏感操作（删除用户 / 改角色 / 禁用 / 恢复出厂设置 / 创建管理员）
  * 必须先调 `/auth/sudo`（输入当前密码）拿到一张 5 分钟的 sudoToken，随后在业务请求
  * 里通过 `X-Sudo-Token` header 携带。
  *
@@ -1293,14 +1294,14 @@ export const api = {
   agentWorkflows: {
     reviseTasks: (workspaceId: string, id: string, input: { token: string; tasks: import("./agentWorkflow").AgentTaskDraft[] }) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}/tasks?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(input), _skipOfflineQueue: true }),
     list: (workspaceId: string) => request<import("./agentWorkflow").AgentWorkflow[]>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`),
-    create: (workspaceId: string, input: import("./agentWorkflow").AgentWorkflowInput) => request<{ id: string }>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(input), _skipOfflineQueue: true }),
+    create: (workspaceId: string, input: import("./agentWorkflow").AgentWorkflowInput) => request<{ id: string }>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify({ ...input, aiContentLabels: "v1" }), _skipOfflineQueue: true }),
     get: (workspaceId: string, id: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`),
     action: (workspaceId: string, id: string, action: "approve" | "retry" | "cancel" | "reject", token?: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}/${action}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(token ? { token } : {}), _skipOfflineQueue: true }),
   },
   agent: {
     latest: (noteId: string) => request<import("./agentEdits").AgentRun | null>(`/agent/runs?noteId=${encodeURIComponent(noteId)}`),
-    capabilities: () => request<{ enabled: boolean; toolCalling: string | boolean }>("/agent/capabilities"),
-    create: (input: { noteId: string; instruction: string; selectedText?: string; content: string; format: string; version: number }) => request<{ id: string }>("/agent/runs", { method: "POST", body: JSON.stringify(input) }),
+    capabilities: () => request<{ enabled: boolean; toolCalling: string | boolean; aiContentLabels?: string }>("/agent/capabilities"),
+    create: (input: { noteId: string; skillId?: string; instruction: string; selectedText?: string; content: string; format: string; version: number }) => request<{ id: string }>("/agent/runs", { method: "POST", body: JSON.stringify({ ...input, aiContentLabels: "v1" }) }),
     get: (id: string) => request<import("./agentEdits").AgentRun>(`/agent/runs/${encodeURIComponent(id)}`),
     approve: (id: string, token: string, snapshot: string) => request<import("./agentEdits").AgentProposal>(`/agent/runs/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ token, snapshot }) }),
     action: (id: string, action: "cancel" | "reject" | "receipt") => request<import("./agentEdits").AgentRun>(`/agent/runs/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" }),
@@ -1427,6 +1428,10 @@ export const api = {
 
   // User
   getMe: () => request<User>("/me"),
+  claimOnboardingWelcome: () => request<{ noteId: string | null }>("/onboarding/welcome", {
+    method: "POST",
+    _skipOfflineQueue: true,
+  }),
   getUserPreferences: () => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -2381,7 +2386,7 @@ export const api = {
       params.set("workspaceId", options.workspaceId);
     }
     const qs = params.toString() ? `?${params.toString()}` : "";
-    return request<{
+    const submit = () => request<{
       job: {
         id: string;
         state: "queued" | "building" | "ready" | "error";
@@ -2400,6 +2405,11 @@ export const api = {
         layout: options?.layout,
         filenameBase: options?.filenameBase,
       }),
+    });
+    if (!notes.some(note => readAiProvenance(note.markdown))) return submit();
+    return request<{ aiContentLabels?: string }>("/export/markdown-package/capabilities").then(capability => {
+      if (capability.aiContentLabels !== "v1") throw new Error("AI 内容导出需要支持标识的新版本服务器");
+      return submit();
     });
   },
   getMarkdownExportJob: (jobId: string) =>

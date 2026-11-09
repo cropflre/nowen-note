@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText, createAiProvenance, markAiMarkdown, type AiProvenance } from "@/lib/aiContentProvenance";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
@@ -71,6 +73,7 @@ export default function AIWritingAssistant({
   const [saveHint, setSaveHint] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
   const [viewport, setViewport] = useState(() => readAIWritingViewport());
   const resultRef = useRef<HTMLDivElement>(null);
+  const provenanceRef = useRef<AiProvenance | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLTextAreaElement>(null);
   const visibleSelectedText = useMemo(
@@ -120,6 +123,7 @@ export default function AIWritingAssistant({
   }, [showCustomInput, savedPrompts.length, loadSavedPrompts]);
 
   const handleAction = useCallback(async (action: AIAction, prompt?: string) => {
+    provenanceRef.current = createAiProvenance();
     setCurrentAction(action);
     setResult("");
     setError("");
@@ -266,18 +270,18 @@ export default function AIWritingAssistant({
   }, [onClose]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(visibleResult);
+    navigator.clipboard.writeText(aiClipboardText(visibleResult, true, t("ai.generatedLabel")));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
   const handleInsert = () => {
-    onInsert(visibleResult);
+    onInsert(markAiMarkdown(visibleResult, provenanceRef.current || createAiProvenance(), t("ai.generatedLabel")));
     onClose();
   };
 
   const handleReplace = () => {
-    onReplace(restoreInternalMarkdownMarkers(selectedText, visibleResult));
+    onReplace(markAiMarkdown(restoreInternalMarkdownMarkers(selectedText, visibleResult), provenanceRef.current || createAiProvenance(), t("ai.generatedLabel")));
     onClose();
   };
 
@@ -480,6 +484,7 @@ export default function AIWritingAssistant({
       {/* 加载状态 / 结果展示 */}
       {(isLoading || result) && (
         <div ref={resultRef} className="min-h-0 flex-1 overflow-auto px-3 py-3">
+          <AiGeneratedNotice />
           {/* 首 chunk 返回前：展示明显的 Loader，避免用户以为卡死 */}
           {isLoading && !result && (
             <div className="flex items-center gap-2 py-4 text-xs text-zinc-500 dark:text-zinc-400">

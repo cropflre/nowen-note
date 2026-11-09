@@ -7,6 +7,8 @@ import { exportNoteImageDetailed } from "@/lib/noteImageExportCore";
 const mocks = vi.hoisted(() => ({
   html2canvas: vi.fn(),
   isAndroidNative: vi.fn(() => false),
+  isHarmonyNative: vi.fn(() => false),
+  saveBlobToSystemFile: vi.fn(),
   saveImageToGalleryDetailed: vi.fn(),
 }));
 vi.mock("html2canvas", () => ({ default: mocks.html2canvas }));
@@ -14,7 +16,8 @@ vi.mock("file-saver", () => ({ saveAs: vi.fn() }));
 vi.mock("@/lib/nativeImageSave", () => ({
   isAndroidNative: mocks.isAndroidNative,
   saveImageToGalleryDetailed: mocks.saveImageToGalleryDetailed,
-  saveBlobToSystemFile: vi.fn(),
+  isHarmonyNative: mocks.isHarmonyNative,
+  saveBlobToSystemFile: mocks.saveBlobToSystemFile,
   shareNativeFiles: vi.fn(),
 }));
 
@@ -32,6 +35,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   mocks.html2canvas.mockReset();
   mocks.isAndroidNative.mockReset().mockReturnValue(false);
+  mocks.isHarmonyNative.mockReset().mockReturnValue(false);
+  mocks.saveBlobToSystemFile.mockReset();
   mocks.saveImageToGalleryDetailed.mockReset();
   vi.mocked(saveAs).mockClear();
 });
@@ -60,6 +65,23 @@ function prepareMocks() {
 }
 
 describe("note image export failure routing", () => {
+  it.each([
+    { response: { canceled: true }, expected: { ok: false, canceled: true } },
+    { response: { success: true, uri: "file://saved.png" }, expected: { ok: true, displayPath: "file://saved.png" } },
+    { response: new Error("write failed"), expected: { ok: false, error: "write failed" } },
+  ])("uses the Harmony picker and reports the native save result", async ({ response, expected }) => {
+    prepareMocks();
+    mocks.isHarmonyNative.mockReturnValue(true);
+    if (response instanceof Error) mocks.saveBlobToSystemFile.mockRejectedValue(response);
+    else mocks.saveBlobToSystemFile.mockResolvedValue(response);
+
+    const result = await exportNoteImageDetailed(note, { format: "png", destination: "download" });
+
+    expect(result).toMatchObject({ destination: "files", ...expected });
+    expect(mocks.saveBlobToSystemFile).toHaveBeenCalledWith(expect.objectContaining({ mimeType: "image/png" }));
+    expect(saveAs).not.toHaveBeenCalled();
+  });
+
   it("keeps the body and reports a failed external image while saving PNG", async () => {
     prepareMocks();
 

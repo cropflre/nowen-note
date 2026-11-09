@@ -7,6 +7,7 @@ vi.mock("@/hooks/useAttachmentImageRenderSource", () => ({
   useAttachmentImageRenderSource: (src: string) => ({ renderSrc: src, resolvedSrc: src, renderKey: src, onLoad() {}, onError() {} }),
 }));
 vi.mock("../MotionPhotoOverlay", () => ({ MotionPhotoOverlay: () => null }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ i18n: { language: "zh-CN" } }) }));
 
 // DCC-002: editing a preview must emit a document mutation, not only a CSS transform.
 describe("FullscreenImageViewer rotation", () => {

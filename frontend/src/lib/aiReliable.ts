@@ -98,6 +98,7 @@ export interface ReliableStatus {
 
 export interface ReliableAskParams {
   question: string;
+  skillId?: string;
   history?: Array<{ role: string; content: string }>;
   mode: ReliableAskMode;
   currentNoteId?: string;

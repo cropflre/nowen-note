@@ -1,3 +1,4 @@
+import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
 import { api } from "./api";
 import { marked, Renderer } from "marked";
 import i18n from "i18next";
@@ -50,6 +51,7 @@ const lowlight = createLowlight(common);
 // 导出供 tiptapSchemaRepair.ts 复用，避免再复制一份 schema 定义
 export const tiptapExtensions = [
   ...getRichTextExtensions(),
+  AiProvenanceMark,
   StarterKit.configure({
     codeBlock: false,
     underline: false,
