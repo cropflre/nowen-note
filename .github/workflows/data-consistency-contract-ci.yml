@@ -2,7 +2,7 @@ name: Data Consistency Contract CI
 
 on:
   push:
-    branches: [main, "release/v1.5.2"]
+    branches: [main, "release/v1.5.2", "release/v1.5.5"]
     paths:
       - "docs/architecture/data-consistency-contract*"
       - "scripts/data-consistency-contract.mjs"
@@ -117,6 +117,9 @@ jobs:
     needs: contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # These tests verify storage and sync behavior, not FFmpeg packaging.
+    env:
+      FFMPEG_BIN: /usr/bin/ffmpeg
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -124,6 +127,13 @@ jobs:
           node-version: "24.22.1"
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - name: Ensure CI ffmpeg is available
+        run: |
+          if [ ! -x /usr/bin/ffmpeg ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          test -x /usr/bin/ffmpeg
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
