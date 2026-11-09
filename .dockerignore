@@ -13,6 +13,13 @@
 # --- 文档 / 周边（镜像运行时都用不到）---
 *.md
 docs
+# Explicit build-time inputs for the curated in-app changelog.
+# Keep every other docs file out of the production Docker build context.
+!CHANGELOG.md
+!docs/
+docs/**
+!docs/releases/
+!docs/releases/in-app-changelog.json
 weixin.jpg
 LICENSE
 
