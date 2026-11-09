@@ -13,10 +13,13 @@ describe("adaptive window layout", () => {
   it("classifies unfolded phone widths as medium", () => {
     expect(resolveAdaptiveWindowClass(600, 720)).toBe("medium");
     expect(resolveAdaptiveWindowClass(680, 720)).toBe("medium");
-    expect(resolveAdaptiveWindowClass(839, 720)).toBe("medium");
+    expect(resolveAdaptiveWindowClass(767, 1024)).toBe("medium");
   });
 
-  it("uses the expanded workspace from 840px", () => {
+  it("keeps the directory workspace from the 768px sidebar breakpoint", () => {
+    expect(resolveAdaptiveWindowClass(768, 1024)).toBe("expanded");
+    expect(resolveAdaptiveWindowClass(800, 1280)).toBe("expanded");
+    expect(resolveAdaptiveWindowClass(839, 1024)).toBe("expanded");
     expect(resolveAdaptiveWindowClass(840, 720)).toBe("expanded");
     expect(resolveAdaptiveWindowClass(1280, 800)).toBe("expanded");
   });

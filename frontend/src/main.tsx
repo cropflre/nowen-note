@@ -2,6 +2,7 @@ import "./lib/runtimePrelude";
 import "./lib/runtimeCompatibility";
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { MotionConfig } from "framer-motion";
 import { initializeMobileLocalFirstRuntime } from "./lib/mobileLocalFirstRuntime";
 import { initializeDesktopLocalSession } from './lib/desktopLocalSession';
 import "./lib/androidCompat";
@@ -14,6 +15,7 @@ import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
 import Toaster from "./components/Toaster";
 import "./index.css";
+import "./motion.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
 import "./overlay-layers.css";
@@ -145,6 +147,8 @@ function renderApplication() {
     ReactDOM.createRoot(root).render(
       <ApplicationBootErrorBoundary>
       <React.StrictMode>
+    {/* framer-motion 默认不响应系统“减少动态效果”；这里统一关闭位移/缩放/布局动画，保留透明度过渡。 */}
+    <MotionConfig reducedMotion="user">
     <SiteSettingsProvider>
       <ConfirmProvider>
         <BootSplashReadinessObserver />
@@ -167,6 +171,7 @@ function renderApplication() {
         )}
       </ConfirmProvider>
     </SiteSettingsProvider>
+    </MotionConfig>
       </React.StrictMode>
       </ApplicationBootErrorBoundary>,
     );

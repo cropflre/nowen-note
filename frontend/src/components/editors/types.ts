@@ -81,7 +81,7 @@ export interface NoteEditorProps {
  */
 export interface NoteEditorHandle {
   getAgentSelection?: () => string;
-  applyAgentEdits?: (original: string, edits: import("@/lib/agentEdits").AgentEdit[]) => boolean;
+  applyAgentEdits?: (original: string, edits: import("@/lib/agentEdits").AgentEdit[], provenance?: import("@/lib/aiContentProvenance").AiProvenance) => boolean;
   /** 立即触发一次 onUpdate（跳过 debounce）。无 pending 更新时为 no-op。 */
   flushSave: () => void;
   /** Manually apply a protected CJK typography action as one undoable edit. */

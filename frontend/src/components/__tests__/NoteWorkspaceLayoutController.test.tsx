@@ -156,6 +156,28 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(trigger?.getAttribute("data-note-workspace-surface")).toBe("native-mobile");
   });
 
+  it("updates native layout controls across narrow, portrait and landscape windows", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 680 });
+    (window as any).Capacitor = { isNativePlatform: () => true };
+    localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+
+    for (const width of [768, 1280, 800, 680, 1280]) {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      act(() => window.dispatchEvent(new Event("resize")));
+      act(() => root.render(<NoteWorkspaceLayoutController />));
+      const trigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
+      if (width < 768) {
+        expect(trigger).toBeNull();
+      } else {
+        expect(trigger).not.toBeNull();
+        expect(state.noteListCollapsed).toBe(width < 1120);
+      }
+      expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+    }
+  });
+
   it("restores three-column mode after right split and still accepts a manual collapse", () => {
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
     act(() => root.render(<NoteWorkspaceLayoutController />));
@@ -179,7 +201,30 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(actions.toggleNoteListCollapsed).toHaveBeenCalledTimes(2);
   });
 
-  it.each(["all", "favorites", "tag", "search"])("keeps %s results visible in a narrow window and restores the saved base mode afterwards", (viewMode) => {
+  it.each([1600, 1024])("honors standard mode in All Notes at %spx, including after remount", (width) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
+    state.viewMode = "all";
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("标准模式")));
+    expect(state.noteListCollapsed).toBe(true);
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(state.noteListCollapsed).toBe(true);
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    act(() => window.dispatchEvent(new Event("resize")));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    act(() => click(findMenuChoice("三栏模式")));
+    expect(state.noteListCollapsed).toBe(false);
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+  });
+
+  it.each(["favorites", "tag", "search"])("keeps %s results visible in a narrow window and restores the saved base mode afterwards", (viewMode) => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "standard");
     state.noteListCollapsed = true;

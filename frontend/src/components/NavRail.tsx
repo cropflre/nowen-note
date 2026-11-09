@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import {
   BrainCircuit,
   CircleDot,
@@ -24,6 +25,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
+import { MOTION_SPRING } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
@@ -217,10 +219,9 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
       window.dispatchEvent(new CustomEvent<KnowledgeTreeClearSearchDetail>(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, { detail: { clearOnly: true } }));
       actions.setMobileView("list");
       actions.setEditorFullscreen(false);
-      if (!isMobile && state.noteListCollapsed) actions.toggleNoteListCollapsed();
     }
     if (isMobile) actions.setMobileSidebar(false);
-  }, [actions, isMobile, localDeviceMode, state.noteListCollapsed]);
+  }, [actions, isMobile, localDeviceMode]);
 
   const handleSwitchToLocal = useCallback(async () => {
     if (isAndroidNativeRuntime()) {
@@ -280,9 +281,10 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   }, []);
 
   const railWidthClass = showLabel ? "w-16" : "w-12";
+  // nowen-press：颜色过渡 + 按下轻微缩放（motion.css，减少动态效果时不缩放）。
   const itemBaseClass = showLabel
-    ? "relative w-14 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-colors"
-    : "relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors";
+    ? "relative w-14 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 nowen-press"
+    : "relative w-10 h-10 rounded-lg flex items-center justify-center nowen-press";
 
   const renderItem = (item: NavConfigItem) => {
     const active = state.viewMode === item.mode && (item.mode !== "all" || (
@@ -305,7 +307,15 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
           item.mode === "trash" && !active && "opacity-70 hover:opacity-100",
         )}
       >
-        {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary" aria-hidden />}
+        {/* 选中指示条在模块间滑动；桌面与移动抽屉各用独立 layoutId，互不干扰。 */}
+        {active && (
+          <motion.span
+            layoutId={`nav-rail-active-${variant}`}
+            transition={MOTION_SPRING.snappy}
+            className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary"
+            aria-hidden
+          />
+        )}
         {item.icon}
         {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{label}</span>}
       </button>

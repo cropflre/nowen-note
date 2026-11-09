@@ -28,12 +28,14 @@ import {
   getAppInfo,
   getLiteMigrationProgress,
   startLiteMigration,
+  resetDesktopLocalAuth,
   type LiteMigrationProgress,
 } from "@/lib/desktopBridge";
 import { getServerUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/authSession";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import { getQueueLength } from '@/lib/offlineQueue';
+import { isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import MobileSyncSettings from "./MobileSyncSettings";
 
 export default function SyncSettingsTab() {
@@ -150,13 +152,21 @@ function LiteMigrationWizard({progress,onProgress}:{
     return () => window.clearInterval(timer);
   },[running,onProgress]);
 
-  const start = async () => {
+  const start = async (recover = false) => {
     if (getQueueLength() > 0) { setError(t('offlineAvailability.pendingWrites', {defaultValue:'请先完成本机待同步修改的上传，再下载到本机。原有修改会保留。'})); return; }
     const token = getAccessToken();
     if (!token) { setError("请先重新登录远端服务器，再开始迁移。"); return; }
-    setBusy(true);setError(null);
+    const serverUrl = getServerUrl();
+    setBusy(true);
     try {
-      const result = await startLiteMigration(getServerUrl(),token);
+      if (recover) {
+        const recovery = await resetDesktopLocalAuth();
+        if (recovery.cancelled) return;
+        if (!recovery.ok) throw new Error(recovery.error || recovery.reason || 'local-account-unavailable');
+      }
+      if (getAccessToken() !== token || getServerUrl() !== serverUrl) return;
+      setError(null);
+      const result = await startLiteMigration(serverUrl,token);
       if (result.progress) onProgress(result.progress);
       if (result.progress?.stage === "complete") {
         sessionStorage.setItem("nowen-lite-migration-complete-this-session","1");
@@ -186,7 +196,11 @@ function LiteMigrationWizard({progress,onProgress}:{
         {stage === "attachments" ? ` · 附件完成 ${progress.attachmentsDone || 0}，剩余 ${progress.attachmentsPending || 0}` : ""}
       </p> : null}
     </div>
-    {(error || progress?.error) ? <p className="text-sm text-destructive">{error || progress?.error}</p> : null}
+    {(error || progress?.error) ? <p className="text-sm text-destructive">{needsLocalAccountRecovery(error || progress?.error || '') ? t('offlineAvailability.localAccountRecoveryHint')
+      : isLocalAccountBootstrapFailure(error || progress?.error || '') ? t('offlineAvailability.localAccountUnavailableHint', { code: error || progress?.error })
+        : error || progress?.error}</p> : null}
+    {needsLocalAccountRecovery(error || '') && <button type="button" disabled={running} onClick={()=>void start(true)}
+      className="rounded-md border px-3 py-2 text-sm disabled:opacity-50">{t('offlineAvailability.recoverLocalAccount')}</button>}
     {stage === "complete" ? <p className="text-sm text-emerald-700">{t('offlineAvailability.migrationComplete', {defaultValue:'笔记已保存到本机。退出并重新打开应用后，可继续下载剩余附件；附件离线状态请在同步设置中核验。'})}</p>
       : <button type="button" disabled={running} onClick={() => { void start(); }}
           className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">

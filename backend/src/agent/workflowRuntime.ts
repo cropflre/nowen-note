@@ -1,3 +1,4 @@
+import { createAiProvenance, markAiMarkdown } from "../lib/aiContentProvenance.js";
 import { resolveUserChatSettings } from "../services/user-chat-settings.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -239,6 +240,7 @@ export class AgentWorkflowRuntime {
             if (s.sources.size && !plan.sourceNoteIds.length) throw new AgentError("SOURCE_REQUIRED", 400);
             if (s.input.linkNoteId) readSource(userId, s.input.linkNoteId, scope);
             if (plan.note) workflowScope(userId, s.input.notebookId, scope.workspaceId, false, true);
+            if (plan.note && s.input.aiContentLabels === "v1") plan.note.content = markAiMarkdown(plan.note.content, createAiProvenance(id));
             s.plan = plan;
             if (plan.taskRequest) {
               if (!isFeatureEnabled(resolveWorkspaceFeatures(scope.workspaceId), "tasks")) throw new AgentError("FEATURE_DISABLED", 403);
@@ -335,7 +337,7 @@ export class AgentWorkflowRuntime {
             const createdNote = this.actions(id).find(a => a.kind === "note" && a.status === "completed");
             const noteId = createdNote ? JSON.parse(createdNote.resourceIds)[0] : s.input.linkNoteId || null;
             if (noteId && !hasPermission(resolveNotePermission(noteId, userId).permission, "read")) throw new AgentError("NOTE_ACCESS_DENIED", 403);
-            const tasks = s.tasks!.tasks.filter(task => task.selected).map(({ reason: _reason, warnings: _warnings, duplicateOf: _duplicate, selected: _selected, ...task }) => { void _reason; void _warnings; void _duplicate; void _selected; return task; });
+            const tasks = s.tasks!.tasks.filter(task => task.selected).map(({ reason: _reason, warnings: _warnings, duplicateOf: _duplicate, selected: _selected, ...task }) => { void _reason; void _warnings; void _duplicate; void _selected; return s.input.aiContentLabels === "v1" ? { ...task, description: markAiMarkdown(task.description, createAiProvenance(`${id}:${task.clientId}`)) } : task; });
             if (tasks.length) {
               const batch = batchInputSchema.parse({ requestId: s.requestId, previewId: s.tasks!.previewId, timezone: s.input.timezone, tasks });
               const result = createComposerBatch(userId, scope.workspaceId, batch, task => createTaskRecord(getDb(), userId, scope.workspaceId, { ...task, noteId }));

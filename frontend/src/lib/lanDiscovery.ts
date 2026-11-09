@@ -6,21 +6,19 @@
  *   `_nowen-note._tcp.local.` 上广播自己。客户端只需用任意 mDNS 浏览器
  *   订阅同一个 service type 即可发现局域网内所有 nowen-note 后端。
  *
- * 三种运行环境分别用不同实现，但对外暴露同一个接口：
+ * 当前唯一的使用方是移动端「自动选路」（serverEndpointResolver）：已保存地址不可达时，
+ * 用它找回同一台服务器的局域网地址。不再提供面向用户的"局域网发现"列表。
  *
- *   - Electron 桌面端：复用 main 进程已有的 bonjour-service 浏览器，
- *     通过 `window.nowenDesktop.discovery` 桥接（preload 注入）
+ * 两种运行环境分别用不同实现，但对外暴露同一个接口：
  *
  *   - Capacitor 原生（Android / iOS）：调用社区插件
  *     `@capacitor-community/zeroconf`，Android 内部走 NsdManager，
  *     iOS 走 NetService。需要 Wi-Fi multicast lock，权限要求见 README。
  *
- *   - 普通浏览器 / Web：浏览器没有 mDNS API，能力直接判定为不可用，
+ *   - 其他环境（普通浏览器 / Electron 桌面端）：没有可用的 mDNS API，能力直接判定为不可用，
  *     调用方应保留"手填服务器地址"作为兜底（项目里已有 ServerAddressInput）。
  *
  * 设计要点：
- *   - 形状对齐 Electron 现有数据结构（见 electron/discovery.js: normalizeService），
- *     这样 LanDiscoveryPanel 不需要为每个平台单独写适配。
  *   - start() 是幂等的；同一个进程多次 start 等价于一次。stop() 也是。
  *   - 订阅者全部 unsubscribe 后，自动 stop 浏览器（省电、省 UDP 广播流量）。
  *   - 任何底层 API 失败一律降级成 "available=false"，不抛给上层。
@@ -50,7 +48,7 @@ export interface DiscoveredService {
 export interface StartResult {
   /** 是否真正启动了浏览器（false 表示当前环境不支持） */
   ok: boolean;
-  /** 当前环境是否具备发现能力（用于 UI 切换"扫描中" vs "不支持"） */
+  /** 当前环境是否具备发现能力 */
   available: boolean;
 }
 
@@ -68,7 +66,7 @@ export interface LanDiscovery {
   onUpdate(cb: (list: DiscoveredService[]) => void): () => void;
 }
 
-// ---- 工具：从 Capacitor / Electron 原始 service 归一化为 DiscoveredService ----
+// ---- 工具：从 Capacitor 原始 service 归一化为 DiscoveredService ----
 
 function pickV4(addresses: string[] | undefined | null): string {
   if (!addresses) return "";
@@ -85,54 +83,7 @@ function sortV4First(addresses: string[] | undefined | null): string[] {
 }
 
 // ============================================================================
-// 实现 1：Electron —— 直接转发 main 进程的 bonjour-service
-// ============================================================================
-
-interface ElectronDiscoveryBridge {
-  start(): Promise<StartResult>;
-  stop(): Promise<void> | void;
-  list?: () => Promise<DiscoveredService[]>;
-  onUpdate(cb: (list: DiscoveredService[]) => void): () => void;
-}
-
-function getElectronBridge(): ElectronDiscoveryBridge | null {
-  if (typeof window === "undefined") return null;
-  const desktop: any = (window as any).nowenDesktop;
-  return desktop && desktop.discovery ? (desktop.discovery as ElectronDiscoveryBridge) : null;
-}
-
-class ElectronDiscovery implements LanDiscovery {
-  private bridge: ElectronDiscoveryBridge;
-  private subscribers = 0;
-  constructor(bridge: ElectronDiscoveryBridge) {
-    this.bridge = bridge;
-  }
-  isAvailable() {
-    return true;
-  }
-  start() {
-    return Promise.resolve(this.bridge.start()).catch(() => ({ ok: false, available: false }));
-  }
-  async stop() {
-    try {
-      await Promise.resolve(this.bridge.stop());
-    } catch {
-      /* ignore */
-    }
-  }
-  onUpdate(cb: (list: DiscoveredService[]) => void): () => void {
-    this.subscribers++;
-    const off = this.bridge.onUpdate(cb);
-    return () => {
-      off();
-      this.subscribers--;
-      if (this.subscribers === 0) void this.stop();
-    };
-  }
-}
-
-// ============================================================================
-// 实现 2：Capacitor —— @mhaberler/capacitor-zeroconf-nsd
+// 实现 1：Capacitor —— @mhaberler/capacitor-zeroconf-nsd
 // ============================================================================
 //
 // 该插件 watch 事件每条形如：
@@ -340,7 +291,7 @@ class CapacitorDiscovery implements LanDiscovery {
 }
 
 // ============================================================================
-// 实现 3：Web —— 不可用兜底，统一接口避免上层 if/else 判平台
+// 实现 2：Web —— 不可用兜底，统一接口避免上层 if/else 判平台
 // ============================================================================
 
 class UnavailableDiscovery implements LanDiscovery {
@@ -354,7 +305,7 @@ class UnavailableDiscovery implements LanDiscovery {
     /* no-op */
   }
   onUpdate(cb: (list: DiscoveredService[]) => void): () => void {
-    // 立即推一次空，让面板可以切到"不支持"状态而不是无限 loading
+    // 立即推一次空，与 Capacitor 实现保持一致：订阅后总会先收到一次快照
     try {
       cb([]);
     } catch {
@@ -372,18 +323,12 @@ let singleton: LanDiscovery | null = null;
 
 export function getLanDiscovery(): LanDiscovery {
   if (singleton) return singleton;
-  // Electron 桌面端优先（已有完整实现 + 在 main 进程就开始扫了，体验最好）
-  const electron = getElectronBridge();
-  if (electron) {
-    singleton = new ElectronDiscovery(electron);
-    return singleton;
-  }
   // Capacitor 原生（Android / iOS）
   if (Capacitor.isNativePlatform()) {
     singleton = new CapacitorDiscovery();
     return singleton;
   }
-  // 普通浏览器
+  // 普通浏览器 / Electron 桌面端
   singleton = new UnavailableDiscovery();
   return singleton;
 }

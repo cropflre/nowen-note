@@ -34,7 +34,7 @@ import {
   type NoteImageExportProgress,
   type NoteImageExportResult,
 } from "@/lib/noteImageExportCore";
-import { isAndroidNative, openNativeExportUri } from "@/lib/nativeImageSave";
+import { isAndroidNative, isHarmonyNative, openNativeExportUri } from "@/lib/nativeImageSave";
 
 interface ActiveRequest extends NoteImageExportRequestDetail {
   settled: boolean;
@@ -69,7 +69,7 @@ function languageCopy() {
     gallery: "保存到相册",
     galleryHint: "Pictures/Nowen Note",
     files: "保存到系统文件",
-    filesHint: "打开 Android 文件选择器",
+    filesHint: "打开系统文件选择器",
     share: "分享到其他 App",
     shareHint: "微信、QQ、邮件等",
     download: "下载文件",
@@ -115,7 +115,7 @@ function languageCopy() {
     gallery: "Save to gallery",
     galleryHint: "Pictures/Nowen Note",
     files: "Save to Files",
-    filesHint: "Open Android file picker",
+    filesHint: "Open the system file picker",
     share: "Share to another app",
     shareHint: "Messages, mail and more",
     download: "Download",
@@ -151,9 +151,11 @@ function languageCopy() {
 export default function NoteImageExportCenter() {
   const copy = useMemo(languageCopy, []);
   const android = isAndroidNative();
+  const harmony = isHarmonyNative();
+  const defaultDestination = harmony ? "files" : android ? "gallery" : "download";
   const [request, setRequest] = useState<ActiveRequest | null>(null);
   const [format, setFormat] = useState<NoteImageExportFormat>("png");
-  const [destination, setDestination] = useState<NoteImageExportDestination>(android ? "gallery" : "download");
+  const [destination, setDestination] = useState<NoteImageExportDestination>(defaultDestination);
   const [layout, setLayout] = useState<NoteImageExportLayout>("auto");
   const [theme, setTheme] = useState<NoteImageExportTheme>("current");
   const [quality, setQuality] = useState(90);
@@ -171,7 +173,7 @@ export default function NoteImageExportCenter() {
         return { ...detail, settled: false };
       });
       setFormat(detail.options.format || "png");
-      setDestination(detail.options.destination || (android ? "gallery" : "download"));
+      setDestination(harmony ? "files" : detail.options.destination || defaultDestination);
       setLayout(detail.options.layout || "auto");
       setTheme(detail.options.theme || "current");
       setQuality(Math.round((detail.options.quality ?? 0.9) * 100));
@@ -182,7 +184,7 @@ export default function NoteImageExportCenter() {
 
     window.addEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, handleRequest);
     return () => window.removeEventListener(NOTE_IMAGE_EXPORT_REQUEST_EVENT, handleRequest);
-  }, [android]);
+  }, [defaultDestination, harmony]);
 
   useEffect(() => {
     if (!request || busy || result?.ok) return;
@@ -311,9 +313,9 @@ export default function NoteImageExportCenter() {
     disabled?: boolean;
   }> = [
     { id: "gallery", label: copy.gallery, hint: copy.galleryHint, icon: Smartphone, visible: android, disabled: format === "svg" },
-    { id: "files", label: copy.files, hint: copy.filesHint, icon: Files, visible: android },
-    { id: "share", label: copy.share, hint: copy.shareHint, icon: Share2, visible: android || typeof navigator.share === "function" },
-    { id: "download", label: copy.download, hint: copy.downloadHint, icon: Download, visible: !android },
+    { id: "files", label: copy.files, hint: copy.filesHint, icon: Files, visible: android || harmony },
+    { id: "share", label: copy.share, hint: copy.shareHint, icon: Share2, visible: !harmony && (android || typeof navigator.share === "function") },
+    { id: "download", label: copy.download, hint: copy.downloadHint, icon: Download, visible: !android && !harmony },
   ];
   const layoutOptions: Array<{ id: NoteImageExportLayout; label: string; hint: string }> = [
     { id: "auto", label: copy.auto, hint: copy.autoHint },

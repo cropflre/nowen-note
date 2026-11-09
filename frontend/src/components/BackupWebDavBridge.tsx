@@ -510,7 +510,7 @@ function BackupWebDavPanel() {
                 {backups.length === 0 && <option value="">{t("webdav.noLocalBackups")}</option>}
                 {backups.map((row) => (
                   <option key={row.filename} value={row.filename}>
-                    {row.filename} · {formatBytes(row.size)}
+                    {formatTime(row.createdAt, row.filename, i18n.language)} · {t(row.type === "full" ? "dataManager.overview.full" : "dataManager.overview.databaseOnly")} · {formatBytes(row.size)}
                   </option>
                 ))}
               </select>

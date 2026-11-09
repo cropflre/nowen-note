@@ -1,7 +1,8 @@
 export type AdaptiveWindowClass = "compact" | "medium" | "expanded";
 
 export const MEDIUM_WINDOW_MIN_WIDTH = 600;
-export const EXPANDED_WINDOW_MIN_WIDTH = 840;
+// Match the md breakpoint used by the persistent sidebar and navigation rail.
+export const EXPANDED_WINDOW_MIN_WIDTH = 768;
 export const COMPACT_WINDOW_MAX_HEIGHT = 480;
 export const MEDIUM_NOTE_LIST_MIN_WIDTH = 264;
 export const MEDIUM_NOTE_LIST_MAX_WIDTH = 320;

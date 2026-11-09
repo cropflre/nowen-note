@@ -1,3 +1,4 @@
+import { stripAiProvenanceComments } from "@/lib/aiContentProvenance";
 export type InternalMarkdownMarkerKind = "inline" | "line";
 
 export interface InternalMarkdownMarkerRange {
@@ -93,12 +94,12 @@ export function findInternalMarkdownMarkerRanges(markdown: string): InternalMark
 /** Project internal Markdown into user-visible Markdown without changing persisted block identity. */
 export function projectMarkdownForUser(markdown: string): string {
   const ranges = findInternalMarkdownMarkerRanges(markdown);
-  if (ranges.length === 0) return markdown;
+  if (ranges.length === 0) return stripAiProvenanceComments(markdown);
   let output = markdown;
   for (const range of [...ranges].sort((a, b) => b.from - a.from)) {
     output = output.slice(0, range.from) + output.slice(range.to);
   }
-  return output;
+  return stripAiProvenanceComments(output);
 }
 
 /**

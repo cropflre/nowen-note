@@ -1,3 +1,4 @@
+import { findAiProvenanceComments } from "@/lib/aiContentProvenance";
 import { Prec, RangeSetBuilder, StateField, Transaction, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import { copyText } from "@/lib/clipboard";
@@ -12,7 +13,10 @@ import { markdownSelectionWrapExtension } from "@/lib/markdownSelectionWrap";
 
 function buildMarkerDecorations(markdown: string): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  for (const range of findInternalMarkdownMarkerRanges(markdown)) {
+  const ranges = [...findInternalMarkdownMarkerRanges(markdown),
+    ...findAiProvenanceComments(markdown).map(range => ({ ...range, kind: "line" as const }))]
+    .sort((a, b) => a.from - b.from);
+  for (const range of ranges) {
     if (range.kind === "line") {
       builder.add(
         range.from,

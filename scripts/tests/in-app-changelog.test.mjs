@@ -9,8 +9,8 @@ const good = JSON.parse(readFileSync(new URL("../../docs/releases/in-app-changel
 test("release notes are curated, current, correctly ordered, and match public asset", () => {
   assert.equal(verifyInAppChangelog().version, version);
   assert.equal(good.entries[0].version, version);
-  assert.ok(good.entries.some(entry => entry.version === "1.5.4"));
-  assert.equal(good.entries.at(-1).version, "1.5.3");
+  assert.equal(good.entries[1].version, "1.5.4");
+  assert.equal(good.entries[2].version, "1.5.3");
   assert.doesNotMatch(good.entries.map(x => x.body).join("\n"), /studio:.*\([a-f0-9]{7}\)/i);
 });
 

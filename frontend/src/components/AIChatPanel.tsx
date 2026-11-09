@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText } from "@/lib/aiContentProvenance";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -567,13 +569,13 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
 
   const handleCopyMessage = useCallback(async (message: ChatMessage) => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(aiClipboardText(message.content, message.role === "assistant", t("ai.generatedLabel")));
       setCopiedMessageId(message.id);
       window.setTimeout(() => setCopiedMessageId((current) => current === message.id ? null : current), 1500);
     } catch {
       // Clipboard permission may be denied in an embedded WebView.
     }
-  }, []);
+  }, [t]);
 
   const handleStartEditMessage = (message: ChatMessage) => {
     setEditingMessageId(message.id);
@@ -1276,7 +1278,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 <div
                   key={message.id}
                   className={cn(
-                    "group/message flex w-full min-w-0 max-w-full gap-3",
+                    // 新消息上浮淡入；流式输出期间 key 不变，内容增长不会重播动画。
+                    "animate-nowen-rise-in group/message flex w-full min-w-0 max-w-full gap-3",
                     isUser ? "flex-row-reverse pl-12" : "pr-4",
                   )}
                 >
@@ -1349,6 +1352,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                           [&_a]:[overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere]
                           [&_p]:max-w-full [&_pre]:max-w-full [&_pre_code]:whitespace-pre [&_pre_code]:break-normal [&_pre_code]:[overflow-wrap:normal]"
                         >
+                          <AiGeneratedNotice />
                           {message.content && (
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={aiChatMarkdownComponents}>{message.content}</ReactMarkdown>
                           )}

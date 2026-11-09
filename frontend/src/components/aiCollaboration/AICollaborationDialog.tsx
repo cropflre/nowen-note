@@ -1,3 +1,4 @@
+import AiGeneratedNotice from "./AiGeneratedNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Capacitor } from "@capacitor/core";
@@ -166,6 +167,7 @@ export default function AICollaborationDialog({ scope, onClose }: { scope: strin
         {storageError && <p role="alert" className="text-xs text-red-500">{t("aiCollaboration.storageError")}</p>}
         {!draft.output ? <textarea ref={inputRef} aria-label={t("aiCollaboration.idea")} value={draft.input} disabled={locked} maxLength={8000} rows={6} placeholder={t("aiCollaboration.ideaPlaceholder")} onChange={event => update({ input: event.target.value })} className={`${field} resize-none text-base leading-7`} /> : <>
           <input aria-label={t("aiCollaboration.noteTitle")} value={draft.title} disabled={locked} maxLength={120} placeholder={draft.output.split("\n").find(line => line.trim())?.replace(/^#+\s*/, "") || t("aiCollaboration.titlePlaceholder")} onChange={event => update({ title: event.target.value })} className={`${field} font-medium`} />
+          <AiGeneratedNotice />
           <textarea aria-label={t("aiCollaboration.preview")} rows={10} value={draft.output} disabled={locked} onChange={event => update({ output: event.target.value })} className={`${field} leading-7`} />
           <details className="text-xs text-tx-tertiary"><summary className="cursor-pointer">{t("aiCollaboration.original")}</summary><textarea aria-label={t("aiCollaboration.idea")} value={draft.input} disabled={locked} maxLength={8000} rows={3} onChange={event => update({ input: event.target.value })} className={`mt-2 ${field}`} /></details>
           {!!draft.references.length && <details className="text-xs text-tx-secondary"><summary className="cursor-pointer">{t("aiCollaboration.references")} · {draft.references.length}</summary><ul className="mt-2 max-h-28 list-inside list-disc overflow-y-auto">{draft.references.map(ref => <li key={ref.id} className="truncate" title={ref.title}>{ref.title}</li>)}</ul></details>}

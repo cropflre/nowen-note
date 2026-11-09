@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import Database from "better-sqlite3";
 
@@ -7,6 +10,7 @@ import {
   onboardingWelcomeNoteId,
 } from "../src/db/newUserOnboardingMigration.js";
 import { newUserOnboardingFirstLoginMigration } from "../src/db/newUserOnboardingFirstLoginMigration.js";
+import { claimOnboardingWelcome, markOnboardingHandled, recordOnboardingLogin } from "../src/lib/onboarding.js";
 
 function createDb(): Database.Database {
   const db = new Database(":memory:");
@@ -37,6 +41,8 @@ function createDb(): Database.Database {
       id TEXT PRIMARY KEY,
       userId TEXT NOT NULL,
       notebookId TEXT NOT NULL,
+      workspaceId TEXT,
+      isTrashed INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL,
       content TEXT DEFAULT '{}',
       contentText TEXT DEFAULT '',
@@ -56,7 +62,7 @@ function installOnboarding(db: Database.Database): void {
 }
 
 function confirmLogin(db: Database.Database, userId: string): void {
-  db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
+  recordOnboardingLogin(db, userId);
 }
 
 test("seeds Chinese and English guides only on a new account's first confirmed login", () => {
@@ -192,5 +198,96 @@ test("deleting the guide does not recreate it on later logins", () => {
     assert.equal(state?.status, "seeded");
   } finally {
     db.close();
+  }
+});
+
+test("upgrades suppress the welcome for seeded users and never seed an established desktop identity", () => {
+  const db = createDb();
+  try {
+    installOnboarding(db);
+    const createUser = db.prepare(
+      "INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')",
+    );
+    createUser.run("seeded-user", "seeded-user");
+    db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = 'seeded-user'").run();
+    createUser.run("pre-upgrade-desktop", "desktop");
+    markOnboardingHandled(db, "pre-upgrade-desktop");
+
+    for (const userId of ["seeded-user", "pre-upgrade-desktop"]) {
+      confirmLogin(db, userId);
+      assert.equal(claimOnboardingWelcome(db, userId), null);
+    }
+    const counts = db.prepare("SELECT userId, COUNT(*) AS count FROM notes GROUP BY userId").all();
+    assert.deepEqual(counts, [{ userId: "seeded-user", count: 16 }]);
+  } finally {
+    db.close();
+  }
+});
+
+test("new accounts get exactly one welcome grant across devices", () => {
+  const db = createDb();
+  try {
+    installOnboarding(db);
+    const createUser = db.prepare(
+      "INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')",
+    );
+    for (const userId of ["alice", "bob"]) createUser.run(userId, userId);
+    const columnsBefore = db.prepare("PRAGMA table_info(user_onboarding_state)").all();
+    confirmLogin(db, "alice");
+    confirmLogin(db, "bob");
+    assert.deepEqual(db.prepare("PRAGMA table_info(user_onboarding_state)").all(), columnsBefore);
+    assert.equal(columnsBefore.some((column: any) => column.name === "welcomePresentedAt"), false);
+    db.prepare("UPDATE notes SET isTrashed = 1 WHERE id = ?").run(onboardingWelcomeNoteId("bob"));
+    assert.equal(claimOnboardingWelcome(db, "bob"), null);
+    assert.equal(claimOnboardingWelcome(db, "alice"), onboardingWelcomeNoteId("alice"));
+    confirmLogin(db, "alice");
+    assert.equal(claimOnboardingWelcome(db, "alice"), null);
+    const counts = db.prepare("SELECT userId, COUNT(*) AS count FROM notes GROUP BY userId ORDER BY userId").all();
+    assert.deepEqual(counts, [{ userId: "alice", count: 16 }, { userId: "bob", count: 16 }]);
+  } finally {
+    db.close();
+  }
+});
+
+test("managed desktop bootstrap does not generate tutorial data on the next startup", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "nowen-onboarding-"));
+  process.env.DB_PATH = path.join(dir, "test.db");
+  process.env.ELECTRON_USER_DATA = dir;
+  process.env.ELECTRON_LOCAL_ACCOUNT_SECRET = "onboarding-test-desktop-secret";
+  process.env.JWT_SECRET = "onboarding-test-jwt-secret";
+  const [{ getDb, closeDb }, { default: auth }] = await Promise.all([
+    import("../src/db/schema.js"),
+    import("../src/routes/auth.js"),
+  ]);
+  try {
+    const bootstrap = () => auth.request("/desktop/bootstrap-local", {
+      method: "POST",
+      headers: {
+        "X-Nowen-Desktop-Secret": process.env.ELECTRON_LOCAL_ACCOUNT_SECRET!,
+        "X-Nowen-Desktop-Allow-Create": "1",
+      },
+    });
+    const first = await bootstrap();
+    const second = await bootstrap();
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    const { user } = await second.json() as { user: { id: string } };
+    const db = getDb();
+    assert.equal(claimOnboardingWelcome(db, user.id), null);
+    // Older managed databases can require manual login before startup recovers.
+    db.prepare("DELETE FROM user_onboarding_state WHERE userId = ?").run(user.id);
+    db.prepare("UPDATE users SET lastLoginAt = NULL WHERE id = ?").run(user.id);
+    const manualLogin = await auth.request("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "desktop", password: process.env.ELECTRON_LOCAL_ACCOUNT_SECRET }),
+    });
+    assert.equal(manualLogin.status, 200);
+    assert.equal(claimOnboardingWelcome(db, user.id), null);
+    assert.deepEqual(db.prepare("SELECT id FROM notebooks WHERE userId = ?").all(user.id), []);
+    assert.deepEqual(db.prepare("SELECT id FROM notes WHERE userId = ?").all(user.id), []);
+  } finally {
+    closeDb();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,3 +1,4 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
@@ -108,7 +109,7 @@ export default function TaskComposer({ projects, initialProjectId, onClose, onCr
       try {
         const result = await previewTaskComposition(context, { ...options, text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en" }, abort.signal);
         if (abort.signal.aborted || !mounted.current) return;
-        setCandidates(result.tasks.map(task => ({ ...task, selected: !task.duplicateOf?.length, allowDuplicate: false })));
+        setCandidates(result.tasks.map(task => ({ ...task, aiGenerated: true, selected: !task.duplicateOf?.length, allowDuplicate: false })));
         setPreviewId(result.previewId); setTimezone(result.timezone); setWarnings(result.warnings);
         setDirty(false); setView("preview");
       } catch (failure) { if (!abort.signal.aborted && mounted.current) setError(report(failure)); }
@@ -187,6 +188,7 @@ export default function TaskComposer({ projects, initialProjectId, onClose, onCr
             <p className="text-xs text-tx-tertiary">{label("draftNotice")}</p>
           </fieldset>}
           {view === "preview" && <div className="space-y-3">
+            {candidates.some(task => task.aiGenerated) && <AiGeneratedNotice />}
             <p className="text-xs text-tx-tertiary">{label("timezone")} {timezone} · {label("draftNotice")}</p>
             {warnings.map(warning => <p key={warning} className="text-xs text-tx-secondary">{warningLabel(warning)}</p>)}
             <div className="flex flex-wrap gap-2"><Button variant="ghost" size="sm" disabled={locked || generating} onClick={() => { setCandidates(previous => previous.map(task => ({ ...task, selected: true }))); setDirty(true); }}>{label("selectAll")}</Button><Button variant="ghost" size="sm" disabled={locked || generating} onClick={() => { setCandidates(previous => previous.map(task => ({ ...task, selected: false }))); setDirty(true); }}>{label("deselectAll")}</Button><Button variant="outline" size="sm" disabled={locked || generating || candidates.length >= 30} onClick={addManual}><Plus size={14} className="mr-1" />{label("addManual")}</Button></div>

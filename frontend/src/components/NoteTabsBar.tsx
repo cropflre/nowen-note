@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
 import { Check, ChevronDown, FileCode, FileText, Folder, List, Lock, Pin, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { cn } from "@/lib/utils";
+import { MOTION_SPRING } from "@/lib/motion";
 import { toast } from "@/lib/toast";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import type { Notebook, NoteListItem } from "@/types";
@@ -124,6 +126,7 @@ function NoteTabVisual({
   colorMark,
   closeLabel,
   onClose,
+  indicatorLayoutId,
 }: {
   tab: OpenNoteTab;
   title: string;
@@ -132,6 +135,8 @@ function NoteTabVisual({
   colorMark?: import("@/types").NoteColorMark | null;
   closeLabel: string;
   onClose?: (event: React.MouseEvent<HTMLSpanElement>) => void;
+  /** 仅真实标签传入：活动指示条在标签间用共享布局弹簧滑动；隐藏的测量副本保持静态。 */
+  indicatorLayoutId?: string;
 }) {
   return (
     <>
@@ -162,7 +167,15 @@ function NoteTabVisual({
       >
         <X size={11} />
       </span>
-      {active && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-primary" />}
+      {active && (indicatorLayoutId ? (
+        <motion.span
+          layoutId={indicatorLayoutId}
+          transition={MOTION_SPRING.snappy}
+          className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-primary"
+        />
+      ) : (
+        <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent-primary" />
+      ))}
     </>
   );
 }
@@ -173,6 +186,8 @@ export default function NoteTabsBar() {
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { t } = useTranslation();
   const { openNoteTabs, activeNote, noteLoading } = state;
+  // 每个标签栏实例独立的指示条 id，分屏等多实例场景不会互相“抢”指示条。
+  const tabIndicatorLayoutId = `note-tab-indicator-${useId()}`;
   const noteLoadingState = state.noteLoadingState ?? { pendingNoteId: null };
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [createMenu, setCreateMenu] = useState<CreateMenuState>(null);
@@ -661,7 +676,8 @@ export default function NoteTabsBar() {
                 }, 0);
               }}
               className={cn(
-                "group relative my-1 mr-1 flex max-w-[180px] min-w-[108px] shrink-0 items-center gap-1.5 rounded-t-md px-2.5 text-xs transition-colors",
+                // 拖拽中的标签半透明需要过渡，否则拖起 / 放下时会闪一下。
+                "group relative my-1 mr-1 flex max-w-[180px] min-w-[108px] shrink-0 items-center gap-1.5 rounded-t-md px-2.5 text-xs transition-[color,background-color,box-shadow,opacity] duration-fast ease-standard",
                 active
                   ? "bg-app-bg text-tx-primary shadow-sm"
                   : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -682,6 +698,7 @@ export default function NoteTabsBar() {
                 loading={active && noteLoading}
                 colorMark={active ? activeNote?.colorMark : state.notes?.find((note) => note.id === tab.id)?.colorMark}
                 closeLabel={t("editorTabs.close")}
+                indicatorLayoutId={tabIndicatorLayoutId}
                 onClose={(e) => {
                   e.stopPropagation();
                   closeTab(tab.id);

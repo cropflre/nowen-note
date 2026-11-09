@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { stripAiProvenanceComments } from "@/lib/aiContentProvenance";
 import AgentTemplates from "./AgentTemplates";
 import AgentTaskDrafts from "./AgentTaskDrafts";
 import type { AgentTemplate } from "@/lib/agentTemplates";
@@ -37,6 +39,7 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     void Promise.all([api.getNotebooks(workspaceId), api.agent.capabilities(), api.agentWorkflows.list(workspaceId)]).then(async ([notebooks, capabilities, list]) => {
       if (!current()) return;
       setBooks(notebooks); setBookId(notebooks.find(b => b.id === state.selectedNotebookId)?.id || notebooks[0]?.id || "");
+      if (capabilities.enabled && capabilities.aiContentLabels !== "v1") throw new Error("AI_LABELING_UNSUPPORTED");
       setHistory(list);
       if (list[0]) try { update(await api.agentWorkflows.get(workspaceId, list[0].id)); } catch (e) { if (current()) setError(errorText(e)); }
       if (current()) setEnabled(capabilities.enabled);
@@ -192,10 +195,10 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     {run?.steps.map(step => <div key={step.sequence} className="rounded border border-app-border px-3 py-2 text-xs">{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status}`)}</div>)}
     {(error || run?.errorCode) && <p role="alert" className="text-sm text-red-500">{error || errorText({ code: run?.errorCode })}</p>}
     {run?.preview && <>
-      <h3 className="font-medium">{t("agent.workflow.summary")}</h3><p className="whitespace-pre-wrap break-words text-sm">{run.preview.summary}</p>
+      <AiGeneratedNotice /><h3 className="font-medium">{t("agent.workflow.summary")}</h3><p className="whitespace-pre-wrap break-words text-sm">{run.preview.summary}</p>
       {run.preview.contextTruncated && <p className="text-xs text-amber-600">{t("agent.workflow.truncated")}</p>}
       <div className="flex flex-wrap gap-2">{run.preview.sources.map(source => <Button variant="outline" size="sm" key={source.id} onClick={() => onNavigateToNote?.(source.id)}>{source.title}</Button>)}</div>
-      {run.preview.note && <div className="rounded border border-app-border p-3"><h3 className="font-medium">{t("agent.workflow.newNote")}: {run.preview.note.title}</h3><pre className="mt-2 whitespace-pre-wrap break-words text-sm">{run.preview.note.content}</pre></div>}
+      {run.preview.note && <div className="rounded border border-app-border p-3"><h3 className="font-medium">{t("agent.workflow.newNote")}: {run.preview.note.title}</h3><pre className="mt-2 whitespace-pre-wrap break-words text-sm">{stripAiProvenanceComments(run.preview.note.content)}</pre></div>}
       {run.preview.tasks && <div className="space-y-2">
         <h3 className="font-medium">{t("agent.workflow.tasks", { count: run.preview.tasks.tasks.length })}</h3>
         <p className="text-xs text-tx-secondary">{t("agent.workflow.linkPreview")} · {t("taskComposer.timezone")} {run.preview.tasks.timezone}</p>

@@ -18,7 +18,9 @@ async function requestLocalAccountBootstrap(request, secret, allowCreate) {
         reason: null,
       };
     }
-    return { account: null, reason: response.data?.code || response.status };
+    // Always a string: the reason is forwarded over IPC and shown to the user. A response without a
+    // code (for example { error: "forbidden" }) is reported by its HTTP status.
+    return { account: null, reason: response.data?.code || `HTTP_${response.status}` };
   } catch {
     return { account: null, reason: "BACKEND_UNAVAILABLE" };
   }

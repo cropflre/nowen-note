@@ -3,7 +3,7 @@
 // "选择服务器"窗口（首启 Lite / 菜单"切换到轻量模式…" / "更换服务器…"时弹出）。
 //
 // 行为：
-//   - 提供两条路径：手动输入 URL；从 mDNS 发现的服务列表里挑。
+//   - 手动输入服务器 URL，测试连接通过后才能确认。
 //   - 用户点"使用此服务器"后，主进程把 mode=lite + remoteUrl 写入 settings.json
 //     然后 relaunch 应用（最干净的方式：让 main.js 在 ready 时直接走 lite 分支）。
 //   - 用户点"取消" → 关闭窗口（如果当前还没有有效的 lite 配置且模式已是 lite，
@@ -14,7 +14,7 @@
 //   - 内嵌 HTML/JS（无前端构建依赖），通过 ipcRenderer 与主进程通信；
 //     这是个"配置 UI"，没必要拉进 React。
 //   - 通过 webPreferences.preload 暴露受限 API：
-//       discoveryStart / discoveryStop / discoveryOnUpdate / probe / submit / cancel
+//       probe / submit / cancel / getInitial
 //     不复用主窗口的 preload.js，避免 setup 阶段意外拿到业务 API。
 
 const { BrowserWindow, ipcMain, app } = require("electron");
@@ -167,23 +167,7 @@ const HTML = String.raw`
 
   .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
 
-  .lan-list {
-    flex: 1; min-height: 120px;
-    border: 1px solid var(--border); border-radius: 6px;
-    background: var(--panel); overflow: auto;
-  }
-  .lan-empty { padding: 18px; color: var(--muted); text-align: center; font-size: 12px; }
-  .lan-item {
-    padding: 9px 12px; border-bottom: 1px solid var(--border);
-    cursor: pointer; display: flex; flex-direction: column; gap: 2px;
-  }
-  .lan-item:last-child { border-bottom: none; }
-  .lan-item:hover { background: #1f242c; }
-  .lan-item.active { background: #1f6feb33; }
-  .lan-name { font-weight: 500; }
-  .lan-addr { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
-
-  .footer { display: flex; gap: 8px; justify-content: space-between; align-items: center; }
+  .footer { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-top: auto; }
   .status {
     flex: 1; font-size: 12px; min-height: 16px;
   }
@@ -205,11 +189,6 @@ const HTML = String.raw`
     <button id="probe">测试连接</button>
   </div>
 
-  <div class="section-title">局域网发现 <span id="lanState" style="text-transform:none;color:var(--muted);font-weight:normal;"></span></div>
-  <div class="lan-list" id="lanList">
-    <div class="lan-empty">正在扫描局域网…</div>
-  </div>
-
   <div class="footer">
     <div id="status" class="status"></div>
     <div class="actions">
@@ -222,10 +201,8 @@ const HTML = String.raw`
 <script>
   const $ = (id) => document.getElementById(id);
   const urlEl = $("url"), probeBtn = $("probe"), okBtn = $("ok"), cancelBtn = $("cancel");
-  const lanList = $("lanList"), lanState = $("lanState"), statusEl = $("status");
+  const statusEl = $("status");
 
-  let lanItems = [];          // 当前列表
-  let selectedKey = null;     // 选中的 mDNS 项 key（name），null 表示用手动输入
   let lastProbeOk = false;    // 最后一次探测是否成功（决定 OK 按钮是否可点）
 
   function setStatus(text, kind) {
@@ -237,55 +214,11 @@ const HTML = String.raw`
     return urlEl.value.trim().replace(/\/+$/, "");
   }
 
-  // URL 输入变化 → 重置探测状态、清掉 LAN 选中
+  // URL 输入变化 → 重置探测状态
   urlEl.addEventListener("input", () => {
     lastProbeOk = false; okBtn.disabled = true;
-    selectedKey = null; renderLan();
     setStatus("");
   });
-
-  function renderLan() {
-    if (!lanItems.length) {
-      lanList.innerHTML = '<div class="lan-empty">未发现局域网内的 Nowen Note 服务（确保服务端开启了 mDNS 广播）。</div>';
-      return;
-    }
-    lanList.innerHTML = "";
-    for (const it of lanItems) {
-      const div = document.createElement("div");
-      div.className = "lan-item" + (selectedKey === it.name ? " active" : "");
-      const url = buildUrlFromService(it);
-      div.innerHTML =
-        '<div class="lan-name">' + escapeHtml(it.name || it.host || "(unnamed)") + '</div>' +
-        '<div class="lan-addr">' + escapeHtml(url) + '</div>';
-      div.addEventListener("click", () => {
-        selectedKey = it.name;
-        urlEl.value = url;
-        lastProbeOk = false; okBtn.disabled = true;
-        setStatus("");
-        renderLan();
-      });
-      div.addEventListener("dblclick", () => {
-        // 双击 = 选中并立刻探测
-        if (urlEl.value !== url) urlEl.value = url;
-        doProbe();
-      });
-      lanList.appendChild(div);
-    }
-  }
-
-  function buildUrlFromService(svc) {
-    const proto = (svc.txt && (svc.txt.scheme || svc.txt.secure === "1" ? "https" : "http")) || "http";
-    const host = svc.ipv4 || (svc.addresses && svc.addresses[0]) || svc.host || "";
-    const port = svc.port || 80;
-    const pth = (svc.txt && svc.txt.path) ? svc.txt.path.replace(/\/+$/, "") : "";
-    return proto + "://" + host + ":" + port + pth;
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    })[c]);
-  }
 
   async function doProbe() {
     const url = currentUrl();
@@ -326,24 +259,6 @@ const HTML = String.raw`
   });
   cancelBtn.addEventListener("click", () => window.setupApi.cancel());
 
-  // 启动局域网发现
-  (async () => {
-    try {
-      const r = await window.setupApi.discoveryStart();
-      if (!r.available) {
-        lanState.textContent = "（mDNS 不可用）";
-      }
-    } catch (e) {
-      lanState.textContent = "（启动失败）";
-    }
-  })();
-
-  window.setupApi.discoveryOnUpdate((list) => {
-    lanItems = Array.isArray(list) ? list : [];
-    lanState.textContent = lanItems.length ? "（已发现 " + lanItems.length + " 个）" : "";
-    renderLan();
-  });
-
   // 预填初始 URL（如果调用方传了 initialUrl）
   window.setupApi.getInitial().then((init) => {
     if (init && init.url) urlEl.value = init.url;
@@ -361,12 +276,6 @@ contextBridge.exposeInMainWorld("setupApi", {
   submit: (url) => ipcRenderer.send("setup:submit", url),
   cancel: () => ipcRenderer.send("setup:cancel"),
   getInitial: () => ipcRenderer.invoke("setup:get-initial"),
-  discoveryStart: () => ipcRenderer.invoke("discovery:start"),
-  discoveryOnUpdate: (cb) => {
-    const wrap = (_e, payload) => cb(payload);
-    ipcRenderer.on("discovery:update", wrap);
-    return () => ipcRenderer.removeListener("discovery:update", wrap);
-  },
 });
 `;
 

@@ -33,7 +33,7 @@ export default function FileUploadQueue({ queue, onView, onMove }: {
           {["waiting", "uploading"].includes(task.status) && <button disabled={task.status === "uploading" && !queue.canCancelActive} onClick={() => queue.cancel(task.id)} className="text-tx-secondary disabled:opacity-40">{t("common.cancel")}</button>}
           {task.status === "failed" && <button onClick={() => queue.retry(task.id)} className="text-accent-primary">{t("fileExplorer.retry")}</button>}
         </div>
-        {task.status === "uploading" && task.progress !== null && <progress value={task.progress} max={100} className="mt-1 h-1 w-full" aria-label={task.file.name} />}
+        {task.status === "uploading" && task.progress !== null && <progress value={task.progress} max={100} className="mt-1 h-1 w-full overflow-hidden rounded-full [accent-color:var(--color-accent-primary)]" aria-label={task.file.name} />}
         {task.error && <p className="text-red-500" role="alert">{task.error}</p>}
         {task.status === "cancelled" && <p className="text-tx-tertiary">{t("fileExplorer.cancelHint")}</p>}
         {task.status === "existing" && task.result && <div className="flex flex-wrap gap-2 text-tx-secondary">

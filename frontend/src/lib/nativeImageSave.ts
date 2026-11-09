@@ -23,6 +23,19 @@ interface MediaStoreSavePlugin {
 
 const MediaStoreSave = registerPlugin<MediaStoreSavePlugin>("MediaStoreSave");
 
+interface HarmonyFileBridge {
+  request(plugin: "FileExport", method: "saveFile", options: NativeExportFilePayload): Promise<NativeSavedFileResult>;
+}
+
+function harmonyFileBridge(): HarmonyFileBridge | undefined {
+  return typeof window === "undefined" ? undefined
+    : (window as Window & { __harmonyBridge__?: HarmonyFileBridge }).__harmonyBridge__;
+}
+
+export function isHarmonyNative(): boolean {
+  return !!harmonyFileBridge();
+}
+
 /** Returns true only inside the Android Capacitor shell. */
 export function isAndroidNative(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
@@ -65,17 +78,19 @@ export async function saveImageToGallery(options: {
   return result.success;
 }
 
-/** Opens Android's ACTION_CREATE_DOCUMENT picker and writes the blob to the chosen location. */
+/** Opens the native file picker and writes the blob to the chosen location. */
 export async function saveBlobToSystemFile(options: {
   blob: Blob;
   fileName: string;
   mimeType: string;
 }): Promise<NativeSavedFileResult> {
-  const result = await MediaStoreSave.saveFile({
+  const payload = {
     base64Data: await blobToBase64(options.blob),
     fileName: options.fileName,
     mimeType: options.mimeType,
-  });
+  };
+  const harmony = harmonyFileBridge();
+  const result = await (harmony ? harmony.request("FileExport", "saveFile", payload) : MediaStoreSave.saveFile(payload));
   if (result?.canceled) return result;
   if (!result?.success || !result.uri) throw new Error("保存到系统文件失败：未获得目标文件地址");
   return result;

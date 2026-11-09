@@ -1,3 +1,5 @@
+import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
+import { aiClipboardText } from "@/lib/aiContentProvenance";
 import React, { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Loader2, Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -156,7 +158,7 @@ export default function DiaryAiReportDialog({ open, onClose }: DiaryAiReportDial
 
   const copy = async () => {
     if (!result) return;
-    const ok = await copyText(result);
+    const ok = await copyText(aiClipboardText(result, true, t("ai.generatedLabel")));
     if (!ok) {
       toast.error(t("common.copyFailed", { defaultValue: "复制失败" }));
       return;
@@ -168,7 +170,7 @@ export default function DiaryAiReportDialog({ open, onClose }: DiaryAiReportDial
   const useInCompose = () => {
     if (!result) return;
     window.dispatchEvent(new CustomEvent("nowen:diary-use-report", {
-      detail: { content: result },
+      detail: { content: aiClipboardText(result, true, t("ai.generatedLabel")) },
     }));
     onClose();
   };
@@ -262,6 +264,7 @@ export default function DiaryAiReportDialog({ open, onClose }: DiaryAiReportDial
 
           {(result || loading) && (
             <div className="space-y-2">
+              <AiGeneratedNotice />
               <div className="flex items-center justify-between text-xs text-tx-tertiary">
                 <span>
                   {sourceCount

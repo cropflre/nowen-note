@@ -50,23 +50,27 @@ function runCommand(command, args = [], options = {}) {
   })
 }
 
-export function isPortAvailable(port) {
+function probePort(port) {
   return new Promise((resolve) => {
     const server = net.createServer()
     let settled = false
 
-    const finish = (available) => {
+    const finish = (error) => {
       if (settled) return
       settled = true
-      resolve(available)
+      resolve(error)
     }
 
     server.unref()
-    server.once("error", () => finish(false))
+    server.once("error", finish)
     server.listen({ port, host: "0.0.0.0", exclusive: true }, () => {
-      server.close(() => finish(true))
+      server.close(() => finish(null))
     })
   })
+}
+
+export async function isPortAvailable(port) {
+  return await probePort(port) === null
 }
 
 async function waitForPortAvailable(port, timeoutMs = DEFAULT_RELEASE_TIMEOUT_MS) {
@@ -335,7 +339,22 @@ export async function forceReleasePort(port, label = "开发服务", options = {
   const timeoutMs = options.timeoutMs || DEFAULT_RELEASE_TIMEOUT_MS
   const log = options.log || console.log
 
-  if (await isPortAvailable(port)) return { port, killedPids: [] }
+  const bindError = await probePort(port)
+  if (!bindError) return { port, killedPids: [] }
+
+  if (bindError.code === "EACCES") {
+    if (options.allowFallback) {
+      for (let candidate = port + 1; candidate <= 65535; candidate += 1) {
+        if (options.excludedPorts?.includes(candidate)) continue
+        if (!await isPortAvailable(candidate)) continue
+        log(`[dev] ${label}端口 ${port} 无法绑定（EACCES，可能被系统保留），自动改用 ${candidate}`)
+        return { port: candidate, killedPids: [] }
+      }
+    }
+    throw new Error(`${label}端口 ${port} 无法绑定（EACCES，可能被系统保留）。请通过 NOWEN_DEV_FRONTEND_PORT 或 NOWEN_DEV_BACKEND_PORT 指定可用端口。`)
+  }
+
+  if (bindError.code !== "EADDRINUSE") throw bindError
 
   const killedPids = new Set()
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -345,7 +364,7 @@ export async function forceReleasePort(port, label = "开发服务", options = {
         return { port, killedPids: [...killedPids] }
       }
       throw new Error(
-        `${label}端口 ${port} 已被占用，但无法识别监听进程。请使用管理员权限重新运行。`,
+        `${label}端口 ${port} 已被占用（EADDRINUSE），但无法识别监听进程。请检查端口占用或指定其他开发端口。`,
       )
     }
 
@@ -372,7 +391,12 @@ export async function forceReleasePorts(entries, options = {}) {
   for (const entry of entries) {
     if (seen.has(entry.port)) continue
     seen.add(entry.port)
-    results.push(await forceReleasePort(entry.port, entry.label, options))
+    const result = await forceReleasePort(entry.port, entry.label, {
+      ...options,
+      allowFallback: entry.allowFallback ?? false,
+      excludedPorts: [...entries.map((item) => item.port), ...results.map((item) => item.port)],
+    })
+    results.push(result)
   }
 
   return results

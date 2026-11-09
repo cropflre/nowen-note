@@ -1,12 +1,4 @@
 export const zhCNDownloadNetworkTranslations = {
-  server: {
-    lanDiscoveryTitle: "局域网发现",
-    lanUnavailable: "当前环境不支持自动发现，请手动填写服务器地址。",
-    lanNotFound: "未在当前 Wi-Fi 内发现服务器。如果服务器在公网或跨网段，请直接手动填写地址。",
-    lanRescan: "重新扫描",
-    lanScanning: "正在搜索局域网内的服务器…",
-    lanUseThis: "使用",
-  },
   download: {
     title: "下载客户端",
     subtitle: "在桌面、手机、NAS 多端使用弄文笔记。国内用户建议切换「加速下载」。",
@@ -56,14 +48,6 @@ export const zhCNDownloadNetworkTranslations = {
 } as const;
 
 export const enDownloadNetworkTranslations = {
-  server: {
-    lanDiscoveryTitle: "LAN discovery",
-    lanUnavailable: "Automatic discovery is unavailable in this environment. Enter the server address manually.",
-    lanNotFound: "No server was found on the current Wi-Fi network. If the server is on the public internet or another subnet, enter its address manually.",
-    lanRescan: "Scan again",
-    lanScanning: "Searching for servers on the local network…",
-    lanUseThis: "Use",
-  },
   download: {
     title: "Download clients",
     subtitle: "Use Nowen Note on desktop, mobile, and NAS. If GitHub downloads are slow, try an accelerated source.",

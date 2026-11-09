@@ -1,3 +1,4 @@
+import { createAiProvenance, markAiMarkdown } from "./aiContentProvenance";
 import { getBaseUrl, getCurrentWorkspace } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 import { getOfflineQueueStorageKey } from "./offlineScope";
@@ -10,6 +11,7 @@ export interface TaskComposerOptions {
   focusCount: number; recognizeRepeat: boolean; recognizeTime: boolean;
 }
 export interface TaskCandidate {
+  aiGenerated?: boolean;
   clientId: string; title: string; description: string; priority: 1 | 2 | 3;
   startDate: string | null; dueDate: string | null; dueAt: string | null; projectId: string | null;
   repeatRule: "none" | "daily" | "weekly" | "monthly" | "yearly"; repeatInterval: number;
@@ -35,7 +37,7 @@ export function isTaskComposerContextCurrent(context: TaskComposerContext): bool
 }
 export function confirmedCandidates(candidates: TaskCandidate[]): ConfirmedCandidate[] {
   return candidates.filter(task => task.selected).map(task => ({
-    clientId: task.clientId, title: task.title, description: task.description, priority: task.priority,
+    clientId: task.clientId, title: task.title, description: task.aiGenerated ? markAiMarkdown(task.description, createAiProvenance(task.clientId)) : task.description, priority: task.priority,
     startDate: task.startDate, dueDate: task.dueDate, dueAt: task.dueAt, projectId: task.projectId,
     repeatRule: task.repeatRule, repeatInterval: task.repeatInterval, repeatEndDate: task.repeatEndDate,
     repeatEndCount: task.repeatEndCount, allowDuplicate: task.allowDuplicate,

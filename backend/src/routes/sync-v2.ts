@@ -24,6 +24,7 @@ import { applyMutation } from "../sync/apply";
 import type { ApplyMutationResult } from "../sync/apply";
 import { SyncError, isSyncErrorCode } from "../sync/errors";
 import { notifySyncChanged } from "../sync/notify";
+import { announceSyncPushedNotes, type SyncPushedNoteChange } from "../services/syncPushWebAnnounce";
 import {
   assertSyncMutationAccess,
   listAuthorizedScopes,
@@ -727,6 +728,11 @@ app.post("/push", async (c) => {
   const results: Array<ApplyMutationResult & { error?: string }> = [];
   let applied = 0;
   let conflicts = 0;
+  const appliedNotes: SyncPushedNoteChange[] = [];
+  // Clients number a note's later mutations in this request from the version its earlier
+  // one should produce. Once an earlier one is not applied, that number can equal another
+  // device's newer version, so a later one must not be applied either (DCC-004).
+  const unappliedNotes = new Map<string, "conflict" | "retry">();
 
   for (const raw of body.mutations) {
     const parsed = validateMutation(raw);
@@ -777,6 +783,9 @@ app.post("/push", async (c) => {
           payload?: Record<string, unknown>;
         });
       }
+      const unapplied = parsed.entityType === "note" ? unappliedNotes.get(parsed.entityId) : undefined;
+      if (unapplied === "conflict") throw new SyncError("VERSION_CONFLICT", "同一批次中该笔记较早的修改已冲突");
+      if (unapplied === "retry") throw new Error("同一批次中该笔记较早的修改尚未写入，请稍后重试");
       const result = db.transaction(() => applyMutation(db, {
         userId,
         deviceId,
@@ -789,12 +798,19 @@ app.post("/push", async (c) => {
         workspaceId: scope.workspaceId,
       }))();
       results.push(result);
-      if (result.status === "applied") applied += 1;
+      if (parsed.entityType === "note" && result.status === "conflict") unappliedNotes.set(parsed.entityId, "conflict");
+      if (result.status === "applied") {
+        applied += 1;
+        if (parsed.entityType === "note") appliedNotes.push({ noteId: parsed.entityId, operation: parsed.operation });
+      }
     } catch (error: any) {
       const code = error instanceof SyncError && isSyncErrorCode(error.code)
         ? error.code
         : error instanceof EncryptedNotePayloadError ? "INVALID_PAYLOAD" : "SERVER_ERROR";
       if (code === "VERSION_CONFLICT") conflicts += 1;
+      if (parsed.entityType === "note" && unappliedNotes.get(parsed.entityId) !== "conflict") {
+        unappliedNotes.set(parsed.entityId, code === "VERSION_CONFLICT" ? "conflict" : "retry");
+      }
 
       // 冲突时直接回传服务端当前内容；远端实体未必会再次产生 Change Feed，
       // 只回版本号会让冲突中心永久拿不到服务器一侧正文。
@@ -864,6 +880,9 @@ app.post("/push", async (c) => {
   // 通知内容只有 sequence，数据仍以 Change Feed 为唯一来源。
   await finishSyncNoteDeletions(db);
   if (applied > 0) notifySyncChanged(db, userId, scope.scopeKey);
+  // Browsers have no Sync V2 cursor: give open Web/desktop editors the same
+  // committed-update signals (and Yjs state) as a REST save.
+  if (appliedNotes.length) announceSyncPushedNotes(db, userId, appliedNotes);
 
   return c.json({
     scopeKey: scope.scopeKey,

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import NoteIconBridge from "./NoteIconBridge";
 import EmbedPasswordBridge from "./EmbedPasswordBridge";
 import MediaExperienceBridge from "./MediaExperienceBridge";
@@ -14,6 +15,9 @@ import DeferredGlobalFeatureCentersMount from "./DeferredGlobalFeatureCentersMou
 import SiyuanRichTextCalloutBridge from "./SiyuanRichTextCalloutBridge";
 import InlineCommentBridge from "./InlineCommentBridge";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isHarmonyNative } from "@/lib/nativeImageSave";
+
+const HarmonyImageExportCenter = lazy(() => import("./NoteImageExportCenter"));
 
 /**
  * Global event and media bridges are loaded as a separate startup chunk.
@@ -37,6 +41,11 @@ export default function GlobalBridges() {
       <TwoFactorLoginChallengeCenter />
       <AndroidShareImportCenter />
       <DeferredGlobalFeatureCentersMount />
+      {isHarmonyNative() && (
+        <Suspense fallback={null}>
+          <HarmonyImageExportCenter />
+        </Suspense>
+      )}
       <SiyuanRichTextCalloutBridge />
       {!isMobileLocalMode() && <InlineCommentBridge />}
     </>

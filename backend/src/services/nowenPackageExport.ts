@@ -1,3 +1,4 @@
+import { aiMarkdownFrontmatter, readAiProvenance, readNoteAiProvenance } from "../lib/aiContentProvenance";
 import crypto from "crypto";
 import JSZip from "jszip";
 import path from "path";
@@ -733,9 +734,10 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
         `sourceId: ${JSON.stringify(note.id)}`,
         `created: ${formatSqlUtcAsIso(note.createdAt)}`,
         `updated: ${formatSqlUtcAsIso(note.updatedAt)}`,
+        aiMarkdownFrontmatter(readAiProvenance(humanMarkdown) || readNoteAiProvenance({ id: note.id, title: effectiveTitle, content: note.content || "" })).trimEnd(),
         "---",
         "",
-      ].join("\n");
+      ].filter((line, index, rows) => line !== "" || index === rows.length - 1).join("\n");
       zip.file(`${prefix}${fileName}`, frontmatter + humanMarkdown);
     }
   }

@@ -41,10 +41,6 @@ vi.mock("@/lib/api", () => ({
   testServerConnection: vi.fn(async () => ({ ok: true })),
 }));
 
-vi.mock("@/components/LanDiscoveryPanel", () => ({
-  default: () => null,
-}));
-
 async function renderLoginPage() {
   const host = document.createElement("div");
   document.body.appendChild(host);
