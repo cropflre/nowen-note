@@ -28,3 +28,25 @@ jobs:
           echo 'Gradle direct CDN HEAD probe'
           curl "${opts[@]}" --head https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip | head -n 30
           echo 'Verified pinned download sources.' >> "$GITHUB_STEP_SUMMARY"
+
+  pinned-ffmpeg-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux, arch: x64 }
+          - { os: windows-latest, platform: win32, arch: x64 }
+          - { os: macos-latest, platform: darwin, arch: arm64 }
+          - { os: ubuntu-latest, platform: darwin, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+      - name: Download and verify FFmpeg 6.1.1 exact platform binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node scripts/release-cloud-ffmpeg.mjs --prepare --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
