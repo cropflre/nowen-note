@@ -33,24 +33,28 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.5.4 更新亮点 · 2026-11-02
+## v1.5.5 更新亮点 · 2026-11-09
 
-**AI 写作、Markdown 折叠与离线体验升级。** 完整文案见 [v1.5.4 更新说明](./docs/releases/v1.5.4.md)；正式发布状态、下载平台与设备架构请以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 的实际记录为准。
+**Web、桌面和 Android 双向同步加强，桌面启动恢复与交互体验升级。** [完整更新说明](./docs/releases/v1.5.5.md) · [v1.5.5 正式 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.5)。
 
 > [!IMPORTANT]
-> 升级前请完整备份数据库、附件及部署配置，并确认备份可恢复。**回滚程序或 Docker 镜像不会自动回滚持久化数据。** 本次 macOS 包未做 Developer ID 签名和 Apple 公证；Windows GitHub 直接下载包也未提供代码签名。
+> 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** macOS 官方 GitHub 包未签名或公证，Windows GitHub EXE 也未提供代码签名。实时同步需要在线连接同一服务端和账号；弱网、离线和并发冲突仍需正确处理。
 
-- **AI 写作先预览再确认**：编辑器助手与笔记本 Agent 支持修改建议、笔记和任务草稿；可复用自定义 Skills，管理员可授权成员使用共享模型配置。
-- **长篇 Markdown 更容易导航**：新增章节折叠，搜索自动展开隐藏命中；改进 Live 图片预览和 Mermaid 兼容性。
-- **图片与附件更稳定**：优化缩放、拖动、双指手势和原始分辨率预览；上传响应丢失后可恢复已保存附件，缩短稳定分享链接。
-- **NAS 离线减少手动操作**：桌面完整版自动准备个人笔记和受管附件副本，支持离线编辑及重连回传；加强 Android 本地优先处理。
-- **导入与界面增强**：DOCX 文件大小上限提高到 1 GB；优化移动端 AI 面板、大字体卡片和并发剪藏，新增 Microsoft Store 下载入口。
+- **多端双向同步**：增强 Web / PC / Android 变更通知、打开中笔记自动更新，并补充三端回归；同时编辑保留两端正文，不再静默覆盖（#910）。
+- **知识树冲突恢复**：完善结构差异修复的预检、操作意图验证及跨设备首次引导状态。
+- **桌面稳定性**：改进首次下载进度、本机登录恢复、后端启动失败重试及 Lite 启动。
+- **UI 动效与编辑**：统一动效设计系统，修复宽窄窗口布局、手机分享弹窗、Word 粘贴图片与 Markdown 换行。
+- **权限与兼容**：完善 AI 生成内容标识、个人日记授权接口、鸿蒙导出和历史数据库迁移。
 
-**下一阶段 · v1.6.0 规划**：完整工作台（Workspace）、个人应用 Studio 与插件扩展平台 V3 **统一归入 v1.6.0，不属于本次 v1.5.4 的新增交付**。请以实际验收与正式版本为准。
+**v1.6.0 规划边界**：完整 Workspace、个人应用 Studio 和扩展平台 V3 不作为 v1.5.5 本次交付。实际安装包以 Release 附件为准，商店渠道独立维护。
 
-查看 [完整更新日志](./CHANGELOG.md) · [官网版本说明](https://nowen.cn/#/note/changelog) · [下载中心](https://nowen.cn/#/note/download)。
+[官网更新日志](https://nowen.cn/#/note/changelog) · [下载中心](https://nowen.cn/#/note/download) · [完整更新日志](./CHANGELOG.md)
 
-## 上一正式版 v1.5.3
+## 上一正式版 · v1.5.4
+
+v1.5.4 于 2026-11-02 发布，包含 AI 修改审核、Markdown 章节折叠、附件恢复与桌面 NAS 离线体验增强。[历史更新说明](./docs/releases/v1.5.4.md)。
+
+## 历史正式版 · v1.5.3
 
 v1.5.3 于 2026-10-23 公开发布，改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。详情见 [v1.5.3 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)。
 
