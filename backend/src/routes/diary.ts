@@ -1089,8 +1089,12 @@ async function sweepOrphanDiaryImages(): Promise<number> {
   }
 }
 
-// 启动后延后 30 秒跑第一次（避开服务刚起来时的拥塞），之后每 6 小时一次
-setTimeout(() => void sweepOrphanDiaryImages(), 30_000);
-setInterval(() => void sweepOrphanDiaryImages(), 6 * 60 * 60 * 1000);
+// 启动后延后 30 秒跑第一次（避开服务刚起来时的拥塞），之后每 6 小时一次。
+// 后台清理任务不是进程存活条件：不阻止测试/CLI 在业务结束后正常退出。
+// 正常运行的服务仍由 HTTP/WebSocket 等活动句柄保持存活，定时清理照常执行。
+const initialOrphanSweepTimer = setTimeout(() => void sweepOrphanDiaryImages(), 30_000);
+initialOrphanSweepTimer.unref();
+const periodicOrphanSweepTimer = setInterval(() => void sweepOrphanDiaryImages(), 6 * 60 * 60 * 1000);
+periodicOrphanSweepTimer.unref();
 
 export default diary;
