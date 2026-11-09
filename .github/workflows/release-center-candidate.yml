@@ -160,6 +160,7 @@ jobs:
           APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
+          GH_TOKEN: ${{ github.token }}
           NOWEN_MAC_ARCH: x64
           TARGET_ARCH: x64
           npm_config_target_arch: x64
@@ -181,6 +182,7 @@ jobs:
           APPLE_ID: ${{ inputs.mac_signing && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ inputs.mac_signing && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ inputs.mac_signing && secrets.APPLE_TEAM_ID || '' }}
+          GH_TOKEN: ${{ github.token }}
           NOWEN_MAC_ARCH: arm64
           TARGET_ARCH: arm64
           npm_config_target_arch: arm64
