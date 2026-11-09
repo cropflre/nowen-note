@@ -162,6 +162,16 @@ test('explicit unsigned Mac distribution is version-scoped and still rejects mis
  }
  const workflow=await readFile(new URL('../../.github/workflows/release-publish.yml',import.meta.url),'utf8');
  assert.ok(workflow.includes('RC_UNSIGNED_MACOS_VERSION: ${{ vars.NOWEN_RELEASE_UNSIGNED_MACOS_VERSION }}'));
+ // New release builds use explicit unsigned metadata, requiring no per-version
+ // configuration while still rejecting wrong source hashes and file inventories.
+ const newProof={...proof,distribution:'unsigned'};
+ await writeFile(file,JSON.stringify(newProof));
+ await verifyMacProof(manifest,directory);
+ await writeFile(file,JSON.stringify({...newProof,files:[{...files[0],sha256:'f'.repeat(64)}]}));
+ await assert.rejects(verifyMacProof(manifest,directory),/签名与公证|未签名包/);
+ const buildWorkflow=await readFile(new URL('../../.github/workflows/release-build.yml',import.meta.url),'utf8');
+ assert.match(buildWorkflow,/mac_signing:\s+false/);
+ assert.doesNotMatch(buildWorkflow,/NOWEN_RELEASE_MAC_SIGNING/);
 });
 
 import { compareVersions } from '../lib/release-cloud-contract.mjs';
