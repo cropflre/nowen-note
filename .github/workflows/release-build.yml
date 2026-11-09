@@ -150,11 +150,12 @@ jobs:
       - name: Prepare source and build image without pushing
         env:
           RC_ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
           RC_VERSION: ${{ inputs.version }}
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: |
           node scripts/release-cloud-ci.mjs prepare
-          docker buildx build --platform "linux/$RC_ARCH" --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
+          docker buildx build --platform "linux/$RC_ARCH" --secret id=github_token,env=GH_TOKEN --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
           node scripts/release-cloud-ci.mjs docker-stage
       - uses: actions/upload-artifact@v4
         with:
