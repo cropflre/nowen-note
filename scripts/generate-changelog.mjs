@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { validateInAppChangelog } from "./verify-in-app-changelog.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,8 +101,8 @@ function printHelp() {
       --write           写入 CHANGELOG.md
       --section         输出本版本 Markdown 片段
       --sync-readme     保持 README 更新日志区块为精简入口
-      --emit-json       更新 frontend/public/changelog.json
-      --json-limit N    JSON 保留版本数（默认 10）
+      --emit-json       从已审核的 docs/releases/in-app-changelog.json 生成客户端日志
+      --json-limit N    客户端 JSON 保留版本数（默认 10）
       --readme-limit N  兼容参数；README 不再嵌入完整版本记录
       --dry-run         仅打印，不写文件
   -h, --help            显示帮助`);
@@ -282,12 +283,15 @@ function compactReadme(readmePath) {
   return true;
 }
 
-function emitJson(entries, limit) {
-  const outputPath = path.join(REPO_ROOT, "frontend", "public", "changelog.json");
-  const output = {
-    generatedAt: new Date().toISOString(),
-    entries: entries.slice(0, limit).map(({ version, date, body }) => ({ version, date, body })),
-  };
+function emitJson(_parsedCommitLog, limit) {
+  // The UI must present reviewed user-facing release notes, NOT raw git
+  // commits (which also include experimental features and internal hashes).
+  const sourcePath = path.join(REPO_ROOT, "docs/releases/in-app-changelog.json");
+  const source = JSON.parse(fs.readFileSync(sourcePath, "utf-8"));
+  const version = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf-8")).version;
+  validateInAppChangelog(source, version);
+  const outputPath = path.join(REPO_ROOT, "frontend/public/changelog.json");
+  const output = { generatedAt: source.generatedAt, entries: source.entries.slice(0, limit) };
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`, "utf-8");
 }
