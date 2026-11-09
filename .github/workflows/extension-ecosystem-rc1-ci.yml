@@ -30,6 +30,9 @@ jobs:
   rc1-security:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Security tests do not package FFmpeg. Avoid the flaky upstream asset CDN.
+    env:
+      FFMPEG_BIN: /usr/bin/ffmpeg
     steps:
       - name: Checkout
         uses: actions/checkout@v4
