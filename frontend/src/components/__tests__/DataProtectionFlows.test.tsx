@@ -4,9 +4,10 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import BackupCenter from "../dataManagement/BackupCenter";
 import DataTransferCenter from "../dataManagement/DataTransferCenter";
 import zh from "@/i18n/locales/zh-CN.json";
+import { zhCNMigrationTranslations } from "@/i18n/migrationTranslations";
 
 const mocks = vi.hoisted(() => ({ status: vi.fn(), list: vi.fn(), run: vi.fn(), create: vi.fn(), setAuto: vi.fn(), config: vi.fn(), upload: vi.fn(), remoteList: vi.fn(), remoteImport: vi.fn(), restore: vi.fn(), desktop: false, serverUrl: "" }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key.split(".").reduce((value: any, part) => value?.[part], zh) || key }) }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => (key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown> | undefined)?.[part], { ...zh, ...zhCNMigrationTranslations }) as string | undefined) || key }) }));
 vi.mock("@/lib/api", () => ({ getServerUrl: () => mocks.serverUrl, api: { getMe: async () => ({ role: "admin" }), backup: { status: mocks.status, list: mocks.list, create: mocks.create, setAuto: mocks.setAuto, restore: mocks.restore } }, withSudo: async (action: (token: string) => Promise<unknown>) => ({ result: await action("sudo"), sudoToken: "sudo" }) }));
 vi.mock("@/lib/desktopBridge", () => ({ isDesktop: () => mocks.desktop }));
 vi.mock("@/lib/fullBackupJobClient", () => ({ runFullBackupJob: mocks.run }));
@@ -41,7 +42,7 @@ describe("数据管理目标入口", () => {
     await mount();
     const locationRow = Array.from(host.querySelectorAll("dt")).find((node) => node.textContent === "备份位置")!;
     expect(locationRow.nextElementSibling?.textContent).toBe(location);
-    for (const action of ["立即备份", "恢复数据", "导入数据", "导出数据"]) expect(button(action)).toBeDefined();
+    for (const action of ["立即备份", "恢复数据", "导入与迁移", "导出数据"]) expect(button(action)).toBeDefined();
     await click("恢复数据");
     const restoreRow = Array.from(host.querySelectorAll("button")).find((node) => node.textContent === "恢复数据" && node.parentElement?.textContent?.includes("完整备份"))!;
     expect(restoreRow.parentElement?.textContent).toContain(location);

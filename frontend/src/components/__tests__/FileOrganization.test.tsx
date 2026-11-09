@@ -8,6 +8,7 @@ import AttachmentDetailDrawer from "../attachmentDetail/AttachmentDetailDrawer";
 const mocks = vi.hoisted(() => ({ list: vi.fn(), move: vi.fn(), get: vi.fn(), access: vi.fn(), copied: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   api: { attachmentFolders: { list: mocks.list }, files: { move: mocks.move, get: mocks.get, setExternalAccess: mocks.access } },
+  getCurrentWorkspace: () => "personal",
   resolveAttachmentUrl: (url: string) => `http://localhost${url}`,
 }));
 vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: {} }) }));
