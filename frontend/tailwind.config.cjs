@@ -88,9 +88,34 @@ module.exports = {
         button: "var(--radius-button)",
         input: "var(--radius-input)",
       },
+      // Motion Design System：取值来自 src/motion.css 的 CSS 变量（JS 侧镜像在 src/lib/motion.ts）。
+      // tailwindcss-animate 会把 duration-* / ease-* 同步到 animation-duration / timing-function。
+      transitionDuration: {
+        instant: "var(--motion-duration-instant)",
+        fast: "var(--motion-duration-fast)",
+        normal: "var(--motion-duration-normal)",
+        slow: "var(--motion-duration-slow)",
+      },
+      transitionTimingFunction: {
+        standard: "var(--motion-ease-standard)",
+        enter: "var(--motion-ease-enter)",
+        exit: "var(--motion-ease-exit)",
+      },
+      transitionProperty: {
+        // 交互反馈只过渡颜色、透明度、阴影与 transform，不触发布局。
+        interactive: "color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform",
+      },
+      boxShadow: {
+        popover: "var(--shadow-popover)",
+        dialog: "var(--shadow-dialog)",
+      },
       animation: {
         "fade-in": "fadeIn 0.2s ease-out",
         "slide-in": "slideIn 0.3s ease-out",
+        "nowen-fade-in": "nowen-fade-in var(--motion-duration-normal) var(--motion-ease-standard)",
+        // backwards：配合 animation-delay 做错峰时，等待期间保持起始帧，结束后不残留样式。
+        "nowen-rise-in": "nowen-rise-in var(--motion-duration-normal) var(--motion-ease-enter) backwards",
+        "nowen-tree-reveal": "nowen-tree-reveal var(--motion-duration-fast) var(--motion-ease-enter)",
       },
       keyframes: {
         fadeIn: {
@@ -100,6 +125,18 @@ module.exports = {
         slideIn: {
           "0%": { transform: "translateX(-10px)", opacity: "0" },
           "100%": { transform: "translateX(0)", opacity: "1" },
+        },
+        "nowen-fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "nowen-rise-in": {
+          from: { opacity: "0", transform: "translateY(4px)" },
+          to: { opacity: "1", transform: "none" },
+        },
+        "nowen-tree-reveal": {
+          from: { opacity: "0", transform: "translateY(-3px)" },
+          to: { opacity: "1", transform: "none" },
         },
       },
     },

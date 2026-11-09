@@ -1,0 +1,77 @@
+/*
+ * Nowen Motion Design System — CSS tokens.
+ *
+ * One rhythm for every surface. `src/lib/motion.ts` mirrors these values for
+ * framer-motion; Tailwind exposes them as `duration-*`, `ease-*`,
+ * `transition-interactive`, `shadow-popover` / `shadow-dialog` and the
+ * `animate-nowen-*` utilities (see tailwind.config.cjs).
+ *
+ * Rules
+ * - High-frequency feedback (hover / press / focus) only animates color,
+ *   opacity and transform. Never width / height / top / left.
+ * - Entering uses the "enter" curve (quick start, soft landing). Exiting is
+ *   shorter and uses the "exit" curve, so dismissed UI never lingers in front
+ *   of the next action.
+ * - Durations are starting points:
+ *     instant  80ms  press-down, tiny state flips
+ *     fast    140ms  hover, tooltip, small popovers, icon swaps
+ *     normal  200ms  menus, dialogs, panels
+ *     slow    300ms  large layout changes (sidebar, drawers)
+ * - prefers-reduced-motion keeps every state change but removes travel,
+ *   scale and duration (index.css also clamps all CSS animation durations).
+ */
+:root {
+  --motion-duration-instant: 80ms;
+  --motion-duration-fast: 140ms;
+  --motion-duration-normal: 200ms;
+  --motion-duration-slow: 300ms;
+
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  --motion-scale-press: 0.97;
+
+  /* Subtle depth: two-layer shadows read as elevation without looking heavy. */
+  --shadow-popover: 0 10px 30px -10px rgba(15, 23, 42, 0.22), 0 2px 8px -2px rgba(15, 23, 42, 0.1);
+  --shadow-dialog: 0 28px 70px -20px rgba(15, 23, 42, 0.35), 0 6px 18px -6px rgba(15, 23, 42, 0.14);
+}
+
+.dark {
+  --shadow-popover: 0 12px 32px -10px rgba(0, 0, 0, 0.62), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow-dialog: 0 30px 80px -20px rgba(0, 0, 0, 0.7), 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-instant: 0ms;
+    --motion-duration-fast: 0ms;
+    --motion-duration-normal: 0ms;
+    --motion-duration-slow: 0ms;
+    --motion-scale-press: 1;
+  }
+
+  /* Staggered entrances use animation-delay + backwards fill; without this the
+   * global duration clamp would still hide items for the length of the delay. */
+  .animate-nowen-fade-in,
+  .animate-nowen-rise-in,
+  .animate-nowen-tree-reveal {
+    animation: none !important;
+  }
+}
+
+/*
+ * Pressed feedback for buttons that are not built from <Button>. Opt-in only:
+ * a global :active rule would also scale list rows, tree nodes and editor
+ * blocks that happen to be buttons.
+ */
+.nowen-press {
+  transition-property: color, background-color, border-color, opacity, box-shadow, transform;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+.nowen-press:not(:disabled):active {
+  transform: scale(var(--motion-scale-press));
+  transition-duration: var(--motion-duration-instant);
+}

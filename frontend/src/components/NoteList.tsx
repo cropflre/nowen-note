@@ -20,6 +20,7 @@ import { parseServerTime } from "@/lib/dateTime";
 import { noteLocalDayKey } from "@/lib/noteListTime";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
+import { MOTION_SPRING } from "@/lib/motion";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import CreateNoteMenu from "@/components/CreateNoteMenu";
@@ -1081,7 +1082,15 @@ export const NoteCard = React.memo(function NoteCard({
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
   showNoteTime, showDivider = false, notebookLabel, notebookPath, dragHint, titleOnly = false,
   sidebarTextStyle, rowHeight,
+  animateEnter = true, layoutDependency,
 }: {
+  /** 虚拟列表滚动时会反复挂载行，进入淡入会造成闪烁，虚拟行传 false。 */
+  animateEnter?: boolean;
+  /**
+   * 列表布局签名。传入后启用位置布局动画：插入 / 删除 / 置顶等重排时卡片沿弹簧滑到新位置；
+   * 签名不变的重渲染（自动保存、实时刷新）不做任何布局测量。
+   */
+  layoutDependency?: string;
   rowHeight?: number;
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1126,10 +1135,12 @@ export const NoteCard = React.memo(function NoteCard({
       // 仅做轻量淡入。早期版本用了 y:4 → y:0 的位移，会造成切换笔记本时
       // 整列卡片"先在面板底部出现再上移"的错觉（尤其当 list 项很少、
       // 列表内容贴近底部时尤为明显）。这里去掉 y 位移，让卡片就地淡入。
-      initial={{ opacity: 0 }}
+      initial={animateEnter ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.12, ease: "easeOut" }}
+      layout={layoutDependency !== undefined ? "position" : undefined}
+      layoutDependency={layoutDependency}
+      transition={{ duration: 0.12, ease: "easeOut", layout: MOTION_SPRING.layout }}
       onClick={onClick}
       onContextMenu={onContextMenu}
       // motion.div consumes onDragStart/onDragEnd as Framer Motion gesture
@@ -1138,7 +1149,8 @@ export const NoteCard = React.memo(function NoteCard({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       className={cn(
-        "relative flex flex-col w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-all group overflow-hidden",
+        // 只过渡颜色与阴影：transition-all 会把 framer 写入的 transform / opacity 再平滑一遍，布局动画会拖影。
+        "relative flex flex-col w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-[color,background-color,border-color,box-shadow] duration-fast ease-standard group overflow-hidden",
         isSelected
           ? "bg-accent-primary/10 border-accent-primary/40 shadow-sm"
           : isActive
@@ -1400,6 +1412,8 @@ export function VirtualNoteList({
                 if (el) noteCardRefs?.current.set(note.id, el);
                 else noteCardRefs?.current.delete(note.id);
               }}
+              // 滚动进入视窗的行是“复用的窗口”，不是新内容，不做进入淡入。
+              animateEnter={false}
               note={note}
               rowHeight={itemHeight}
               sidebarTextStyle={sidebarTextStyle}
@@ -1884,6 +1898,15 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       return cmp * dir || a.id.localeCompare(b.id);
     });
   }, [state.notes, sortPref.by, sortPref.dir, state.viewMode]);
+  // 非虚拟列表（≤100 条，与下方渲染分支阈值一致）的布局签名：只在插入 / 删除 / 重排时变化，
+  // 驱动卡片布局动画；虚拟列表不计算，避免大列表每次渲染拼接长字符串。
+  // 删除的卡片先原地淡出，退出完成时 tick +1：与 AnimatePresence 移除节点在同一次提交里，
+  // 其余卡片先测量旧位置再弹簧合拢（先淡出、再合拢），而不是淡出后瞬跳。
+  const [listExitSettleTick, setListExitSettleTick] = useState(0);
+  const noteOrderSignature = useMemo(
+    () => (sortedNotes.length > 100 ? "" : `${sortedNotes.map((note) => note.id).join("|")}#${listExitSettleTick}`),
+    [sortedNotes, listExitSettleTick],
+  );
 
   const displayedDirectNoteCount = currentFolderOnly
     ? sortedNotes.length
@@ -4007,11 +4030,18 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         ) : (
         <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:w-full">
         <div className="min-w-0 w-full px-2 pb-2 space-y-1">
-          <AnimatePresence>
+          {/* 切换笔记本 / 视图 / 搜索 / 排序时 fetchNotes 会先清空列表：此时换一个 AnimatePresence
+              实例，旧卡片立即卸载、新卡片到达后淡入，不会出现新旧两组卡片叠在一起再滑动的过渡。
+              列表非空期间的插入 / 删除 / 重排仍在同一实例内走淡出与布局动画。 */}
+          <AnimatePresence
+            key={sortedNotes.length === 0 ? "empty" : "list"}
+            onExitComplete={() => setListExitSettleTick((tick) => tick + 1)}
+          >
             {sortedNotes.map((note, noteIndex) => (
               <NoteCard
                 sidebarTextStyle={sidebarTextStyle}
                 key={note.id}
+                layoutDependency={noteOrderSignature}
                 cardRef={(el) => {
                   if (el) noteCardRefs.current.set(note.id, el);
                   else noteCardRefs.current.delete(note.id);

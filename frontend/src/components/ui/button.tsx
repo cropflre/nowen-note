@@ -3,16 +3,18 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
+// 交互反馈：hover 只换色，按下时轻微缩放（仅在用户未要求减少动态效果时）。
+// 过渡属性限定为颜色 / 阴影 / 透明度 / transform，避免触发布局。
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-interactive duration-fast ease-standard focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-accent-primary text-tx-inverse hover:bg-accent-primary/90",
-        destructive: "bg-accent-danger text-tx-primary hover:bg-accent-danger/90",
-        outline: "border border-app-border bg-transparent hover:bg-app-hover text-tx-primary",
-        secondary: "bg-app-elevated text-tx-primary hover:bg-app-hover",
-        ghost: "hover:bg-app-hover text-tx-secondary hover:text-tx-primary",
+        default: "bg-accent-primary text-tx-inverse hover:bg-accent-primary/90 motion-safe:active:scale-[0.97]",
+        destructive: "bg-accent-danger text-tx-primary hover:bg-accent-danger/90 motion-safe:active:scale-[0.97]",
+        outline: "border border-app-border bg-transparent hover:bg-app-hover text-tx-primary motion-safe:active:scale-[0.97]",
+        secondary: "bg-app-elevated text-tx-primary hover:bg-app-hover motion-safe:active:scale-[0.97]",
+        ghost: "hover:bg-app-hover text-tx-secondary hover:text-tx-primary motion-safe:active:scale-[0.97]",
         link: "text-accent-primary underline-offset-4 hover:underline",
       },
       size: {

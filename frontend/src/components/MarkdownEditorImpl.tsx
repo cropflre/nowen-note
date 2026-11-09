@@ -2638,7 +2638,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         )}
         {/* Preview area */}
         {(viewMode === "preview" || viewMode === "split") && (
+          // Preview fades in when entering preview / split; returning to editing stays instant.
           <div className={cn(
+            "animate-nowen-fade-in",
             viewMode === "split" ? "min-h-0 overflow-auto px-4 md:px-8 shrink-0" : "h-full"
           )} style={viewMode === "split" ? { width: `${100 - sourcePaneWidthPercent}%` } : undefined}>
             <MarkdownPreview

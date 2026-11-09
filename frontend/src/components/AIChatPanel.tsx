@@ -1278,7 +1278,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 <div
                   key={message.id}
                   className={cn(
-                    "group/message flex w-full min-w-0 max-w-full gap-3",
+                    // 新消息上浮淡入；流式输出期间 key 不变，内容增长不会重播动画。
+                    "animate-nowen-rise-in group/message flex w-full min-w-0 max-w-full gap-3",
                     isUser ? "flex-row-reverse pl-12" : "pr-4",
                   )}
                 >

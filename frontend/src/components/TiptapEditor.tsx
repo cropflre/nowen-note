@@ -831,7 +831,8 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
       disabled={disabled}
       title={title}
       className={cn(
-        compact ? "shrink-0 p-1 rounded-md transition-colors" : "shrink-0 p-1.5 rounded-md transition-colors",
+        // nowen-press：按下轻微缩放；onMouseDown 已 preventDefault，不影响编辑器选区。
+        compact ? "shrink-0 p-1 rounded-md nowen-press" : "shrink-0 p-1.5 rounded-md nowen-press",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
