@@ -1,5 +1,5 @@
 name: v1.5.5 Publish Existing Verified Build
-run-name: Publish v1.5.5 from successful build 42576386477
+run-name: Resume v1.5.5 draft after verified Docker publication
 
 on:
   push:
