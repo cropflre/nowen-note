@@ -49,6 +49,13 @@ jobs:
       - name: Verify Host API generated contract
         run: node scripts/generate-plugin-host-api.mjs --check
 
+      - name: Ensure system FFmpeg for CI-only backend security tests
+        run: |
+          if [ ! -x /usr/bin/ffmpeg ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          test -x /usr/bin/ffmpeg
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
