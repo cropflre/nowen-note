@@ -1,7 +1,7 @@
 appname               = nowen-note
 version               = {{VERSION}}
 display_name          = 弄文笔记
-desc                  = `<h2>弄文笔记（Nowen Note）v{{VERSION}}</h2><p>开源、自托管的 NAS 笔记与个人知识管理工具，提供 Markdown 编辑、知识树、文件管理、任务管理、AI 辅助和 Web / PC / Android 多端同步。所有笔记及附件保存在自己管理的设备上。</p><p><b>v1.5.5 更新：</b>优化双向同步与知识树冲突处理、桌面恢复和交互动效；修复应用内更新日志缺少 v1.5.4 / v1.5.5、显示大量英文提交记录的问题。</p><p><b>升级提示：</b>请先备份数据库、附件及部署配置，确认数据目录挂载正确；回滚镜像不会自动回滚数据库。多端实时同步需要设备在线并连接同一服务端。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note/releases/tag/v1.5.5">版本更新说明</a></p>`
+desc                  = `<h2>弄文笔记（Nowen Note）v{{VERSION}}</h2><p>开源、自托管的 NAS 笔记与个人知识管理工具，提供 Markdown 编辑、知识树、文件管理、任务管理、AI 辅助和 Web / PC / Android 多端同步。所有笔记及附件保存在自己管理的设备上。</p><p><b>版本更新：</b>{{UPDATE_NOTES}}</p><p><b>升级提示：</b>请先备份数据库、附件及部署配置，确认数据目录挂载正确；回滚镜像不会自动回滚数据库。多端实时同步需要设备在线并连接同一服务端。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note/releases/tag/v1.5.5">版本更新说明</a></p>`
 arch                  = x86_64
 source                = thirdparty
 maintainer            = Nowen
