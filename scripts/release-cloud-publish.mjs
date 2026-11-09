@@ -37,9 +37,9 @@ export async function publishGitHub(manifest, api = githubAPI, execute = cmd) {
   // The integrity/provenance checks remain mandatory, but no Apple ID
   // signature or notarization is asserted for these GitHub downloads.
   const macWarning = manifest.targets?.includes('macos')
-    ? '\\n\\n⚠️ macOS 安装包未进行 Apple Developer ID 签名或公证，可能受到 Gatekeeper 拦截；请仅通过官方发布页面获取安装包。'
+    ? '\n\n⚠️ macOS 安装包未进行 Apple Developer ID 签名或公证，可能受到 Gatekeeper 拦截；请仅通过官方发布页面获取安装包。'
     : '';
-  const body = `${marker}\\n${manifest.notes || ""}\\n\\n源码：${manifest.commit_sha}\\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\\n\\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。${macWarning}`;
+  const body = `${marker}\n${manifest.notes || ""}\n\n源码：${manifest.commit_sha}\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\n\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。${macWarning}`;
   if (!release) release = await api('releases', 'POST', { tag_name: tag, target_commitish: manifest.commit_sha, name: tag, body, draft: true, prerelease: false });
   const listAssets = async () => {
     const assets = [];
