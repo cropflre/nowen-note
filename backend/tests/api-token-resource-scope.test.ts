@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test, { before, beforeEach } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 import { Hono } from "hono";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-token-scope-"));
@@ -11,6 +11,15 @@ process.env.ELECTRON_USER_DATA = tmpDir;
 
 let db: any;
 let enforceApiTokenAccess: any;
+
+// The diary route is imported by a security regression below. Its orphan-media
+// sweeper must not keep a completed test worker alive; always close the test DB
+// and remove only the temp directory created by this fixture.
+after(async () => {
+  const { closeDb } = await import("../src/db/schema");
+  closeDb();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 test("PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes", async () => {
   const { default: reminders } = await import("../src/routes/task-reminders");
