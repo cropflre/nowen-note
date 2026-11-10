@@ -3,7 +3,7 @@ name: v1.5.4 Release Freeze CI
 # Tests and build-only smoke. Never creates tags, drafts, releases, or registry tags.
 on:
   pull_request:
-    branches: [main, release/v1.5.4]
+    branches: [release/v1.5.4]
   workflow_dispatch:
 
 permissions:

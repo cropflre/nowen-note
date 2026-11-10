@@ -37,8 +37,9 @@ jobs:
           RC_ANDROID_SIGNING_READY: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' }}
           NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
           RC_IOS_SIGNING_READY: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' }}
-          RC_MAC_SIGNING_ENABLED: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
-          RC_MAC_SIGNING_READY: ${{ secrets.MAC_CSC_LINK != '' && secrets.MAC_CSC_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+          # Official GitHub macOS distribution is always unsigned/unnotarized.
+          RC_MAC_SIGNING_ENABLED: 'false'
+          RC_MAC_SIGNING_READY: 'false'
           FNPACK_URL: ${{ vars.FNPACK_URL }}
           FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
@@ -55,13 +56,7 @@ jobs:
       commit_sha: ${{ inputs.commit_sha }}
       version: ${{ inputs.version }}
       platforms: ${{ needs.plan.outputs.platforms }}
-      mac_signing: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
-    secrets:
-      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      mac_signing: false
   ios:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.targets), 'ios')
@@ -150,11 +145,12 @@ jobs:
       - name: Prepare source and build image without pushing
         env:
           RC_ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
           RC_VERSION: ${{ inputs.version }}
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: |
           node scripts/release-cloud-ci.mjs prepare
-          docker buildx build --platform "linux/$RC_ARCH" --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
+          docker buildx build --platform "linux/$RC_ARCH" --secret id=github_token,env=GH_TOKEN --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
           node scripts/release-cloud-ci.mjs docker-stage
       - uses: actions/upload-artifact@v4
         with:

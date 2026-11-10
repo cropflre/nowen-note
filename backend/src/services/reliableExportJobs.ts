@@ -1,3 +1,4 @@
+import { aiMarkdownFrontmatter, readAiProvenance } from "../lib/aiContentProvenance";
 import archiver from "archiver";
 import crypto from "crypto";
 import fs from "fs";
@@ -443,9 +444,10 @@ async function buildArchive(
       `contentFormat: "${note.contentFormat || "tiptap-json"}"`,
       `created: ${note.createdAt}`,
       `updated: ${note.updatedAt}`,
+      aiMarkdownFrontmatter(readAiProvenance(note.markdown)).trimEnd(),
       "---",
       "",
-    ].join("\n");
+    ].filter((line, index, rows) => line !== "" || index === rows.length - 1).join("\n");
     archive.append(frontmatter + markdown, { name: `${zipPrefix}${noteName}.md` });
     job.current = index + 1;
     job.message = `正在打包：${note.title}`;

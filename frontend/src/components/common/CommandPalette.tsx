@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
 import {
   BrainCircuit,
   Columns2,
@@ -29,6 +30,7 @@ import type { SearchResult } from "@/types";
 import SearchCenter from "@/components/SearchCenter";
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
 import { pluginApi } from "@/lib/pluginApi";
+import { dialogMotion, overlayMotion, staggerDelay } from "@/lib/motion";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -292,9 +294,18 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" aria-hidden />
-        <div
-          className="relative w-full max-w-[640px] overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-2xl"
+        {/* 面板由懒加载壳在关闭时直接卸载（见 LazyCommandPaletteRuntime），因此只有进入动画：
+            关闭保持即时，不拖慢“呼出 → 执行 → 消失”的节奏。 */}
+        <motion.div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+          aria-hidden
+          initial={overlayMotion.initial}
+          animate={overlayMotion.animate}
+        />
+        <motion.div
+          className="relative w-full max-w-[640px] overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-dialog"
+          initial={dialogMotion.initial}
+          animate={dialogMotion.animate}
           role="dialog"
           aria-modal="true"
           aria-label="全局搜索与工作台命令"
@@ -356,7 +367,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
             )}
 
             {showEmptySearch && visibleCommands.length === 0 && (
-              <div className="px-4 py-6 text-center text-sm text-tx-tertiary">
+              <div className="animate-nowen-fade-in px-4 py-6 text-center text-sm text-tx-tertiary">
                 未找到与 &ldquo;{query}&rdquo; 匹配的知识内容或命令
               </div>
             )}
@@ -377,8 +388,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   type="button"
                   onMouseEnter={() => setActiveIdx(index)}
                   onClick={() => void jumpTo(result)}
+                  // 新结果错峰浮现（最多 8 级，约 160ms 内全部开始）；同一条结果跨查询保留时不重播。
+                  style={{ animationDelay: `${staggerDelay(index)}s` }}
                   className={[
-                    "flex w-full items-start gap-3 px-4 py-2 text-left transition-colors",
+                    "animate-nowen-rise-in flex w-full items-start gap-3 px-4 py-2 text-left transition-colors",
                     active ? "bg-app-hover" : "hover:bg-app-hover/60",
                   ].join(" ")}
                 >
@@ -406,7 +419,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               );
             })}
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }, [

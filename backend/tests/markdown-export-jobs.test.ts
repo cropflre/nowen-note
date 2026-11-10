@@ -1,3 +1,4 @@
+import { createAiProvenance, markAiMarkdown } from "../src/lib/aiContentProvenance";
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
@@ -71,7 +72,7 @@ test("markdown export preserves the tree, attachments and duplicate note titles"
         createdAt: "2026-07-11 10:00:00",
         updatedAt: "2026-07-11 10:00:00",
         contentFormat: "markdown",
-        markdown: "[附件](/api/attachments/att-1?download=0)",
+        markdown: markAiMarkdown("[附件](/api/attachments/att-1?download=0)", createAiProvenance("zip-generation")),
       },
       {
         id: "note-2",
@@ -112,6 +113,12 @@ test("markdown export preserves the tree, attachments and duplicate note titles"
     await zip.file("笔记本/同名笔记.md")!.async("string"),
     /\[附件\]\(\.\/assets\/att-att-1-附件\.bin\)/,
   );
+  const generated = await zip.file("笔记本/同名笔记.md")!.async("string");
+  assert.ok(generated.startsWith("---\n"));
+  assert.ok(generated.includes('AIGC:\n  Label: "1"'));
+  assert.ok(generated.includes('  ProduceID: "zip-generation"'));
+  assert.ok(generated.includes("AI 生成内容"));
+  assert.ok(!(await zip.file("笔记本/同名笔记 (2).md")!.async("string")).includes("AIGC:"));
   const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
   assert.equal(manifest.format, "nowen-package");
   assert.equal(manifest.formatVersion, 2);

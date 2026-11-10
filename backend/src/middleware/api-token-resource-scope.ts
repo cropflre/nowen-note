@@ -204,9 +204,14 @@ function listGrantedNotebookCatalog(ctx: TokenAccessContext): any[] {
   });
 }
 
-function requiredScope(pathname: string, method: string): string | null {
+function requiredScope(pathname: string, method: string, restricted: boolean): string | null {
+  // Preserve legacy unrestricted PAT access to diary routes.
+  if (restricted && method === "POST" && ["/api/diary", "/api/diary/attachments"].includes(pathname)) {
+    return "diary:publish";
+  }
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
+  if (pathname.startsWith("/api/onboarding/")) return "__login_only__";
   if (pathname.startsWith("/api/tokens")) return "__login_only__";
   if (pathname.startsWith("/api/task-digest")) return "__login_only__";
   if (pathname === "/api/automations" || pathname.startsWith("/api/automations/")) return write ? "automations:write" : "automations:read";
@@ -1028,7 +1033,7 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
       return;
     }
 
-    const required = requiredScope(c.req.path, c.req.method.toUpperCase());
+    const required = requiredScope(c.req.path, c.req.method.toUpperCase(), ctx.resourceMode === "restricted");
     if (required === "__login_only__") {
       throw new ApiTokenAccessError("此操作需要用户登录，API Token 无权访问", "API_TOKEN_SELF_MANAGEMENT_DENIED");
     }

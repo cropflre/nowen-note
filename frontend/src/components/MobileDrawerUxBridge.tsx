@@ -189,9 +189,7 @@ export default function MobileDrawerUxBridge() {
    * the Web layout menu appear unresponsive.
    */
   useLayoutEffect(() => {
-    // All Notes keeps its desktop list visible, but a phone must still be able
-    // to open a note from that list. Its rail entry explicitly opens the list.
-    const functionalList = state.viewMode !== "all" && usesFunctionalNoteList(state.viewMode);
+    const functionalList = usesFunctionalNoteList(state.viewMode);
 
     // The phone workspace is list-first: result-set views always need their
     // list, and an ordinary notes view without an active note must never land

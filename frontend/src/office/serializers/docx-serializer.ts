@@ -575,10 +575,19 @@ ${documentRels.join("\n")}
   <Application>Nowen Note</Application>
 </Properties>`;
 
+  const aiProvenance = ir.meta?.aiProvenance;
+  const customXml = aiProvenance ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="AIGC"><vt:lpwstr>${escXml(JSON.stringify(aiProvenance))}</vt:lpwstr></property>
+</Properties>` : null;
+
   // ---------- 8. 打包 ----------
   const zip = new JSZip();
-  zip.file("[Content_Types].xml", contentTypesXml);
-  zip.file("_rels/.rels", packageRelsXml);
+  zip.file("[Content_Types].xml", customXml ? contentTypesXml.replace("</Types>",
+    '<Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/></Types>') : contentTypesXml);
+  zip.file("_rels/.rels", customXml ? packageRelsXml.replace("</Relationships>",
+    '<Relationship Id="rIdAigc" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties" Target="docProps/custom.xml"/></Relationships>') : packageRelsXml);
+  if (customXml) zip.file("docProps/custom.xml", customXml);
   zip.file("word/document.xml", documentXml);
   zip.file("word/_rels/document.xml.rels", documentRelsXml);
   zip.file("word/styles.xml", stylesXml);

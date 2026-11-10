@@ -1,3 +1,4 @@
+import { createAiProvenance, markAiMarkdown } from "../aiContentProvenance";
 // @vitest-environment jsdom
 import JSZip from "jszip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -152,4 +153,22 @@ describe("task reports (#836)", () => {
     await expect(exportTaskReport("md", t, "deleted")).rejects.toThrow("unavailable");
     expect(mocks.save).not.toHaveBeenCalled();
   });
+});
+
+it("keeps one AIGC declaration in Markdown and Excel reports containing generated tasks", async () => {
+  const provenance = createAiProvenance("task-generation");
+  const generated = [task("ai-task", { description: markAiMarkdown("真实任务描述", provenance) })];
+  const markdown = buildTaskMarkdown(generated, [], t);
+  expect(markdown).toContain('AIGC:\n  Label: "1"');
+  expect(markdown).toContain('  ProduceID: "task-generation"');
+  expect(markdown).toContain("AI 生成内容");
+  const blob = await buildTaskExcel(generated, [], t);
+  const bytes = await new Promise<ArrayBuffer>(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result as ArrayBuffer); reader.readAsArrayBuffer(blob); });
+  const zip = await JSZip.loadAsync(bytes);
+  const custom = new DOMParser().parseFromString(await zip.file("docProps/custom.xml")!.async("string"), "application/xml");
+  expect(JSON.parse(custom.querySelector('property[name="AIGC"]')!.textContent!)).toEqual(provenance);
+  const sheet = await zip.file("xl/worksheets/sheet1.xml")!.async("string");
+  expect(sheet).toContain("真实任务描述");
+  expect(sheet).toContain("AI 生成内容");
+  expect(sheet).not.toContain("nowen-aigc");
 });

@@ -237,7 +237,7 @@ export function verifyShareAccessToken(
 
 // ========== Sudo Token（管理员敏感操作二次验证）==========
 //
-// H2：管理员对破坏性极强的操作（删除用户、重置他人密码、factory-reset、角色变更、
+// H2：管理员对破坏性极强的操作（删除用户、factory-reset、角色变更、
 //     禁用其他管理员等）要求先输入当前密码换一张 sudo token，再用这张 token 调用该操作。
 //     这样即使 login token 被盗取（XSS / CSRF 拿到 header），攻击者也无法直接做这类操作。
 //

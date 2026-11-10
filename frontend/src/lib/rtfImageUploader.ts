@@ -6,11 +6,11 @@
 //      （只收字符串，不记 pos——pos 会随文档编辑/插入而失效）
 //   2. 并发小批量地把每个 dataUrl 转成 Blob → File，调用
 //      api.attachments.upload(noteId, file)
-//   3. 每上传成功一张，用 doc.descendants 找出**当前**文档里第一个
+//   3. 每上传成功一张，用 doc.descendants 找出**当前**文档里所有
 //      src === 此 dataUrl 的 image node，用 tr.setNodeMarkup 把 src 替换成
 //      服务端 URL；这样即使用户已经在编辑器里移动光标、敲字、滚动，也不会
 //      把替换事务打到错误位置上。
-//   4. 所有 dataUrl 结束后再回调 onDone(successCount, failCount)。
+//   4. 所有 dataUrl 结束后返回上传成功与失败数。
 //
 // 为什么要异步并发 + 每次即时 replace？
 //   - 42 张图 × 大文件，顺序上传要等很久，期间用户还能继续编辑；
@@ -76,26 +76,6 @@ function collectDataUrls(editor: Editor): string[] {
 }
 
 /**
- * 在编辑器当前文档里找出第一个 src === targetDataUrl 的 image node 位置。
- * 返回 { pos, node } 或 null。
- */
-function findImageByDataUrl(
-  editor: Editor,
-  targetDataUrl: string
-): { pos: number; node: PMNode } | null {
-  let hit: { pos: number; node: PMNode } | null = null;
-  editor.state.doc.descendants((node: PMNode, pos: number) => {
-    if (hit) return false;
-    if (node.type.name === "image" && node.attrs?.src === targetDataUrl) {
-      hit = { pos, node };
-      return false;
-    }
-    return true;
-  });
-  return hit;
-}
-
-/**
  * 把编辑器里当前所有 data:image/* 图片异步上传到 /api/attachments，
  * 成功一张就把相应 image node 的 src 原地替换成服务端 URL。
  *
@@ -108,13 +88,17 @@ export async function replaceDataUrlImagesWithAttachments(
   noteId: string,
   opts?: {
     concurrency?: number;
+    isCurrent?: () => boolean;
     onProgress?: (done: number, total: number) => void;
   }
 ): Promise<{ total: number; uploaded: number; failed: number }> {
+  const isCurrent = () => !editor.isDestroyed && (opts?.isCurrent?.() ?? true);
+  if (!isCurrent()) return { total: 0, uploaded: 0, failed: 0 };
   const concurrency = Math.max(1, opts?.concurrency ?? DEFAULT_CONCURRENCY);
   const dataUrls = collectDataUrls(editor);
   const total = dataUrls.length;
   if (total === 0) return { total: 0, uploaded: 0, failed: 0 };
+  opts?.onProgress?.(0, total);
 
   let uploaded = 0;
   let failed = 0;
@@ -123,34 +107,29 @@ export async function replaceDataUrlImagesWithAttachments(
 
   const worker = async () => {
     while (true) {
+      if (!isCurrent()) return;
       const idx = cursor++;
       if (idx >= total) return;
       const dataUrl = dataUrls[idx];
       try {
-        // 编辑器可能已卸载，避免对 destroyed editor dispatch
-        if (editor.isDestroyed) return;
         const file = dataUrlToFile(dataUrl, idx);
         if (!file) {
           failed += 1;
           continue;
         }
         const res = await api.attachments.upload(noteId, file);
-        if (editor.isDestroyed) return;
-        const hit = findImageByDataUrl(editor, dataUrl);
-        if (!hit) {
-          // 用户已经把这张图删了，静默跳过
-          uploaded += 1;
-          continue;
-        }
-        const { pos, node } = hit;
-        const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
-          ...node.attrs,
-          src: res.url,
+        if (!isCurrent()) return;
+        const tr = editor.state.tr;
+        editor.state.doc.descendants((node: PMNode, pos: number) => {
+          if (node.type.name === "image" && node.attrs?.src === dataUrl) {
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: res.url });
+          }
         });
         // 重要：别把 tr 标记为 addToHistory=false，否则用户撤销看不到
         // 这次替换；但这会在 undo 栈里留一条历史。权衡后仍默认记录——
         // 用户多按一次 Ctrl+Z 的代价远小于"笔记里意外包含 base64"。
-        editor.view.dispatch(tr);
+        // 用户可能已删除图片；重复出现的相同图片则一起替换。
+        if (tr.docChanged) editor.view.dispatch(tr);
         uploaded += 1;
       } catch (err) {
         console.warn(
@@ -160,7 +139,7 @@ export async function replaceDataUrlImagesWithAttachments(
         failed += 1;
       } finally {
         done += 1;
-        opts?.onProgress?.(done, total);
+        if (isCurrent()) opts?.onProgress?.(done, total);
       }
     }
   };

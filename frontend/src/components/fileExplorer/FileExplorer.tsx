@@ -21,6 +21,8 @@ import { toast } from "@/lib/toast";
 import { confirm, prompt } from "@/components/ui/confirm";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { copyText } from "@/lib/clipboard";
+import { createStableFileShareUrl } from "@/lib/fileShareClipboard";
+import { formatImageHostSnippet } from "@/lib/imageHostFormats";
 import type { FileItem, FileSortKey, AssetFilters, AssetOrganization, AssetSmartFolder } from "@/types";
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import FileMoveDialog from "@/components/FileMoveDialog";
@@ -233,9 +235,23 @@ function FileExplorerContent({ scope }: { scope: string }) {
     } catch (failure: unknown) { toast.error(failure instanceof Error ? failure.message : String(failure)); }
     finally { setSaving(false); }
   };
+  const copyPublicImageLink = async (file: FileItem, format: "url" | "markdown") => {
+    if (!isCurrent()) return;
+    try {
+      const url = await createStableFileShareUrl(file.id);
+      if (!isCurrent()) return;
+      if (!/^https?:\/\//i.test(url) || !await copyText(formatImageHostSnippet(format, url, file.filename))) {
+        if (isCurrent()) toast.error(t("attachmentDetail.copyFailed"));
+        return;
+      }
+      if (isCurrent()) toast.success(t("fileExplorer.publicImageLinkCopied"));
+    } catch (failure: unknown) {
+      if (isCurrent()) toast.error(failure instanceof Error ? failure.message : t("attachmentDetail.copyFailed"));
+    }
+  };
   const showMenu = (event: React.MouseEvent, file?: FileItem, folder?: AssetFolder) => {
     event.preventDefault(); event.stopPropagation();
-    setMenu({ file, folder, x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 290) });
+    setMenu({ file, folder, x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - (file?.category === "image" ? 340 : 290)) });
   };
   const dropOnFolder = async (target: string, event: React.DragEvent) => {
     if (!event.dataTransfer.types.includes("application/x-nowen-assets")) return;
@@ -320,13 +336,17 @@ function FileExplorerContent({ scope }: { scope: string }) {
     {batchRename && <BatchRenameDialog files={selection} isCurrent={isCurrent} onClose={() => setBatchRename(false)} onRenamed={() => { clearSelection(); refresh(); }} />}
     {(moveIds || moveFolder) && <FileMoveDialog ids={moveIds || []} folderToMove={moveFolder || undefined} expectedFolderIds={moveIds ? Object.fromEntries(items.filter((item) => moveIds.includes(item.id)).map((item) => [item.id, item.folderId])) : undefined} onClose={() => { setMoveIds(null); setMoveFolder(null); }} onMoved={() => { clearSelection(); refresh(); }} />}
     {nameDialog && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4"><form role="dialog" aria-modal="true" aria-label={t(nameDialog.id || nameDialog.file ? "attachmentDetail.rename" : "fileManager.newFolder")} onSubmit={(event) => { event.preventDefault(); void saveName(); }} onKeyDown={(event) => { if (event.key === "Escape" && !saving) setNameDialog(null); }} className="w-full max-w-sm rounded-xl border border-app-border bg-app-elevated p-4 shadow-xl"><h2 className="text-sm font-semibold">{t(nameDialog.id || nameDialog.file ? "attachmentDetail.rename" : "fileManager.newFolder")}</h2><input autoFocus aria-label={t("fileManager.folderName")} value={nameDialog.name} maxLength={nameDialog.file ? 255 : 100} onChange={(event) => setNameDialog({ ...nameDialog, name: event.target.value })} className="mt-4 w-full rounded-lg border border-app-border bg-app-surface p-2 text-sm" /><div className="mt-4 flex justify-end gap-3 text-sm"><button type="button" disabled={saving} onClick={() => setNameDialog(null)}>{t("common.cancel")}</button><button type="submit" disabled={saving || !nameDialog.name.trim()} className="text-accent-primary disabled:opacity-30">{t("attachmentDetail.save")}</button></div></form></div>}
-    {menu && <><button className="fixed inset-0 z-[110] cursor-default" aria-label={t("common.close")} onClick={() => setMenu(null)} /><div role="menu" className="fixed z-[111] w-52 rounded-lg border border-app-border bg-app-elevated p-1 text-sm shadow-xl" style={{ left: Math.max(4, menu.x), top: Math.max(4, menu.y) }}>
+    {menu && <><button className="fixed inset-0 z-[110] cursor-default" aria-label={t("common.close")} onClick={() => setMenu(null)} /><div role="menu" className="fixed z-[111] w-52 overflow-y-auto rounded-lg border border-app-border bg-app-elevated p-1 text-sm shadow-xl" style={{ left: Math.max(4, menu.x), top: Math.max(4, menu.y), maxHeight: window.innerHeight - Math.max(4, menu.y) - 4 }}>
       {menu.file ? <>
         <MenuAction onClick={() => setDetail(menu.file!.id)} close={() => setMenu(null)}>{t("fileExplorer.preview")}</MenuAction>
         {menu.file.category === "image" && <MenuAction onClick={() => setSimilar(menu.file!)} close={() => setMenu(null)}>{t("assetTools.similar")}</MenuAction>}
         <MenuAction onClick={() => { void downloadAttachment(resolveAttachmentUrl(menu.file!.url), menu.file!.filename).catch((failure: unknown) => toast.error(failure instanceof Error ? failure.message : String(failure))); }} close={() => setMenu(null)}>{t("attachmentDetail.downloadFile")}</MenuAction>
         {menu.file.canManage !== false && <><MenuAction onClick={() => setNameDialog({ file: menu.file, name: menu.file!.filename })} close={() => setMenu(null)}>{t("attachmentDetail.rename")}</MenuAction><MenuAction disabled={!folderSupport} onClick={() => setMoveIds([menu.file!.id])} close={() => setMenu(null)}>{t("fileManager.moveFiles")}</MenuAction></>}
         <MenuAction onClick={async () => { const link = new URL(`${getBaseUrl().replace(/\/+$/, "")}/attachments/${encodeURIComponent(menu.file!.id)}`, window.location.href).href; if (await copyText(link)) toast.success(t("fileExplorer.privateLinkCopied")); }} close={() => setMenu(null)}>{t("fileExplorer.copyPrivateLink")}</MenuAction>
+        {menu.file.category === "image" && <>
+          <MenuAction onClick={() => void copyPublicImageLink(menu.file!, "markdown")} close={() => setMenu(null)}>{t("fileExplorer.copyPublicMarkdownLink")}</MenuAction>
+          <MenuAction onClick={() => void copyPublicImageLink(menu.file!, "url")} close={() => setMenu(null)}>{t("fileExplorer.copyPublicAbsoluteLink")}</MenuAction>
+        </>}
         <MenuAction onClick={() => setDetail(menu.file!.id)} close={() => setMenu(null)}>{t("attachmentDetail.referencedNotes")}</MenuAction>
         {menu.file.canManage !== false && <MenuAction danger onClick={() => void deleteFiles([menu.file!.id])} close={() => setMenu(null)}>{t("assetTrash.move")}</MenuAction>}
       </> : menu.folder && <>

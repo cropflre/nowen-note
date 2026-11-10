@@ -60,6 +60,9 @@ import { SyncError, isSyncErrorCode, classifyHttpStatus } from "../sync/errors";
 import { SYNC_PERSONAL_SCOPE_KEY } from "../sync/constants";
 import { logSyncInfo } from "../sync/log";
 import { readOfflineReadiness } from "../sync/offlineReadiness";
+import {
+  applyTreeRepair, fetchTreeRepairSnapshot, previewTreeRepair, treeRepairTitle,
+} from "../sync/knowledgeTreeRepair.js";
 import { getBackupManager } from "../services/backup";
 import {
   buildWorkspaceScopeExport,
@@ -80,6 +83,7 @@ import {
  */
 const app = new Hono();
 const migrationsInFlight = new WeakSet<object>();
+const treeRepairsInFlight = new WeakSet<object>();
 
 function guard(c: any): Response | null {
   if (!isLocalFirstSyncV2Enabled()) {
@@ -814,6 +818,65 @@ app.post("/scopes/:scopeKey/copy-to-personal", (c) => {
 // 冲突中心
 // ---------------------------------------------------------------------------
 
+app.post("/knowledge-tree/repair/:action", async (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  const action = c.req.param("action");
+  if (action !== "preview" && action !== "apply") return c.notFound();
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") as string;
+  const owner = db.prepare("SELECT id FROM users ORDER BY createdAt ASC LIMIT 1").get() as { id: string } | undefined;
+  if (owner?.id !== userId) return c.json({ error: "仅本机账号可以修复个人知识树", code: "SCOPE_FORBIDDEN" }, 403);
+
+  const body = await c.req.json().catch(() => null);
+  if (!body || (body.strategy !== "keep-local" && body.strategy !== "keep-remote")
+    || !Array.isArray(body.conflictIds) || !body.conflictIds.length || body.conflictIds.length > 500
+    || body.conflictIds.some((id: unknown) => typeof id !== "string" || !id || id.length > 128)
+    || new Set(body.conflictIds).size !== body.conflictIds.length
+    || (action === "apply" && (typeof body.token !== "string" || !/^[0-9a-f]{64}$/.test(body.token)))) {
+    return c.json({ error: "目录修复请求无效", code: "INVALID_PAYLOAD" }, 400);
+  }
+  const profile = getActiveProfile(db);
+  const client = profile && createRemoteClientForProfile(profile.id, profile.serverUrl);
+  const deviceId = getInstallationDeviceId(db);
+  if (!profile || !client || !deviceId) {
+    return c.json({ error: "请先连接云端并完成同步初始化", code: "INVALID_PAYLOAD" }, 400);
+  }
+  if (treeRepairsInFlight.has(db)) {
+    return c.json({ error: "另一项目录修复正在进行，请稍后重试", code: "VERSION_CONFLICT" }, 409);
+  }
+
+  treeRepairsInFlight.add(db);
+  try {
+    const input = { userId, profileId: profile.id, strategy: body.strategy, conflictIds: body.conflictIds };
+    const snapshot = await fetchTreeRepairSnapshot(db, client, input);
+    const preview = previewTreeRepair(db, input, snapshot);
+    if (action === "preview") return c.json(preview);
+    if (body.token !== preview.token) throw new SyncError("VERSION_CONFLICT", "预览后目录已变化，请重新预览");
+
+    const backup = await getBackupManager().createBackup({
+      type: "full", description: "知识树目录修复前的备份", preserveNoteHistory: true,
+    });
+    if (await snapshot.checkPlan() !== snapshot.fingerprint || getActiveEngine()?.getStatus().state === "syncing") {
+      throw new SyncError("VERSION_CONFLICT", "同步正在进行或云端状态已变化，请重新预览");
+    }
+    const currentProfile = getActiveProfile(db);
+    if (currentProfile?.id !== profile.id || currentProfile.remoteUserId !== profile.remoteUserId
+      || currentProfile.serverUrl !== profile.serverUrl) {
+      throw new SyncError("VERSION_CONFLICT", "同步账号已变化，请重新预览");
+    }
+    const result = applyTreeRepair(db, input, snapshot, body.token, deviceId);
+    return c.json({ ...result, backupId: backup.id, backupFilename: backup.filename });
+  } catch (error) {
+    if (error instanceof SyncError) {
+      return c.json({ error: error.message, code: error.code }, 409);
+    }
+    return c.json({ error: "目录修复未完成，本机结构已保留。请检查备份和同步诊断", code: "SERVER_ERROR" }, 500);
+  } finally {
+    treeRepairsInFlight.delete(db);
+  }
+});
+
 app.get("/conflicts", (c) => {
   const denied = guard(c);
   if (denied) return denied;
@@ -825,6 +888,9 @@ app.get("/conflicts", (c) => {
     total: rows.length,
     items: rows.map((row) => {
       const detail = toConflictDetail(row);
+      const treeTitle = row.entityType === "knowledge_tree_node" && row.scopeKey === SYNC_PERSONAL_SCOPE_KEY
+        ? treeRepairTitle(db, detail.local ?? detail.remote, c.req.header("X-User-Id") as string)
+        : null;
       // 列表只给摘要：正文可能很大，逐条返回会让页面卡住。
       return {
         id: detail.id,
@@ -834,7 +900,7 @@ app.get("/conflicts", (c) => {
         remoteVersion: detail.remoteVersion,
         createdAt: detail.createdAt,
         diffFields: detail.diffFields,
-        localTitle: typeof detail.local?.title === "string" ? detail.local.title : null,
+        localTitle: typeof detail.local?.title === "string" ? detail.local.title : treeTitle,
         remoteTitle: typeof detail.remote?.title === "string" ? detail.remote.title : null,
       };
     }),

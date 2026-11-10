@@ -1,0 +1,68 @@
+name: Update v1.5.5 GitHub Release Notes
+run-name: Update published v1.5.5 release description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/v155-release-notes-edit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  edit-release-description:
+    if: >-
+      github.repository == 'cropflre/nowen-note' &&
+      github.event.head_commit.message == 'docs(release): refresh published v1.5.5 GitHub Release description'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original release and edit only release text
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          export GH_PAGER=cat
+          repo="$GITHUB_REPOSITORY"
+          tag="v1.5.5"
+          expected_sha="41177ba40f56eecaddb03d7b2f2b30d8ceb4c9ee"
+          expected_marker="<!-- nowen-cloud:42576386477:1:$expected_sha -->"
+          file="docs/releases/v1.5.5-github.md"
+
+          test -s "$file"
+          head -n 1 "$file" | grep -Fx -- "$expected_marker"
+          original="$(gh api "repos/$repo/releases/tags/$tag")"
+          test "$(jq -r '.tag_name' <<< "$original")" = "$tag"
+          test "$(jq -r '.draft' <<< "$original")" = false
+          test "$(jq -r '.prerelease' <<< "$original")" = false
+          test "$(jq -r '.target_commitish' <<< "$original")" = "$expected_sha"
+          test "$(jq -r '.id' <<< "$original")" = "438836675"
+          current_body="$(jq -r '.body' <<< "$original")"
+          desired_body="$(cat "$file")"
+          if [ "$current_body" = "$desired_body" ]; then
+            echo 'Release notes already up to date.'
+            exit 0
+          fi
+          # Never overwrite unrelated manual changes to an existing release.
+          if [[ "$current_body" != "$expected_marker"* ]] ||
+             [[ "$current_body" != *"v1.5.5: realtime sync reliability, migration compatibility, desktop recovery and UI motion."* ]]; then
+            echo 'The release was edited by somebody else; refusing to overwrite.' >&2
+            exit 1
+          fi
+          original_ids="$(jq -r '.assets[].id' <<< "$original" | sort -n)"
+          gh release edit "$tag" --repo "$repo" \
+            --title 'v1.5.5 · 双向同步与桌面体验升级' \
+            --notes-file "$file"
+          updated="$(gh api "repos/$repo/releases/tags/$tag")"
+          test "$(jq -r '.draft' <<< "$updated")" = false
+          test "$(jq -r '.prerelease' <<< "$updated")" = false
+          test "$(jq -r '.target_commitish' <<< "$updated")" = "$expected_sha"
+          test "$(jq -r '.id' <<< "$updated")" = "438836675"
+          test "$(jq -r '.body' <<< "$updated")" = "$desired_body"
+          test "$(jq -r '.assets[].id' <<< "$updated" | sort -n)" = "$original_ids"
+          echo 'Updated published v1.5.5 release text; tag and assets unchanged.' >> "$GITHUB_STEP_SUMMARY"

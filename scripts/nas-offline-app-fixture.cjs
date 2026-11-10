@@ -1,5 +1,5 @@
 // Acceptance entry only: isolate paths/listeners, then boot the production app.
-const { app, ipcMain, session } = require('electron');
+const { app, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -20,13 +20,6 @@ process.env.CALENDAR_EXPORT_TIMER_DISABLED = '1';
 process.env.BACKUP_DIR = path.join(directory, 'desktop-backups');
 process.env.NODE_OPTIONS = `--require=${JSON.stringify(path.join(app.isPackaged ? resources : __dirname, 'nas-offline-backend-fixture.cjs'))}`;
 require(app.isPackaged ? path.join(resources, 'nas-offline-backend-fixture.cjs') : './nas-offline-backend-fixture.cjs');
-const discovery = require('../electron/discovery.js');
-discovery.registerDiscoveryIpc = () => {
-  for (const name of ['start','stop','list']) {
-    ipcMain.removeHandler(`discovery:${name}`);
-    ipcMain.handle(`discovery:${name}`, () => name === 'list' ? [] : {ok:true,available:false});
-  }
-};
 app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{
     callback({cancel:!['127.0.0.1','localhost','[::1]'].includes(new URL(details.url).hostname)});

@@ -9,10 +9,39 @@ const e = process.env;
 const cmd = (name, args, options = {}) => execFileSync(name, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...options }).trim();
 const readJSON = async path => JSON.parse(await readFile(path, 'utf8'));
 async function githubAPI(path, method = 'GET', body) {
-  const response = await fetch(`https://api.github.com/repos/${CLOUD_REPO}/${path}`, { method, redirect: 'error', signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${e.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  if (response.status === 404 && method === 'GET') return null;
-  if (!response.ok) throw Error(`GitHub ${method} ${path} 失败 (${response.status})；请先对账再重试`);
-  return response.status === 204 ? null : response.json();
+  const url = `https://api.github.com/repos/${CLOUD_REPO}/${path}`;
+  const headers = {
+    Authorization: `Bearer ${e.GH_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...(body ? { 'Content-Type': 'application/json' } : {}),
+  };
+  // A transient GitHub GET failure must not require uploading large assets again.
+  // Never retry writes automatically: their responses may be lost after success.
+  const attempts = method === 'GET' ? 4 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method, redirect: 'error', signal: AbortSignal.timeout(30000),
+        headers, ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (error) {
+      if (attempt < attempts) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+        continue;
+      }
+      throw Error(`GitHub ${method} ${path} 网络请求失败；请检查已创建的草稿和附件后重试（${error?.message || 'network error'}）`);
+    }
+    if (attempt < attempts && [429, 502, 503, 504].includes(response.status)) {
+      await new Promise(resolve => setTimeout(resolve, attempt * 1500));
+      continue;
+    }
+    if (response.status === 404 && method === 'GET') return null;
+    if (!response.ok) throw Error(`GitHub ${method} ${path} 失败 (${response.status})；请先对账再重试`);
+    return response.status === 204 ? null : response.json();
+  }
+  throw Error(`GitHub ${method} ${path} 网络请求失败`);
 }
 async function preflight() {
   if (e.RC_PUBLISH_ENABLED !== '1') throw Error('正式发布默认关闭；请配置 NOWEN_RELEASE_CLOUD_PUBLISH 仓库变量并审阅渠道环境');
@@ -48,7 +77,13 @@ export async function publishGitHub(manifest, api = githubAPI, execute = cmd) {
   }
   if (release && !release.body?.includes(marker)) throw Error('已有 Release 不属于本次构建；禁止接管');
   if (!ref) await api('git/refs', 'POST', { ref: `refs/tags/${tag}`, sha: manifest.commit_sha });
-  const body = `${marker}\n${manifest.notes || ""}\n\n源码：${manifest.commit_sha}\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\n\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。`;
+  // Always disclose the unsigned macOS distribution policy to end users.
+  // The integrity/provenance checks remain mandatory, but no Apple ID
+  // signature or notarization is asserted for these GitHub downloads.
+  const macWarning = manifest.targets?.includes('macos')
+    ? '\n\n⚠️ macOS 安装包未进行 Apple Developer ID 签名或公证，可能受到 Gatekeeper 拦截；请仅通过官方发布页面获取安装包。'
+    : '';
+  const body = `${marker}\n${manifest.notes || ""}\n\n源码：${manifest.commit_sha}\n构建：https://github.com/${CLOUD_REPO}/actions/runs/${manifest.run_id}\n\nWindows 直接下载包未提供代码签名。Store、TestFlight 使用独立渠道。${macWarning}`;
   if (!release) release = await api('releases', 'POST', { tag_name: tag, target_commitish: manifest.commit_sha, name: tag, body, draft: true, prerelease: false });
   const listAssets = async () => {
     const assets = [];

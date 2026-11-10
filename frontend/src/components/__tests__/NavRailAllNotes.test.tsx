@@ -61,7 +61,7 @@ describe("All Notes primary navigation", () => {
     expect(buttons.indexOf(entry())).toBeLessThan(buttons.findIndex(button => button.getAttribute("aria-label") === "sidebar.favorites"));
   });
 
-  it.each(["tasks", "files", "ai-chat", "notebook", "search"])("returns from %s with filters cleared and the list expanded", async mode => {
+  it.each(["tasks", "files", "ai-chat", "notebook", "search"])("returns from %s with filters cleared and the saved standard layout preserved", async mode => {
     Object.assign(mock.state, { viewMode: mode, selectedNotebookId: "folder-1", selectedTagIds: ["tag-1"], searchQuery: "keyword" });
     localStorage.setItem("nowen-note-workspace-layout", "standard");
     await render(); expect(entry()).not.toBeNull();
@@ -70,7 +70,7 @@ describe("All Notes primary navigation", () => {
     expect(mock.actions.setSelectedNotebook).toHaveBeenCalledWith(null);
     expect(mock.actions.clearSelectedTags).toHaveBeenCalledOnce();
     expect(mock.actions.setSearchQuery).toHaveBeenCalledWith("");
-    expect(mock.actions.toggleNoteListCollapsed).toHaveBeenCalledOnce();
+    expect(mock.actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
     expect(localStorage.getItem("nowen-note-workspace-layout")).toBe("standard");
   });
 

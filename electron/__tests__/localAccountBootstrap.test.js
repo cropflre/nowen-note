@@ -35,6 +35,15 @@ test("bootstrap never retries or resets for auth and transport failures", async 
   assert.deepEqual(offline, { account: null, reason: "BACKEND_UNAVAILABLE" });
 });
 
+test("bootstrap reports a string reason when the response carries only an HTTP status", async () => {
+  // The real forbidden response is { error: "forbidden" } with no code; the UI and logs need a string.
+  for (const [status, data] of [[403, { error: "forbidden" }], [500, null], [404, undefined]]) {
+    const result = await requestLocalAccountBootstrap(async () => ({ status, data }), "test-secret", false);
+    assert.equal(result.account, null);
+    assert.equal(result.reason, `HTTP_${status}`);
+  }
+});
+
 test("bootstrap allows creation only when the database was absent before startup", async () => {
   const requests = [];
   const request = async (route, body, headers) => {

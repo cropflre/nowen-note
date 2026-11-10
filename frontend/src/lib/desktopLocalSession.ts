@@ -9,6 +9,19 @@ interface DesktopStartupBridge {
 type DesktopDownloadBridge = Pick<DesktopStartupBridge,'getAppInfo'|'startLiteMigration'>;
 const downloads = new WeakMap<DesktopDownloadBridge, {serverUrl:string;token:string;work:Promise<boolean>}>();
 
+/** Reasons the confirmed reset (/auth/desktop/reset-local) repairs: it re-enables, unlocks and re-promotes the account, or creates it. */
+export function needsLocalAccountRecovery(error: string) {
+  return [
+    'LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN','LOCAL_ACCOUNT_NOT_FOUND','LOCAL_ACCOUNT_DISABLED','ACCOUNT_LOCKED',
+    'local-account-unavailable',
+  ].includes(error);
+}
+
+/** The local backend or its desktop secret failed. A reset needs the same secret and backend, so it cannot help. */
+export function isLocalAccountBootstrapFailure(error: string) {
+  return error === 'BACKEND_UNAVAILABLE' || /^HTTP_\d{3}$/.test(error);
+}
+
 /** Every remote desktop login establishes the local copy before opening editors. */
 export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBridge, serverUrl: string, token: string, pendingWrites: () => number): Promise<boolean> {
   const info = await bridge.getAppInfo?.();

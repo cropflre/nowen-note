@@ -1,7 +1,7 @@
 appname               = nowen-note
 version               = {{VERSION}}
 display_name          = 弄文笔记
-desc                  = `<h2>Nowen Note v1.5.4</h2><p>弄文笔记是开源、自托管的个人知识库与任务工作台，支持笔记、文件、任务、AI 和多端同步。</p><h3>本次更新</h3><ul><li>AI 协作：编辑器 AI 助手与笔记本 Agent 支持预览、确认后应用；新增自定义 Skills 和管理员共享 AI 模型配置。</li><li>Markdown 编辑：新增章节折叠与搜索自动展开，修复图片预览闪烁，增强 Mermaid 语法兼容。</li><li>图片与附件：改进全屏缩放、拖动和手势，支持原图预览，增强 HEIC/HEIF 兼容、上传响应丢失后的附件找回和稳定分享链接。</li><li>NAS 离线：配合桌面完整版，可为个人笔记和受管附件准备本地副本，支持断网阅读、编辑与重连同步。</li><li>导入与稳定性：DOCX 导入上限提升至 1 GB，改进网页剪藏图片保存，完善数据库版本提示与升级保护。</li></ul><p><b>升级前请完整备份数据库、附件和部署配置，并确认持久化目录挂载正确。</b>回滚应用或镜像不会自动回滚数据库，降级请使用升级前的完整备份。</p><p><a href="https://github.com/cropflre/nowen-note/releases/tag/v1.5.4">完整更新说明</a> · <a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note">项目主页</a></p>`
+desc                  = `<h2>弄文笔记（Nowen Note）v{{VERSION}}</h2><p>开源、自托管的 NAS 笔记与个人知识管理工具，提供 Markdown 编辑、知识树、文件管理、任务管理、AI 辅助和 Web / PC / Android 多端同步。所有笔记及附件保存在自己管理的设备上。</p><p><b>版本更新：</b>{{UPDATE_NOTES}}</p><p><b>升级提示：</b>请先备份数据库、附件及部署配置，确认数据目录挂载正确；回滚镜像不会自动回滚数据库。多端实时同步需要设备在线并连接同一服务端。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note/releases/tag/v1.5.5">版本更新说明</a></p>`
 arch                  = x86_64
 source                = thirdparty
 maintainer            = Nowen

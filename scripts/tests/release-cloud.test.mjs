@@ -63,8 +63,8 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   const previous = process.env.GITHUB_STEP_SUMMARY;
   process.env.GITHUB_STEP_SUMMARY = join(directory,'summary');
   t.after(() => { if(previous === undefined) delete process.env.GITHUB_STEP_SUMMARY; else process.env.GITHUB_STEP_SUMMARY=previous; });
-  const file = {name:'clipper.zip',size:10,sha256:'c'.repeat(64)};
-  const manifest = {version:'1.5.3',run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-clipper',files:[file]}]};
+  const file = {name:'Nowen-Note-1.5.3-arm64.dmg',size:10,sha256:'c'.repeat(64)};
+  const manifest = {version:'1.5.3',run_id:101,run_attempt:1,commit_sha:sha,targets:['macos'],artifacts:[{name:'release-macos',files:[file]}]};
   let tag=null, release=null, assets=[], uploads=0, publishes=0, drafts=0, loseUpload=true;
   const api = async (path, method='GET', body) => {
     if (path.startsWith('git/ref/tags/')) return tag;
@@ -79,6 +79,7 @@ test('publisher reconciles a lost upload response, refuses tampering, and never 
   const execute = () => { uploads++; assets=[{name:file.name,size:10,digest:`sha256:${file.sha256}`}]; if(loseUpload) throw Error('response lost'); };
   await assert.rejects(publishGitHub(manifest,api,execute),/response lost/);
   assert.equal(publishes,0); assert.equal(release.draft,true);
+  assert.match(release.body,/macOS 安装包未进行 Apple Developer ID 签名或公证/);
   loseUpload=false;
   await publishGitHub(manifest,api,execute);
   assert.equal(uploads,1); assert.equal(drafts,1); assert.equal(publishes,1);
@@ -134,34 +135,30 @@ else process.exit(2);
 });
 
 import { verifyMacProof } from '../release-cloud-ci.mjs';
-test('an unsigned Mac candidate cannot acquire release eligibility from a renamed artifact', async t => {
+test('unsigned macOS release requires explicit truthful status and exact pinned source/inventory', async t => {
  const directory=await mkdtemp(join(tmpdir(),'nowen-cloud-mac-proof-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  await mkdir(join(directory,'release-macos-proof'));
- const manifest={targets:['macos'],version:'1.5.3',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files:[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}]}]};
- const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,signed:false,notarized:false,files:manifest.artifacts[0].files};
- const file=join(directory,'release-macos-proof','signature.json');
- await writeFile(file,JSON.stringify(proof));await assert.rejects(verifyMacProof(manifest,directory),/签名与公证/);
- await writeFile(file,JSON.stringify({...proof,signed:true,notarized:true}));await verifyMacProof(manifest,directory);
- await writeFile(file,JSON.stringify({...proof,signed:true,notarized:true,run_attempt:2}));await assert.rejects(verifyMacProof(manifest,directory));
-});
-
-test('explicit unsigned Mac distribution is version-scoped and still rejects mismatched provenance', async t => {
- const directory=await mkdtemp(join(tmpdir(),'nowen-cloud-unsigned-mac-'));t.after(()=>rm(directory,{recursive:true,force:true}));
- await mkdir(join(directory,'release-macos-proof'));
- const files=[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}];
- const manifest={targets:['macos'],version:'1.5.4',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files}]};
- const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,signed:false,notarized:false,files};
+ const manifest={targets:['macos'],version:'1.5.5',request_id:id,run_id:101,run_attempt:1,commit_sha:sha,artifacts:[{name:'release-macos',files:[{name:'mac.zip',size:1,sha256:'b'.repeat(64)}]}]};
+ const proof={sha,version:manifest.version,request_id:id,run_id:101,run_attempt:1,distribution:'unsigned',signed:false,notarized:false,files:manifest.artifacts[0].files};
  const file=join(directory,'release-macos-proof','signature.json');
  await writeFile(file,JSON.stringify(proof));
- for(const approved of [undefined,'1.5.3','*']) await assert.rejects(verifyMacProof(manifest,directory,approved));
- await verifyMacProof(manifest,directory,'1.5.4');
- assert.deepEqual(JSON.parse(await readFile(file,'utf8')),proof);
- for(const change of [{sha:'c'.repeat(40)},{version:'1.5.3'},{request_id:'other'},{run_id:102},{run_attempt:2},{files:[{...files[0],sha256:'d'.repeat(64)}]},{signed:true},{notarized:true}]) {
-  await writeFile(file,JSON.stringify({...proof,...change}));
-  await assert.rejects(verifyMacProof(manifest,directory,'1.5.4'));
+ await verifyMacProof(manifest,directory);
+ for (const invalid of [
+  {...proof,distribution:'signed'},
+  {...proof,distribution:undefined},
+  {...proof,signed:true},
+  {...proof,notarized:true},
+  {...proof,signed:true,notarized:true},
+  {...proof,sha:'f'.repeat(40)},
+  {...proof,run_attempt:2},
+  {...proof,request_id:'999'},
+  {...proof,files:[{...proof.files[0],sha256:'f'.repeat(64)}]},
+ ]) {
+   await writeFile(file,JSON.stringify(invalid));
+   await assert.rejects(verifyMacProof(manifest,directory),/未签名分发证明|清单不匹配/);
  }
- const workflow=await readFile(new URL('../../.github/workflows/release-publish.yml',import.meta.url),'utf8');
- assert.ok(workflow.includes('RC_UNSIGNED_MACOS_VERSION: ${{ vars.NOWEN_RELEASE_UNSIGNED_MACOS_VERSION }}'));
+ await writeFile(file,JSON.stringify(proof));
+ await verifyMacProof(manifest,directory);
 });
 
 import { compareVersions } from '../lib/release-cloud-contract.mjs';

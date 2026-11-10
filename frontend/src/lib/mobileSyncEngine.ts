@@ -14,6 +14,9 @@ import { NATIVE_TASK_REPEAT_FIELDS, nativeTaskRepeatValues } from "./nativeTaskF
 import { validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 import { applyNativePersonalTree, assertNativePersonalTreeEntry, NATIVE_TREE_ENTITY_SET, NATIVE_TREE_PENDING_SUBSCRIPTION, nativeTreeSubscriptionKey, type NativeTreeEntry } from "./nativeKnowledgeTreeSync";
 import { nativeTreeMutationPayload, readNativePersonalTreeNode, sameNativeTreePosition, syncNativeNotebookMoveParents, writeNativePersonalTreeMoves } from "./nativePersonalTreeWrites";
+import {
+  applyNativeTreeRepair, readNativeTreeRepairPlan, rejectNativeTreeRepair,
+} from "./nativeTreeConflictRepair";
 import { applyNativeTreeLifecycleProjection, nativeTreeLifecycleKey, nativeTreeLifecycleOverrides, readNativeTreeLifecycleIntents, writeNativePersonalTreeLifecycle } from "./nativePersonalTreeTrash";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
@@ -131,12 +134,14 @@ export class MobileSyncEngine {
   private running = false;
   private rerun = false;
   private debounce: ReturnType<typeof setTimeout> | null = null;
+  private debounceDueAt = 0;
   private stopped = true;
   private syncAbort: AbortController | null = null;
   private assetSubscribed = false;
   private treeNegotiated = false;
   private treeSubscribed = false;
   private attachmentRetryDelayMs = 1000;
+  private treeRepairPreview: { token: string; fingerprint: string } | null = null;
 
   constructor(private readonly options: MobileSyncOptions) {}
 
@@ -147,6 +152,7 @@ export class MobileSyncEngine {
 
   stop(): void {
     this.stopped = true;
+    this.treeRepairPreview = null;
     this.rerun = false;
     this.syncAbort?.abort();
     if (this.debounce) clearTimeout(this.debounce);
@@ -155,7 +161,12 @@ export class MobileSyncEngine {
 
   requestSync(delayMs = 800): void {
     if (this.stopped) return;
+    const dueAt = Date.now() + Math.max(0, delayMs);
+    // Keep the earliest pending wake. A later, slower request (a 30 s retry or a
+    // continuous stream of notices) must not postpone or starve a pending Pull.
+    if (this.debounce && this.debounceDueAt <= dueAt) return;
     if (this.debounce) clearTimeout(this.debounce);
+    this.debounceDueAt = dueAt;
     this.debounce = setTimeout(() => {
       this.debounce = null;
       // 后台调度不能留下未处理的 Promise rejection。同步游标、Outbox 和原笔记
@@ -258,11 +269,105 @@ export class MobileSyncEngine {
     }
   }
 
+  async repairPersonalTree(strategy: unknown, conflictIds: unknown, confirmedToken?: unknown) {
+    if ((strategy !== "keep-remote" && strategy !== "keep-local") || !Array.isArray(conflictIds) ||
+        !conflictIds.length || conflictIds.length > 200 ||
+        conflictIds.some((id) => typeof id !== "string" || !id) || new Set(conflictIds).size !== conflictIds.length ||
+        (confirmedToken !== undefined && (typeof confirmedToken !== "string" || !confirmedToken))) {
+      rejectNativeTreeRepair("无效的知识树修复请求。请重新选择冲突。");
+    }
+    if (this.stopped || this.running) rejectNativeTreeRepair("同步尚未就绪或正在运行，请稍后重新预览。");
+    this.running = true;
+    const controller = new AbortController();
+    this.syncAbort = controller;
+    try {
+      if (confirmedToken !== undefined && this.treeRepairPreview?.token !== confirmedToken) {
+        rejectNativeTreeRepair("确认信息已失效，请重新预览。");
+      }
+      const baseline = await this.fetchTreeRepairBaseline();
+      const result = await this.options.db.transaction(async (tx) => {
+        const plan = await readNativeTreeRepairPlan(tx, this.options, strategy, conflictIds, baseline);
+        controller.signal.throwIfAborted();
+        if (confirmedToken === undefined) {
+          const token = newLocalId();
+          this.treeRepairPreview = { token, fingerprint: plan.fingerprint };
+          return { token, changes: plan.changes };
+        }
+        if (this.treeRepairPreview?.token !== confirmedToken || this.treeRepairPreview.fingerprint !== plan.fingerprint) {
+          rejectNativeTreeRepair("预览后目录或同步状态已变化，请重新预览。");
+        }
+        const applied = await applyNativeTreeRepair(tx, this.options, strategy, plan);
+        controller.signal.throwIfAborted();
+        return applied;
+      });
+      if ("resolved" in result) {
+        this.treeRepairPreview = null;
+        notifyMobileSyncStatusChanged();
+        this.options.onApplied?.({scopeKey:"personal",noteIds:[],deletedNoteIds:[]});
+        this.rerun = true;
+      }
+      return result;
+    } finally {
+      this.running = false;
+      this.syncAbort = null;
+      if (this.rerun) { this.rerun = false; this.requestSync(0); }
+    }
+  }
+
+  private async fetchTreeRepairBaseline() {
+    const scope = (await this.fetchScopes()).find((item) => item.scopeKey === "personal" && item.workspaceId === null && item.canWrite);
+    if (!scope) rejectNativeTreeRepair("无法确认当前个人空间权限，请重新登录后重试。");
+    await this.negotiateTree(scope);
+    if (!this.hasTreeSubscription(scope)) rejectNativeTreeRepair("当前服务器未启用知识树同步，请升级后重试。");
+    const stored = (await this.options.db.query<{lastSequence: number}>(`
+      SELECT lastSequence FROM sync_state WHERE profileId=? AND scopeKey='personal'`, [this.options.profileId]))[0];
+    const params = this.subscriptionParams(scope, {after: String(stored?.lastSequence ?? 0)});
+    type ServerPlan = {serverSequence: number; resetRequired: boolean; accessFingerprint: string};
+    const before = await this.request<ServerPlan>(`/plan?${params}`);
+    if (!Number.isSafeInteger(before.serverSequence) || before.serverSequence < 1 ||
+        before.resetRequired !== false || before.serverSequence !== stored?.lastSequence ||
+        before.accessFingerprint !== scope.accessFingerprint) {
+      rejectNativeTreeRepair("本机同步游标未追上云端，请先同步或检查同步诊断。");
+    }
+
+    const nodes = new Map<string, Record<string, unknown>>();
+    const cursors = new Set<string>();
+    let cursor: string | null = "knowledge_tree_node:";
+    while (cursor) {
+      if (cursors.has(cursor) || cursors.size >= 2000) rejectNativeTreeRepair("云端目录快照分页重复，请重试同步。");
+      cursors.add(cursor);
+      const query = this.subscriptionParams(scope, {limit: "200", cursor});
+      // Read the tree phase without opening or replacing a subscription session.
+      query.delete("deviceId");
+      const page: {snapshotSequence: number; accessFingerprint: string; nextCursor: string | null; items: SnapshotEntry[]} =
+        await this.request(`/snapshot?${query}`);
+      if (page.snapshotSequence !== before.serverSequence || page.accessFingerprint !== scope.accessFingerprint ||
+          (page.nextCursor !== null && (typeof page.nextCursor !== "string" || !page.nextCursor.startsWith("knowledge_tree_node:")))) {
+        rejectNativeTreeRepair("云端目录或同步权限在读取时变化，请重新预览。");
+      }
+      assertMobileSyncItems(page.items, "snapshot", true, this.assetSubscribed);
+      for (const item of page.items) {
+        if (item.entityType !== "knowledge_tree_node" || item.payload.__delete || nodes.has(item.entityId)) {
+          rejectNativeTreeRepair("云端目录快照不完整，请重试同步。");
+        }
+        assertNativePersonalTreeEntry(item.entityId, item.payload, this.options.userId);
+        nodes.set(item.entityId, item.payload);
+      }
+      cursor = page.nextCursor;
+    }
+    const after = await this.request<ServerPlan>(`/plan?${params}`);
+    if (after.resetRequired !== false || after.serverSequence !== before.serverSequence || after.accessFingerprint !== scope.accessFingerprint) {
+      rejectNativeTreeRepair("云端目录或同步权限在读取时变化，请重新预览。");
+    }
+    return { sequence: before.serverSequence, accessFingerprint: scope.accessFingerprint, nodes };
+  }
+
   async resolveLocalConflict(
     conflictId:string,
     resolution:"keep-local"|"keep-remote"|"manual",
     mergedPayload?:Record<string,unknown>,
   ):Promise<void>{
+    this.treeRepairPreview = null;
     this.syncAbort?.abort();
     const row=(await this.options.db.query<{
       id:string;scopeKey:string;entityType:RemoteEntityType;entityId:string;
@@ -947,7 +1052,7 @@ export class MobileSyncEngine {
       [this.options.profileId,scope.scopeKey],
     ))[0];
     const after = state?.lastSequence || 0;
-    const changes = await this.request<{ resetRequired:boolean;nextSequence:number;items:Array<{entityType:RemoteEntityType;entityId:string;operation:string}> }>(
+    const changes = await this.request<{ resetRequired:boolean;nextSequence:number;hasMore?:boolean;items:Array<{entityType:RemoteEntityType;entityId:string;operation:string}> }>(
       `/changes?${this.subscriptionParams(scope,{after:String(after)})}`,
     );
     assertMobileSyncItems(changes.items,"changes",this.hasTreeSubscription(scope),this.assetSubscribed && !scope.workspaceId);
@@ -977,6 +1082,9 @@ export class MobileSyncEngine {
     );
     await this.applyEntries(scope,[...entries,...deletes],false);
     await this.advance(scope,changes.nextSequence);
+    // A full feed page leaves committed changes behind the cursor; continue now
+    // instead of waiting for the next notice or the 30 s fallback Pull.
+    if (changes.hasMore) this.rerun = true;
   }
 
   private async advance(scope: ScopeDescriptor, sequence: number, replaceCursor=false): Promise<void> {
@@ -1097,7 +1205,9 @@ export class MobileSyncEngine {
     });
     if (applied.length && !this.stopped) this.options.onApplied?.({
       scopeKey: scope.scopeKey,
-      noteIds: applied.filter((entry) => entry.entityType === "note" && !entry.payload.__delete).map((entry) => entry.entityId),
+      // Tag links change the open note's visible metadata without a note row change.
+      noteIds: [...new Set(applied.flatMap((entry) => entry.entityType === "note" && !entry.payload.__delete ? [entry.entityId]
+        : entry.entityType === "note_tag" ? [String(entry.payload.noteId || entry.entityId.split(":")[0])] : []))],
       deletedNoteIds: applied.filter((entry) => entry.entityType === "note" && entry.payload.__delete).map((entry) => entry.entityId),
     });
   }

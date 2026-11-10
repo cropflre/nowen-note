@@ -194,16 +194,25 @@ async function macProof() {
       run('xcrun', ['stapler', 'validate', app]);
     }
   }
-  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
+  // Policy: public GitHub macOS builds are distributed unsigned and unnotarized.
+  // Record the actual state; never fabricate a Developer ID / notarization proof.
+  const proof = { sha: e.RC_SHA, version: e.RC_VERSION, request_id: e.RC_REQUEST_ID, run_id: Number(e.GITHUB_RUN_ID), run_attempt: Number(e.GITHUB_RUN_ATTEMPT), distribution: 'unsigned', signed, notarized: signed, files: await artifactInventory('rc-candidate/macos/assets') };
   await mkdir('mac-proof', { recursive: true });
   await writeFile('mac-proof/signature.json', JSON.stringify(proof));
 }
-export async function verifyMacProof(manifest, directory, unsignedMacosVersion) {
+export async function verifyMacProof(manifest, directory) {
   if (!manifest.targets.includes('macos')) return;
   const proof = await json(join(directory, 'release-macos-proof/signature.json'));
-  const signed = proof.signed === true && proof.notarized === true;
-  const authorizedUnsigned = typeof unsignedMacosVersion === 'string' && unsignedMacosVersion === manifest.version && proof.signed === false && proof.notarized === false;
-  if ((!signed && !authorizedUnsigned) || proof.sha !== manifest.commit_sha || proof.version !== manifest.version || proof.request_id !== manifest.request_id || proof.run_id !== manifest.run_id || proof.run_attempt !== manifest.run_attempt || JSON.stringify(proof.files) !== JSON.stringify(manifest.artifacts.find(a => a.name === 'release-macos').files)) throw Error('macOS 分发需要与本次产物绑定的签名与公证证据；未签名包必须获得准确版本授权');
+  // An unsigned macOS download is allowed by release policy, but its provenance,
+  // exact SHA-256 file inventory and explicit UNSIGNED status remain mandatory.
+  // Mixed or forged signed/notarized states must never be accepted.
+  if (proof.distribution !== 'unsigned' || proof.signed !== false || proof.notarized !== false ||
+      proof.sha !== manifest.commit_sha || proof.version !== manifest.version ||
+      proof.request_id !== manifest.request_id || proof.run_id !== manifest.run_id ||
+      proof.run_attempt !== manifest.run_attempt ||
+      JSON.stringify(proof.files) !== JSON.stringify(manifest.artifacts.find(a => a.name === 'release-macos')?.files)) {
+    throw Error('macOS 未签名分发证明、构建来源或 SHA-256 产物清单不匹配；禁止发布');
+  }
 }
 async function manifest() {
   if (e.GITHUB_RUN_ATTEMPT !== '1') throw Error('请使用新请求 UUID 完整重建；不混用旧 attempt 的产物');
@@ -211,13 +220,13 @@ async function manifest() {
   await writeFile('release-manifest.json', JSON.stringify(data, null, 2));
   await appendFile(e.GITHUB_STEP_SUMMARY, `## 构建完成，等待发布确认\n版本：${data.version}\n源码：${data.commit_sha}\n目标：${data.targets.join(', ')}\n产物保留 7 天；构建没有上传任何发布渠道。\n`);
 }
-export async function verifyManifest(manifest, directory, sourceRun, input, unsignedMacosVersion) {
+export async function verifyManifest(manifest, directory, sourceRun, input) {
   assertBuildRun(sourceRun, input.source_run_id, input.source_attempt);
   if (manifest.schema !== 1 || manifest.repository !== CLOUD_REPO || manifest.run_id !== sourceRun.id || manifest.run_attempt !== sourceRun.run_attempt || manifest.commit_sha !== sourceRun.head_sha || manifest.version !== input.version || sourceRun.display_title !== `Release build ${manifest.request_id}`) throw Error('产物清单来源不匹配');
   const request = normalizeBuild(manifest);
   const rebuilt = await makeManifest(request, directory, { run_id: manifest.run_id, run_attempt: manifest.run_attempt });
   if (JSON.stringify(rebuilt) !== JSON.stringify(manifest)) throw Error('产物大小、摘要或清单被改变');
-  if (input.channels.includes('github')) await verifyMacProof(manifest, directory, unsignedMacosVersion);
+  if (input.channels.includes('github')) await verifyMacProof(manifest, directory);
   if (input.channels.includes('docker') && !request.targets.includes('docker')) throw Error('本次构建没有 Docker 镜像');
   if (input.channels.includes('testflight') && !request.targets.includes('ios')) throw Error('本次构建没有 IPA');
   if (input.channels.includes('github') && request.targets.some(t => ['fpk', 'upk'].includes(t)) && !input.channels.includes('docker')) throw Error('发布 NAS 包必须同时发布本次构建的 Docker 镜像');
@@ -229,7 +238,7 @@ async function verify() {
   const source = api(`actions/runs/${input.source_run_id}`);
   const manifest = await json('cloud-artifacts/release-manifest/release-manifest.json');
   // The manifest itself must come from the same, successful build; no local files are trusted.
-  await verifyManifest(manifest, 'cloud-artifacts', source, input, e.RC_UNSIGNED_MACOS_VERSION);
+  await verifyManifest(manifest, 'cloud-artifacts', source, input);
   await writeFile('verified-release.json', JSON.stringify(manifest));
   return manifest;
 }

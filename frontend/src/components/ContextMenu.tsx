@@ -571,7 +571,9 @@ export default function ContextMenu({
     const frame = requestAnimationFrame(() => {
       const el = internalRef.current;
       if (!el) return;
-      const rect = el.getBoundingClientRect();
+      // 用布局尺寸而不是 getBoundingClientRect：进入动画的 scale 会让后者偏小，
+      // 贴近视口边缘时菜单会被少推回几个像素。
+      const rect = { width: el.offsetWidth, height: el.offsetHeight };
       const { left: viewportLeft, top: viewportTop, width: viewportWidth, height: viewportHeight } = viewport;
       const gap = 8;
       const minX = viewportLeft + gap;
@@ -677,7 +679,7 @@ export default function ContextMenu({
         const fresh = await api.getNote(currentTargetId);
         const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
         const title = fresh.title || t("common.untitledNote") || "未命名笔记";
-        const blob = await exportNoteAsDocx(fresh.content || "", title);
+        const blob = await exportNoteAsDocx(fresh.content || "", title, undefined, fresh.id);
         await downloadDocxBlob(blob, title);
         toast.dismiss(toastId);
         toast.success(t("export.exportComplete"));
@@ -722,6 +724,8 @@ export default function ContextMenu({
   return (
     <>
       {isOpen && (
+        // 只有进入动画：点击菜单外、滚动或 Esc 时菜单必须立即消失，不能留下淡出残影
+        // 挡住用户正在操作的目标（见 ContextMenu.viewport.test）。
         <div
           ref={internalRef}
           data-context-menu-id={menuId}
@@ -731,7 +735,9 @@ export default function ContextMenu({
             left: adjustedPos.x,
             zIndex: 100,
             maxHeight: Math.max(0, viewport.height - 16),
-            animation: "contextMenuIn 0.12s ease-out",
+            animation: "contextMenuIn var(--motion-duration-fast) var(--motion-ease-enter)",
+            // 菜单从指针处展开；被视口边缘推回时改从对应的角展开。
+            transformOrigin: `${adjustedPos.y < y - 1 ? "bottom" : "top"} ${adjustedPos.x < x - 1 ? "right" : "left"}`,
           }}
           className={cn(
             "w-48 overflow-x-hidden overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",

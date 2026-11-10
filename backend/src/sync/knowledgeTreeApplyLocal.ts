@@ -26,7 +26,7 @@ const ALLOWED_NODE_TYPES: Record<string, string[]> = {
 export function applyKnowledgeTreeSnapshotLocal(
   db: Database.Database,
   items: KnowledgeTreeSnapshotItem[],
-  options: { userId: string; workspaceId: string | null },
+  options: { userId: string; workspaceId: string | null; allowMissingProjection?: boolean },
 ): void {
   const { userId, workspaceId } = options;
   const scopeKey = workspaceId ? `workspace:${workspaceId}` : "personal";
@@ -91,14 +91,14 @@ export function applyKnowledgeTreeSnapshotLocal(
         throw new SyncError("INVALID_PAYLOAD", "知识树节点身份或作用域不一致");
       }
       if (!existing) {
-        if (item.resourceType !== "file") {
+        if (item.resourceType !== "file" && !options.allowMissingProjection) {
           throw new SyncError("MISSING_DEPENDENCY", "知识树业务投影尚未创建");
         }
         db.prepare(`INSERT INTO knowledge_tree_nodes
           (id, userId, workspaceId, scopeKey, parentId, nodeType, resourceType,
            resourceId, sortOrder, isDeleted, deletedAt, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, NULL, ?, 'file', ?, 0, 0, NULL, ?, ?)`).run(
-          item.id, userId, workspaceId, treeScopeKey, item.nodeType, item.resourceId,
+          VALUES (?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, NULL, ?, ?)`).run(
+          item.id, userId, workspaceId, treeScopeKey, item.nodeType, item.resourceType, item.resourceId,
           item.createdAt, item.updatedAt,
         );
       }

@@ -1,3 +1,4 @@
+import { aiMarkdownFrontmatter, markAiMarkdown, parseAiProvenance, readAiProvenance, stripAiProvenanceComments } from "./aiContentProvenance";
 import type { MindMapData, MindMapNode } from "@/types";
 
 const MAX_NODES = 80;
@@ -93,7 +94,8 @@ export function normalizeMindMapData(data: MindMapData): MindMapData {
 
   const root = normalize(data.root, 0);
   if (!root) throw new Error("思维导图数据无效");
-  return { root };
+  const aiProvenance = parseAiProvenance(data.aiProvenance);
+  return { root, ...(aiProvenance ? { aiProvenance } : {}) };
 }
 
 /**
@@ -108,7 +110,7 @@ export function assignMindMapNodeIds(data: MindMapData): MindMapData {
       children: (node.children || []).map(assign),
     };
   }
-  return { root: assign(data.root) };
+  return { ...data, root: assign(data.root) };
 }
 
 /**
@@ -121,7 +123,8 @@ export function assignMindMapNodeIds(data: MindMapData): MindMapData {
  *   - 非标题非列表的正文挂到最近的节点上
  */
 export function markdownToMindMapData(markdown: string): MindMapData {
-  const lines = markdown.split("\n").filter(l => l.trim().length > 0);
+  const aiProvenance = readAiProvenance(markdown);
+  const lines = stripAiProvenanceComments(markdown).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").split("\n").filter(l => l.trim().length > 0 && !/^> (AI 生成内容|AI-generated content)\s*$/.test(l));
   let idCounter = 0;
   const newId = () => "node-" + (++idCounter);
 
@@ -192,7 +195,7 @@ export function markdownToMindMapData(markdown: string): MindMapData {
     throw new Error("无法从 Markdown 中提取思维导图内容");
   }
 
-  return { root };
+  return { root, ...(aiProvenance ? { aiProvenance } : {}) };
 }
 
 /**
@@ -222,5 +225,7 @@ export function mindMapDataToMarkdown(data: MindMapData): string {
   }
 
   walk(data.root, 0);
-  return lines.join("\n");
+  const markdown = lines.join("\n");
+  const provenance = parseAiProvenance(data.aiProvenance);
+  return provenance ? `---\n${aiMarkdownFrontmatter(provenance)}---\n${markAiMarkdown(markdown, provenance)}` : markdown;
 }

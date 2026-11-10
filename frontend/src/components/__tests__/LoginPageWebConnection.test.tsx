@@ -13,7 +13,6 @@ vi.mock("@/hooks/useSiteSettings", () => ({
 }));
 vi.mock("@/hooks/useCapacitor", () => ({ useKeyboardLayout: () => {} }));
 vi.mock("@/hooks/useKeyboardVisible", () => ({ useKeyboardVisible: () => ({ height: 0 }) }));
-vi.mock("@/components/LanDiscoveryPanel", () => ({ default: () => null }));
 vi.mock("@/lib/api", () => ({
   clearServerUrl: vi.fn(),
   fetchRegisterConfig: vi.fn(),

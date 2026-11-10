@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   BrainCircuit,
   Check,
-  ChevronDown,
   ChevronRight,
   ChevronsDown,
   ChevronsUp,
@@ -1324,7 +1323,9 @@ export function KnowledgeTreePanel({
       ? firstLevelNoteCounts.get(node.id) ?? 0
       : null;
     return (
-      <div key={node.id}>
+      // 子节点随父节点展开挂载时轻量浮现（只动 opacity / transform，不做高度动画，大树也不重排）；
+      // 折叠立即收起，保持树的操作手感。刷新 / 拖拽排序复用同一 key，不会重播。
+      <div key={node.id} className={depth > 0 ? "animate-nowen-tree-reveal" : undefined}>
         <div
           className={cn(
             "group relative flex min-w-0 items-center hover:bg-app-hover hover:text-tx-primary",
@@ -1410,7 +1411,13 @@ export function KnowledgeTreePanel({
             )}
             aria-label={isExpanded ? "折叠" : "展开"}
           >
-            {hasChildren ? (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />) : null}
+            {/* 单个箭头旋转 90°，展开 / 折叠两个方向都有连续反馈。 */}
+            {hasChildren ? (
+              <ChevronRight
+                size={13}
+                className={cn("transition-transform duration-fast ease-standard", isExpanded && "rotate-90")}
+              />
+            ) : null}
           </button>
           <button
             type="button"
@@ -1620,7 +1627,8 @@ export function KnowledgeTreePanel({
           : "contents"}
         >
           <div className={cn(
-            "flex min-w-0 items-center border border-app-border bg-app-bg",
+            // 聚焦反馈：边框转为主色并带一圈柔光，只过渡颜色与阴影。
+            "flex min-w-0 items-center border border-app-border bg-app-bg transition-[border-color,box-shadow] duration-fast ease-standard focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/15",
             variant === "mobile"
               ? "w-full gap-1.5 rounded-lg px-2 py-1.5 shadow-sm"
               : compactToolbar

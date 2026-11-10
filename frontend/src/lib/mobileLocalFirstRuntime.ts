@@ -1,3 +1,4 @@
+import { nativeTreeResourceTitle, readNativeTreeRepairBackup, rejectNativeTreeRepair } from "./nativeTreeConflictRepair";
 import { Capacitor } from "@capacitor/core";
 import { getCurrentWorkspace, getServerUrl, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "./api.impl";
 import { getAccessToken } from "./authSession";
@@ -345,9 +346,28 @@ function createNativeAdminAdapter(
       for(const row of rows){row.pendingMutations=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_outbox WHERE profileId=? AND scopeKey=? AND status IN ('pending','failed')",[profileId,row.scopeKey]))[0]?.count||0;row.conflictCount=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND scopeKey=? AND status='unresolved'",[profileId,row.scopeKey]))[0]?.count||0;}
       return {items:rows} as T;
     }
+    if (method === "POST" && (path === "/knowledge-tree/repair/preview" || path === "/knowledge-tree/repair/apply")) {
+      if (active?.enabled !== 1 || active.authStatus !== "ready") rejectNativeTreeRepair("请先登录并启用同步。");
+      const body = parseBody(init);
+      const apply = path.endsWith("/apply");
+      if (apply && typeof body.token !== "string") rejectNativeTreeRepair("请先预览并确认目录修复。");
+      return await engine.repairPersonalTree(body.strategy, body.conflictIds, apply ? body.token : undefined) as T;
+    }
+    const treeBackupMatch = path.match(/^\/knowledge-tree\/repair\/backups\/([^/]+)$/);
+    if (method === "GET" && treeBackupMatch) {
+      return await readNativeTreeRepairBackup(db, {profileId, deviceId, userId}, decodeURIComponent(treeBackupMatch[1])) as T;
+    }
     if(path==="/conflicts"){
       const rows=await db.query<{id:string;entityType:string;entityId:string;localVersion:number|null;remoteVersion:number|null;localPayload:string|null;remotePayload:string|null;createdAt:string}>("SELECT * FROM sync_conflicts WHERE profileId=? AND status='unresolved' ORDER BY createdAt",[profileId]);
-      return {total:rows.length,items:rows.map((row)=>{const local=json(row.localPayload),remote=json(row.remotePayload);return {id:row.id,entityType:row.entityType,entityId:row.entityId,localVersion:row.localVersion,remoteVersion:row.remoteVersion,createdAt:row.createdAt,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:null,remoteTitle:typeof remote?.title==="string"?remote.title:null};})} as T;
+      const items = await Promise.all(rows.map(async (row) => {
+        const local = json(row.localPayload), remote = json(row.remotePayload);
+        const treeTitle = row.entityType === "knowledge_tree_node" ? await nativeTreeResourceTitle(db, row.entityId, userId) : null;
+        return { id: row.id, entityType: row.entityType, entityId: row.entityId, localVersion: row.localVersion,
+          remoteVersion: row.remoteVersion, createdAt: row.createdAt, diffFields: diff(local, remote),
+          localTitle: typeof local?.title === "string" ? local.title : treeTitle,
+          remoteTitle: typeof remote?.title === "string" ? remote.title : treeTitle };
+      }));
+      return { total: rows.length, items } as T;
     }
     const historyUrl=new URL(path,"http://localhost");
     if(historyUrl.pathname==="/conflicts/history"&&method==="GET"){
@@ -370,8 +390,10 @@ function createNativeAdminAdapter(
     }
     const conflictMatch=path.match(/^\/conflicts\/([^/]+)$/);
     if(conflictMatch&&method==="GET"){
-      const id=decodeURIComponent(conflictMatch[1]);const row=(await db.query<Record<string, unknown> & { localPayload: string | null; remotePayload: string | null; basePayload: string | null }>("SELECT * FROM sync_conflicts WHERE id=?",[id]))[0];if(!row)throw new Error("冲突不存在");
-      const local=json(row.localPayload),remote=json(row.remotePayload);return {...row,base:json(row.basePayload),local,remote,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:null,remoteTitle:typeof remote?.title==="string"?remote.title:null} as T;
+      const id=decodeURIComponent(conflictMatch[1]);const row=(await db.query<Record<string, unknown> & { localPayload: string | null; remotePayload: string | null; basePayload: string | null }>("SELECT * FROM sync_conflicts WHERE id=? AND profileId=?",[id,profileId]))[0];if(!row)throw new Error("冲突不存在");
+      const local=json(row.localPayload),remote=json(row.remotePayload);
+      const treeTitle = row.entityType === "knowledge_tree_node" ? await nativeTreeResourceTitle(db, String(row.entityId), userId) : null;
+      return {...row,base:json(row.basePayload),local,remote,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:treeTitle,remoteTitle:typeof remote?.title==="string"?remote.title:treeTitle} as T;
     }
     const resolveMatch=path.match(/^\/conflicts\/([^/]+)\/resolve$/);
     if(resolveMatch&&method==="POST"){const body=parseBody(init);await engine.resolveLocalConflict(decodeURIComponent(resolveMatch[1]),body.resolution as Parameters<MobileSyncEngine["resolveLocalConflict"]>[1],body.mergedPayload as Record<string,unknown>|undefined);const remaining=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;return {conflictId:decodeURIComponent(resolveMatch[1]),resolution:body.resolution,remainingConflicts:remaining} as T;}

@@ -30,9 +30,6 @@ vi.mock("@/hooks/useSiteSettings", () => ({
 
 vi.mock("@/hooks/useCapacitor", () => ({ useKeyboardLayout: () => {} }));
 vi.mock("@/hooks/useKeyboardVisible", () => ({ useKeyboardVisible: () => ({ height: 0 }) }));
-vi.mock("@/components/LanDiscoveryPanel", () => ({
-  default: () => <div data-lan-discovery />,
-}));
 vi.mock("@/components/AccountLoginHistory", () => ({ AccountLoginHistoryList: () => null }));
 vi.mock("@/lib/accountLoginHistory", () => ({ consumePendingAccountReauth: () => null }));
 vi.mock("@/lib/rememberLogin", () => ({
@@ -122,7 +119,6 @@ describe("桌面端本地登录信息提示", () => {
 
     expect(host.querySelector<HTMLInputElement>('input[autocomplete="username"]')?.value).toBe(localHint.username);
     expect(host.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')?.value).toBe(localHint.password);
-    expect(host.querySelector("[data-lan-discovery]")).not.toBeNull();
 
     await act(async () => {
       host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -132,23 +128,6 @@ describe("桌面端本地登录信息提示", () => {
       expect(completeLocalLoginHint).toHaveBeenCalledWith(localHint.serverUrl, localHint.username);
       expect(onLogin).toHaveBeenCalledWith("token-local", expect.objectContaining({ username: "desktop" }));
       expect(host.querySelector("[data-desktop-local-login-hint]")).toBeNull();
-    });
-  });
-
-  it("远程服务器地址下隐藏局域网发现", async () => {
-    localStorage.setItem("nowen-server-url-last", "https://note.nowen.cn");
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
-
-    await act(async () => {
-      root?.render(<LoginPage isClientMode onLogin={vi.fn()} />);
-    });
-
-    await waitFor(() => {
-      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>("input"));
-      expect(inputs.some((input) => input.value.includes("note.nowen.cn"))).toBe(true);
-      expect(host.querySelector("[data-lan-discovery]")).toBeNull();
     });
   });
 

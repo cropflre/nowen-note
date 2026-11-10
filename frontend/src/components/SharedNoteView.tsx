@@ -24,6 +24,7 @@ import MermaidView from "@/components/MermaidView";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
+import { remarkPreserveLineBreaks } from "@/lib/markdownLineBreaks";
 import { normalizeIndentValue } from "@/lib/codeBlockIndent";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import {
@@ -1232,7 +1233,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               onClick={handleSharedContentClick}
             >
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkPreserveLineBreaks]}
                 // rehype-raw 让 raw HTML（math 占位）能透传过 mdast→hast 阶段，
                 // 否则 ReactMarkdown 默认会丢弃 raw HTML 节点。
                 // SEC-XSS-01-C: rehype-raw 后接 rehype-sanitize，防止 raw HTML 中的 XSS

@@ -1,3 +1,4 @@
+import { aiMarkdownFrontmatter, markAiMarkdown, readAiProvenance, readNoteAiProvenance } from "@/lib/aiContentProvenance";
 export * from "./exportServiceCore";
 
 import { saveAs } from "file-saver";
@@ -39,7 +40,9 @@ function sanitizeSingleNoteExportFilename(name: string): string {
 }
 
 function buildSingleNoteFrontmatter(note: {
+  id?: string;
   title: string;
+  content?: string;
   contentFormat?: string;
   createdAt: string;
   updatedAt: string;
@@ -50,9 +53,10 @@ function buildSingleNoteFrontmatter(note: {
     `contentFormat: "${note.contentFormat || "tiptap-json"}"`,
     `created: ${note.createdAt}`,
     `updated: ${note.updatedAt}`,
+    aiMarkdownFrontmatter(readNoteAiProvenance(note)).trimEnd(),
     "---",
     "",
-  ].join("\n");
+  ].filter((line, index, rows) => line !== "" || index === rows.length - 1).join("\n");
 }
 
 async function waitForMarkdownExportJob(job: Awaited<ReturnType<typeof api.createMarkdownExportJob>>["job"]) {
@@ -188,7 +192,9 @@ export async function exportSingleNote(
 
     const inlineImages = options?.inlineImages === true;
     const forceZip = options?.forceZip === true;
-    const markdown = note.content || note.contentText || "";
+    const rawMarkdown = note.content || note.contentText || "";
+    const provenance = readNoteAiProvenance(note);
+    const markdown = provenance && !readAiProvenance(rawMarkdown) ? markAiMarkdown(rawMarkdown, provenance) : rawMarkdown;
     const safeTitle = sanitizeSingleNoteExportFilename(note.title);
     const hasServerAssets = /\/api\/attachments\//i.test(markdown);
 

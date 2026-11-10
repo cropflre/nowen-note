@@ -209,7 +209,8 @@ export const zhCNCoverageTranslations = {
       "pending": "等待云端确认",
       "confirmed": "云端已确认",
       "conflict": "版本冲突待处理",
-      "error": "同步遇到问题"
+      "error": "同步遇到问题",
+      "remotePending": "其他设备有新版本待应用"
     },
     "conflicts": "{{count}} 个冲突待处理",
     "pending": "待同步 {{count}}",
@@ -483,6 +484,10 @@ export const zhCNCoverageTranslations = {
     "enabledMessage": "分享已启用",
     "viewSessions": "访问会话 {{total}}",
     "expiresOn": " · 到期 {{date}}",
+    "riskSummary": "外部访客可能打不开此链接",
+    "moreOptions": "更多选项（密码、有效期、会话数）",
+    "openLink": "打开链接",
+    "delete": "删除",
   },
   editorOps: {
     "convertLocked": "请先解锁笔记再转换格式",
@@ -833,7 +838,8 @@ export const enCoverageTranslations = {
       "pending": "Awaiting cloud confirmation",
       "confirmed": "Cloud confirmed",
       "conflict": "Version conflict",
-      "error": "Sync issue"
+      "error": "Sync issue",
+      "remotePending": "Newer version from another device pending"
     },
     "conflicts": "{{count}} conflicts to resolve",
     "pending": "{{count}} pending changes",
@@ -1107,6 +1113,10 @@ export const enCoverageTranslations = {
     "enabledMessage": "Share enabled",
     "viewSessions": "Sessions: {{total}}",
     "expiresOn": " · Expires {{date}}",
+    "riskSummary": "Guests may not be able to open this link",
+    "moreOptions": "More options (password, expiry, sessions)",
+    "openLink": "Open link",
+    "delete": "Delete",
   },
   editorOps: {
     "convertLocked": "Unlock the note before converting formats",

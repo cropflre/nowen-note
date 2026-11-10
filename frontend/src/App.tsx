@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Sparkles } from "lucide-react";
+import useReducedMotion from "@/hooks/useReducedMotion";
+import { useViewSwitchFade } from "@/hooks/useViewSwitchFade";
+import { MOTION_DURATION, MOTION_EASE, MOTION_SPRING, overlayMotion } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
 import { useTranslation } from "react-i18next";
@@ -513,6 +516,20 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
   const isIssuesView = state.viewMode === "issues";
+  // 页面级切换淡入：同一视图内切笔记本 / 笔记不触发（见 useViewSwitchFade）。
+  const appShellRef = useRef<HTMLDivElement>(null);
+  const viewSurfaceKey = state.viewMode === "trash" ? "trash"
+    : isSheetView ? "sheet"
+    : isIssuesView ? "issues"
+    : isTaskView ? "tasks"
+    : isMindMapView ? "mindmaps"
+    : isAIChatView ? "ai-chat"
+    : isDiaryView ? "diary"
+    : isFilesView ? "files"
+    : isSharesView ? "shares"
+    : "notes";
+  useViewSwitchFade(appShellRef, viewSurfaceKey);
+  const reduceMotion = useReducedMotion();
   const editorFocusLayout = resolveEditorFocusLayout({
     editorFullscreen: state.editorFullscreen,
     railVisible,
@@ -856,16 +873,16 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
   });
 
   return (
-    <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
+    <div ref={appShellRef} className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
       <NoteDeepLinkBridge />
       {/* 移动端目录使用全屏抽屉；快捷栏默认显示，也可通过独立偏好隐藏。 */}
       <AnimatePresence>
         {state.mobileSidebarOpen && (
           <>
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={overlayMotion.initial}
+              animate={overlayMotion.animate}
+              exit={overlayMotion.exit}
               onPointerDown={handleSidebarBackdropPointerDown}
               onPointerUp={handleSidebarBackdropPointerUp}
               onPointerCancel={handleSidebarBackdropPointerCancel}
@@ -875,7 +892,7 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
-              transition={{ type: "spring", bounce: 0, duration: 0.35 }}
+              transition={MOTION_SPRING.panel}
               className="fixed inset-y-0 left-0 z-50 flex w-screen max-w-none overflow-hidden shadow-2xl md:hidden"
               // 底部避让 home indicator / 手势栏：抽屉容器统一处理，
               // 内部 NavRail / Sidebar 不再各自加 safe-area-bottom，避免重复 padding。
@@ -899,14 +916,28 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
           v16 P3 后续：Rail 三档模式（icon=48px 纯图标 / label=64px 图标+文字 / hidden=完全隐藏）；
           hidden 模式下若主侧栏也折叠，强制保留 Rail（避免完全无侧栏入口）。 */}
       {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail notificationCount={notificationCount} /></PhaseAPerfProfiler>}
-      {showSidebar && !mediumNoteWorkspace && !isFilesView && (
-        <div
-          className="hidden md:flex shrink-0"
-          style={{ width: `${state.sidebarWidth}px` }}
-        >
-          <PhaseAPerfProfiler id="Sidebar"><Sidebar variant="desktop" /></PhaseAPerfProfiler>
-        </div>
-      )}
+      {/* 折叠 / 展开时外层宽度在 0 与内容宽度之间过渡，内层保持固定宽度，侧栏文字不会被挤压重排。
+          动画结束后外层回到 width:auto，拖拽调整宽度仍是 1:1 跟手。首次渲染不播放。 */}
+      <AnimatePresence initial={false}>
+        {showSidebar && !mediumNoteWorkspace && !isFilesView && (
+          <motion.div
+            key="desktop-sidebar"
+            className="hidden md:flex shrink-0 overflow-hidden"
+            initial={{ width: 0 }}
+            animate={{ width: "auto" }}
+            exit={{ width: 0 }}
+            // width 不属于 transform，MotionConfig 的 reducedMotion 管不到，这里手动归零。
+            transition={reduceMotion ? { duration: 0 } : { duration: MOTION_DURATION.slow, ease: MOTION_EASE.standard }}
+          >
+            <div
+              className="flex shrink-0"
+              style={{ width: `${state.sidebarWidth}px` }}
+            >
+              <PhaseAPerfProfiler id="Sidebar"><Sidebar variant="desktop" /></PhaseAPerfProfiler>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {showSidebar && !mediumNoteWorkspace && !isFilesView && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}

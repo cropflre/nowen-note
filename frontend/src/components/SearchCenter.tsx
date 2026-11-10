@@ -28,6 +28,7 @@ import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { searchIncludingExcludedNotebooks } from "@/lib/searchNotebookExclusions";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
+import { staggerDelay } from "@/lib/motion";
 import type { SearchResult } from "@/types";
 
 type MatchFilter = "all" | "title" | "content";
@@ -506,7 +507,7 @@ export default function SearchCenter() {
           )}
 
           {!query.trim() ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
+            <div className="animate-nowen-fade-in flex min-h-[360px] flex-col items-center justify-center text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-primary/10 text-accent-primary">
                 <Search size={26} />
               </div>
@@ -514,7 +515,7 @@ export default function SearchCenter() {
               <p className="mt-2 max-w-md text-sm leading-6 text-tx-tertiary">{copy.emptyDescription}</p>
             </div>
           ) : !loading && visibleResults.length === 0 ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
+            <div className="animate-nowen-fade-in flex min-h-[360px] flex-col items-center justify-center text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface text-tx-tertiary ring-1 ring-app-border">
                 <Search size={25} />
               </div>
@@ -547,8 +548,10 @@ export default function SearchCenter() {
                     onMouseEnter={() => setActiveIndex(index)}
                     onFocus={() => setActiveIndex(index)}
                     onClick={() => void openResult(result)}
+                    // 新结果错峰浮现（封顶 8 级）；同一结果在排序 / 筛选切换后保留 key，不重播。
+                    style={{ animationDelay: `${staggerDelay(index)}s` }}
                     className={cn(
-                      "group w-full rounded-2xl border bg-app-surface px-4 py-4 text-left shadow-sm transition-all md:px-5",
+                      "animate-nowen-rise-in group w-full rounded-2xl border bg-app-surface px-4 py-4 text-left shadow-sm transition-[color,background-color,border-color,box-shadow] duration-fast ease-standard md:px-5",
                       active
                         ? "border-accent-primary/45 bg-accent-primary/[0.035] shadow-md shadow-black/[0.04]"
                         : "border-app-border hover:border-accent-primary/25 hover:shadow-md hover:shadow-black/[0.035]",

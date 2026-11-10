@@ -1,4 +1,4 @@
-import { fileIo as fs } from '@kit.CoreFileKit';
+import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { NativeResult } from './NativeTypes';
@@ -16,10 +16,34 @@ export interface FileOptions {
   chunkSize?: number;
 }
 
+export interface ExportFileOptions {
+  fileName: string;
+  base64Data: string;
+}
+
 export class HarmonyFiles {
   private base64: util.Base64Helper = new util.Base64Helper();
   private context: common.UIAbilityContext;
   constructor(context: common.UIAbilityContext) { this.context = context; }
+
+  async saveExport(options: ExportFileOptions): Promise<NativeResult> {
+    if (!options.fileName || /[/\\\x00]/.test(options.fileName) ||
+      options.fileName === '.' || options.fileName === '..' || !options.base64Data) {
+      throw new Error('Invalid export file');
+    }
+    const data = this.base64.decodeSync(options.base64Data);
+    const selector = new picker.DocumentViewPicker(this.context);
+    const uris = await selector.save({ newFileNames: [options.fileName] });
+    if (!uris.length) return { canceled: true };
+
+    const file = await fs.open(uris[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    try {
+      const count = await fs.write(file.fd, data.buffer as ArrayBuffer);
+      if (count !== data.byteLength) throw new Error('Incomplete export file write');
+      await fs.fsync(file.fd);
+    } finally { await fs.close(file); }
+    return { success: true, uri: uris[0], displayPath: uris[0] };
+  }
 
   path(value: string, directory: string = 'DATA'): string {
     if (!['DATA', 'CACHE'].includes(directory)) throw new Error('Unsupported storage directory');

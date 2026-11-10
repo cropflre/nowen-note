@@ -76,6 +76,10 @@ export async function applyNativePersonalTree(
   const rows = await tx.query<{id:string;parentId:string|null;isDeleted:number}>(
     "SELECT id,parentId,isDeleted FROM native_knowledge_tree_nodes WHERE scopeKey='personal'",
   );
+  assertNativePersonalTreeGraph(rows);
+}
+
+export function assertNativePersonalTreeGraph(rows: Array<{id:string;parentId:string|null;isDeleted:number}>): void {
   const byId = new Map(rows.map((row) => [row.id, row]));
   const done = new Set<string>();
   for (const row of rows) {

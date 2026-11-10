@@ -1,5 +1,5 @@
 ﻿import { isolateHistory } from "@codemirror/commands";
-import { agentTextRanges } from "@/lib/agentEdits";
+import { agentMarkdownChanges } from "@/lib/agentEdits";
 import React, {
   forwardRef,
   useCallback,
@@ -324,11 +324,11 @@ const LargeMarkdownSafeEditor = forwardRef<
     },
     isReady: () => !!viewRef.current,
       getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
-      applyAgentEdits: (original, edits) => {
+      applyAgentEdits: (original, edits, provenance) => {
         const view = viewRef.current;
         if (!view || !editable || view.state.doc.toString() !== original) return false;
         try {
-          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          const changes = agentMarkdownChanges(original, edits, provenance);
           view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
           return true;
         } catch { return false; }

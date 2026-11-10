@@ -1,6 +1,9 @@
+import { aiProvenanceParagraph, readNoteAiProvenance } from "./aiContentProvenance";
+import { detectFormat, markdownToTiptapJSON } from "@/lib/contentFormat";
 // lib/wordNoteService.ts —— Word 笔记创建、附件替换、导入和导出入口
 
 import { api } from "./api";
+import { isHarmonyNative, saveBlobToSystemFile } from "./nativeImageSave";
 import { createBlankDocx, blankDocxFile, tiptapToIr, createDocx } from "@/office";
 import type { Note } from "@/types";
 import {
@@ -158,10 +161,11 @@ export async function exportNoteAsDocx(
   noteContent: string,
   title: string,
   author?: string,
+  noteId?: string,
 ): Promise<Blob> {
   let parsed: any = null;
   try {
-    parsed = JSON.parse(noteContent);
+    parsed = detectFormat(noteContent) === "md" ? markdownToTiptapJSON(noteContent) : JSON.parse(noteContent);
   } catch {
     parsed = {
       type: "doc",
@@ -181,13 +185,27 @@ export async function exportNoteAsDocx(
       ],
     };
   }
+  const provenance = readNoteAiProvenance({ id: noteId, title, content: noteContent });
   const ir = await tiptapToIr(parsed, { title, author });
+  if (provenance && !ir.meta.aiProvenance) {
+    parsed.content.unshift(aiProvenanceParagraph(provenance, title));
+    return createDocx(await tiptapToIr(parsed, { title, author }), { title, author });
+  }
   return createDocx(ir, { title, author });
 }
 
 /** 通过服务端暂存地址下载浏览器生成的 DOCX，避免扩展拦截 Blob。 */
 export async function downloadDocxBlob(blob: Blob, filename: string): Promise<void> {
   const safeName = /\.docx$/i.test(filename) ? filename : `${filename}.docx`;
+  if (isHarmonyNative()) {
+    const result = await saveBlobToSystemFile({
+      blob,
+      fileName: safeName,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    if (result.canceled) throw new Error("已取消保存");
+    return;
+  }
   const staged = await api.stageGeneratedExport(blob, safeName);
   api.downloadMarkdownExport(staged.downloadToken, staged.filename);
 }

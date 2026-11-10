@@ -3,7 +3,62 @@ import net from "node:net"
 import process from "node:process"
 import test from "node:test"
 import { spawn } from "node:child_process"
-import { forceReleasePort, isPortAvailable } from "../dev-port-manager.mjs"
+import { EventEmitter } from "node:events"
+import { forceReleasePort, forceReleasePorts, isPortAvailable } from "../dev-port-manager.mjs"
+
+function mockPortBindings(t, errorForPort) {
+  const attemptedPorts = []
+  t.mock.method(net, "createServer", () => {
+    const server = new EventEmitter()
+    server.unref = () => {}
+    server.close = (callback) => callback()
+    server.listen = ({ port }, callback) => {
+      attemptedPorts.push(port)
+      const code = errorForPort(port)
+      if (code) queueMicrotask(() => server.emit("error", Object.assign(new Error(code), { code })))
+      else queueMicrotask(callback)
+    }
+    return server
+  })
+  return attemptedPorts
+}
+
+test("reserved frontend port falls back past excluded and occupied ports without killing listeners", async (t) => {
+  const attemptedPorts = mockPortBindings(t, (port) => {
+    if (port >= 5141 && port <= 5240) return "EACCES"
+    if (port === 5241) return "EADDRINUSE"
+  })
+  const logs = []
+  const results = await forceReleasePorts([
+    { port: 5242, label: "后端" },
+    { port: 5173, label: "前端", allowFallback: true },
+  ], { log: (message) => logs.push(message) })
+
+  assert.deepEqual(results, [{ port: 5242, killedPids: [] }, { port: 5243, killedPids: [] }])
+  assert.equal(attemptedPorts.filter((port) => port === 5242).length, 1)
+  assert.match(logs[0], /5173.*EACCES.*5243/)
+})
+
+test("explicitly configured reserved port fails with an accurate diagnostic", async (t) => {
+  const attemptedPorts = mockPortBindings(t, () => "EACCES")
+  await assert.rejects(forceReleasePort(5173, "前端"), (error) => {
+    assert.match(error.message, /EACCES.*系统保留/)
+    assert.match(error.message, /NOWEN_DEV_FRONTEND_PORT/)
+    assert.doesNotMatch(error.message, /已被占用|管理员/)
+    return true
+  })
+  assert.deepEqual(attemptedPorts, [5173])
+})
+
+test("unrelated bind failures retain their original error code", async (t) => {
+  mockPortBindings(t, () => "EMFILE")
+  await assert.rejects(forceReleasePort(5173, "前端", { allowFallback: true }), { code: "EMFILE" })
+})
+
+test("fallback fails clearly when no higher port is available", async (t) => {
+  mockPortBindings(t, () => "EACCES")
+  await assert.rejects(forceReleasePort(65535, "前端", { allowFallback: true }), /65535.*EACCES/)
+})
 
 function reserveFreePort() {
   return new Promise((resolve, reject) => {

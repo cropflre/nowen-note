@@ -8,7 +8,7 @@
  *   GET    /api/users                 - 用户列表
  *   POST   /api/users                 - 创建用户
  *   PATCH  /api/users/:id             - 更新用户资料（username / email / displayName / role / isDisabled）
- *   POST   /api/users/:id/reset-password - 管理员重置某用户密码
+ *   POST   /api/users/:id/reset-password - 管理员重置其他用户密码（不可重置自己）
  *   DELETE /api/users/:id             - 删除用户（不可删除自己；不可删除最后一个管理员）
  */
 import { Hono } from "hono";
@@ -420,11 +420,15 @@ users.patch("/:id", requireAdmin, async (c) => {
   return c.json(user);
 });
 
-// 管理员重置某用户密码
+// 管理员重置其他用户密码：只需新密码（确认输入由前端校验），不要求 sudo 二次验证。
 users.post("/:id/reset-password", requireAdmin, async (c) => {
   const db = getDb();
   const currentUserId = c.req.header("X-User-Id") || "";
   const targetId = c.req.param("id");
+  // 此入口不校验当前密码；改自己的密码必须走安全设置，否则被盗的登录态可直接改掉管理员密码。
+  if (targetId === currentUserId) {
+    return c.json({ error: "不能在这里重置自己的密码，请在安全设置中修改" }, 400);
+  }
   const body = await c.req.json().catch(() => ({}));
   const { newPassword } = body as { newPassword: string };
 
@@ -435,14 +439,6 @@ users.post("/:id/reset-password", requireAdmin, async (c) => {
     .prepare("SELECT id, username FROM users WHERE id = ?")
     .get(targetId) as { id: string; username: string } | undefined;
   if (!target) return c.json({ error: "用户不存在" }, 404);
-
-  // H2: 重置他人密码属于高危操作，必须 sudo
-  const denied = requireSudoOrDeny(c, "user_reset_password", {
-    targetType: "user",
-    targetId,
-    details: { targetUsername: target.username },
-  });
-  if (denied) return denied;
 
   const hash = await bcrypt.hash(newPassword, 10);
   // C3: 改密后 bump tokenVersion，清理登录失败计数与账号锁

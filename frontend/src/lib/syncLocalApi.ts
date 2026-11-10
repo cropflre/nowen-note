@@ -149,6 +149,10 @@ export function setSyncLocalAdminAdapter(adapter:SyncLocalAdminAdapter|null):voi
   nativeAdminAdapter=adapter;
 }
 
+export function hasNativeSyncLocalAdminAdapter(): boolean {
+  return nativeAdminAdapter !== null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if(nativeAdminAdapter)return nativeAdminAdapter<T>(path,init);
   const baseUrl = getBaseUrl();
@@ -371,6 +375,56 @@ export function resolveConflict(
   return request(`/conflicts/${encodeURIComponent(id)}/resolve`, {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+type TreeRepairStrategy = Extract<ConflictResolution, "keep-local" | "keep-remote">;
+
+interface TreeRepairSnapshot {
+  id: string;
+  parentId: string | null;
+  sortOrder: number;
+  isDeleted: number;
+  deletedAt: string | null;
+  resourceType: string;
+  resourceId: string;
+  nodeType: string;
+}
+
+interface TreeRepairPreview {
+  token: string;
+  changes: Array<{
+    id: string;
+    title: string | null;
+    local: TreeRepairSnapshot | null;
+    remote: TreeRepairSnapshot | null;
+  }>;
+}
+
+export function previewKnowledgeTreeRepair(
+  strategy: TreeRepairStrategy,
+  conflictIds: string[],
+): Promise<TreeRepairPreview> {
+  return request("/knowledge-tree/repair/preview", {
+    method: "POST",
+    body: JSON.stringify({ strategy, conflictIds }),
+  });
+}
+
+export function fetchKnowledgeTreeRepairBackup(id: string): Promise<Omit<TreeRepairPreview, "token"> & {
+  id: string; strategy: TreeRepairStrategy; createdAt: string;
+}> {
+  return request(`/knowledge-tree/repair/backups/${encodeURIComponent(id)}`);
+}
+
+export function applyKnowledgeTreeRepair(
+  strategy: TreeRepairStrategy,
+  conflictIds: string[],
+  token: string,
+): Promise<{ resolved: number; backupId?: string; backupFilename?: string }> {
+  return request("/knowledge-tree/repair/apply", {
+    method: "POST",
+    body: JSON.stringify({ strategy, conflictIds, token }),
   });
 }
 

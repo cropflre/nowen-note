@@ -44,6 +44,11 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # This job tests task digest / API token behavior, not FFmpeg packaging.
+    # ffmpeg-static accepts FFMPEG_BIN and skips its GitHub release download.
+    # Keep production packaging on the pinned ffmpeg-static binary.
+    env:
+      FFMPEG_BIN: /usr/bin/ffmpeg
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,6 +56,13 @@ jobs:
           node-version: "24.22.1"
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - name: Ensure CI ffmpeg is available
+        run: |
+          if [ ! -x /usr/bin/ffmpeg ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          test -x /usr/bin/ffmpeg
       - name: Install backend
         working-directory: backend
         run: npm ci --no-audit --no-fund

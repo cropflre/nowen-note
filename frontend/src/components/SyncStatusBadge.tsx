@@ -14,18 +14,26 @@
  *   保存指示器的"已保存"已经说明了一切；
  * - Android 始终展示轻量同步文字；其它端在已同步且无冲突时隐藏。
  *
- * 不弹 Toast，不做动画抖动 —— 同步是后台行为。
+ * 不弹 Toast，不做动画抖动 —— 同步是后台行为。状态切换时图标只做一次
+ * 原地交叉淡入（AnimatedSwap），不旋转、不闪烁。
  */
 
 import { AlertTriangle, Check, CloudOff, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { AnimatedSwap } from "@/components/ui/animated-swap";
 import { cn } from "@/lib/utils";
 import { useSyncIndicator } from "@/lib/useSyncIndicator";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import { useNoteSyncReceipt } from "@/lib/useNoteSyncReceipt";
 
-export default function SyncStatusBadge({ className, saving = false, noteId }: { className?: string; saving?: boolean; noteId?: string }) {
+export default function SyncStatusBadge({ className, saving = false, noteId, remotePending = false }: {
+  className?: string;
+  saving?: boolean;
+  noteId?: string;
+  /** The open editor knows a newer persisted version it has not applied yet. */
+  remotePending?: boolean;
+}) {
   const { t } = useTranslation();
   const sync = useSyncIndicator(saving);
   const android = isAndroidNativeRuntime();
@@ -34,13 +42,18 @@ export default function SyncStatusBadge({ className, saving = false, noteId }: {
   // 未启用同步：不占用任何空间。
   if (!sync.syncEnabled) return null;
   if (noteId) {
-    const phase = saving ? "saving" : receipt;
+    // A receipt only confirms this device's own write; never show it as current
+    // while a newer version from another device is still waiting to be applied.
+    const phase = saving ? "saving"
+      : remotePending && receipt !== "conflict" && receipt !== "error" ? "remotePending" : receipt;
     const warning = phase === "conflict" || phase === "error";
     return (
       <span role="status" aria-live="polite" title={t("syncBadge.receiptHint")}
         className={cn("flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-1 rounded-md text-[11px]",
           warning ? "text-amber-600 dark:text-amber-400" : "text-tx-tertiary", className)}>
-        {warning ? <AlertTriangle size={12} /> : phase === "confirmed" ? <Check size={12} /> : <RefreshCw size={12} />}
+        <AnimatedSwap swapKey={warning ? "warning" : phase === "confirmed" ? "confirmed" : "pending"}>
+          {warning ? <AlertTriangle size={12} /> : phase === "confirmed" ? <Check size={12} /> : <RefreshCw size={12} />}
+        </AnimatedSwap>
         <span>{t(`syncBadge.receipt.${phase}`)}</span>
       </span>
     );
@@ -52,11 +65,16 @@ export default function SyncStatusBadge({ className, saving = false, noteId }: {
   if (!android && sync.state === "synced" && sync.conflictCount === 0) return null;
 
   const isConflict = sync.conflictCount > 0;
-  const icon = isConflict || sync.state === "problem"
-    ? <AlertTriangle size={12} />
+  const iconKey = isConflict || sync.state === "problem"
+    ? "warning"
     : sync.state === "offline"
+      ? "offline"
+      : sync.state === "synced" ? "synced" : "syncing";
+  const icon = iconKey === "warning"
+    ? <AlertTriangle size={12} />
+    : iconKey === "offline"
       ? <CloudOff size={12} />
-      : sync.state === "synced" ? <Check size={12} /> : <RefreshCw size={12} />;
+      : iconKey === "synced" ? <Check size={12} /> : <RefreshCw size={12} />;
 
   const stateLabel = sync.state === "syncing" && sync.pendingMutations === 0
     ? t("syncBadge.waitingFirst")
@@ -84,7 +102,7 @@ export default function SyncStatusBadge({ className, saving = false, noteId }: {
         className,
       )}
     >
-      {icon}
+      <AnimatedSwap swapKey={iconKey}>{icon}</AnimatedSwap>
       <span className={android ? undefined : "hidden sm:inline"}>{label}</span>
     </span>
   );

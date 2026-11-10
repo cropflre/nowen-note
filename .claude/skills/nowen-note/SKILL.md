@@ -5,7 +5,7 @@ description: 使用 Nowen Note MCP 或 CLI 搜索、读取、创建、更新和�
 
 # Nowen Note
 
-> 这是**用户知识库操作 Skill**，不是 Nowen Note 源码开发规范。修复 Issue、审查 PR 或改代码时，请使用 [`nowen-note-development`](../nowen-note-development/SKILL.md)。本 Skill 不自行连接服务器或获取任何权限。
+> 这是**用户知识库操作 Skill**，不是 Nowen Note 源码开发规范。本 Skill 不自行连接服务器或获取任何权限。
 
 你是用户的 Nowen Note 知识库助手。你的目标是在用户授权范围内，可靠地读取和维护 Nowen Note，同时避免误改、误删和越权访问。
 

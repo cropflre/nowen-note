@@ -73,3 +73,9 @@
 ---
 
 > 本教程基于 nowen-note v1.1.18 编写。
+
+## 从其他 App 发布个人说说
+
+创建受限 API 密钥时，勾选「发布个人说说及上传媒体」（`diary:publish`）。App 使用该密钥发送 Bearer 请求，通过 `POST /api/diary` 提交 `contentText`。如需配图，先以 multipart 的 `file` 字段调用 `POST /api/diary/attachments`，再将返回的附件 ID 放入发布请求的 `images` 数组。
+
+该权限仅适用于个人空间的发布和上传。历史说说的读取、修改和删除，以及团队说说的发布，均不在此权限范围内。已有受限密钥需要重新创建并显式勾选该权限。

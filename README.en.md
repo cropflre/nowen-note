@@ -33,24 +33,28 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.4 highlights · 2026-11-02
+## v1.5.5 highlights · 2026-11-09
 
-**AI writing, Markdown folding, and offline improvements.** Read the [v1.5.4 release notes](./docs/releases/v1.5.4.md). Publication status, available platforms, and device architectures are defined by the actual entries in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
+**Improved two-way synchronization across web, desktop, and Android, plus desktop startup recovery and smoother interactions.** [Full release notes](./docs/releases/v1.5.5.md) · [Official v1.5.5 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.5).
 
 > [!IMPORTANT]
-> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.** This release's macOS packages are not Developer ID signed or Apple notarized; Windows GitHub direct downloads are also unsigned.
+> Back up the database, attachments, and configuration before upgrading, and verify recovery. **Rolling back an application or Docker image does not roll back persistent data.** macOS GitHub downloads are unsigned and unnotarized; direct Windows EXE downloads are unsigned. Live sync depends on online devices connected to the same server and account, and cannot guarantee zero latency or conflicts.
 
-- **Review AI changes before applying:** Editor and notebook assistants generate edit proposals, note drafts and task drafts. Reuse instruction-only Skills and administrator-authorized shared model profiles.
-- **Navigate long Markdown notes:** Chapter folding automatically reveals search matches. Live image previews and Mermaid compatibility are improved.
-- **More reliable images and attachments:** Better zoom, pan, pinch and original-resolution viewing; recover persisted attachments after lost upload responses and use shorter stable share links.
-- **Fewer manual NAS offline steps:** Full desktop clients prepare local copies of personal notes and managed attachments, with offline editing and reconnect upload. Android local-first handling is strengthened.
-- **Import and interface improvements:** DOCX files up to 1 GB, compact mobile AI panels, large-font cards, isolated concurrent clipping, and a Microsoft Store download entry.
+- **Cross-device two-way sync:** Better web / PC / Android change notification and automatic refresh of open notes, backed by three-client tests. Concurrent editing preserves both versions rather than silently overwriting content (#910).
+- **Knowledge-tree recovery:** Safer preflight validation for structural-conflict repair and more consistent first-use/onboarding state.
+- **Desktop reliability:** Clearer first-download progress, local sign-in recovery, backend restart retries, and Lite startup fixes.
+- **Motion and editing:** A shared UI motion system, responsive layout fixes, mobile sharing adjustments, Word pasted-image recovery, and Markdown line breaks.
+- **Permissions and compatibility:** AI-generated content provenance, scoped personal diary APIs, HarmonyOS export, and historical database migration support.
 
-**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** remain reserved for **v1.6.0** and are **not new deliverables in v1.5.4**. Actual delivery remains subject to implementation, testing, and publication.
+**v1.6.0 scope:** The full Workspace, Personal App Studio, and Extension Platform V3 are not newly shipped in v1.5.5. Download options follow actual published assets; store releases remain separate.
 
-See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
+[Website changelog](https://nowen.cn/#/note/changelog) · [Download center](https://nowen.cn/#/note/download) · [Full changelog](./CHANGELOG.md)
 
-## Previous stable release · v1.5.3
+## Previous stable release · v1.5.4
+
+Released November 2, 2026: reviewable AI edits, Markdown chapter folding, attachment recovery, and desktop NAS offline improvements. [v1.5.4 notes](./docs/releases/v1.5.4.md).
+
+## Earlier stable release · v1.5.3
 
 Released on October 23, 2026, v1.5.3 improved note editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. Read the [v1.5.3 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3).
 
