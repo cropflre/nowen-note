@@ -11,10 +11,10 @@
 | 我的应用 | `/apps` | 零代码应用与已安装的 V3 应用页（与 1.5.3 相同） |
 | 发现插件 | `/apps/discover` | 签名 Registry 目录、内置功能卡、搜索与分类 |
 | 我的插件 | `/apps/manage` | 已安装插件；管理员可上传 `.nowen-plugin`，“高级”保留原有管理工具 |
-| 工作台 | `/apps/dashboard` | 仅在 V3 Dashboard 开启时显示 |
+| 工作台 | `/apps/dashboard` | 内置卡片与插件卡片，见 [工作台](./workbench.md) |
 | 创建应用 | `/apps/studio` | Personal Studio |
 
-扩展中心在 Web 与桌面端可用，不再依赖 V3 `appPages` 开关；V3 应用页、固定到侧栏和工作台仍受各自开关控制。Capacitor 原生端保持原状，不显示入口。
+扩展中心与工作台在 Web 与桌面端可用，不再依赖 V3 `appPages` 或 `dashboardWidgets` 开关；V3 应用页、固定到侧栏和工作台中的插件卡片仍受各自开关控制。Capacitor 原生端保持原状，不显示入口。
 
 ## 发现插件
 

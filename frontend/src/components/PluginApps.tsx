@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Blocks, Pin, PinOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
@@ -10,7 +10,8 @@ import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, ty
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
-import PluginDashboard from "./PluginDashboard";
+// Loaded on demand: the navigation rail imports this module, the workbench is only needed on /apps/dashboard.
+const PluginDashboard = lazy(() => import("./PluginDashboard"));
 import PluginDataActions from "./PluginDataActions";
 import { PersonalStudio, PersonalStudioRuntime, PersonalStudioLibrary } from "./PersonalStudio";
 import { ExtensionCenterLayout } from "./extension-center/ExtensionCenterLayout";
@@ -124,7 +125,9 @@ export default function PluginApps({ pluginId, pageId, dashboard = false, manage
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
   if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} />;
   if (studio) return <PersonalStudio key={studioId || "new"} appId={studioId} />;
-  if (dashboard) return <PluginDashboard />;
+  if (dashboard) return <ExtensionCenterLayout section="dashboard" dashboardEnabled={dashboardEnabled}>
+    <Suspense fallback={<p role="status" className="text-sm text-tx-tertiary">{t("pluginApps.loading")}</p>}><PluginDashboard /></Suspense>
+  </ExtensionCenterLayout>;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
   const unavailable = <p className="text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>;
   if (discover) return <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>

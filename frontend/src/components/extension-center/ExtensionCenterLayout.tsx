@@ -4,7 +4,7 @@ import { Blocks, Compass, LayoutDashboard, PackageCheck, WandSparkles } from "lu
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { cn } from "@/lib/utils";
 
-export type ExtensionCenterSection = "apps" | "discover" | "plugins";
+export type ExtensionCenterSection = "apps" | "discover" | "plugins" | "dashboard";
 
 /** Shared header for the Extension Center pages; every entry is an in-app route, not a full reload. */
 export function ExtensionCenterLayout({ section, dashboardEnabled, children }: { section: ExtensionCenterSection; dashboardEnabled: boolean; children: React.ReactNode }) {

@@ -49,4 +49,4 @@ V2 增加 Publisher/Registry 双重签名、QuickJS/WASM 沙箱、不可变多�
 
 V3 在 1.5.3 提供[隔离应用页面](./extension-platform-v3-app-runtime.md)及 [Dashboard 与插件数据](./extension-platform-v3-dashboard-data.md)。Phase 3A 的[资源检查器](./extension-platform-v3-inspector.md)需显式开启，可参考 [Resource Inspector 示例](../../examples/plugins/resource-inspector/README.md)。各阶段的平台验收与安全限制见对应文档。
 
-1.6.0 扩展体验（扩展中心、工作台、编辑器扩展、零代码创建）的现状审计、差异矩阵、ADR 与测试基线见 [Phase 0 文档](./extension-experience-v16-phase0.md)；已交付的扩展中心见 [扩展中心](./extension-center.md)。
+1.6.0 扩展体验（扩展中心、工作台、编辑器扩展、零代码创建）的现状审计、差异矩阵、ADR 与测试基线见 [Phase 0 文档](./extension-experience-v16-phase0.md)；已交付的扩展中心见 [扩展中心](./extension-center.md)，工作台见 [工作台](./workbench.md)。

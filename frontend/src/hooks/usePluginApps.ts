@@ -6,9 +6,8 @@ import { loadPluginAppPins } from "@/lib/pluginApps";
 export function usePluginApps() {
   const [enabled, setEnabled] = useState(false), [pages, setPages] = useState<PluginAppPage[]>([]);
   const [pins, setPins] = useState<string[]>(loadPluginAppPins);
-  const [dashboardEnabled, setDashboardEnabled] = useState(false);
-  // The Extension Center (discover / manage) only needs a reachable server on web or desktop;
-  // V3 app pages and dashboard widgets keep their own switches.
+  // The Extension Center (discover / manage / workbench) only needs a reachable server on web or
+  // desktop; V3 app pages and dashboard widgets keep their own switches.
   const [centerEnabled, setCenterEnabled] = useState(false);
   useEffect(() => {
     let generation = 0, active = true;
@@ -22,7 +21,7 @@ export function usePluginApps() {
         if (active && current === generation) setCenterEnabled(true);
         const allowed = features.applicationV3?.appPages === true;
         const result = allowed ? await pluginApi.apps(platform) : [];
-        if (active && current === generation) { setEnabled(allowed); setDashboardEnabled(allowed && features.applicationV3?.dashboardWidgets === true); setPages(result); }
+        if (active && current === generation) { setEnabled(allowed); setPages(result); }
       } catch { if (active && current === generation) { setEnabled(false); setPages([]); } }
     };
     const reset = () => { generation++; setEnabled(false); setCenterEnabled(false); setPages([]); void load(); };
@@ -44,5 +43,7 @@ export function usePluginApps() {
     };
   }, []);
   const pinned = useCallback((page: PluginAppPage) => pins.includes(page.runtimeId), [pins]);
-  return { enabled, centerEnabled, dashboardEnabled: enabled && dashboardEnabled, pages, pins, pinned };
+  // The workbench has built-in cards, so it is available wherever the Extension Center is;
+  // plugin widgets inside it still follow the V3 dashboard switch (checked by PluginDashboard).
+  return { enabled, centerEnabled, dashboardEnabled: centerEnabled, pages, pins, pinned };
 }
