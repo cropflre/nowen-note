@@ -535,6 +535,18 @@
           "case": "refreshes both Markdown and rich-text notes only after new Outbox commits"
         },
         {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "keeps the native receipt pending until this note's attachment bytes reach the server"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "reports a failed attachment upload as a sync error, not cloud confirmation"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "ignores download-only attachment states and other notes' uploads"
+        },
+        {
           "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
           "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
         },

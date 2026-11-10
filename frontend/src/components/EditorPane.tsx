@@ -4594,7 +4594,7 @@ function SyncIndicator({
         )}
         {displayStatus === "idle" && (
           lastSyncedAt
-            ? <>{t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
+            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
             : t('editor.sync')
         )}
       </span>

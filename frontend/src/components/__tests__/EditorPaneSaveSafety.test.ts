@@ -206,6 +206,14 @@ describe("EditorPane save safety", () => {
     expect(listUpdated).toContain("isRemoteVersionNewer");
     expect(listUpdated).toContain("applyRemoteNoteUpdate");
   });
+
+  it("labels the Android idle save indicator as saved on this device, not synced", () => {
+    const indicator = sourceBetween(editorPaneSource, "function SyncIndicator(", "</button>");
+    // lastSyncedAt is the last local save; on Android it is not a cloud sync time.
+    expect(indicator).toMatch(
+      /displayStatus === "idle" && \(\s*lastSyncedAt\s*\?\s*<>\{android \? "已保存到本机" : t\('editor\.synced'\)\}/,
+    );
+  });
 });
 
 describe("shared editing save safety", () => {
