@@ -7,21 +7,25 @@ export function usePluginApps() {
   const [enabled, setEnabled] = useState(false), [pages, setPages] = useState<PluginAppPage[]>([]);
   const [pins, setPins] = useState<string[]>(loadPluginAppPins);
   const [dashboardEnabled, setDashboardEnabled] = useState(false);
+  // The Extension Center (discover / manage) only needs a reachable server on web or desktop;
+  // V3 app pages and dashboard widgets keep their own switches.
+  const [centerEnabled, setCenterEnabled] = useState(false);
   useEffect(() => {
     let generation = 0, active = true;
     const load = async () => {
       const current = ++generation;
       setPins(loadPluginAppPins());
       const platform = currentUiPlatform();
-      if (platform !== "web" && platform !== "desktop" || (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) { setEnabled(false); setPages([]); return; }
+      if (platform !== "web" && platform !== "desktop" || (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) { setEnabled(false); setCenterEnabled(false); setPages([]); return; }
       try {
         const features = await pluginApi.features();
+        if (active && current === generation) setCenterEnabled(true);
         const allowed = features.applicationV3?.appPages === true;
         const result = allowed ? await pluginApi.apps(platform) : [];
         if (active && current === generation) { setEnabled(allowed); setDashboardEnabled(allowed && features.applicationV3?.dashboardWidgets === true); setPages(result); }
       } catch { if (active && current === generation) { setEnabled(false); setPages([]); } }
     };
-    const reset = () => { generation++; setEnabled(false); setPages([]); void load(); };
+    const reset = () => { generation++; setEnabled(false); setCenterEnabled(false); setPages([]); void load(); };
     const contributionsChanged = () => { generation++; setPages([]); void load(); };
     const pinChange = () => setPins(loadPluginAppPins());
     void load();
@@ -40,5 +44,5 @@ export function usePluginApps() {
     };
   }, []);
   const pinned = useCallback((page: PluginAppPage) => pins.includes(page.runtimeId), [pins]);
-  return { enabled, dashboardEnabled: enabled && dashboardEnabled, pages, pins, pinned };
+  return { enabled, centerEnabled, dashboardEnabled: enabled && dashboardEnabled, pages, pins, pinned };
 }

@@ -13,6 +13,8 @@ export interface ExtensionPlatformFeatureFlags {
   currentNowenVersion: string;
   targetNowenVersion: string;
   applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean; inspectors?: boolean };
+  /** Runtime platform the server enforces for Registry installs (absent on older servers). */
+  runtimePlatform?: "server" | "desktop-full";
 }
 
 export interface PluginAppPage {
@@ -159,7 +161,18 @@ export interface RegistryPlugin {
   trustLevel?: string;
   repository?: string;
 }
-export interface PluginUpdate { pluginId: string; currentVersion: string; availableVersion: string; permissionDiff: { added: string[] }; confirmationRequired: boolean }
+export interface PluginUpdate { pluginId: string; currentVersion: string; availableVersion: string; permissionDiff: { added: string[]; addedHosts?: string[] }; confirmationRequired: boolean; advisoryState?: string }
+/** Signed V2 Registry index as verified and returned by the server (optional display fields may be absent). */
+export interface RegistryIndexVersion {
+  version: string; apiVersion?: number; runtime?: InstalledPlugin["runtime"]; nowen?: string; permissions?: string[];
+  permissionConfig?: { externalFetchHosts?: string[] }; platforms?: string[]; runtimePlatform?: string[]; uiPlatform?: string[];
+  channel?: string; publishedAt?: string;
+}
+export interface RegistryIndexExtension {
+  id: string; publisher: string; name: string; description?: string; trustLevel?: string; category?: string; categories?: string[];
+  keywords?: string[]; repository?: string; homepage?: string; license?: string; versions: RegistryIndexVersion[];
+}
+export interface RegistryIndexDocument { extensions: RegistryIndexExtension[]; advisories?: Array<{ pluginId: string; state?: string; severity?: string; title?: string }> }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getAccessToken();
@@ -241,6 +254,7 @@ export const pluginApi = {
       return { ...extension, latestVersion: latest?.version || "", runtime: latest?.runtime };
     });
   },
+  registryIndex: (source: string, signal?: AbortSignal) => request<RegistryIndexDocument>(`/plugins/ecosystem/catalog?source=${encodeURIComponent(source)}`, { signal }),
   installFromRegistry: (sourceId: string, pluginId: string, version?: string) => contributionMutation(request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) })),
   getRuntimePolicy: () => request<{ allowNodeRuntime: boolean }>("/plugins/policy"),
   setRuntimePolicy: (allowNodeRuntime: boolean) => contributionMutation(request<{ allowNodeRuntime: boolean }>("/plugins/policy", { method: "PUT", body: JSON.stringify({ allowNodeRuntime }) })),

@@ -75,6 +75,16 @@ on:
       - "frontend/src/hooks/usePluginApps.ts"
       - "frontend/src/lib/pluginApp*.ts"
       - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/extensionCatalog.ts"
+      - "frontend/src/lib/__tests__/extensionCatalog.test.ts"
+      - "frontend/src/components/extension-center/**"
+      - "frontend/src/hooks/useCurrentUserRole.ts"
+      - "frontend/src/i18n/extensionCenterTranslations.ts"
+      - "frontend/e2e/extension-center.spec.ts"
+      - "backend/src/plugins/ecosystemRegistry.ts"
+      - "backend/tests/extension-center-registry-routes.test.ts"
+      - "backend/tests/helpers/signedRegistryFixture.ts"
+      - "backend/tests/application-v3-browser-server.ts"
       - "frontend/src/lib/serverUrl.ts"
       - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/__tests__/pluginApps.test.ts"
@@ -126,6 +136,7 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-ai.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-provider-contract.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-backup-restore.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-center-registry-routes.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
@@ -167,7 +178,7 @@ jobs:
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/personalApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
+        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/personalApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/lib/__tests__/extensionCatalog.test.ts src/components/extension-center src/i18n/__tests__/releaseI18nCoverage.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

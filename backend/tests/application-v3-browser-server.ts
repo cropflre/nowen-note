@@ -17,6 +17,20 @@ async function start() {
   const { getDb } = await import("../src/db/schema.js");
   const { default: bcrypt } = await import("bcryptjs");
   getDb().prepare("INSERT OR IGNORE INTO users(id,username,passwordHash,role) VALUES ('v3-browser-admin','v3_browser',?,'admin')").run(await bcrypt.hash("v3-browser-test-password", 10));
+  if (process.env.V3_BROWSER_REGISTRY_FIXTURE === "1") {
+    // Extension Center acceptance: an ordinary member plus a signed Registry served in-process.
+    // Only the byte transport is replaced; signatures, digests, installer and policy stay real.
+    getDb().prepare("INSERT OR IGNORE INTO users(id,username,passwordHash,role) VALUES ('v3-browser-member','v3_member',?,'user')").run(await bcrypt.hash("v3-member-test-password", 10));
+    const [{ createSignedRegistryFixture }, { getPluginService }] = await Promise.all([import("./helpers/signedRegistryFixture.js"), import("../src/plugins/pluginService.js")]);
+    const fixture = await createSignedRegistryFixture();
+    await fixture.addExtension({ id: "fixture.writer", name: "Fixture Writer", description: "Markdown writing helpers from a signed test registry", category: "editor", keywords: ["markdown"], versions: [{ version: "1.0.0", permissions: ["notes:read"] }] });
+    await fixture.addExtension({ id: "fixture.tampered", name: "Tampered Package", description: "Serves bytes that do not match the signed digest", category: "productivity", versions: [{ version: "1.0.0" }] });
+    fixture.tamperArtifact("fixture.tampered", "1.0.0");
+    fixture.publish();
+    const service = getPluginService();
+    service.ecosystem.transport = fixture.transport;
+    service.ecosystem.upsertSource({ id: fixture.sourceId, name: "Fixture Registry", indexUrl: fixture.indexUrl, registryKeyId: fixture.registryKeyId, registryPublicKey: fixture.registryPublicKey });
+  }
   // Serve the same production frontend and authentication routes, with a disposable DB only.
   process.env.NODE_ENV = "production";
   const listen = Server.prototype.listen;

@@ -13,6 +13,7 @@ import { getApplicationV3FeatureFlags, type AppPlatformV3 } from "../plugins/app
 import { getPluginService } from "../plugins/pluginService.js";
 import { EXTENSION_V21_TARGET_NOWEN_VERSION, NOWEN_VERSION } from "../plugins/types.js";
 import { APP_DOCUMENT_V3_CSP } from "../plugins/appDocumentV3.js";
+import { currentPluginRuntimePlatform } from "../plugins/ecosystemRegistry.js";
 
 const pluginsRouter = new Hono();
 
@@ -53,6 +54,7 @@ pluginsRouter.get("/features", (c) => c.json({
   applicationV3: getApplicationV3FeatureFlags(),
   currentNowenVersion: NOWEN_VERSION,
   targetNowenVersion: EXTENSION_V21_TARGET_NOWEN_VERSION,
+  runtimePlatform: currentPluginRuntimePlatform(),
 }));
 pluginsRouter.get("/actions", (c) => c.json(getPluginService().listActions()));
 pluginsRouter.get("/apps", (c) => {
