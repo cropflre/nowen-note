@@ -141,7 +141,8 @@ export class SyncBlobClient {
       scopeKey,
     );
     if (res.status === 200) return true;
-    if (res.status === 404) return false;
+    // v1.5.5 及更早的服务端把 HEAD 交给 GET 处理，用 409 BLOB_NOT_READY 表示尚未上传。
+    if (res.status === 404 || res.status === 409) return false;
     throw await classifyBlobHttpFailure(res, "HEAD 失败");
   }
 

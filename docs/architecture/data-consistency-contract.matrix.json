@@ -145,7 +145,9 @@
           "case": "native recurrence intent stays durable until the server advertises support"
         },
         { "file": "frontend/src/lib/__tests__/mobileAttachmentDownloadRetry.test.ts", "case": "DCC-003: retries a failed remote download with GET after engine recreation" },
-        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" }
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" },
+        { "file": "frontend/src/lib/__tests__/mobileAttachmentUploadTransport.test.ts", "case": "DCC-003: Android native HTTP upload stores the original bytes" },
+        { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-003: HEAD reports metadata-only bytes as missing so desktop and NAS clients upload them" }
       ]
     },
     {
@@ -366,7 +368,8 @@
           "file": "backend/tests/attachment-trash.test.ts",
           "case": "purge requires explicit confirmation, trash state and a fresh backend reference check"
         },
-        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" }
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" },
+        { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-007: attachment reads before the bytes arrive return BLOB_NOT_READY instead of EISDIR or 500" }
       ]
     },
     {

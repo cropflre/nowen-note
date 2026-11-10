@@ -541,6 +541,20 @@ export function getLocalAttachmentPath(relPath: string): string {
   return path.join(ATTACHMENTS_DIR, relPath);
 }
 
+/**
+ * 只有普通文件才是可读取的附件对象。Sync V2 元数据先于二进制到达时 path 为空，
+ * 空路径会解析成附件根目录；目录等异常路径一律视为对象不存在，避免 EISDIR。
+ */
+function localAttachmentFile(relPath: string): string | null {
+  if (!relPath) return null;
+  const abs = getLocalAttachmentPath(relPath);
+  try {
+    return fs.statSync(abs).isFile() ? abs : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function writeAttachmentObject(
   relPath: string,
   buffer: Buffer,
@@ -599,16 +613,17 @@ export async function writeAttachmentObjectFromFile(
 }
 
 export async function readAttachmentObject(relPath: string): Promise<Buffer | null> {
+  // 空 key 在对象存储上指向桶根，不是附件对象。
+  if (!relPath) return null;
   const cfg = getS3Config();
   if (!cfg) {
-    const abs = getLocalAttachmentPath(relPath);
-    if (!fs.existsSync(abs)) return null;
-    return fs.readFileSync(abs);
+    const abs = localAttachmentFile(relPath);
+    return abs ? fs.readFileSync(abs) : null;
   }
   const res = await signedFetch("GET", relPath, cfg);
   if (res.status === 404) {
-    const abs = getLocalAttachmentPath(relPath);
-    return fs.existsSync(abs) ? fs.readFileSync(abs) : null;
+    const abs = localAttachmentFile(relPath);
+    return abs ? fs.readFileSync(abs) : null;
   }
   if (!res.ok) {
     throw new Error(`S3 GET failed: ${res.status} ${await res.text().catch(() => "")}`);
@@ -666,10 +681,11 @@ export function readLocalAttachmentIfExists(relPath: string): Buffer | null {
  * 用于视频 Range 请求前获取 Content-Length。
  */
 export async function getAttachmentSize(relPath: string): Promise<number | null> {
+  if (!relPath) return null;
   const cfg = getS3Config();
   if (!cfg) {
-    const abs = getLocalAttachmentPath(relPath);
-    if (!fs.existsSync(abs)) return null;
+    const abs = localAttachmentFile(relPath);
+    if (!abs) return null;
     const stat = fs.statSync(abs);
     return stat.size;
   }
@@ -692,10 +708,11 @@ export async function readAttachmentRange(
   start: number,
   end: number,
 ): Promise<Buffer | null> {
+  if (!relPath) return null;
   const cfg = getS3Config();
   if (!cfg) {
-    const abs = getLocalAttachmentPath(relPath);
-    if (!fs.existsSync(abs)) return null;
+    const abs = localAttachmentFile(relPath);
+    if (!abs) return null;
     const stat = fs.statSync(abs);
     const actualEnd = Math.min(end, stat.size - 1);
     const len = actualEnd - start + 1;

@@ -483,6 +483,12 @@ export async function handleDownloadAttachment(
     }
   }
 
+  // Sync V2 先同步元数据，二进制随后由设备 PUT；到达前 path 为空。
+  // 明确返回"尚未上传"，与文件丢失、附件删除区分开。
+  if (!row.path) {
+    return c.json({ error: "附件内容尚未上传到服务器", code: "ATTACHMENT_BLOB_NOT_READY" }, 409);
+  }
+
   const forceDownload = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
   // ?inline=1 —— 显式声明"用于浏览器内联预览（如 <video>/<audio>/<iframe>）"。
   // 对于非图片附件，此参数会跳过 Content-Disposition: attachment，让浏览器直接渲染
@@ -545,6 +551,7 @@ export async function handleDownloadAttachment(
       });
       return c.body(toResponseBody(preview), 200, { ...headers, "Content-Length": String(preview.length) });
     } catch (error) {
+      if (heifSource === null) return c.json({ error: "attachment file missing" }, 404);
       console.warn(`[modern-media] 读取派生媒体失败 attachment=${row.id}:`, error);
       return c.json({ error: "动态内容暂时无法播放，仍可查看照片或下载原件", code: "MEDIA_PREVIEW_FAILED" }, 422);
     }

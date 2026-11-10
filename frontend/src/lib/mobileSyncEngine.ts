@@ -562,7 +562,7 @@ export class MobileSyncEngine {
     this.requestSync(0);return id;
   }
 
-  private async fetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
+  private async fetchResponse(path: string, init: RequestInit = {}, probe = false): Promise<Response> {
     const syncSignal = this.syncAbort?.signal;
     syncSignal?.throwIfAborted();
     // Never send this native profile's queued writes under another login.
@@ -605,7 +605,8 @@ export class MobileSyncEngine {
         return fetch(input, requestInit);
       })]);
     } catch (cause) {
-      if (!syncSignal?.aborted) this.options.onNetworkUnavailable?.();
+      // 探测失败不代表断网：Android 原生 HTTP 读不到非 2xx 的 HEAD 响应。
+      if (!syncSignal?.aborted && !probe) this.options.onNetworkUnavailable?.();
       throw Object.assign(new Error("网络不可用", { cause }), { code: "NETWORK_UNAVAILABLE" });
     } finally {
       clearTimeout(timer);
@@ -1387,11 +1388,16 @@ export class MobileSyncEngine {
           await this.options.db.run("UPDATE attachments SET localPath=?,hash=?,size=?,available=1,transferStatus='ready',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[stored.path,stored.sha256,stored.size,now(),scope.scopeKey,row.id]);
           this.options.onAttachmentReady?.(row.id);
         }else{
-          const exists=await this.fetchResponse(path,{method:"HEAD"});
-          if(exists.ok){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);completed++;continue;}
+          // 只在重试时探测：JS 超时后原生 PUT 仍可能已落地。Android 读不到非 2xx 的 HEAD，
+          // 探测失败只表示"未确认存在"，照常上传；PUT 幂等，服务端按元数据 hash 校验。
+          const exists=row.transferStatus==="failed"&&await this.fetchResponse(path,{method:"HEAD"},true).then((response)=>response.ok,()=>false);
+          if(exists){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);completed++;continue;}
           const blob=await this.options.attachments.read(row.id,row.mimeType);
           this.syncAbort?.signal.throwIfAborted();
-          const uploaded=await this.fetchResponse(path,{method:"PUT",headers:{"Content-Type":row.mimeType},body:blob});
+          // Capacitor 原生 fetch 只把 File 按原字节转交，普通 Blob 会被序列化成 "{}"。
+          // MIME 以元数据为准；用 octet-stream，避免 JSON 附件被原生层按文本写出。
+          const body=new File([blob],row.id,{type:"application/octet-stream"});
+          const uploaded=await this.fetchResponse(path,{method:"PUT",headers:{"Content-Type":"application/octet-stream"},body});
           if(!uploaded.ok)throw new Error(`HTTP ${uploaded.status}`);
           await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);
         }
