@@ -1,9 +1,45 @@
 import type { User } from '@/types';
+import type { LiteMigrationDiagnostic } from './desktopBridge';
+
+/** 后端迁移进度中与首次下载失败处理有关的部分；stage 保持宽松，兼容旧版后端与既有的测试桩。 */
+interface DownloadProgress {
+  stage: string;
+  error?: string | null;
+  errorCode?: string | null;
+  retryable?: boolean | null;
+  diagnostic?: LiteMigrationDiagnostic | null;
+}
 
 interface DesktopStartupBridge {
   getAppInfo?: () => Promise<{ runtime?: string; localRuntimeAvailable?: boolean; localMigrationComplete?: boolean; localServerUrl?: string | null } | null>;
   getLocalAuth: () => Promise<{ token: string; refreshToken?: string; user: User } | null>;
-  startLiteMigration?: (serverUrl: string, token: string) => Promise<{ok:boolean;error?:string;progress?:{stage:string;error?:string|null}} >;
+  startLiteMigration?: (serverUrl: string, token: string) => Promise<{ok:boolean;error?:string;progress?:DownloadProgress} >;
+}
+
+/**
+ * 首次下载失败。retryable=false 表示同一份数据再试必然得到同样的结果（例如目录结构无法自动合并），
+ * 调用方应停止自动重试，只保留「继续在线使用」和手动重试。
+ */
+export class DesktopDownloadError extends Error {
+  readonly retryable: boolean;
+  readonly code: string | null;
+  /** 可直接展示给用户转交支持人员的脱敏诊断；后端保证不含任何笔记内容或凭据。 */
+  readonly diagnostic: string | null;
+  constructor(message: string, options: { retryable?: boolean; code?: string | null; diagnostic?: string | null } = {}) {
+    super(message);
+    this.name = 'DesktopDownloadError';
+    this.retryable = options.retryable !== false;
+    this.code = options.code ?? null;
+    this.diagnostic = options.diagnostic ?? null;
+  }
+}
+
+function formatDiagnostic(progress: DownloadProgress | undefined): string | null {
+  const d = progress?.diagnostic;
+  const parts = [progress?.errorCode, d?.stage, d?.step, d?.reason, d?.sqliteCode,
+    d?.entityType && d?.entityId ? `${d.entityType}:${d.entityId}` : null,
+    d?.parentState ? `parent=${d.parentState}` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 type DesktopDownloadBridge = Pick<DesktopStartupBridge,'getAppInfo'|'startLiteMigration'>;
@@ -32,7 +68,13 @@ export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBr
   if (existing?.serverUrl === serverUrl && existing.token === token) return existing.work;
   const work = (async () => {
     const result = await bridge.startLiteMigration!(serverUrl,token);
-    if (!result.ok || result.progress?.stage !== 'complete') throw new Error(result.progress?.error || result.error || '首次自动下载尚未完成，恢复连接后将自动重试。');
+    if (!result.ok || result.progress?.stage !== 'complete') {
+      throw new DesktopDownloadError(result.progress?.error || result.error || '首次自动下载尚未完成，恢复连接后将自动重试。', {
+        retryable: result.progress?.retryable !== false,
+        code: result.progress?.errorCode,
+        diagnostic: formatDiagnostic(result.progress),
+      });
+    }
     return true;
   })();
   const entry = {serverUrl,token,work}; downloads.set(bridge,entry);

@@ -295,3 +295,52 @@ it('DCC-006: a transient local backend failure explains itself and keeps retryin
     expect(gate.reset).not.toHaveBeenCalled();
   } finally {gate.cleanup();}
 });
+
+const structuralFailure = {
+  ok: false,
+  progress: {
+    stage: 'failed',
+    error: '同步数据的目录或引用结构与本机不一致（NOTEBOOK_PARENT_NOT_FOUND），已停止自动重试。',
+    errorCode: 'DATA_STRUCTURE',
+    retryable: false,
+    diagnostic: { stage: 'lite-migration:applying', step: 'notebook.link', reason: 'NOTEBOOK_PARENT_NOT_FOUND', sqliteCode: 'SQLITE_CONSTRAINT_TRIGGER', parentState: 'deleted' },
+  },
+};
+
+it('DCC-003: a structural download failure stops the 5-second retry loop and the online-event retry, and shows redacted diagnostics', async () => {
+  const gate=await mountFailingGate(structuralFailure);
+  const button=(key:string)=>[...gate.host.querySelectorAll('button')].find(item=>item.textContent===key);
+  try {
+    expect(gate.migrate).toHaveBeenCalledOnce();
+    expect(gate.host.textContent).toContain('NOTEBOOK_PARENT_NOT_FOUND');
+    expect(gate.host.textContent).toContain('offlineAvailability.structureHint');
+    expect(gate.host.textContent).not.toContain('offlineAvailability.onlineOnlyHint');
+    expect(gate.host.textContent).toContain('DATA_STRUCTURE · lite-migration:applying · notebook.link · NOTEBOOK_PARENT_NOT_FOUND · SQLITE_CONSTRAINT_TRIGGER · parent=deleted');
+    await act(async()=>{await vi.advanceTimersByTimeAsync(60_000);window.dispatchEvent(new Event('online'));});
+    expect(gate.migrate).toHaveBeenCalledOnce();
+    expect(gate.host.textContent).not.toContain('editor');
+    expect(button('offlineAvailability.continueOnline')?.disabled).toBe(false);
+  } finally {gate.cleanup();}
+});
+
+it('DCC-003: after a structural failure the user can still retry by hand once the data is repaired, and a retryable failure keeps its automatic retry', async () => {
+  const gate=await mountFailingGate(structuralFailure);
+  const button=(key:string)=>[...gate.host.querySelectorAll('button')].find(item=>item.textContent===key)!;
+  try {
+    gate.migrate.mockResolvedValueOnce({ok:false,error:'fetch failed'});
+    await act(async()=>button('offlineAvailability.retryLegacyEdits').click());
+    expect(gate.migrate).toHaveBeenCalledTimes(2);
+    // 这次是可重试的失败（断网）：自动重试恢复，且提示回到"稍后重试"的说法。
+    expect(gate.host.textContent).toContain('offlineAvailability.onlineOnlyHint');
+    await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+    expect(gate.migrate.mock.calls.length).toBeGreaterThan(2);
+  } finally {gate.cleanup();}
+});
+
+it('DCC-003: a legacy backend that does not report retryable keeps the previous retrying behavior', async () => {
+  const gate=await mountFailingGate({ok:false,progress:{stage:'failed',error:'download interrupted'}});
+  try {
+    await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+    expect(gate.migrate.mock.calls.length).toBeGreaterThan(1);
+  } finally {gate.cleanup();}
+});

@@ -43,6 +43,8 @@ import type Database from "better-sqlite3";
 
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_SNAPSHOT_PAGE_SIZE } from "./constants";
 import { SyncError } from "./errors";
+import { classifyApplyFailure, describeSyncFailure, diagnosticLogFields } from "./diagnostics";
+import { orderNotebooksParentsFirst } from "./notebookApply";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { getDb } from "../db/schema";
 import { recordConflict } from "./conflict";
@@ -391,6 +393,11 @@ export function isLocalEmpty(db: Database.Database, userId: string): boolean {
  *
  * 只比较参与同步的字段，忽略 updatedAt 这类必然不同的时间戳。
  * 相等则说明两端已一致，无需上传也无需判冲突。
+ *
+ * a 是本机状态（readLocalState 读出的同步字段），b 是远端载荷。字段集合以 a 为准：
+ * 服务端载荷还带着 userId、workspaceId 等本机读出时没有的账号/作用域字段，它们不是内容差异。
+ * 以并集比较会让每个同 ID 实体都被判成"内容不同"——中断后重放、重新对账时
+ * 就会把已经一致的数据整批记成冲突。
  */
 function payloadEquals(
   a: Record<string, unknown> | undefined,
@@ -398,8 +405,7 @@ function payloadEquals(
   ignore: string[] = ["updatedAt", "version"],
 ): boolean {
   if (!a || !b) return false;
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const key of keys) {
+  for (const key of Object.keys(a)) {
     if (ignore.includes(key)) continue;
     const va = a[key];
     const vb = b[key];
@@ -632,6 +638,20 @@ export async function runBootstrap(
       });
     }
 
+    // 同名标签落库时会并入服务器上的标签（见 applyTagLocal）：本机标签和它的笔记关联的 ID 已经变了，
+    // 上传计划里按旧 ID 算出的标签与关联必须按现状重算，否则会把已经并掉的标签再传一遍并被服务端拒绝。
+    if (!localEmpty && !remoteEmpty && toApply.some((item) => item.entityType === "tag")) {
+      const kept = toPushAll.filter((item) => item.entityType !== "tag" && item.entityType !== "note_tag");
+      toPushAll.length = 0;
+      toPushAll.push(...kept);
+      for (const type of ["tag", "note_tag"] as const) {
+        toPushAll.push(...reconcile(
+          readLocalState(db, userId, type),
+          remoteItems.filter((remote) => remote.entityType === type),
+        ).toPush);
+      }
+    }
+
     setStatus(db, profileId, "pushing");
     const readCurrent = () => new Map(BOOTSTRAP_ENTITY_ORDER.flatMap(type => readLocalState(db, userId, type))
       .map(item => [`${item.entityType}:${item.entityId}`, item] as const));
@@ -658,7 +678,10 @@ export async function runBootstrap(
     if (toPushAll.length > 0) {
       const mutationIdFor = (item: RemoteEntityPayload) => `bootstrap-${profileId}-${item.entityType}-${item.entityId}-${createHash('sha256').update(JSON.stringify(item.payload ?? null)).digest('hex').slice(0, 24)}`;
       for (const entityType of BOOTSTRAP_ENTITY_ORDER) {
-        const items = toPushAll.filter((i) => i.entityType === entityType);
+        const ofType = toPushAll.filter((i) => i.entityType === entityType);
+        // 本机目录按 createdAt 读出，但子目录可能早于后来才被移入的父目录创建：
+        // NAS 同样有父目录守卫，必须父先子后，否则整批上传被拒。
+        const items = entityType === "notebook" ? orderNotebooksParentsFirst(ofType).ordered : ofType;
         for (let i = 0; i < items.length; i += PUSH_BATCH_SIZE) {
           const batch = items.slice(i, i + PUSH_BATCH_SIZE);
           const response = await client.push(
@@ -810,11 +833,20 @@ export async function runBootstrap(
       conflictCount,
     });
   } catch (error) {
-    const code = error instanceof SyncError ? error.code : "SERVER_ERROR";
-    setStatus(db, profileId, "failed", { error: code });
-    logSyncWarn("bootstrap.failed", { profileId, deviceId, errorCode: code });
+    // 失败时库里的状态仍停在出错的那个阶段，据此报告"卡在哪一步"。
+    let stage = "unknown";
+    try { stage = readProfile(db, profileId).bootstrapStatus; } catch { /* 诊断不能再制造新的失败 */ }
+    // 约束类失败归为 DATA_STRUCTURE（同一份数据重试必然再次失败）；其余保持原有的可重试语义。
+    const classified = classifyApplyFailure(error, { stage: `bootstrap:${stage}` });
+    const failure = describeSyncFailure(classified, `bootstrap:${stage}`);
+    setStatus(db, profileId, "failed", { error: failure.code });
+    logSyncWarn("bootstrap.failed", {
+      profileId,
+      deviceId,
+      ...diagnosticLogFields(failure.code, failure.diagnostic, failure.retryable),
+    });
     // 重新抛出让调用方决定是否提示用户；本地数据未受任何影响。
-    throw error;
+    throw classified;
   }
 
   return progressOf(db, profileId, { pulled, pushed, conflicts: conflictCount });
