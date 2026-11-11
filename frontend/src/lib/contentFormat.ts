@@ -1000,6 +1000,11 @@ function renderTaskItem(src: string, item: SyntaxNode): string {
   const inner = childrenOf(item)
     .filter((c) => !isMarkNode(c.name))
     .map((c) => {
+      if (c.name === "Task") {
+        // @lezer/markdown GFM 把 Task 直接挂在 ListItem 下（取代首个 Paragraph），
+        // 子节点是 TaskMarker + 行内节点；TaskMarker 属于标记节点，渲染时跳过。
+        return `<p>${renderInlineChildren(src, c).trim()}</p>`;
+      }
       if (c.name === "Paragraph") {
         // 跳过 Task 子节点
         let html = "";

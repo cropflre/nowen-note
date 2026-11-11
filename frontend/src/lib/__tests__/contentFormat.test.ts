@@ -10,7 +10,7 @@
  *   - RTE→MD→RTE 回路上关键结构（高亮颜色 / 段落对齐）不丢失
  */
 import { describe, expect, it } from "vitest";
-import { generateJSON } from "@tiptap/core";
+import { generateJSON, type JSONContent } from "@tiptap/core";
 import {
   detectFormat,
   getTiptapExtensions,
@@ -137,6 +137,54 @@ describe("markdownToHtml", () => {
     expect(html).toContain('data-type="taskItem"');
     expect(html).toContain('data-checked="true"');
     expect(html).toContain('data-checked="false"');
+  });
+
+  it("GFM 任务项：去掉任务标记，只保留正文", () => {
+    expect(markdownToHtml("- [ ] 待补充")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>待补充</p></li></ul>',
+    );
+    expect(markdownToHtml("- [x] b")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>b</p></li></ul>',
+    );
+  });
+
+  it("GFM 任务项：多项各自保留勾选状态（含大写 X）", () => {
+    expect(markdownToHtml("- [ ] a\n- [X] b\n- [ ] c")).toBe(
+      '<ul data-type="taskList">' +
+        '<li data-type="taskItem" data-checked="false"><p>a</p></li>' +
+        '<li data-type="taskItem" data-checked="true"><p>b</p></li>' +
+        '<li data-type="taskItem" data-checked="false"><p>c</p></li>' +
+        "</ul>",
+    );
+  });
+
+  it("GFM 任务项：嵌套与缩进的任务同样去掉标记", () => {
+    expect(markdownToHtml("- [ ] parent\n  - [x] child")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>parent</p>' +
+        '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>child</p></li></ul>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("- parent\n  - [ ] child task")).toBe(
+      '<ul><li><p>parent</p><ul data-type="taskList">' +
+        '<li data-type="taskItem" data-checked="false"><p>child task</p></li>' +
+        "</ul></li></ul>",
+    );
+    expect(markdownToHtml("   - [x] indented")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>indented</p></li></ul>',
+    );
+  });
+
+  it("GFM 任务项：正文的行内格式与链接照常渲染，后续段落不受影响", () => {
+    expect(markdownToHtml("- [ ] **粗体** 与 [链接](https://example.com) 和 `code`")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        '<p><strong>粗体</strong> 与 <a href="https://example.com">链接</a> 和 <code>code</code></p>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("- [ ] first\n\n  second para")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        "<p>first</p><p>second para</p>" +
+        "</li></ul>",
+    );
   });
 
   it("围栏代码块带 language", () => {
@@ -267,6 +315,32 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(items.length).toBe(2);
     expect(items[0].attrs?.checked).toBe(true);
     expect(items[1].attrs?.checked).toBe(false);
+  });
+
+  it("MD → Tiptap JSON：任务项段落文本不含任务标记，行内 mark 保留", () => {
+    const json: JSONContent = markdownToTiptapJSON("- [ ] 待补充\n- [x] **完成** 见 [链接](https://example.com)");
+    const taskList = json.content?.find((b) => b.type === "taskList");
+    const items = taskList?.content ?? [];
+    expect(items.map((item) => item.attrs?.checked)).toEqual([false, true]);
+
+    const inlineOf = (item: JSONContent) => item.content?.[0]?.content ?? [];
+    const firstInline = inlineOf(items[0]);
+    expect(firstInline.map((n) => n.text).join("")).toBe("待补充");
+
+    const secondInline = inlineOf(items[1]);
+    expect(secondInline.map((n) => n.text).join("")).toBe("完成 见 链接");
+    expect(secondInline[0]).toMatchObject({ text: "完成", marks: [{ type: "bold" }] });
+    expect(secondInline[2]).toMatchObject({
+      text: "链接",
+      marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+    });
+  });
+
+  it("MD → RTE → MD：任务列表往返稳定，不会逐次累积转义的任务标记", () => {
+    const md = "- [ ] 待补充\n- [x] **完成** 见 [链接](https://example.com)";
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON(md));
+    expect(once).toBe(md);
+    expect(tiptapJsonToMarkdown(markdownToTiptapJSON(once))).toBe(md);
   });
 
   it("MD→Tiptap JSON：表格结构正确", () => {
