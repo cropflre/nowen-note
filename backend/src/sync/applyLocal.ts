@@ -6,7 +6,10 @@ import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import type { SyncEntityType } from "./types";
 import { isSyncEntityType, isSyncOperation } from "./types";
-import { SyncError } from "./errors";
+import { SyncError, type SyncFailureDiagnostic } from "./errors";
+import { logSyncWarn } from "./log";
+import { classifyApplyFailure, redactEntityId, structureFailureMessage } from "./diagnostics";
+import { applyNotebookUpserts, withNotebookLive } from "./notebookApply";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 import { registerRemoteAttachment } from './attachments';
 import { getActiveProfile } from './profile';
@@ -48,6 +51,8 @@ export interface ApplyLocalResult {
   skipped: number;
   /** 因本地有未同步修改而需要走冲突流程的实体。 */
   pendingConflicts: RemoteEntityPayload[];
+  /** 远端目录结构本身有异常（悬空/跨作用域父目录、自引用、成环）而被回退处理的目录数。 */
+  structureRepairs: number;
 }
 
 /** Validate before conflict storage or cursor advancement, including brand-new devices. */
@@ -102,6 +107,11 @@ function getPendingLocalChange(
   return row;
 }
 
+/**
+ * 目录的 upsert 要看整批的父子关系才能正确落库，统一走 applyNotebookUpserts
+ *（见 notebookApply.ts）；applyRemoteChanges 会把整批 upsert 先一起交给它。
+ * 这里保留的单条入口只处理删除，以及作为字典完整性的兜底。
+ */
 function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
   const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
@@ -111,43 +121,44 @@ function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, op
     `).run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
-  const p = item.payload || {};
-  const parentId = typeof p.parentId === "string"
-    && db.prepare("SELECT 1 FROM notebooks WHERE id = ? AND workspaceId IS ?")
-      .get(p.parentId,workspaceId)
-    ? p.parentId
-    : null;
-  db.prepare(`
-    INSERT INTO notebooks (
-      id, userId, parentId, name, description, icon, color,
-      sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
-    ON CONFLICT(id) DO UPDATE SET
-      parentId = excluded.parentId,
-      name = excluded.name,
-      description = excluded.description,
-      icon = excluded.icon,
-      color = excluded.color,
-      sortOrder = excluded.sortOrder,
-      isExpanded = excluded.isExpanded,
-      isDeleted = excluded.isDeleted,
-      deletedAt = excluded.deletedAt,
-      updatedAt = datetime('now')
-  `).run(
-    item.entityId,
-    userId,
-    parentId,
-    str(p.name, "未命名笔记本"),
-    p.description ?? null,
-    str(p.icon, "📒"),
-    p.color ?? null,
-    num(p.sortOrder),
-    bit(p.isExpanded ?? 1),
-    bit(p.isDeleted),
-    p.deletedAt ?? null,
-    p.createdAt ?? null,
-    workspaceId,
-  );
+  applyNotebookUpserts(db, [item], options, {});
+}
+
+/**
+ * 标签名称在空间内唯一（个人空间 userId + 规范化名称，工作区 workspaceId + 规范化名称），
+ * 同名就是同一个标签——v59 迁移合并历史重复标签用的也是这条规则。
+ *
+ * 但同步按 ID 对账。首次下载时本机库里常有安装时播种的默认标签（重要/技术/灵感），
+ * 与服务器上的同名标签 ID 不同，直接写入会撞唯一索引，整个下载就此停在标签这一步。
+ * 这里采用服务器上的标签身份，把本机标签的笔记关联并入它，不丢任何关联。
+ *
+ * 本机标签自己还有未上传的改动（标签本身或它的笔记关联）时不自动合并：
+ * 待上传的修改引用的是本机标签的 ID，合并会让它们悬空，保持明确失败交给人处理。
+ */
+function localTagWithSameName(
+  db: Database.Database,
+  remoteId: string,
+  name: string,
+  userId: string,
+  workspaceId: string | null,
+): string | null {
+  const row = db.prepare(`
+    SELECT id FROM tags
+    WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND lower(trim(name)) = lower(trim(?)) AND id <> ?
+  `).get(workspaceId, workspaceId, userId, name, remoteId) as { id: string } | undefined;
+  if (!row) return null;
+  const pending = db.prepare(`
+    SELECT 1 FROM sync_outbox
+    WHERE status IN ('pending', 'inflight', 'failed')
+      AND ((entityType = 'tag' AND entityId = ?) OR (entityType = 'note_tag' AND entityId LIKE ?))
+    LIMIT 1
+  `).get(row.id, `%:${row.id}`);
+  if (pending) {
+    throw new SyncError("DATA_STRUCTURE", structureFailureMessage("TAG_NAME_COLLISION"), {
+      step: "tag", entityType: "tag", entityId: redactEntityId(remoteId), reason: "TAG_NAME_COLLISION",
+    });
+  }
+  return row.id;
 }
 
 function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
@@ -158,6 +169,10 @@ function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, options
     return;
   }
   const p = item.payload || {};
+  const name = str(p.name, "未命名标签");
+  const merged = localTagWithSameName(db, item.entityId, name, userId, workspaceId);
+  // 先把本机标签的名称让出来，服务器上的标签才能以原名写入。
+  if (merged) db.prepare("UPDATE tags SET name = ? WHERE id = ?").run(`__merging__:${merged}`, merged);
   db.prepare(`
     INSERT INTO tags (id, userId, name, color, createdAt, workspaceId)
     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
@@ -165,11 +180,17 @@ function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, options
   `).run(
     item.entityId,
     userId,
-    str(p.name, "未命名标签"),
+    name,
     str(p.color, "#58a6ff"),
     p.createdAt ?? null,
     workspaceId,
   );
+  if (merged) {
+    db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) SELECT noteId, ? FROM note_tags WHERE tagId = ?")
+      .run(item.entityId, merged);
+    db.prepare("DELETE FROM tags WHERE id = ?").run(merged); // 旧关联随外键级联清掉，新关联已经在上一步建好
+    logSyncWarn("apply.tag-merged", { entityType: "tag", entityId: redactEntityId(item.entityId), state: "same-name" });
+  }
 }
 
 function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
@@ -181,7 +202,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
   }
   const p = item.payload || {};
   const hasThemeId = Object.prototype.hasOwnProperty.call(p, "themeId");
-  withEncryptedBlockWrite(db, item.entityId, str(p.content, "{}"), str(p.contentFormat, "richtext"), () => db.prepare(`
+  const write = () => withEncryptedBlockWrite(db, item.entityId, str(p.content, "{}"), str(p.contentFormat, "richtext"), () => db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
@@ -225,6 +246,12 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
     p.createdAt ?? null,
     hasThemeId ? 1 : 0,
   ), p.encryptedBlocksVersion);
+  // 新笔记或换了目录的笔记，若目标目录已删除（已删子树里的笔记），要让目录临时可用，
+  // 笔记的知识树父节点才会与服务端一致；目录没变的更新不会重算树父节点，直接写。
+  const placed = db.prepare("SELECT notebookId FROM notes WHERE id = ? AND workspaceId IS ?")
+    .get(item.entityId, workspaceId) as { notebookId: string } | undefined;
+  if (!placed || placed.notebookId !== str(p.notebookId)) withNotebookLive(db, { userId, workspaceId }, str(p.notebookId), write);
+  else write();
 }
 
 function applyNoteTagLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
@@ -522,38 +549,63 @@ export function applyRemoteChanges(
       throw new SyncError("SERVER_ERROR", "收到当前客户端不支持的同步实体或操作");
     }
   }
-  const result: ApplyLocalResult = { applied: 0, skipped: 0, pendingConflicts: [] };
+  const result: ApplyLocalResult = { applied: 0, skipped: 0, pendingConflicts: [], structureRepairs: 0 };
   const scopeKey = options.scopeKey || (options.workspaceId ? `workspace:${options.workspaceId}` : "personal");
+  const applyOptions = { ...options, scopeKey, workspaceId: options.workspaceId ?? null };
+  // 失败现场：随处理进度更新，出错时据此生成诊断（只含阶段、脱敏 ID，不含任何内容）。
+  const failure: SyncFailureDiagnostic = { step: "apply" };
+
+  /** 本地有未推送的修改 → 不覆盖，交冲突流程。返回 true 表示可以应用。 */
+  const mayApply = (item: RemoteEntityPayload): boolean => {
+    const pending = getPendingLocalChange(db,item.entityType,item.entityId,scopeKey);
+    if (!pending) return true;
+    // The remote note still equals the base of the unsent edits (including
+    // our own Push echo). Preserve local content without inventing a conflict.
+    if (!(item.entityType === "note" && item.operation === "upsert"
+      && pending.baseVersion !== null && item.payload?.version === pending.baseVersion)) {
+      result.pendingConflicts.push(item);
+    }
+    result.skipped += 1;
+    return false;
+  };
+  const isNotebookUpsert = (item: RemoteEntityPayload) =>
+    item.entityType === "notebook" && item.operation === "upsert";
 
   const run = db.transaction(() => {
+    // 目录先于其他实体，且整批一起处理：子目录经常先于父目录到达，
+    // 笔记的 notebookId 外键也要求目录已经落库。
+    const notebookUpserts = items.filter((item) => isNotebookUpsert(item) && mayApply(item));
+    if (notebookUpserts.length > 0) {
+      const report = applyNotebookUpserts(db, notebookUpserts, applyOptions, failure);
+      result.applied += report.applied;
+      result.structureRepairs += report.repairs.length;
+    }
+
     for (const item of items) {
-      // 本地有未推送的修改 → 不覆盖，交冲突流程。
-      const pending = getPendingLocalChange(db,item.entityType,item.entityId,scopeKey);
-      if (pending) {
-        // The remote note still equals the base of the unsent edits (including
-        // our own Push echo). Preserve local content without inventing a conflict.
-        if (!(item.entityType === "note" && item.operation === "upsert"
-          && pending.baseVersion !== null && item.payload?.version === pending.baseVersion)) {
-          result.pendingConflicts.push(item);
-        }
-        result.skipped += 1;
-        continue;
-      }
+      if (isNotebookUpsert(item) || !mayApply(item)) continue;
+      failure.step = item.entityType;
+      failure.entityType = item.entityType;
+      failure.entityId = redactEntityId(item.entityId);
       const applier = LOCAL_APPLIERS[item.entityType];
       if (!applier) {
         throw new SyncError("SERVER_ERROR", "收到当前客户端不支持的同步实体");
       }
-      applier(db,item,{...options,scopeKey,workspaceId:options.workspaceId ?? null});
+      applier(db,item,applyOptions);
       result.applied += 1;
     }
   });
 
-  // 双层抑制：Node 侧 enqueue 与 SQLite 触发器都要跳过。
-  runWithOutboxSuppressed(() => {
-    runChangeFeedSuppressed(db, () => {
-      run();
+  try {
+    // 双层抑制：Node 侧 enqueue 与 SQLite 触发器都要跳过。
+    runWithOutboxSuppressed(() => {
+      runChangeFeedSuppressed(db, () => {
+        run();
+      });
     });
-  });
+  } catch (error) {
+    // 整批已随事务回滚。约束类失败不可重试，其余保持可重试；都带上脱敏的失败现场。
+    throw classifyApplyFailure(error, { ...failure });
+  }
 
   return result;
 }

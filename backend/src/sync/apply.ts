@@ -12,7 +12,7 @@ import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 import { normalizeNoteColorMark } from "../lib/noteColorMark";
 import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
-import { isRootDocumentNotebookId } from "../services/knowledgeTreeRootDocuments.js";
+import { SERVER_PUSH_MODE, applyNotebookUpserts, withNotebookLive } from "./notebookApply";
 
 /**
  * Sync V2 服务端 mutation 应用层。
@@ -118,50 +118,19 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
     return null;
   }
 
-  const p = input.payload || {};
-  // Existing folders under root documents retain a hidden compatibility
-  // container. UPSERT would rerun the creation guard against that deleted
-  // container even for a rename; update state without reassigning its parent.
-  if (isRootDocumentNotebookId(str(p.parentId)) && db.prepare(`SELECT 1 FROM notebooks
-    WHERE id=? AND parentId=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)`)
-    .get(input.entityId,p.parentId,workspaceIdOf(input),workspaceIdOf(input),input.userId)) {
-    db.prepare(`UPDATE notebooks SET name=?,description=?,icon=?,color=?,sortOrder=?,isExpanded=?,
-      isDeleted=?,deletedAt=?,updatedAt=datetime('now') WHERE id=?`).run(str(p.name,"未命名笔记本"),p.description??null,
-      str(p.icon,"📒"),p.color??null,num(p.sortOrder),bit(p.isExpanded??1),bit(p.isDeleted),p.deletedAt??null,input.entityId);
-    return null;
-  }
-  db.prepare(`
-    INSERT INTO notebooks (
-      id, userId, parentId, name, description, icon, color,
-      sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
-    ON CONFLICT(id) DO UPDATE SET
-      parentId = excluded.parentId,
-      name = excluded.name,
-      description = excluded.description,
-      icon = excluded.icon,
-      color = excluded.color,
-      sortOrder = excluded.sortOrder,
-      isExpanded = excluded.isExpanded,
-      isDeleted = excluded.isDeleted,
-      deletedAt = excluded.deletedAt,
-      updatedAt = datetime('now')
-    WHERE notebooks.workspaceId IS excluded.workspaceId
-      AND (excluded.workspaceId IS NOT NULL OR notebooks.userId = excluded.userId)
-  `).run(
-    input.entityId,
-    input.userId,
-    p.parentId ?? null,
-    str(p.name, "未命名笔记本"),
-    p.description ?? null,
-    str(p.icon, "📒"),
-    p.color ?? null,
-    num(p.sortOrder),
-    bit(p.isExpanded ?? 1),
-    bit(p.isDeleted),
-    p.deletedAt ?? null,
-    p.createdAt ?? null,
-    workspaceIdOf(input),
+  // 目录的父子链接受数据库守卫（父目录必须存在且未删除）。逐条 upsert 会在两种常见情形下被
+  // 守卫拒绝：已删除子树里的子目录（父目录先被推上来标记为已删除），以及挂在根文档隐藏容器下的目录
+  // （重命名也会重写未变化的 parentId）。统一交给 applyNotebookUpserts：只在父目录真的变了才写
+  // parentId，必要时像 activateRootContainer 那样临时让父目录可用。
+  //
+  // 与本机副本不同，这里对"无法兑现的父目录"选择拒绝而不是回退到根：父目录还没推上来时
+  // 客户端的修改留在 Outbox 里等它先到，不能替客户端把 NAS 上的结构改坏。
+  applyNotebookUpserts(
+    db,
+    [{ entityType: "notebook", entityId: input.entityId, operation: "upsert", payload: input.payload ?? {} }],
+    { userId: input.userId, workspaceId: workspaceIdOf(input) },
+    {},
+    SERVER_PUSH_MODE,
   );
   return null;
 }
@@ -286,7 +255,10 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
 
   // 新建：客户端生成 UUID，离线也能创建，不依赖服务端分配 ID。
   const version = Math.max(1, num(p.version, 1));
-  db.prepare(`
+  // 笔记属于一个已删除的目录（例如首次同步上传本机已删除的目录子树）时，目录临时可用：
+  // 知识树镜像只有目录未删除才把笔记的树父节点指向它，否则落到根，
+  // 而客户端那一侧的树父节点仍指向目录，两边的知识树基线会因此判成结构冲突。
+  withNotebookLive(db, { userId: input.userId, workspaceId: workspaceIdOf(input) }, str(p.notebookId), () => db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
@@ -313,7 +285,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     version,
     num(p.sortOrder),
     p.createdAt ?? null,
-  );
+  ));
   return version;
 }
 
