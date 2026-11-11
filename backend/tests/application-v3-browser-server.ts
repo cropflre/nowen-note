@@ -31,6 +31,17 @@ async function start() {
     service.ecosystem.transport = fixture.transport;
     service.ecosystem.upsertSource({ id: fixture.sourceId, name: "Fixture Registry", indexUrl: fixture.indexUrl, registryKeyId: fixture.registryKeyId, registryPublicKey: fixture.registryPublicKey });
   }
+  if (process.env.V3_BROWSER_AI_FIXTURE === "1") {
+    // Editor action acceptance: a deterministic stand-in for the user's AI model. Only the model call
+    // is replaced; the editor action route, plugin checks and note ACL stay real.
+    const { editorActionDeps } = await import("../src/plugins/editorActions.js");
+    editorActionDeps.settings = () => ({ ai_provider: "openai", ai_api_url: "https://ai.fixture.invalid/v1", ai_api_key: "fixture", ai_model: "fixture" }) as unknown as ReturnType<typeof editorActionDeps.settings>;
+    editorActionDeps.ai = async (_settings, messages) => {
+      await new Promise((resolve) => setTimeout(resolve, Number(process.env.V3_BROWSER_AI_DELAY_MS || 1500)));
+      const content = String(messages.at(-1)?.content || "");
+      return `Polished: ${content.slice(content.indexOf("\n\n") + 2)}`;
+    };
+  }
   // Serve the same production frontend and authentication routes, with a disposable DB only.
   process.env.NODE_ENV = "production";
   const listen = Server.prototype.listen;

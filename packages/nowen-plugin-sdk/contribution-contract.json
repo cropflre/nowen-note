@@ -1,5 +1,5 @@
 {
-  "contractVersion": 4,
+  "contractVersion": 5,
   "namespaceTemplate": "<pluginId>/<contributionId>",
   "runtimes": ["declarative", "sandbox-js", "node-action"],
   "types": [
@@ -11,7 +11,8 @@
     {"id":"noteThemes","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Safe note-scoped visual themes rendered by the host without changing app chrome"},
     {"id":"noteTemplates","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static note templates rendered/imported by the host"},
     {"id":"promptPacks","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static prompt packs with explicit variable schemas"},
-    {"id":"uiComponents","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Host-rendered UI actions placed in user-controlled extension slots"}
+    {"id":"uiComponents","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Host-rendered UI actions placed in user-controlled extension slots"},
+    {"id":"editorActions","since":"2.2","runtimes":["sandbox-js","node-action"],"declarative":false,"description":"Host-rendered editor actions (slash menu, selection bubble, editor toolbar) that run a declared command or prompt and return bounded Markdown text"}
   ],
   "noteTheme": {
     "schemaVersion": 1,
@@ -41,5 +42,16 @@
   },
   "noteTemplate": {"schemaVersion":1,"maxTemplatesPerPlugin":100,"maxBodyBytes":262144},
   "promptPack": {"schemaVersion":1,"maxPromptsPerPlugin":100,"maxPromptBytes":65536},
-  "uiComponent": {"schemaVersion":1,"kinds":["action"],"slots":["floating-layer"],"actions":["navigation.open"],"maxComponentsPerPlugin":50}
+  "uiComponent": {"schemaVersion":1,"kinds":["action"],"slots":["floating-layer"],"actions":["navigation.open"],"maxComponentsPerPlugin":50},
+  "editorAction": {
+    "schemaVersion": 1,
+    "placements": ["editor.slash", "editor.selection", "editor.toolbar.actions"],
+    "editors": ["tiptap", "markdown"],
+    "selectionModes": ["none", "text", "optional-text"],
+    "resultModes": ["none", "insert", "replace-selection", "open-preview"],
+    "icons": ["sparkles", "wand", "quote", "list", "case", "template", "translate", "summary", "text"],
+    "maxActionsPerPlugin": 30,
+    "maxInputBytes": 32768,
+    "maxResultBytes": 65536
+  }
 }

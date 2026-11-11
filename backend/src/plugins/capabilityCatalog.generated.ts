@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "7177e5719e2e90a04a002566b883982bcb6ce3f4558738dc8239f52de6baf487" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "92f21643d12cce01955d6164e01340da5dc97ba293b87d2810f10ca400df86da" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -1344,7 +1344,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     ]
   },
   "contributions": {
-    "contractVersion": 4,
+    "contractVersion": 5,
     "namespaceTemplate": "<pluginId>/<contributionId>",
     "runtimes": [
       "declarative",
@@ -1372,6 +1372,16 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         ],
         "declarative": false,
         "description": "Command palette and host command registrations"
+      },
+      {
+        "id": "editorActions",
+        "since": "2.2",
+        "runtimes": [
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": false,
+        "description": "Host-rendered editor actions (slash menu, selection bubble, editor toolbar) that run a declared command or prompt and return bounded Markdown text"
       },
       {
         "id": "inboundWebhooks",
@@ -1499,6 +1509,43 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "navigation.open"
       ],
       "maxComponentsPerPlugin": 50
+    },
+    "editorAction": {
+      "schemaVersion": 1,
+      "placements": [
+        "editor.slash",
+        "editor.selection",
+        "editor.toolbar.actions"
+      ],
+      "editors": [
+        "tiptap",
+        "markdown"
+      ],
+      "selectionModes": [
+        "none",
+        "text",
+        "optional-text"
+      ],
+      "resultModes": [
+        "none",
+        "insert",
+        "replace-selection",
+        "open-preview"
+      ],
+      "icons": [
+        "sparkles",
+        "wand",
+        "quote",
+        "list",
+        "case",
+        "template",
+        "translate",
+        "summary",
+        "text"
+      ],
+      "maxActionsPerPlugin": 30,
+      "maxInputBytes": 32768,
+      "maxResultBytes": 65536
     }
   },
   "errors": {
@@ -1667,6 +1714,60 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "Declarative extensions cannot execute actions"
       },
       {
+        "code": "PLUGIN_EDITOR_ACTIONS_DISABLED",
+        "category": "feature-gate",
+        "retryable": false,
+        "description": "Editor actions are disabled by the host"
+      },
+      {
+        "code": "PLUGIN_EDITOR_ACTION_BUSY",
+        "category": "budget",
+        "retryable": true,
+        "description": "Too many editor actions are running for this user"
+      },
+      {
+        "code": "PLUGIN_EDITOR_ACTION_INVALID_RESULT",
+        "category": "contract",
+        "retryable": false,
+        "description": "The editor action returned an invalid or oversized result"
+      },
+      {
+        "code": "PLUGIN_EDITOR_ACTION_NOT_FOUND",
+        "category": "resource",
+        "retryable": false,
+        "description": "The editor action is not declared by an enabled plugin"
+      },
+      {
+        "code": "PLUGIN_EDITOR_ACTION_UNSUPPORTED",
+        "category": "contract",
+        "retryable": false,
+        "description": "The editor action does not support this editor or selection"
+      },
+      {
+        "code": "PLUGIN_EDITOR_AI_FAILED",
+        "category": "runtime",
+        "retryable": true,
+        "description": "The AI model request for a prompt editor action failed"
+      },
+      {
+        "code": "PLUGIN_EDITOR_AI_NOT_CONFIGURED",
+        "category": "feature-gate",
+        "retryable": false,
+        "description": "Prompt editor actions need an enabled and configured AI model"
+      },
+      {
+        "code": "PLUGIN_EDITOR_NOTE_FORBIDDEN",
+        "category": "permission",
+        "retryable": false,
+        "description": "The current user cannot run this editor action on the note"
+      },
+      {
+        "code": "PLUGIN_EDITOR_NOTE_PROTECTED",
+        "category": "permission",
+        "retryable": false,
+        "description": "Locked, encrypted or password-protected content is never sent to editor actions"
+      },
+      {
         "code": "PLUGIN_ERROR",
         "category": "runtime",
         "retryable": false,
@@ -1716,5 +1817,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "7177e5719e2e90a04a002566b883982bcb6ce3f4558738dc8239f52de6baf487"
+  "digest": "92f21643d12cce01955d6164e01340da5dc97ba293b87d2810f10ca400df86da"
 } as const);

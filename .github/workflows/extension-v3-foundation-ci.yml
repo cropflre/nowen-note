@@ -63,6 +63,19 @@ on:
       - "backend/src/routes/notes.ts"
       - "backend/tests/note-list-recent-limit.test.ts"
       - "frontend/e2e/workbench.spec.ts"
+      - "backend/src/plugins/editorActions.ts"
+      - "backend/src/plugins/executionManager.ts"
+      - "backend/src/plugins/featureFlags.ts"
+      - "backend/tests/editor-actions.test.ts"
+      - "frontend/src/lib/editorActions/**"
+      - "frontend/src/components/editor-actions/**"
+      - "frontend/src/hooks/useEditorActions.ts"
+      - "frontend/src/i18n/editorActionTranslations.ts"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/e2e/editor-actions.spec.ts"
+      - "examples/plugins/text-tools/**"
+      - "examples/plugins/ai-text-assistant/**"
       - "frontend/src/components/PluginDataActions.tsx"
       - "frontend/src/components/PluginInspector.tsx"
       - "frontend/src/components/EditorPane.tsx"
@@ -142,6 +155,7 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-backup-restore.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-center-registry-routes.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-list-recent-limit.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/editor-actions.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
@@ -181,9 +195,13 @@ jobs:
       - name: Pack Resource Inspector
         working-directory: examples/plugins/resource-inspector
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Pack editor action examples
+        run: |
+          (cd examples/plugins/text-tools && node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack)
+          (cd examples/plugins/ai-text-assistant && node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack)
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/personalApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/lib/__tests__/extensionCatalog.test.ts src/components/extension-center src/components/dashboard src/i18n/__tests__/releaseI18nCoverage.test.ts
+        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/personalApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/lib/__tests__/extensionCatalog.test.ts src/components/extension-center src/components/dashboard src/lib/editorActions src/components/editor-actions src/i18n/__tests__/releaseI18nCoverage.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

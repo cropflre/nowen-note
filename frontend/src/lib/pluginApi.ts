@@ -15,6 +15,8 @@ export interface ExtensionPlatformFeatureFlags {
   applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean; inspectors?: boolean };
   /** Runtime platform the server enforces for Registry installs (absent on older servers). */
   runtimePlatform?: "server" | "desktop-full";
+  /** Editor actions (contribution contract v5); absent on older servers. */
+  editorActions?: boolean;
 }
 
 export interface PluginAppPage {
@@ -77,9 +79,30 @@ export interface PluginUiActionContribution {
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
 }
 
+export type PluginEditorKind = "tiptap" | "markdown";
+export type PluginEditorActionPlacement = "editor.slash" | "editor.selection" | "editor.toolbar.actions";
+export interface PluginEditorActionContribution {
+  id: string;
+  command?: string;
+  prompt?: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  keywords?: string[];
+  placements: PluginEditorActionPlacement[];
+  appliesTo: PluginEditorKind[];
+  selectionMode: "none" | "text" | "optional-text";
+  resultMode: "none" | "insert" | "replace-selection" | "open-preview";
+  requiresConfirmation?: boolean;
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
+export interface PluginEditorActionRunResult { success: true; text?: string; message?: string; aiGenerated?: true; executionId?: string }
+
 export interface PluginContributionRecord {
   pluginId: string;
   publisher?: string;
+  pluginName?: string;
+  editorActions?: PluginEditorActionContribution[];
   noteThemes?: PluginNoteThemeContribution[];
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
@@ -218,6 +241,8 @@ export const pluginApi = {
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
+  runEditorAction: (pluginId: string, actionId: string, body: { noteId: string; editor: PluginEditorKind; text?: string }, signal?: AbortSignal) =>
+    request<PluginEditorActionRunResult>(`/plugins/${encodeURIComponent(pluginId)}/editor-actions/${encodeURIComponent(actionId)}/run`, { method: "POST", body: JSON.stringify(body), signal }),
   apps: (platform: string) => request<PluginAppPage[]>(`/plugins/apps?platform=${encodeURIComponent(platform)}`),
   inspectors: (platform: string, resourceType: PluginInspectorResource["type"], workspaceId: string) => request<PluginInspector[]>(`/plugins/inspectors?platform=${encodeURIComponent(platform)}&resourceType=${resourceType}&workspaceId=${encodeURIComponent(workspaceId)}`),
   appSession: (page: PluginAppPage, context: { workspaceId: string; platform: string; theme: string; inspector?: PluginInspectorContext }, signal?: AbortSignal) => request<PluginAppSession>(`/plugins/apps/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}/session`, { method: "POST", body: JSON.stringify(context), signal }),

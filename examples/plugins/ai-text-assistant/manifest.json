@@ -1,0 +1,111 @@
+{
+  "id": "nowenlab.ai-text-assistant",
+  "name": "AI 文本助手",
+  "description": "Official editor actions that polish, translate or summarize the selection with the AI model configured in Nowen. Prompts run on the host; the plugin code never receives the text of AI actions.",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "publisher": "nowenlab",
+  "engines": {
+    "nowen": ">=1.5.3 <2.0.0"
+  },
+  "categories": [
+    "ai",
+    "editor"
+  ],
+  "keywords": [
+    "ai",
+    "writing",
+    "润色",
+    "翻译"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "sandbox-js",
+  "main": "index.js",
+  "permissions": [],
+  "actions": [
+    { "id": "tidy-whitespace", "name": "整理空白", "input": { "text": { "type": "string", "required": true } } }
+  ],
+  "contributes": {
+    "commands": [
+      { "id": "nowenlab.ai-text-assistant.tidy-whitespace", "title": "整理空白", "action": "tidy-whitespace" }
+    ],
+    "promptPacks": [
+      {
+        "id": "polish",
+        "name": "润色选中文字",
+        "description": "让表达更清晰流畅，保持原意与 Markdown 格式",
+        "prompt": "请润色下面的文字，使表达更清晰流畅。保持原意、原有语言和 Markdown 格式，只输出润色后的文字",
+        "context": ["selection"],
+        "outputMode": "replace-selection"
+      },
+      {
+        "id": "translate-english",
+        "name": "翻译为英文",
+        "description": "译为自然流畅的英文，保持 Markdown 格式",
+        "prompt": "请把下面的内容翻译成自然流畅的英文。保持 Markdown 格式，只输出译文",
+        "context": ["selection"],
+        "outputMode": "replace-selection"
+      },
+      {
+        "id": "summarize",
+        "name": "总结要点",
+        "description": "用 3–5 条列表总结选中的内容",
+        "prompt": "请用 3 到 5 条 Markdown 无序列表总结下面内容的要点，只输出列表",
+        "context": ["selection"],
+        "outputMode": "markdown"
+      }
+    ],
+    "editorActions": [
+      {
+        "id": "polish",
+        "prompt": "polish",
+        "label": "AI 润色",
+        "description": "预览后替换选中的文字",
+        "icon": "sparkles",
+        "keywords": ["ai", "polish", "润色"],
+        "placements": ["editor.selection", "editor.toolbar.actions"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "open-preview"
+      },
+      {
+        "id": "translate-english",
+        "prompt": "translate-english",
+        "label": "AI 翻译为英文",
+        "description": "预览译文后替换或插入",
+        "icon": "translate",
+        "keywords": ["ai", "translate", "翻译"],
+        "placements": ["editor.selection"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "open-preview"
+      },
+      {
+        "id": "summarize",
+        "prompt": "summarize",
+        "label": "AI 总结要点",
+        "description": "确认后在选区后插入要点列表",
+        "icon": "summary",
+        "keywords": ["ai", "summary", "总结"],
+        "placements": ["editor.selection"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "insert",
+        "requiresConfirmation": true
+      },
+      {
+        "id": "tidy-whitespace",
+        "command": "nowenlab.ai-text-assistant.tidy-whitespace",
+        "label": "整理空白",
+        "description": "合并多余的空格与空行",
+        "icon": "wand",
+        "keywords": ["whitespace", "空白", "空行"],
+        "placements": ["editor.selection"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "replace-selection"
+      }
+    ]
+  }
+}

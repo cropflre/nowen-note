@@ -6,6 +6,7 @@ import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type Plug
 import { widgetV3Schema } from "./dashboardV3.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
 import { inspectorV3Schema, INSPECTOR_PERMISSIONS } from "./inspectorV3.js";
+import { EXTENSION_CAPABILITY_CATALOG } from "./capabilityCatalog.generated.js";
 
 const inputFieldSchema = z.object({
   type: z.enum(["string", "number", "boolean", "object", "array"]),
@@ -174,6 +175,33 @@ const uiComponentSchema = z.object({
   }
 });
 
+/** Editor actions (contribution contract v5): enums and limits come from the generated contract. */
+export const EDITOR_ACTION_LIMITS = EXTENSION_CAPABILITY_CATALOG.contributions.editorAction;
+const editorActionSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  command: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150).optional(),
+  prompt: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/).optional(),
+  label: z.string().min(1).max(60),
+  description: z.string().max(200).optional(),
+  icon: z.enum(EDITOR_ACTION_LIMITS.icons).optional(),
+  keywords: z.array(z.string().min(1).max(30)).max(10).optional(),
+  placements: z.array(z.enum(EDITOR_ACTION_LIMITS.placements)).min(1).max(EDITOR_ACTION_LIMITS.placements.length),
+  appliesTo: z.array(z.enum(EDITOR_ACTION_LIMITS.editors)).min(1).max(EDITOR_ACTION_LIMITS.editors.length),
+  selectionMode: z.enum(EDITOR_ACTION_LIMITS.selectionModes),
+  resultMode: z.enum(EDITOR_ACTION_LIMITS.resultModes),
+  requiresConfirmation: z.boolean().optional(),
+  uiPlatform: z.array(z.enum(["web", "desktop", "android", "ios"])).min(1).max(4).optional(),
+}).strict().superRefine((action, ctx) => {
+  const issue = (path: Array<string | number>, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+  if (Boolean(action.command) === Boolean(action.prompt)) issue([], "Editor Action 必须且只能引用一个 command 或 prompt");
+  if (new Set(action.placements).size !== action.placements.length) issue(["placements"], "Editor Action placements 不能重复");
+  if (new Set(action.appliesTo).size !== action.appliesTo.length) issue(["appliesTo"], "Editor Action appliesTo 不能重复");
+  if (action.placements.includes("editor.slash") && action.selectionMode === "text") issue(["placements"], "斜杠菜单没有选区，selectionMode 不能为 text");
+  if (action.placements.includes("editor.selection") && action.selectionMode === "none") issue(["placements"], "选区菜单中的动作必须读取选区");
+  if (action.resultMode === "replace-selection" && action.selectionMode !== "text") issue(["resultMode"], "replace-selection 需要 selectionMode 为 text");
+  if (action.prompt && (action.selectionMode !== "text" || action.resultMode === "none")) issue(["prompt"], "Prompt 动作需要选区文本并返回结果");
+});
+
 const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
   name: z.string().min(1).max(100), description: z.string().max(1000).default(""),
@@ -205,6 +233,7 @@ const executableContributesSchema = z.object({
   noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
   promptPacks: z.array(promptPackSchema).max(100).optional(),
   uiComponents: z.array(uiComponentSchema).max(50).optional(),
+  editorActions: z.array(editorActionSchema).max(EDITOR_ACTION_LIMITS.maxActionsPerPlugin).optional(),
 }).strict().optional();
 
 const declarativeContributesSchema = z.object({
@@ -268,6 +297,26 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });
   const commandIds = new Set((manifest.contributes?.commands || []).map((command) => command.id));
   for (const menu of manifest.contributes?.menus || []) if (!commandIds.has(menu.command)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "menus"], message: `Menu Command 不存在: ${menu.command}` });
+  const editorActions = manifest.contributes?.editorActions || [];
+  if (new Set(editorActions.map((item) => item.id)).size !== editorActions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "editorActions"], message: "Editor Action id 不能重复" });
+  for (const [index, editorAction] of editorActions.entries()) {
+    const issue = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "editorActions", index], message });
+    if (editorAction.command) {
+      const command = (manifest.contributes?.commands || []).find((item) => item.id === editorAction.command);
+      const action = command && manifest.actions.find((item) => item.id === command.action);
+      if (!action) { issue(`Editor Action Command 不存在: ${editorAction.command}`); continue; }
+      if (action.execution === "background") issue("Editor Action 不能引用后台 Action");
+      const fields = Object.entries(action.input || {});
+      // The host passes exactly { text } (or {} when no selection is read); nothing else can be required.
+      if (editorAction.selectionMode !== "none" && action.input?.text?.type !== "string") issue("读取选区的 Editor Action 必须声明 string 类型的 text 输入");
+      if (fields.some(([key, field]) => field.required && (key !== "text" || editorAction.selectionMode === "none"))) issue("Editor Action 引用的 Action 不能有 Host 无法提供的必填输入");
+    } else if (editorAction.prompt) {
+      const prompt = (manifest.contributes?.promptPacks || []).find((item) => item.id === editorAction.prompt);
+      if (!prompt) { issue(`Editor Action Prompt 不存在: ${editorAction.prompt}`); continue; }
+      if ((prompt.context || []).some((item) => item !== "selection")) issue("Editor Action Prompt 只能使用选区上下文");
+      if ((prompt.inputs || []).some((field) => field.required && field.default === undefined)) issue("Editor Action Prompt 的输入必须有默认值");
+    }
+  }
   for (const handler of manifest.eventHandlers || []) if (!actionIds.has(handler.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["eventHandlers"], message: `Event Handler Action 不存在: ${handler.action}` });
   if (manifest.connections?.length && !manifest.permissions.includes("secrets:use")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "声明 connections 必须请求 secrets:use" });
   const normalized = manifest.main.replace(/\\/g, "/");
@@ -393,6 +442,7 @@ export interface ParsePluginManifestOptions {
   currentVersion?: string;
   extensionsV21?: boolean;
   uiExtensions?: boolean;
+  editorActions?: boolean;
 }
 
 export function parsePluginManifest(value: unknown, options: ParsePluginManifestOptions = {}): PluginManifest {
@@ -429,6 +479,10 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
       throw Object.assign(new Error("UI Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
+  }
+  if (manifest.apiVersion === 2 && (manifest.contributes as { editorActions?: unknown[] } | undefined)?.editorActions?.length && !(options.editorActions ?? getExtensionPlatformFeatureFlags().editorActions)) {
+    // Fail closed like UI contributions: a disabled host never stores an unrenderable editor contract.
+    throw Object.assign(new Error("Editor Action Contribution 当前未启用"), { code: "PLUGIN_EDITOR_ACTIONS_DISABLED" });
   }
   const currentVersion = options.currentVersion || NOWEN_VERSION;
   if (!nowenVersionSatisfies(manifest.engines.nowen, currentVersion)) throw new Error(`插件要求 Nowen ${manifest.engines.nowen}，当前版本为 ${currentVersion}`);

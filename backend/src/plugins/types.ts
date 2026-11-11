@@ -10,6 +10,8 @@ export interface ExtensionPlatformFeatureFlags {
   sandboxedPluginUi: boolean;
   fileProcessingExtensions: boolean;
   experimentalDocumentTypes: boolean;
+  /** Editor actions (contribution contract v5); fail-closed, independent of the V2.1 declarative gate. */
+  editorActions: boolean;
 }
 
 export const PLUGIN_PERMISSIONS = [
@@ -189,6 +191,27 @@ export interface PluginUiActionContribution {
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
 }
 
+export type PluginEditorActionPlacement = "editor.slash" | "editor.selection" | "editor.toolbar.actions";
+export type PluginEditorKind = "tiptap" | "markdown";
+export type PluginEditorSelectionMode = "none" | "text" | "optional-text";
+export type PluginEditorResultMode = "none" | "insert" | "replace-selection" | "open-preview";
+/** Runs a declared command (sandboxed code) or prompt (host AI); the host only passes the selection as text. */
+export interface PluginEditorActionContribution {
+  id: string;
+  command?: string;
+  prompt?: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  keywords?: string[];
+  placements: PluginEditorActionPlacement[];
+  appliesTo: PluginEditorKind[];
+  selectionMode: PluginEditorSelectionMode;
+  resultMode: PluginEditorResultMode;
+  requiresConfirmation?: boolean;
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
+
 export interface PluginContributionManifest {
   inboundWebhooks?: PluginInboundWebhookContribution[];
   commands?: PluginCommandContribution[];
@@ -199,6 +222,7 @@ export interface PluginContributionManifest {
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
   uiComponents?: PluginUiActionContribution[];
+  editorActions?: PluginEditorActionContribution[];
 }
 
 export interface PluginInboundWebhookContribution {

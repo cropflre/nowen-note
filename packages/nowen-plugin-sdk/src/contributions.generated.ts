@@ -8,7 +8,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";
-export type PluginContributionType = "automationTemplates" | "commands" | "inboundWebhooks" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings" | "uiComponents";
+export type PluginContributionType = "automationTemplates" | "commands" | "editorActions" | "inboundWebhooks" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings" | "uiComponents";
 
 export interface PluginContributionContractEntry {
   id: PluginContributionType;
@@ -18,7 +18,7 @@ export interface PluginContributionContractEntry {
   description: string;
 }
 
-export const CONTRIBUTION_CONTRACT_VERSION = 4 as const;
+export const CONTRIBUTION_CONTRACT_VERSION = 5 as const;
 export const CONTRIBUTION_NAMESPACE_TEMPLATE = "<pluginId>/<contributionId>" as const;
 export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze([
   {
@@ -41,6 +41,16 @@ export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] =
     ],
     "declarative": false,
     "description": "Command palette and host command registrations"
+  },
+  {
+    "id": "editorActions",
+    "since": "2.2",
+    "runtimes": [
+      "sandbox-js",
+      "node-action"
+    ],
+    "declarative": false,
+    "description": "Host-rendered editor actions (slash menu, selection bubble, editor toolbar) that run a declared command or prompt and return bounded Markdown text"
   },
   {
     "id": "inboundWebhooks",
@@ -168,4 +178,41 @@ export const UI_COMPONENT_CONTRIBUTION_LIMITS = deepFreeze({
     "navigation.open"
   ],
   "maxComponentsPerPlugin": 50
+} as const);
+export const EDITOR_ACTION_CONTRIBUTION_LIMITS = deepFreeze({
+  "schemaVersion": 1,
+  "placements": [
+    "editor.slash",
+    "editor.selection",
+    "editor.toolbar.actions"
+  ],
+  "editors": [
+    "tiptap",
+    "markdown"
+  ],
+  "selectionModes": [
+    "none",
+    "text",
+    "optional-text"
+  ],
+  "resultModes": [
+    "none",
+    "insert",
+    "replace-selection",
+    "open-preview"
+  ],
+  "icons": [
+    "sparkles",
+    "wand",
+    "quote",
+    "list",
+    "case",
+    "template",
+    "translate",
+    "summary",
+    "text"
+  ],
+  "maxActionsPerPlugin": 30,
+  "maxInputBytes": 32768,
+  "maxResultBytes": 65536
 } as const);

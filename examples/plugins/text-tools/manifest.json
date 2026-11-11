@@ -1,0 +1,103 @@
+{
+  "id": "community-sample.text-tools",
+  "name": "Text Tools 文本工具箱",
+  "description": "Third-party style editor actions: wrap in quotes, upper case, lines to list, word count and a meeting notes template. No network access and no data permissions.",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "publisher": "community-sample",
+  "engines": {
+    "nowen": ">=1.5.3 <2.0.0"
+  },
+  "categories": [
+    "editor"
+  ],
+  "keywords": [
+    "text",
+    "editor",
+    "文本"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "sandbox-js",
+  "main": "index.js",
+  "permissions": [],
+  "actions": [
+    { "id": "wrap-quote", "name": "用引号包围", "input": { "text": { "type": "string", "required": true } } },
+    { "id": "upper-case", "name": "转为大写", "input": { "text": { "type": "string", "required": true } } },
+    { "id": "lines-to-list", "name": "行转列表", "input": { "text": { "type": "string", "required": true } } },
+    { "id": "count-words", "name": "统计字数", "input": { "text": { "type": "string", "required": true } } },
+    { "id": "meeting-template", "name": "插入会议纪要模板", "input": {} }
+  ],
+  "contributes": {
+    "commands": [
+      { "id": "community-sample.text-tools.wrap-quote", "title": "用引号包围", "action": "wrap-quote" },
+      { "id": "community-sample.text-tools.upper-case", "title": "转为大写", "action": "upper-case" },
+      { "id": "community-sample.text-tools.lines-to-list", "title": "行转列表", "action": "lines-to-list" },
+      { "id": "community-sample.text-tools.count-words", "title": "统计字数", "action": "count-words" },
+      { "id": "community-sample.text-tools.meeting-template", "title": "插入会议纪要模板", "action": "meeting-template" }
+    ],
+    "editorActions": [
+      {
+        "id": "wrap-quote",
+        "command": "community-sample.text-tools.wrap-quote",
+        "label": "用引号包围",
+        "description": "给选中的文字加上中文引号",
+        "icon": "quote",
+        "keywords": ["quote", "引号"],
+        "placements": ["editor.selection", "editor.toolbar.actions"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "replace-selection"
+      },
+      {
+        "id": "upper-case",
+        "command": "community-sample.text-tools.upper-case",
+        "label": "转为大写",
+        "description": "把选中的英文字母转为大写，链接地址和行内代码保持不变",
+        "icon": "case",
+        "keywords": ["upper", "case", "大写"],
+        "placements": ["editor.selection"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "replace-selection"
+      },
+      {
+        "id": "lines-to-list",
+        "command": "community-sample.text-tools.lines-to-list",
+        "label": "行转列表",
+        "description": "预览后把选中的每一行变成列表项",
+        "icon": "list",
+        "keywords": ["list", "列表"],
+        "placements": ["editor.selection", "editor.toolbar.actions"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "replace-selection",
+        "requiresConfirmation": true
+      },
+      {
+        "id": "count-words",
+        "command": "community-sample.text-tools.count-words",
+        "label": "统计字数",
+        "description": "只显示统计结果，不修改正文",
+        "icon": "text",
+        "keywords": ["count", "字数"],
+        "placements": ["editor.selection"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "none"
+      },
+      {
+        "id": "meeting-template",
+        "command": "community-sample.text-tools.meeting-template",
+        "label": "会议纪要模板",
+        "description": "在光标处插入会议纪要结构",
+        "icon": "template",
+        "keywords": ["meeting", "template", "会议", "模板"],
+        "placements": ["editor.slash", "editor.toolbar.actions"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "none",
+        "resultMode": "insert"
+      }
+    ]
+  }
+}

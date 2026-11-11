@@ -8,6 +8,7 @@ import { EcosystemRegistry } from "./ecosystemRegistry.js";
 import { compatibilityInputFromRecord, type ExtensionCompatibilityInput } from "./extensionCompatibility.js";
 import { ExtensionPolicy } from "./extensionPolicy.js";
 import { PluginExecutionManager } from "./executionManager.js";
+import { runEditorAction, type EditorActionResult } from "./editorActions.js";
 import { nowenVersionSatisfies, validateActionInput } from "./manifest.js";
 import { PluginPackageInstaller } from "./packageInstaller.js";
 import { PluginLifecycle } from "./pluginLifecycle.js";
@@ -90,13 +91,16 @@ export class PluginService {
   }
 
   contributions(): Array<Record<string, unknown>> {
+    const flags = getExtensionPlatformFeatureFlags();
     return this.registry.list().flatMap((record) => {
       if (record.status !== "enabled") return [];
       const manifest = manifestOf(record);
       if (manifest.apiVersion !== 2 || !manifest.contributes) return [];
       const contributions = { ...manifest.contributes };
-      if (!getExtensionPlatformFeatureFlags().uiExtensions) delete contributions.uiComponents;
-      return [{ pluginId: record.id, publisher: manifest.publisher, ...contributions }];
+      if (!flags.uiExtensions) delete contributions.uiComponents;
+      // Editor actions are listed only behind the host gate and once every declared permission is granted.
+      if (!flags.editorActions || !this.permissions.allDeclaredGranted(record.id)) delete (contributions as { editorActions?: unknown }).editorActions;
+      return [{ pluginId: record.id, publisher: manifest.publisher, pluginName: manifest.name, ...contributions }];
     });
   }
 
@@ -542,6 +546,15 @@ export class PluginService {
     const validated = validateActionInput(action, input);
     const timeoutMs = action.execution === "background" ? 30_000 : 10_000;
     return this.executions.execute({ pluginId, actionId, userId, workspaceId, actionInput: validated, timeoutMs, executionId, executionContext });
+  }
+
+  /** Editor action run (contract v5); see editorActions.ts for the checks performed before any text leaves. */
+  runEditorAction(pluginId: string, actionId: string, userId: string, body: unknown, signal?: AbortSignal): Promise<EditorActionResult> {
+    return runEditorAction({
+      record: (id) => this.registry.get(id),
+      granted: (id) => this.permissions.allDeclaredGranted(id),
+      execute: (args) => this.executions.execute(args),
+    }, { pluginId, actionId, userId, body, signal });
   }
 
   private async enforceCriticalAdvisories(): Promise<void> {

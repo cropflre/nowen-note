@@ -58,6 +58,7 @@ import { enFileExplorerTranslations, zhCNFileExplorerTranslations } from "./file
 import { enTaskRemovalTranslations, zhCNTaskRemovalTranslations } from "./taskRemovalTranslations";
 import { enPluginAppTranslations, zhCNPluginAppTranslations } from "./pluginAppTranslations";
 import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "./extensionCenterTranslations";
+import { enEditorActionTranslations, zhCNEditorActionTranslations } from "./editorActionTranslations";
 import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
@@ -101,6 +102,7 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNTaskRemovalTranslations,
   zhCNPluginAppTranslations,
   zhCNExtensionCenterTranslations,
+  zhCNEditorActionTranslations,
   zhCNAutomationTranslations,
   zhCNMigrationTranslations,
 );
@@ -130,6 +132,7 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enTaskRemovalTranslations,
   enPluginAppTranslations,
   enExtensionCenterTranslations,
+  enEditorActionTranslations,
   enAutomationTranslations,
   enMigrationTranslations,
 );

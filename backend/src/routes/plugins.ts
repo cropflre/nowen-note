@@ -28,8 +28,13 @@ function errorResponse(c: any, error: unknown) {
     : coded.code === "STUDIO_AI_NOT_CONFIGURED" || coded.code === "STUDIO_AI_UNAVAILABLE" ? 409
     : coded.code === "STUDIO_AI_INVALID_OUTPUT" || coded.code === "STUDIO_AI_DESTRUCTIVE_CHANGE" ? 422
     : coded.code === "STUDIO_CONFLICT" || coded.code === "STUDIO_APP_LIMIT" ? 409
-    : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
-    : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
+    : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" || coded.code === "PLUGIN_EDITOR_ACTION_NOT_FOUND" ? 404
+    : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" || coded.code === "PLUGIN_EDITOR_ACTIONS_DISABLED"
+      || coded.code === "PLUGIN_EDITOR_NOTE_FORBIDDEN" || coded.code === "PLUGIN_EDITOR_NOTE_PROTECTED" ? 403
+    : coded.code === "PLUGIN_EDITOR_ACTION_INVALID_RESULT" ? 422
+    : coded.code === "PLUGIN_EDITOR_AI_NOT_CONFIGURED" ? 409
+    : coded.code === "PLUGIN_EDITOR_ACTION_BUSY" ? 429
+    : coded.code === "PLUGIN_EDITOR_AI_FAILED" ? 502
       : coded.code === "PLUGIN_TIMEOUT" ? 408
         : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" || coded.code === "PLUGIN_DATA_CONFLICT" ? 409
           : 400;
@@ -482,6 +487,24 @@ pluginsRouter.post("/:id/actions/:actionId/execute", async (c) => {
     }
     const execution = await getPluginService().execute(c.req.param("id"), c.req.param("actionId"), userId(c), body.workspaceId || null, body.input || {});
     return c.json({ success: true, executionId: execution.executionId, data: execution.result });
+  } catch (error) {
+    return errorResponse(c, error);
+  }
+});
+
+// Editor actions: the host passes only the submitted selection and returns bounded text for the editor to apply.
+pluginsRouter.post("/:id/editor-actions/:actionId/run", bodyLimit({
+  maxSize: 128 * 1024,
+  onError: (c) => c.json({ success: false, error: "选中的内容超过编辑器动作上限", code: "PLUGIN_INPUT_TOO_LARGE" }, 413),
+}), async (c) => {
+  try {
+    let body: unknown = null;
+    try { body = await c.req.json(); } catch (error) {
+      // Chunked bodies have no Content-Length, so the limit surfaces while reading.
+      if ((error as Error)?.name === "BodyLimitError") return c.json({ success: false, error: "选中的内容超过编辑器动作上限", code: "PLUGIN_INPUT_TOO_LARGE" }, 413);
+    }
+    const result = await getPluginService().runEditorAction(c.req.param("id"), c.req.param("actionId"), userId(c), body, c.req.raw.signal);
+    return c.json({ success: true, ...result });
   } catch (error) {
     return errorResponse(c, error);
   }

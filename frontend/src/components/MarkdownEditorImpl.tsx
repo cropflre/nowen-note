@@ -191,6 +191,7 @@ import {
   emptySlashState,
   getDefaultMdSlashItems,
 } from "@/components/MarkdownSlashMenu";
+import { useMarkdownEditorActions } from "@/components/editor-actions/markdownEditorActions";
 
 export function normalizeFormatHeadingLevel(level: number): 1 | 2 | 3 | 4 | 5 | 6 {
   const normalized = Number.isFinite(level) ? Math.trunc(level) : 1;
@@ -1008,6 +1009,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     view.focus();
   }, [editable, isGuest, note.id]);
 
+  // Plugin editor actions (contract v5): the same registry and runner as the rich-text editor.
+  const editorActions = useMarkdownEditorActions(viewRef, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed) });
+
   const slashItems: MdSlashItem[] = useMemo(
     () => [
       ...getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
@@ -1019,9 +1023,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         onAIAssistant: isGuest ? undefined : openAIAssistant,
       }),
       ...getMarkdownDailyRecordSlashCommands(),
+      ...editorActions.slashItems,
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder],
+    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder, editorActions.slashItems],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -2515,6 +2520,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <ClipboardPlus size={iconSize} className="text-blue-500" />
               </ToolbarButton>
+              {editorActions.menu("editor.toolbar.actions", { iconSize })}
             </>
           )}
 
@@ -2773,6 +2779,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
+              {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
         </div>
@@ -2790,6 +2797,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           position={aiPosition}
         />
       )}
+      {editorActions.host}
 
       {/*
         �ƶ��˸����������������������Ϸ���

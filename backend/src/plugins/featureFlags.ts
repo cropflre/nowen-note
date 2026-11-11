@@ -23,6 +23,8 @@ export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFe
     sandboxedPluginUi: uiLayoutEditor && envFlag("NOWEN_SANDBOXED_PLUGIN_UI"),
     fileProcessingExtensions,
     experimentalDocumentTypes: fileProcessingExtensions && envFlag("NOWEN_EXPERIMENTAL_DOCUMENT_TYPES"),
+    // Off by default until the Phase 5 security review (D3); works with executable plugins only.
+    editorActions: envFlag("NOWEN_EDITOR_ACTIONS"),
   });
 }
 

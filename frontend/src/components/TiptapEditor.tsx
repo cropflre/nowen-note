@@ -160,6 +160,7 @@ import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/com
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
+import { useTiptapEditorActions } from "@/components/editor-actions/tiptapEditorActions";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
@@ -5089,6 +5090,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     insertWithMarkdownDetect(text, from, to);
   }, [editor, insertWithMarkdownDetect]);
 
+  // Plugin editor actions (contract v5): slash items, toolbar/selection menus and the preview host.
+  const editorActions = useTiptapEditorActions(editor, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed) });
+
   // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const setScrollContainerRef = useCallback((content: HTMLDivElement | null) => {
@@ -5718,6 +5722,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
+            {editorActions.menu("editor.toolbar.actions", { iconSize })}
           </>
         )}
       </div>
@@ -5936,6 +5941,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
+              {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
         </div>
@@ -6719,7 +6725,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined)}
+        items={[...getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined), ...editorActions.slashItems]}
       />
 
       <AttachmentLibraryPicker
@@ -6813,6 +6819,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           />
         )}
       </AnimatePresence>
+      {editorActions.host}
 
       {/* 移动端工具栏已迁移到主 Toolbar 之后，参考下方 mobileToolbarItems 渲染处 */}
     </div>

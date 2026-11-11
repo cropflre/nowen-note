@@ -140,7 +140,10 @@ export class PluginExecutionManager {
     timeoutMs: number;
     executionId?: string;
     executionContext?: Omit<PluginExecutionContext, "executionId" | "pluginId" | "actionId" | "userId" | "workspaceId">;
+    /** false: the run handles note content, so plugin log lines and error text are not stored. */
+    persistLogs?: boolean;
   }): Promise<{ executionId: string; result: PluginExecutionResult }> {
+    const persistLogs = input.persistLogs !== false;
     const inputBytes = jsonSize(input.actionInput);
     if (inputBytes > PACKAGE_LIMITS.inputBytes) throw Object.assign(new Error("Action input 超过 256KB"), { code: "PLUGIN_INPUT_TOO_LARGE" });
     const queuedRecord = this.registry.get(input.pluginId);
@@ -179,7 +182,7 @@ export class PluginExecutionManager {
       if (outputBytes > PACKAGE_LIMITS.outputBytes) throw Object.assign(new Error("Action output 超过 1MB"), { code: "PLUGIN_OUTPUT_TOO_LARGE" });
       const finishedAt = new Date();
       getDb().prepare(`UPDATE plugin_executions SET status='completed',finishedAt=?,durationMs=?,outputBytes=?,logTail=? WHERE id=?`)
-        .run(finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), outputBytes, JSON.stringify(logs.toArray()), executionId);
+        .run(finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), outputBytes, persistLogs ? JSON.stringify(logs.toArray()) : "[]", executionId);
       this.lifecycle.completeProbationExecution(input.pluginId);
       return { executionId, result };
     } catch (error) {
@@ -187,7 +190,7 @@ export class PluginExecutionManager {
       logs.add("error", coded.message);
       const finishedAt = new Date();
       getDb().prepare(`UPDATE plugin_executions SET status=?,finishedAt=?,durationMs=?,errorCode=?,errorMessage=?,logTail=? WHERE id=?`)
-        .run(coded.code === "PLUGIN_CANCELLED" ? "cancelled" : "failed", finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), coded.code || "PLUGIN_EXECUTION_FAILED", coded.message.slice(0, 2000), JSON.stringify(logs.toArray()), executionId);
+        .run(coded.code === "PLUGIN_CANCELLED" ? "cancelled" : "failed", finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), coded.code || "PLUGIN_EXECUTION_FAILED", persistLogs ? coded.message.slice(0, 2000) : coded.code || "PLUGIN_EXECUTION_FAILED", persistLogs ? JSON.stringify(logs.toArray()) : "[]", executionId);
       const probation = this.registry.get(input.pluginId);
       const shouldRollbackProbation = executionStarted
         && coded.code !== "PLUGIN_CANCELLED"
@@ -200,10 +203,10 @@ export class PluginExecutionManager {
       if (shouldRollbackProbation) {
         this.suspendForUpdate(input.pluginId);
         try {
-          this.lifecycle.rollback(input.pluginId, coded.message, coded.code || "PLUGIN_EXECUTION_FAILED");
+          this.lifecycle.rollback(input.pluginId, persistLogs ? coded.message : coded.code || "PLUGIN_EXECUTION_FAILED", coded.code || "PLUGIN_EXECUTION_FAILED");
           await this.restart(input.pluginId);
         } finally { this.resumeAfterUpdate(input.pluginId); }
-      } else if (coded.code === "PLUGIN_TIMEOUT") this.registry.setStatus(input.pluginId, "error", coded.message);
+      } else if (coded.code === "PLUGIN_TIMEOUT") this.registry.setStatus(input.pluginId, "error", persistLogs ? coded.message : coded.code);
       throw Object.assign(coded, { executionId });
     } finally {
       releaseProbation?.();
