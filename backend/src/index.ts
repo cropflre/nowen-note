@@ -82,6 +82,7 @@ import authRouter from "./routes/auth";
 import onboardingRouter from "./routes/onboarding";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
+import { createEmbeddedMcpRouter, createMcpSettingsRouter } from "./mcp";
 import userPreferencesRouter from "./routes/user-preferences";
 import versionRouter, { resolveAppVersion } from "./routes/version";
 import releasesRouter from "./routes/releases";
@@ -176,7 +177,7 @@ app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.re
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
 
-app.use("*", cors({
+const corsMiddleware = cors({
   origin: (origin) => {
     return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
@@ -184,7 +185,8 @@ app.use("*", cors({
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
   exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path", "X-Request-Id"],
   credentials: true,
-}));
+});
+app.use("*", (c, next) => c.req.path === "/mcp" || c.req.path.startsWith("/mcp/") ? next() : corsMiddleware(c, next));
 
 if (isProd) {
   if (corsOrigins.length > 0) {
@@ -225,6 +227,9 @@ try {
 try { initWebhookTables(); } catch (e) { console.warn("[init] initWebhookTables failed:", e); }
 try { initAuditTables(); } catch (e) { console.warn("[init] initAuditTables failed:", e); }
 try { initApiTokensTable(getDb()); } catch (e) { console.warn("[init] initApiTokensTable failed:", e); }
+
+// Same port, no child process or second externally exposed listener.
+app.route("/mcp", createEmbeddedMcpRouter(request => app.fetch(request)));
 
 // 认证路由（无需 JWT）
 app.route("/api/auth", authRouter);
@@ -618,6 +623,7 @@ app.use("/api/*", syncChangeNoticeMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
+app.route("/api/mcp", createMcpSettingsRouter());
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
 app.route("/api/migrations", migrationUploadsRouter);

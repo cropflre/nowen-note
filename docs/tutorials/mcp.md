@@ -7,7 +7,8 @@
 ## 先看结论
 
 - MCP 功能仍然受支持，服务端代码位于 `packages/nowen-mcp/`。
-- 当前官方仓库提供的是**源码安装方式**，需要 Node.js 24.22.1+（24.x LTS）、Git 和 npm。
+- 包含内置 MCP 的新 Docker 镜像可在设置页开启固定 `/mcp` 地址，无需宿主机安装 Node.js 或 npm，参见 [Docker 内置 MCP](./docker-deploy.md#docker-内置-mcp包含此功能的新镜像)。旧镜像需升级。
+- 以下**独立源码安装方式**需要 Node.js 24.22.1+（24.x LTS）、Git 和 npm，仍可继续使用。
 - 不要直接照抄 `/path/to/...`。客户端配置中的脚本路径必须替换为你电脑上的**绝对路径**。
 - 如果 Nowen Note 部署在 NAS 或其他服务器，`NOWEN_URL` 应填写该设备能从当前电脑访问的地址，例如 `http://192.168.1.20:3001`，而不是 `localhost`。
 - 推荐使用独立的 restricted Personal API Token，不要把管理员密码写进 MCP 配置。
@@ -340,7 +341,7 @@ MCP: List Servers
 - Linux、macOS 和 WSL 的绝对路径必须以 `/` 开头，不能写成 `home/user/...`。
 - Windows JSON 路径中的 `\` 必须转义为 `\\`。
 - 当前 Claude Desktop 更推荐通过 Settings → Extensions 安装 DXT 扩展；Nowen Note 目前仍以源码 stdio Server 为正式可用方式。使用 Claude Desktop 的本地开发者 MCP 配置时，请以客户端当前版本提供的入口为准。
-- Claude.ai / Claude Desktop 的远程 Connector 不能直接连接这个本地 stdio 脚本；远程 MCP 需要单独的 HTTP 传输和认证实现。
+- 远程 Connector 不能直接连接这个本地 stdio 脚本。支持 Streamable HTTP + Bearer Header 的客户端可连接 Docker 内置 `/mcp`，使用个人 API Token；独立 HTTP 网关仍使用独立网关密钥。仅支持 OAuth 的客户端暂不适用。
 
 官方参考：[Claude Desktop local MCP](https://support.anthropic.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 

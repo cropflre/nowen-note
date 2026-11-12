@@ -34,16 +34,17 @@ const config = {
   password: process.env.NOWEN_PASSWORD || "",
 };
 
-const api = new NowenApiClient(config);
-
+// ===== 创建 MCP Server =====
+export function createNowenMcpServer(options: {
+  transport?: "stdio" | "streamable-http";
+  api?: NowenApiClient;
+} = {}): McpServer {
+const api = options.api ?? new NowenApiClient(config);
 /** Plugin execution, webhooks and automation can have external side effects. */
 function requireDangerousToolOptIn(toolName: string): void {
-  if (process.env.MCP_ENABLE_DANGEROUS_TOOLS?.trim().toLowerCase() === "true") return;
+  if (api.runtime.dangerousToolsEnabled) return;
   throw new Error(`${toolName} 已默认关闭；请在确认宿主客户端授权策略后设置 MCP_ENABLE_DANGEROUS_TOOLS=true`);
 }
-
-// ===== 创建 MCP Server =====
-export function createNowenMcpServer(options: { transport?: "stdio" | "streamable-http" } = {}): McpServer {
 const allowLocalFiles = options.transport !== "streamable-http";
 const server = new McpServer({
   name: "nowen-note",

@@ -7,7 +7,8 @@
 ## What you need to know
 
 - MCP support is still available under `packages/nowen-mcp/`.
-- The repository currently provides a **source installation**. Install Node.js 24.22.1+ (24.x LTS), Git, and npm first.
+- New Docker images containing the embedded MCP runtime can expose `/mcp` after an administrator enables it in Settings. No host Node.js/npm installation or separate container is needed. Older images must be upgraded. See [Docker deployment](./docker-deploy.md).
+- The **standalone source installation** below remains available and requires Node.js 24.22.1+ (24.x LTS), Git, and npm.
 - Replace every `/absolute/path/...` placeholder with the real absolute path on your computer.
 - When Nowen Note runs on a NAS or another server, `NOWEN_URL` must be reachable from the computer running the AI client, for example `http://192.168.1.20:3001`.
 - Use a dedicated restricted Personal API Token instead of storing an administrator password in the MCP configuration.
@@ -206,7 +207,7 @@ Most clients that accept local stdio MCP servers use this structure:
 }
 ```
 
-Current Claude Desktop versions prefer Desktop Extensions (DXT) under Settings → Extensions. Nowen Note currently ships the source-based stdio server, so use the local developer MCP entry exposed by your client version. A local stdio script cannot be added as a remote Claude connector; remote MCP requires a separate HTTP transport and authentication implementation.
+For local stdio, use the MCP developer configuration exposed by your client. A local stdio script cannot be used as a remote connector. Clients supporting Streamable HTTP with a Bearer header can instead connect to the Docker embedded `/mcp` endpoint using a Personal API Token. Standalone HTTP gateways still use a separate gateway secret; OAuth-only clients cannot connect directly yet.
 
 Official reference: [Local MCP servers on Claude Desktop](https://support.anthropic.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 

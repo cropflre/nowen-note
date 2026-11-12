@@ -8,11 +8,11 @@ import type { NowenApiClient } from "./api-client.js";
  * unscoped personal API tokens; a notebook-restricted agent must not enumerate
  * global folders or recover unrelated files.
  */
-function requirePersonalFileManagerMode(): void {
-  if (!process.env.NOWEN_API_TOKEN?.trim()) {
+function requirePersonalFileManagerMode(api: NowenApiClient): void {
+  if (!api.hasPersonalApiToken) {
     throw new Error("网盘 MCP 工具需要个人 API Token，不能使用共享账号密码");
   }
-  if (Object.prototype.hasOwnProperty.call(process.env, "ALLOWED_NOTEBOOK_IDS")) {
+  if (api.runtime.notebookScopeConfigured) {
     throw new Error("网盘文件夹无笔记本归属；启用 ALLOWED_NOTEBOOK_IDS 时禁止管理全局网盘");
   }
 }
@@ -45,7 +45,7 @@ const fileChangeShape = {
 };
 
 async function prepareFileChange(api: NowenApiClient, params: FileChange) {
-  requirePersonalFileManagerMode();
+  requirePersonalFileManagerMode(api);
   const { operation, parentId, folderId, name } = params;
   const foldersResponse = await api.listFileFolders();
   const folders: any[] = foldersResponse?.folders ?? [];
@@ -125,7 +125,7 @@ async function prepareFileChange(api: NowenApiClient, params: FileChange) {
 
 export function registerP1Tools(server: McpServer, api: NowenApiClient): void {
   server.tool("nowen_list_file_folders", "读取个人网盘文件夹与文件数量；网盘工具要求不受笔记本白名单约束的个人 Token", {}, async () => {
-    try { requirePersonalFileManagerMode(); return response(await api.listFileFolders()); } catch (error) { return failure(error); }
+    try { requirePersonalFileManagerMode(api); return response(await api.listFileFolders()); } catch (error) { return failure(error); }
   });
   server.tool("nowen_list_managed_files", "按关键字或目录分页查询个人网盘文件管理器上传的文件（不混入编辑器附件）", {
     q: z.string().max(100).optional(), folderId: z.string().optional(),
@@ -133,7 +133,7 @@ export function registerP1Tools(server: McpServer, api: NowenApiClient): void {
     pageSize: z.number().int().min(1).max(100).optional(),
   }, async (params) => {
     try {
-      requirePersonalFileManagerMode();
+      requirePersonalFileManagerMode(api);
       const files = await api.listPersonalManagedFiles(params);
       return response({ items: files.items, total: files.total, page: files.page, pageSize: files.pageSize });
     } catch (error) { return failure(error); }
@@ -141,7 +141,7 @@ export function registerP1Tools(server: McpServer, api: NowenApiClient): void {
   server.tool("nowen_list_file_trash", "分页查看当前用户个人网盘的可恢复文件，不包括其他用户和编辑器来源的附件", {
     page: z.number().int().min(1).max(10000).optional(),
   }, async ({ page }) => {
-    try { requirePersonalFileManagerMode(); return response(await api.listPersonalFileTrash(page)); }
+    try { requirePersonalFileManagerMode(api); return response(await api.listPersonalFileTrash(page)); }
     catch (error) { return failure(error); }
   });
   server.tool("nowen_preview_file_change",

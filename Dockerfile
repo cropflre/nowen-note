@@ -71,6 +71,15 @@ RUN npx tsc \
     && cp src/plugins/runner-child.mjs src/plugins/sandbox-child.mjs dist/plugins/
 RUN apk del .build-deps
 
+# ---------- MCP: optional embedded HTTP transport ----------
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS mcp-build
+WORKDIR /app/packages/nowen-mcp
+COPY packages/nowen-mcp/package.json packages/nowen-mcp/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY packages/nowen-mcp/src ./src
+COPY packages/nowen-mcp/tsconfig.json ./
+RUN npm run build && npm prune --omit=dev --no-audit --no-fund
+
 # ---------- Stage 3: 运行时镜像 ----------
 FROM node:24.22.1-alpine3.23
 WORKDIR /app
@@ -85,6 +94,9 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
     && rm -rf /root/.npm /tmp/* /var/cache/apk/*
 
 COPY --from=backend-build /app/backend/dist ./backend/dist
+COPY --from=mcp-build /app/packages/nowen-mcp/package.json ./packages/nowen-mcp/package.json
+COPY --from=mcp-build /app/packages/nowen-mcp/dist ./packages/nowen-mcp/dist
+COPY --from=mcp-build /app/packages/nowen-mcp/node_modules ./packages/nowen-mcp/node_modules
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 COPY backend/scripts/smoke-plugin-artifacts.cjs ./backend/scripts/smoke-plugin-artifacts.cjs
