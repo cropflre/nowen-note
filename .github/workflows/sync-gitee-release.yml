@@ -123,6 +123,37 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "[sync] $count file(s) ready for Gitee upload"
 
+      - name: Wait for Gitee mirror tag
+        if: steps.check.outputs.skip == '0'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Gitee's Pull mirror may update a few minutes after GitHub creates the tag.
+          # Never create a Gitee Release against main as a fallback before the exact tag arrives.
+          for attempt in $(seq 1 12); do
+            resp=$(curl -sS -w "\\n%{http_code}" \
+              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/tags?access_token=$GITEE_TOKEN&per_page=100&page=1")
+            body=$(echo "$resp" | sed '$d')
+            code=$(echo "$resp" | tail -n 1)
+            if [ "$code" != "200" ]; then
+              echo "[gitee] list tags failed: HTTP $code"
+              echo "$body"
+              exit 1
+            fi
+            if printf '%s' "$body" | jq -e --arg tag "$TAG" 'any(.[]?; .name == $tag)' >/dev/null; then
+              echo "[gitee] tag $TAG is mirrored"
+              exit 0
+            fi
+            echo "[gitee] waiting for mirror tag $TAG ($attempt/12)"
+            sleep 30
+          done
+          echo "[gitee] tag $TAG did not appear in Gitee after 6 minutes; refusing to create a Release on the wrong commit"
+          exit 1
+
       - name: Ensure Gitee release exists
         # Release metadata must be mirrored even when every binary exceeds Gitee's attachment limit.
         if: steps.check.outputs.skip == '0'
