@@ -32,8 +32,8 @@ const note = z.object({
       "元数据最多 32 个字段、16 KiB").optional(),
 }).strict();
 
-function requireMigrationToken(): void {
-  if (!process.env.NOWEN_API_TOKEN?.trim().startsWith("nkn_")) {
+function requireMigrationToken(api: NowenApiClient): void {
+  if (!api.hasMigrationApiToken) {
     throw new Error("迁移 MCP 需要个人 API Token；请在 Nowen Note 中配置授权，不能使用账号密码模拟用户审批");
   }
 }
@@ -57,7 +57,7 @@ function failure(error: unknown) {
 export function registerMigrationTools(server: McpServer, api: NowenApiClient, options: { allowLocalFiles: boolean }): void {
   server.tool("nowen_migration_capabilities", "查询统一迁移格式、限额及授权能力；不读取笔记正文", {}, async () => {
     try {
-      requireMigrationToken();
+      requireMigrationToken(api);
       const value = await api.migrationCapabilities();
       return response(Object.fromEntries([
         "schemaVersion", "formats", "limits", "strategies", "humanApprovalRequired", "remoteFetch", "overwrite", "approvalUrl", "permissions", "requiredScopes", "optionalScopes", "resumableUploads", "uploadChunkBytes", "sourceAdapters", "adapterApiVersion", "adapters",
@@ -71,7 +71,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
     name: z.string().min(1).max(200).optional(),
     workspaceId: id.nullable().optional(), targetNotebookId: id.nullable().optional(),
   }, async (params) => {
-    try { requireMigrationToken(); return response(summary(await api.createMigration(params))); }
+    try { requireMigrationToken(api); return response(summary(await api.createMigration(params))); }
     catch (error) { return failure(error); }
   });
 
@@ -79,7 +79,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
     jobId: id, items: z.array(note).min(1).max(50),
   }, async ({ jobId, items }) => {
     try {
-      requireMigrationToken();
+      requireMigrationToken(api);
       if (textBytes(JSON.stringify({ items })) > 512 * 1024) throw new Error("单次迁移准备最多 512 KiB，请拆分或上传 NMF 包");
       return response(summary(await api.stageMigrationItems(jobId, items)));
     } catch (error) { return failure(error); }
@@ -90,7 +90,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
     assetPath: relativePath.optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
   }, async ({ jobId, ...params }) => {
     try {
-      requireMigrationToken();
+      requireMigrationToken(api);
       if (!options.allowLocalFiles) throw new Error("HTTP MCP 不允许读取服务器本地路径，请使用文件包上传或 REST 字节上传");
       return response(summary(await api.uploadMigrationFile(jobId, params)));
     } catch (error) { return failure(error); }
@@ -106,7 +106,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
   ] as const) {
     server.tool(name, description, { jobId: id }, async ({ jobId }) => {
       try {
-        requireMigrationToken();
+        requireMigrationToken(api);
         return response(summary(await api.migrationAction(jobId, action)));
       } catch (error) { return failure(error); }
     });
@@ -116,7 +116,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
     jobId: id,
   }, async ({ jobId }) => {
     try {
-      requireMigrationToken();
+      requireMigrationToken(api);
       return response({ job: summary(await api.migrationAction(jobId, "status")),
         requiresHumanApproval: true, nextStep: "在 Nowen Note → 设置 → 数据管理 → 导入与迁移中检查本次任务并确认安全撤销。" });
     } catch (error) { return failure(error); }

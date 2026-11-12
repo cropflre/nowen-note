@@ -1,10 +1,21 @@
 # nowen-mcp
 
-Nowen Note 的本地 stdio MCP Server，让支持 Model Context Protocol 的 AI 客户端在授权范围内搜索、读取和维护笔记。
+Nowen Note MCP Server，让支持 Model Context Protocol 的 AI 客户端在授权范围内搜索、读取和维护笔记。支持独立 stdio/HTTP，以及官方 Docker 镜像的可选内置 HTTP 接入。
 
 > 完整用户教程：[中文安装指南](../../docs/tutorials/mcp.md) · [English guide](../../docs/tutorials/mcp.en.md)
 
-## 要求
+## Docker 内置方式
+
+包含此功能的新镜像可由管理员在「设置 → MCP 连接中心 → Docker 内置 MCP」开启。
+地址为 `https://你的域名/mcp`，与 Web/API 共用端口；客户端使用各自的个人 API Token。
+默认关闭、默认只读，开关和授权随数据卷持久化。无需在宿主机安装本包。
+操作步骤和代理要求见 [Docker 部署教程](../../docs/tutorials/docker-deploy.md)。
+
+内置入口 `dist/embedded-http.js` 仅由后端加载，不要把它作为 stdio 启动脚本。
+开发与权限测试前需在本目录执行 `npm ci && npm run build`。
+下方源码安装和独立 HTTP 网关方式继续保留；独立网关密钥与内置入口的个人 Token 不能混用。
+
+## 独立部署要求
 
 - Node.js 24.22.1+（24.x LTS）
 - npm

@@ -26,13 +26,13 @@ function dangerous(definition: any): boolean {
   return definition?.trigger?.type === "webhook"
     || (Array.isArray(definition?.steps) && definition.steps.some((step: any) => step?.type === "action"));
 }
-function verifyDefinition(definition: any): void {
+function verifyDefinition(definition: any, api: NowenApiClient): void {
   if (!definition || typeof definition !== "object" || Array.isArray(definition)
     || definition.version !== 1 || !definition.trigger || !Array.isArray(definition.steps)
     || definition.steps.length < 1 || definition.steps.length > 50) {
     throw new Error("请提供有效的 V1 工作流 trigger 和 1–50 个步骤");
   }
-  if (dangerous(definition) && process.env.MCP_ENABLE_DANGEROUS_TOOLS !== "true") {
+  if (dangerous(definition) && !api.runtime.dangerousToolsEnabled) {
     throw new Error("含插件 Action 或 Webhook 的工作流需要显式设置 MCP_ENABLE_DANGEROUS_TOOLS=true");
   }
 }
@@ -47,7 +47,7 @@ async function plan(api: NowenApiClient, params: PlanParams) {
   const nextDefinition = operation === "create" || operation === "update"
     ? (definition ?? before?.definition) : before?.definition;
   if (operation === "create" || operation === "update" || operation === "enable") {
-    verifyDefinition(nextDefinition);
+    verifyDefinition(nextDefinition, api);
   }
   if (operation === "update" && before?.enabled) {
     // Existing workflow update resets enabled=false. Require explicit disable in the UI.
@@ -135,18 +135,18 @@ export function registerP2Tools(server: McpServer, api: NowenApiClient): void {
   server.tool("nowen_mcp_diagnostics",
     "显示 MCP 连接能力、授权限制、工具数量和接入模式；永不输出 Token 或密码",
     {}, async () => {
-      const scopeConfigured = Object.prototype.hasOwnProperty.call(process.env, "ALLOWED_NOTEBOOK_IDS");
+      const scopeConfigured = api.runtime.notebookScopeConfigured;
       return send({
-        transport: process.env.NOWEN_MCP_TRANSPORT || "stdio",
-        accessMode: process.env.MCP_ACCESS_MODE === "read-only" ? "read-only" : "read-write",
-        credentialConfigured: Boolean(process.env.NOWEN_API_TOKEN || (process.env.NOWEN_USERNAME && process.env.NOWEN_PASSWORD)),
+        transport: api.runtime.transport,
+        accessMode: api.runtime.accessMode,
+        credentialConfigured: api.hasPersonalApiToken || Boolean(process.env.NOWEN_USERNAME && process.env.NOWEN_PASSWORD),
         notebookScopeConfigured: scopeConfigured,
-        includeDescendants: process.env.MCP_INCLUDE_DESCENDANTS === "true",
-        dangerousToolsEnabled: process.env.MCP_ENABLE_DANGEROUS_TOOLS === "true",
+        includeDescendants: api.runtime.includeDescendants,
+        dangerousToolsEnabled: api.runtime.dangerousToolsEnabled,
         supportedCapabilities: ["notes", "knowledge-tree", "personal-files", "tasks", "personal-automations"],
         warnings: [
           "个人自动化 Token 必须配置 automations:read 或 automations:write",
-          "远程 HTTP 使用独立网关密钥；网关密钥不是 Nowen API Token",
+          "Docker 内置 HTTP 使用个人 API Token；独立 HTTP 网关使用单独的网关密钥",
           "删除、激活及编辑工作流必须先预览并确认",
         ],
       });

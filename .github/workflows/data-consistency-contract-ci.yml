@@ -141,6 +141,10 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
+      - name: Build embedded MCP runtime for identity isolation regressions
+        run: |
+          npm ci --prefix packages/nowen-mcp --no-audit --no-fund
+          npm run build --prefix packages/nowen-mcp
       - name: Run real Outbox, conflict, ACK, tombstone and backup rollback tests
         run: node scripts/data-consistency-contract.mjs --backend
 
