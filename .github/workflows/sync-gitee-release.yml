@@ -208,24 +208,72 @@ jobs:
               --argjson prerelease "$PRERELEASE" \
               '{tag_name:$tag, name:$name, body:$body, target_commitish:$target, prerelease:$prerelease}')
 
-            create_resp=$(curl -sS -w "\n%{http_code}" -X POST \
-              -H "Content-Type: application/json" \
-              -d "$(echo "$payload" | jq --arg t "$GITEE_TOKEN" '. + {access_token:$t}')" \
-              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases")
-            create_body=$(echo "$create_resp" | sed '$d')
-            create_code=$(echo "$create_resp" | tail -n 1)
-            if [ "$create_code" != "201" ] && [ "$create_code" != "200" ]; then
-              echo "[gitee] create release failed: HTTP $create_code"
-              echo "$create_body"
-              exit 1
-            fi
-            ID=$(printf '%s' "$create_body" | jq -r '.id // empty')
+            RELEASE_API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases"
+            CREATE_PAYLOAD=$(echo "$payload" | jq --arg t "$GITEE_TOKEN" '. + {access_token:$t}')
+
+            # Gitee may reset the connection while processing a Release creation request.
+            # A failed curl does not prove that the server did not create the Release.
+            # After every ambiguous response, query by tag before retrying to avoid duplicates.
+            for attempt in 1 2 3 4; do
+              echo "[gitee] create release attempt $attempt/4"
+              if create_resp=$(curl --http1.1 --connect-timeout 15 --max-time 40 -sS \
+                -w "\\n%{http_code}" -X POST \
+                -H "Content-Type: application/json" \
+                -d "$CREATE_PAYLOAD" \
+                "$RELEASE_API" 2>&1); then
+                create_body=$(printf '%s' "$create_resp" | sed '$d')
+                create_code=$(printf '%s' "$create_resp" | tail -n 1)
+                if [ "$create_code" = "201" ] || [ "$create_code" = "200" ]; then
+                  ID=$(printf '%s' "$create_body" | jq -r '.id // empty' 2>/dev/null || true)
+                  if [[ "$ID" =~ ^[0-9]+$ ]]; then
+                    echo "[gitee] release created, id=$ID"
+                    break
+                  fi
+                  echo "[gitee] create returned HTTP $create_code but no valid release id"
+                  echo "$create_body"
+                else
+                  echo "[gitee] create returned HTTP $create_code"
+                  echo "$create_body"
+                fi
+              else
+                echo "[gitee] create request transport error on attempt $attempt:"
+                echo "$create_resp"
+              fi
+
+              # Recover an already-created Release if the POST response was lost.
+              if lookup_resp=$(curl --http1.1 --connect-timeout 15 --max-time 25 -sS \
+                -w "\\n%{http_code}" \
+                "$API?access_token=$GITEE_TOKEN" 2>&1); then
+                lookup_body=$(printf '%s' "$lookup_resp" | sed '$d')
+                lookup_code=$(printf '%s' "$lookup_resp" | tail -n 1)
+                if [ "$lookup_code" = "200" ]; then
+                  ID=$(printf '%s' "$lookup_body" | jq -r --arg tag "$TAG" '
+                    if type == "object" then (.id // empty)
+                    elif type == "array" then (map(select(.tag_name == $tag)) | first | .id // empty)
+                    else empty end
+                  ' 2>/dev/null || true)
+                  if [[ "$ID" =~ ^[0-9]+$ ]]; then
+                    echo "[gitee] recovered existing release after ambiguous POST, id=$ID"
+                    break
+                  fi
+                elif [ "$lookup_code" != "404" ]; then
+                  echo "[gitee] post-create lookup returned HTTP $lookup_code"
+                  echo "$lookup_body"
+                fi
+              else
+                echo "[gitee] post-create lookup transport error:"
+                echo "$lookup_resp"
+              fi
+
+              if [ "$attempt" -lt 4 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+
             if ! [[ "$ID" =~ ^[0-9]+$ ]]; then
-              echo "[gitee] create release returned no valid id"
-              echo "$create_body"
+              echo "[gitee] unable to create or recover Gitee Release for $TAG after 4 attempts"
               exit 1
             fi
-            echo "[gitee] release created, id=$ID"
           fi
 
           echo "id=$ID" >> "$GITHUB_OUTPUT"
