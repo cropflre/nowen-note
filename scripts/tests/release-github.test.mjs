@@ -161,4 +161,9 @@ test("legacy hosted publication stays disabled and unified publication remains v
   const gitee = yaml.load(fs.readFileSync(new URL("../../.github/workflows/sync-gitee-release.yml", import.meta.url), "utf8"));
   assert.equal(gitee.on.workflow_call.inputs.tag.required, true);
   assert.equal(gitee.on.workflow_call.inputs.tag.type, "string");
+  const giteeReleaseStep = gitee.jobs.sync.steps.find(step => step.name === "Ensure Gitee release exists");
+  assert.ok(giteeReleaseStep);
+  assert.match(giteeReleaseStep.run, /for attempt in 1 2 3 4/);
+  assert.match(giteeReleaseStep.run, /--http1\.1/);
+  assert.match(giteeReleaseStep.run, /recovered existing release after ambiguous POST/);
 });
