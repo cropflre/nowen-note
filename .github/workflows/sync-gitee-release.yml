@@ -10,8 +10,8 @@
 #     超过 95MB 的文件会跳过；APK/AAB/FPK 等小文件允许同步。
 #   - blockmap / yml / latest*.yml：electron-builder 的更新元数据，对终端用户无意义。
 #
-# 失败处理：每个文件用 `|| true` 兜底，单个文件失败不影响整批；
-#          整个 workflow 失败也不阻塞主发布流程（这是发布后异步同步任务）。
+# 失败处理：GitHub Release 发布成功后才执行 Gitee 镜像；镜像失败会明确标红并可重跑，
+#          不会回滚已经发布的 GitHub Release。
 #
 # 必需的 Repository Secrets：
 #   GITEE_TOKEN  — Gitee 个人访问令牌（projects + user_info 权限）
@@ -137,7 +137,7 @@ jobs:
           set -euo pipefail
 
           API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/tags/$TAG"
-          resp=$(curl -sS -w "\\n%{http_code}" -H "Content-Type: application/json" \
+          resp=$(curl -sS -w "\n%{http_code}" -H "Content-Type: application/json" \
             "$API?access_token=$GITEE_TOKEN")
           body=$(echo "$resp" | sed '$d')
           code=$(echo "$resp" | tail -n 1)
@@ -166,7 +166,7 @@ jobs:
             RELEASE_NAME=$(jq -r --arg fallback "$TAG" '.name // $fallback' <<< "$GH_RELEASE_JSON")
             RELEASE_NOTES=$(jq -r '.body // ""' <<< "$GH_RELEASE_JSON")
             PRERELEASE=$(jq -r '.isPrerelease // false' <<< "$GH_RELEASE_JSON")
-            RELEASE_BODY=$(printf '%s\\n\\n---\\n此 Release 由 GitHub 自动同步至 Gitee。\\nGitHub 原始版本：https://github.com/%s/releases/tag/%s' \
+            RELEASE_BODY=$(printf '%s\n\n---\n此 Release 由 GitHub 自动同步至 Gitee。\nGitHub 原始版本：https://github.com/%s/releases/tag/%s' \
               "$RELEASE_NOTES" "$GITHUB_REPOSITORY" "$TAG")
 
             payload=$(jq -n \
@@ -177,7 +177,7 @@ jobs:
               --argjson prerelease "$PRERELEASE" \
               '{tag_name:$tag, name:$name, body:$body, target_commitish:$target, prerelease:$prerelease}')
 
-            create_resp=$(curl -sS -w "\\n%{http_code}" -X POST \
+            create_resp=$(curl -sS -w "\n%{http_code}" -X POST \
               -H "Content-Type: application/json" \
               -d "$(echo "$payload" | jq --arg t "$GITEE_TOKEN" '. + {access_token:$t}')" \
               "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases")
@@ -213,7 +213,7 @@ jobs:
           shopt -s nullglob
 
           # Read existing attachments first so retries do not upload duplicates.
-          attachments_resp=$(curl -sS -w "\\n%{http_code}" \
+          attachments_resp=$(curl -sS -w "\n%{http_code}" \
             "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files?access_token=$GITEE_TOKEN")
           attachments_body=$(echo "$attachments_resp" | sed '$d')
           attachments_code=$(echo "$attachments_resp" | tail -n 1)
