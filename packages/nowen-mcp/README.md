@@ -6,7 +6,7 @@ Nowen Note MCP Server，让支持 Model Context Protocol 的 AI 客户端在授�
 
 ## Docker 内置方式
 
-包含此功能的新镜像可由管理员在「设置 → MCP 连接中心 → Docker 内置 MCP」开启。
+包含此功能的新镜像可在「设置 → 连接 AI 助手」中选择助手、勾选笔记本并点击「连接」。管理员首次连接时会自动开启服务。
 地址为 `https://你的域名/mcp`，与 Web/API 共用端口；客户端使用各自的个人 API Token。
 默认关闭、默认只读，开关和授权随数据卷持久化。无需在宿主机安装本包。
 操作步骤和代理要求见 [Docker 部署教程](../../docs/tutorials/docker-deploy.md)。
