@@ -1,16 +1,17 @@
-# Sync GitHub Release → Gitee Release（仅小文件，国内加速兜底）
+# Sync GitHub Release → Gitee Release (metadata first; native assets opt-in)
 #
-# 触发：GitHub 上发布 release 时（release: published / edited）。
-# 目的：把 .exe / .apk / .zip / .deb 这类 ≤ 95MB 的小文件镜像到 Gitee，
-#       让国内用户在 GitHub 直连慢、ghproxy 公共代理挂掉时仍有可用下载渠道。
+# 触发：人工发布 Release 时由 release 事件触发；统一发布流程通过 workflow_call 显式调用，
+#       避免 GitHub Actions 使用 GITHUB_TOKEN 发布 Release 时被 GitHub 的事件抑制规则跳过。
+# 目的：同步 Gitee Release 标题、说明及全部官方安装包下载链接。
+#       原生 Gitee 附件上传可手动开启，但默认关闭不稳定的跨境上传。
 #
 # 不同步的内容（故意排除）：
-#   - .fpk / .upk / .dmg / .AppImage / .rpm 等大文件：Gitee 单文件上限 100MB，
-#     传上去会失败或被截断，与其失败不如直接跳过。
+#   - .upk / .dmg / .AppImage / .rpm 等大文件：Gitee 单文件上限约 100MB，
+#     超过 95MB 的文件会跳过；APK/AAB/FPK 等小文件允许同步。
 #   - blockmap / yml / latest*.yml：electron-builder 的更新元数据，对终端用户无意义。
 #
-# 失败处理：每个文件用 `|| true` 兜底，单个文件失败不影响整批；
-#          整个 workflow 失败也不阻塞主发布流程（这是发布后异步同步任务）。
+# 失败处理：GitHub Release 发布成功后才执行 Gitee 镜像；镜像失败会明确标红并可重跑，
+#          不会回滚已经发布的 GitHub Release。
 #
 # 必需的 Repository Secrets：
 #   GITEE_TOKEN  — Gitee 个人访问令牌（projects + user_info 权限）
@@ -20,38 +21,59 @@
 name: Sync Release to Gitee
 
 on:
+  # Reconcile the latest published release after the sync workflow itself is changed.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sync-gitee-release.yml']
   release:
     types: [published, edited]
   workflow_dispatch:
     inputs:
       tag:
-        description: '要同步的 tag（如 v1.1.7），留空则用最新 release'
+        description: '要同步的 tag（如 v1.5.5），留空则用最新 release'
         required: false
         type: string
+      sync_assets:
+        description: '实验性：上传 ≤95MB 原生 Gitee 附件（默认关闭）'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      tag:
+        description: GitHub Release tag to mirror
+        required: true
+        type: string
+      sync_assets:
+        description: Explicitly enable native attachment uploads
+        required: false
+        type: boolean
+        default: false
 
 # 同一个 tag 只允许一个同步任务在跑，避免重入打架
 concurrency:
-  group: gitee-sync-${{ github.event.release.tag_name || github.event.inputs.tag || 'latest' }}
+  group: gitee-sync-${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || 'latest' }}
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     # 没配 GITEE_TOKEN 时不跑，避免 fork / 新仓库报错
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.draft == false }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event.release.draft == false }}
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - name: Resolve target tag
         id: tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_TAG: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || '' }}
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
-            TAG="${{ github.event.inputs.tag }}"
+          if [ -n "$TARGET_TAG" ]; then
+            TAG="$TARGET_TAG"
           else
             TAG=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
           fi
@@ -69,7 +91,7 @@ jobs:
           fi
 
       - name: Download release assets from GitHub
-        if: steps.check.outputs.skip == '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -84,12 +106,14 @@ jobs:
             --pattern '*.apk' \
             --pattern '*.zip' \
             --pattern '*.deb' \
+            --pattern '*.aab' \
+            --pattern '*.fpk' \
             --clobber || true
           echo "[sync] downloaded files:"
           ls -lh assets/ || true
 
       - name: Filter assets by size (≤ 95MB)
-        if: steps.check.outputs.skip == '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true
         id: filter
         run: |
           set -euo pipefail
@@ -115,8 +139,40 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "[sync] $count file(s) ready for Gitee upload"
 
+      - name: Wait for Gitee mirror tag
+        if: steps.check.outputs.skip == '0'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Gitee's Pull mirror may update a few minutes after GitHub creates the tag.
+          # Never create a Gitee Release against main as a fallback before the exact tag arrives.
+          for attempt in $(seq 1 12); do
+            resp=$(curl -sS -w "\\n%{http_code}" \
+              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/tags?access_token=$GITEE_TOKEN&per_page=100&page=1")
+            body=$(echo "$resp" | sed '$d')
+            code=$(echo "$resp" | tail -n 1)
+            if [ "$code" != "200" ]; then
+              echo "[gitee] list tags failed: HTTP $code"
+              echo "$body"
+              exit 1
+            fi
+            if printf '%s' "$body" | jq -e --arg tag "$TAG" 'any(.[]?; .name == $tag)' >/dev/null; then
+              echo "[gitee] tag $TAG is mirrored"
+              exit 0
+            fi
+            echo "[gitee] waiting for mirror tag $TAG ($attempt/12)"
+            sleep 30
+          done
+          echo "[gitee] tag $TAG did not appear in Gitee after 6 minutes; refusing to create a Release on the wrong commit"
+          exit 1
+
       - name: Ensure Gitee release exists
-        if: steps.check.outputs.skip == '0' && steps.filter.outputs.count != '0'
+        # Release metadata must be mirrored even when every binary exceeds Gitee's attachment limit.
+        if: steps.check.outputs.skip == '0'
         id: gitee_release
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
@@ -127,76 +183,323 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. 试着按 tag 拿 Gitee release
           API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/tags/$TAG"
           resp=$(curl -sS -w "\n%{http_code}" -H "Content-Type: application/json" \
             "$API?access_token=$GITEE_TOKEN")
-          body=$(echo "$resp" | head -n -1)
+          body=$(echo "$resp" | sed '$d')
           code=$(echo "$resp" | tail -n 1)
 
+          # Gitee may return HTTP 200 with an empty JSON array when this tag has no Release.
+          # Do not treat HTTP 200 alone as proof that a Release exists.
+          ID=""
           if [ "$code" = "200" ]; then
-            ID=$(echo "$body" | jq -r .id)
+            ID=$(printf '%s' "$body" | jq -r --arg tag "$TAG" '
+              if type == "object" then (.id // empty)
+              elif type == "array" then (map(select(.tag_name == $tag)) | first | .id // empty)
+              else empty end
+            ' 2>/dev/null || true)
+          elif [ "$code" != "404" ]; then
+            echo "[gitee] lookup release failed: HTTP $code"
+            echo "$body"
+            exit 1
+          fi
+
+          if [[ "$ID" =~ ^[0-9]+$ ]]; then
             echo "[gitee] release exists, id=$ID"
           else
-            # 2. 不存在则创建。release notes 简化为指向 GitHub 的链接，避免 markdown 里特殊字符兼容问题
-            BODY="此 Release 为 GitHub 镜像副本，仅同步小于 95MB 的客户端安装包。\n完整内容请见 GitHub: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+            echo "[gitee] release not found; creating $TAG"
+
+            GH_RELEASE_JSON=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,body,isPrerelease)
+            RELEASE_NAME=$(jq -r --arg fallback "$TAG" '.name // $fallback' <<< "$GH_RELEASE_JSON")
+            RELEASE_NOTES=$(jq -r '.body // ""' <<< "$GH_RELEASE_JSON")
+            PRERELEASE=$(jq -r '.isPrerelease // false' <<< "$GH_RELEASE_JSON")
+            RELEASE_BODY=$(printf '%s\n\n---\n此 Release 由 GitHub 自动同步至 Gitee。\nGitHub 原始版本：https://github.com/%s/releases/tag/%s' \
+              "$RELEASE_NOTES" "$GITHUB_REPOSITORY" "$TAG")
+
             payload=$(jq -n \
               --arg tag "$TAG" \
-              --arg name "$TAG" \
-              --arg body "$BODY" \
+              --arg name "$RELEASE_NAME" \
+              --arg body "$RELEASE_BODY" \
               --arg target "main" \
-              '{tag_name:$tag, name:$name, body:$body, target_commitish:$target, prerelease:false}')
-            create_resp=$(curl -sS -w "\n%{http_code}" -X POST \
-              -H "Content-Type: application/json" \
-              -d "$(echo "$payload" | jq --arg t "$GITEE_TOKEN" '. + {access_token:$t}')" \
-              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases")
-            create_body=$(echo "$create_resp" | head -n -1)
-            create_code=$(echo "$create_resp" | tail -n 1)
-            if [ "$create_code" != "201" ] && [ "$create_code" != "200" ]; then
-              echo "[gitee] create release failed: code=$create_code"
-              echo "$create_body"
+              --argjson prerelease "$PRERELEASE" \
+              '{tag_name:$tag, name:$name, body:$body, target_commitish:$target, prerelease:$prerelease}')
+
+            RELEASE_API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases"
+            CREATE_PAYLOAD=$(echo "$payload" | jq --arg t "$GITEE_TOKEN" '. + {access_token:$t}')
+
+            # Gitee may reset the connection while processing a Release creation request.
+            # A failed curl does not prove that the server did not create the Release.
+            # After every ambiguous response, query by tag before retrying to avoid duplicates.
+            for attempt in 1 2 3 4; do
+              echo "[gitee] create release attempt $attempt/4"
+              if create_resp=$(curl --http1.1 --connect-timeout 15 --max-time 40 -sS \
+                -w "\\n%{http_code}" -X POST \
+                -H "Content-Type: application/json" \
+                -d "$CREATE_PAYLOAD" \
+                "$RELEASE_API" 2>&1); then
+                create_body=$(printf '%s' "$create_resp" | sed '$d')
+                create_code=$(printf '%s' "$create_resp" | tail -n 1)
+                if [ "$create_code" = "201" ] || [ "$create_code" = "200" ]; then
+                  ID=$(printf '%s' "$create_body" | jq -r '.id // empty' 2>/dev/null || true)
+                  if [[ "$ID" =~ ^[0-9]+$ ]]; then
+                    echo "[gitee] release created, id=$ID"
+                    break
+                  fi
+                  echo "[gitee] create returned HTTP $create_code but no valid release id"
+                  echo "$create_body"
+                else
+                  echo "[gitee] create returned HTTP $create_code"
+                  echo "$create_body"
+                fi
+              else
+                echo "[gitee] create request transport error on attempt $attempt:"
+                echo "$create_resp"
+              fi
+
+              # Recover an already-created Release if the POST response was lost.
+              if lookup_resp=$(curl --http1.1 --connect-timeout 15 --max-time 25 -sS \
+                -w "\\n%{http_code}" \
+                "$API?access_token=$GITEE_TOKEN" 2>&1); then
+                lookup_body=$(printf '%s' "$lookup_resp" | sed '$d')
+                lookup_code=$(printf '%s' "$lookup_resp" | tail -n 1)
+                if [ "$lookup_code" = "200" ]; then
+                  ID=$(printf '%s' "$lookup_body" | jq -r --arg tag "$TAG" '
+                    if type == "object" then (.id // empty)
+                    elif type == "array" then (map(select(.tag_name == $tag)) | first | .id // empty)
+                    else empty end
+                  ' 2>/dev/null || true)
+                  if [[ "$ID" =~ ^[0-9]+$ ]]; then
+                    echo "[gitee] recovered existing release after ambiguous POST, id=$ID"
+                    break
+                  fi
+                elif [ "$lookup_code" != "404" ]; then
+                  echo "[gitee] post-create lookup returned HTTP $lookup_code"
+                  echo "$lookup_body"
+                fi
+              else
+                echo "[gitee] post-create lookup transport error:"
+                echo "$lookup_resp"
+              fi
+
+              if [ "$attempt" -lt 4 ]; then
+                sleep $((attempt * 5))
+              fi
+            done
+
+            if ! [[ "$ID" =~ ^[0-9]+$ ]]; then
+              echo "[gitee] unable to create or recover Gitee Release for $TAG after 4 attempts"
               exit 1
             fi
-            ID=$(echo "$create_body" | jq -r .id)
-            echo "[gitee] release created, id=$ID"
           fi
+
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      - name: Sync official release notes and download links
+        if: steps.check.outputs.skip == '0'
+        id: metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          RELEASE_ID: ${{ steps.gitee_release.outputs.id }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "[gitee] missing release ID"
+            exit 1
+          fi
+
+          source=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")
+          name=$(printf '%s' "$source" | jq -r --arg tag "$TAG" '.name // $tag')
+          notes=$(printf '%s' "$source" | jq -r '.body // ""')
+          prerelease=$(printf '%s' "$source" | jq -r '.prerelease // false')
+          # R2 manifest is published only after all ten binaries pass integrity checks.
+          # Missing/stale/invalid manifests fall back to official GitHub links.
+          printf '%s' "$source" > "$RUNNER_TEMP/nowen-gh-release.json"
+          mirror_file="$RUNNER_TEMP/nowen-r2-manifest.json"
+          if ! curl --http1.1 --connect-timeout 7 --max-time 18 -fsSL \
+            -o "$mirror_file" "https://download.nowen.cn/$TAG/manifest.json"; then
+            echo '[gitee] R2 mirror manifest unavailable; preserving GitHub links'
+            printf '%s' '{}' > "$mirror_file"
+          fi
+          if ! jq -e . "$mirror_file" >/dev/null 2>&1; then
+            printf '%s' '{}' > "$mirror_file"
+          fi
+          asset_links=$(node scripts/release-r2-links.mjs \
+            "$RUNNER_TEMP/nowen-gh-release.json" "$mirror_file")
+          if [ -z "$asset_links" ]; then
+            asset_links="本版本没有单独提供可分发的安装包。"
+          fi
+          body=$(printf '%s\n\n---\n\n### 官方安装包下载\n\n%s\n\n> 已验证的文件优先使用 download.nowen.cn（R2）并保留 GitHub 备用链接；未镜像的安装包仍由 GitHub 分发，Gitee 不托管大文件。\n\n[GitHub 原版发布页](https://github.com/%s/releases/tag/%s)\n' \
+            "$notes" "$asset_links" "$GITHUB_REPOSITORY" "$TAG")
+
+          api="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID"
+          payload=$(jq -n --arg token "$GITEE_TOKEN" --arg tag "$TAG" \
+            --arg name "$name" --arg body "$body" --argjson prerelease "$prerelease" \
+            '{access_token:$token, tag_name:$tag, name:$name, body:$body, prerelease:$prerelease}')
+
+          # The update is idempotent. If Gitee drops the response, GET and compare before retrying.
+          for attempt in 1 2 3; do
+            echo "[gitee] update metadata attempt $attempt/3"
+            if response=$(curl --http1.1 --connect-timeout 15 --max-time 40 \
+              -sS -w "\n%{http_code}" -X PATCH \
+              -H "Content-Type: application/json" -d "$payload" "$api" 2>/dev/null); then
+              code=$(printf '%s' "$response" | tail -n 1)
+              if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+                echo "[gitee] release metadata updated: $TAG"
+                echo "status=success" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "[gitee] PATCH returned HTTP $code"
+            else
+              echo "[gitee] PATCH network error"
+            fi
+
+            if verify=$(curl --http1.1 --connect-timeout 15 --max-time 30 \
+              -sS -w "\n%{http_code}" "$api?access_token=$GITEE_TOKEN" 2>/dev/null); then
+              verify_code=$(printf '%s' "$verify" | tail -n 1)
+              verify_body=$(printf '%s' "$verify" | sed '$d')
+              if [ "$verify_code" = "200" ] && printf '%s' "$verify_body" | jq -e \
+                --arg body "$body" --arg tag "$TAG" \
+                '.body == $body and .tag_name == $tag' >/dev/null; then
+                echo "[gitee] recovered a completed metadata update"
+                echo "status=success" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 3)); fi
+          done
+          echo "[gitee] metadata update failed"
+          exit 1
+
       - name: Upload assets to Gitee
-        if: steps.check.outputs.skip == '0' && steps.filter.outputs.count != '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true && steps.filter.outputs.count != '0'
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
           GITEE_REPO: ${{ secrets.GITEE_REPO }}
           RELEASE_ID: ${{ steps.gitee_release.outputs.id }}
         run: |
-          set -uo pipefail   # 不用 -e：单个文件失败也继续传下一个
+          set -euo pipefail
           fail=0
           ok=0
           shopt -s nullglob
+
+          API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files"
+          # Gitee may accept a file even if the upload response is lost.
+          # Reconcile by name + size before and after every ambiguous upload.
+          list_attachments() {
+            local resp body code
+            if ! resp=$(curl --http1.1 --connect-timeout 15 --max-time 30 -sS \
+              -w "\n%{http_code}" "$API?access_token=$GITEE_TOKEN"); then
+              echo "[gitee] list attachments: network error" >&2
+              return 1
+            fi
+            body=$(printf '%s' "$resp" | sed '$d')
+            code=$(printf '%s' "$resp" | tail -n 1)
+            if [ "$code" != "200" ]; then
+              echo "[gitee] list attachments failed (HTTP $code)" >&2
+              return 1
+            fi
+            if ! printf '%s' "$body" | jq -e 'if type == "array" then true elif type == "object" then (.assets | type) == "array" else false end' >/dev/null; then
+              echo "[gitee] unexpected attachment-list response" >&2
+              return 1
+            fi
+            printf '%s' "$body"
+          }
+
+          existing_size() {
+            jq -r --arg name "$1" '
+              (if type == "array" then . else (.assets // []) end)
+              | map(select(.name == $name))
+              | first
+              | .size // empty
+            '
+          }
+
           for f in upload/*; do
             base=$(basename "$f")
-            echo "[gitee] uploading: $base"
-            http=$(curl -sS -o /tmp/gitee_resp.json -w "%{http_code}" \
-              -X POST \
-              -F "access_token=$GITEE_TOKEN" \
-              -F "file=@$f" \
-              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files")
-            if [ "$http" = "201" ] || [ "$http" = "200" ]; then
-              ok=$((ok+1))
-              echo "[gitee]   ✓ $base"
-            else
-              fail=$((fail+1))
-              echo "[gitee]   ✗ $base (http=$http)"
-              cat /tmp/gitee_resp.json || true
-              echo
+            size=$(stat -c%s "$f")
+            if ! attachments=$(list_attachments); then
+              echo "[gitee] cannot verify existing attachments; aborting safely"
+              exit 1
             fi
-            # Gitee 限速：60 req/min，sleep 1.2s 留余量
-            sleep 1.2
+            found=$(printf '%s' "$attachments" | existing_size "$base")
+            if [ -n "$found" ]; then
+              if [ "$found" = "$size" ]; then
+                echo "[gitee] already uploaded: $base"
+                ok=$((ok+1))
+              else
+                echo "[gitee] existing attachment has different size: $base ($found != $size)"
+                fail=$((fail+1))
+              fi
+              continue
+            fi
+
+            uploaded=0
+            for attempt in 1 2; do
+              echo "[gitee] uploading $base (attempt $attempt/2, max 180s)"
+              result_file="$RUNNER_TEMP/gitee-upload-response.json"
+              error_file="$RUNNER_TEMP/gitee-upload-error.txt"
+              # Use 'if curl' so runner-level bash -e cannot bypass failure handling.
+              if http=$(curl --http1.1 --connect-timeout 15 --max-time 180 \
+                --speed-limit 10240 --speed-time 45 \
+                -sS -o "$result_file" -w "%{http_code}" \
+                -X POST -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
+                "$API" 2>"$error_file"); then
+                if [ "$http" = "201" ] || [ "$http" = "200" ]; then
+                  echo "[gitee] uploaded: $base"
+                  uploaded=1
+                  break
+                fi
+                echo "[gitee] upload returned HTTP $http: $base"
+                if [[ "$http" =~ ^4[0-9][0-9]$ ]] && [ "$http" != "408" ] && [ "$http" != "429" ]; then
+                  echo "[gitee] permanent client error; will reconcile once and not retry"
+                  permanent=1
+                else
+                  permanent=0
+                fi
+              else
+                permanent=0
+                echo "[gitee] upload network error: $base"
+                sed -E 's/(access_token=)[^& ]+/\1***/g' "$error_file" || true
+              fi
+
+              # An interrupted POST may have created the attachment on Gitee.
+              if ! attachments=$(list_attachments); then
+                echo "[gitee] attachment state unknown; not retrying a potentially successful POST"
+                break
+              fi
+              found=$(printf '%s' "$attachments" | existing_size "$base")
+              if [ -n "$found" ]; then
+                if [ "$found" = "$size" ]; then
+                  echo "[gitee] recovered completed upload: $base"
+                  uploaded=1
+                else
+                  echo "[gitee] remote size mismatch after upload: $base"
+                fi
+                break
+              fi
+              if [ "$permanent" = "1" ] || [ "$attempt" = "2" ]; then
+                break
+              fi
+              sleep 3
+            done
+
+            if [ "$uploaded" = "1" ]; then
+              ok=$((ok+1))
+            else
+              echo "[gitee] FAILED to upload: $base"
+              fail=$((fail+1))
+            fi
+            sleep 1
           done
+
           echo "[gitee] done: ok=$ok fail=$fail"
-          # 全部失败才报错；部分成功仍视为成功
-          if [ "$ok" = "0" ] && [ "$fail" -gt "0" ]; then
+          # Keep failures visible; a successful Release record is not a complete asset mirror.
+          if [ "$fail" -gt 0 ]; then
             exit 1
           fi
 
@@ -206,5 +509,7 @@ jobs:
           echo "## Gitee Sync Summary" >> $GITHUB_STEP_SUMMARY
           echo "- tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- skipped (no secrets): ${{ steps.check.outputs.skip }}" >> $GITHUB_STEP_SUMMARY
-          echo "- files queued: ${{ steps.filter.outputs.count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- release metadata: ${{ steps.metadata.outputs.status || 'failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- native attachment upload requested: ${{ inputs.sync_assets || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "- files queued for native attachment upload: ${{ steps.filter.outputs.count || '0' }}" >> $GITHUB_STEP_SUMMARY
           echo "- gitee release id: ${{ steps.gitee_release.outputs.id }}" >> $GITHUB_STEP_SUMMARY

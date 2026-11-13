@@ -1,37 +1,6 @@
-/**
- * DownloadPanel — 设置页「下载客户端」面板
- *
- * 痛点背景：
- *   用户主要在中国大陆，所有客户端（exe / AppImage / deb / dmg / APK / fpk / upk）
- *   目前只发到 GitHub Releases。GitHub 在国内访问不稳定，80MB+ 的安装包经常
- *   下不动。这里通过「GitHub 直链 + 多个公共加速代理」给用户一个简易换源能力，
- *   不引入额外基础设施（CDN / 镜像同步）即可显著改善国内体验。
- *
- * 数据源：
- *   - /api/releases/latest（后端代理 GitHub API，带成功缓存和失败时旧数据回退）。
- *   - 该接口返回的 assets[].browserDownloadUrl 形如
- *       https://github.com/cropflre/nowen-note/releases/download/v1.1.7/Nowen-Note-1.1.7.apk
- *     前端只做"在这条 URL 前面拼一段加速代理"的字符串变换，不再二次请求 GitHub。
- *
- * 加速源选择策略：
- *   - 把若干公共代理预置成数组，用户可点按钮换源；
- *   - 公共代理寿命短（半年一年级别），加多个备用，减少"全部失效"概率；
- *   - 默认按钮就是 GitHub 直链 —— 海外用户、企业代理用户不被加速代理路由污染；
- *   - 不在设置里持久化"用户偏好的代理"，因为代理可用性会变；下一次会话重新选最稳。
- *
- * 不做的事（保持 MVP 简洁）：
- *   - 不做加速源 HEAD 探活（增加 N 次跨域请求 + 网络抖动判定噪音）；
- *   - 不做下载进度展示（让浏览器自己处理）；
- *   - 不持久化用户的镜像偏好；
- *   - 不做 CDN 自托管（后续如有需求再上）。
- *
- * 镜像源类型（v1.1.7 起新增）：
- *   - kind="proxy"：把 GitHub 直链拼一段公共代理前缀，覆盖所有文件大小；
- *   - kind="gitee"：独立 URL（gitee.com/<owner>/<repo>/releases/download/<tag>/<file>），
- *                   仅小文件（≤95MB），由 .github/workflows/sync-gitee-release.yml 自动同步。
- *                   Gitee 单文件上限约 100MB，所以 .fpk/.upk/.dmg/.AppImage/.rpm 等大文件
- *                   不会被同步过去——前端在这些文件上自动隐藏「Gitee 镜像」按钮，
- *                   避免用户点了 404。
+/** Settings > Download clients. Verified R2 mirror first; GitHub official fallback.
+ * All R2 links come from the server-validated 10-file release manifest.
+ * Files not uploaded to R2 (UPK, AAB, portable/Lite, etc.) stay on GitHub.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -53,36 +22,14 @@ import type { LucideIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/**
- * 镜像源定义。
- *   - kind="proxy"：拼前缀模式，所有文件可用；
- *   - kind="gitee"：独立 URL 模式，仅小文件可用。
- * 顺序决定 UI 上按钮顺序；后续要添/删直接改这里。
- */
-type MirrorSource =
-  | { id: string; label: string; kind: "proxy"; prefix: string }
-  | { id: string; label: string; kind: "gitee"; owner: string; repo: string };
+/** Optional third-party proxy sources; GitHub and verified R2 have dedicated choices. */
+type MirrorSource = { id: string; label: string; prefix: string };
 
 const MIRROR_SOURCES: MirrorSource[] = [
-  // Gitee 镜像放第一位：国内用户最稳的兜底（自有仓库，速度可控）
-  { id: "gitee", label: "Gitee 镜像", kind: "gitee", owner: "cropflre", repo: "nowen-note" },
-  { id: "ghproxy", label: "ghproxy.net", kind: "proxy", prefix: "https://ghproxy.net/" },
-  { id: "llkk", label: "gh.llkk.cc", kind: "proxy", prefix: "https://gh.llkk.cc/" },
-  { id: "mirror", label: "mirror.ghproxy.com", kind: "proxy", prefix: "https://mirror.ghproxy.com/" },
+  { id: "ghproxy", label: "ghproxy.net", prefix: "https://ghproxy.net/" },
+  { id: "llkk", label: "gh.llkk.cc", prefix: "https://gh.llkk.cc/" },
+  { id: "mirror", label: "mirror.ghproxy.com", prefix: "https://mirror.ghproxy.com/" },
 ];
-
-/**
- * Gitee 镜像支持的文件后缀白名单。
- * 与 .github/workflows/sync-gitee-release.yml 的过滤规则一致——必须保持同步。
- * 大文件（.fpk/.upk/.dmg/.AppImage/.rpm）传不上 Gitee（100MB 限制），
- * 所以前端在这些文件上不显示 Gitee 选项，避免用户点了 404。
- */
-const GITEE_SUPPORTED_EXTS = [".exe", ".apk", ".zip", ".deb"];
-
-function isGiteeSupported(filename: string): boolean {
-  const lower = filename.toLowerCase();
-  return GITEE_SUPPORTED_EXTS.some((ext) => lower.endsWith(ext));
-}
 
 /** 资产分类：只依据文件名和扩展名判断，不绑定具体版本号。 */
 type AssetCategory =
@@ -190,26 +137,17 @@ function formatSize(bytes: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/**
- * 给定原始 GitHub 直链 + 镜像源，返回最终下载 URL。
- * 三种情况：
- *   - mirror=null：直连 GitHub；
- *   - kind="proxy"：拼前缀；
- *   - kind="gitee"：根据 tag + 文件名拼 Gitee 独立 URL。
- */
-function resolveDownloadUrl(
-  originalUrl: string,
-  filename: string,
-  tag: string,
-  mirror: MirrorSource | null,
-): string {
-  if (!mirror) return originalUrl;
-  if (mirror.kind === "proxy") return mirror.prefix + originalUrl;
-  // Gitee：tag 必须以 v 开头，与 sync-gitee-release.yml 保持一致
-  const t = tag.startsWith("v") ? tag : `v${tag}`;
-  return `https://gitee.com/${mirror.owner}/${mirror.repo}/releases/download/${t}/${encodeURIComponent(
-    filename,
-  )}`;
+/** Explicit optional proxy; R2 URLs are never guessed from filenames here. */
+function resolveDownloadUrl(originalUrl: string, mirror: MirrorSource | null): string {
+  return mirror ? mirror.prefix + originalUrl : originalUrl;
+}
+
+/** Hide an obsolete FPK when the same release offers a corrected revision. */
+export function preferCorrectedFpk<T extends { name: string }>(all: T[]): T[] {
+  const hasRevision = all.some(a => /^nowen-note-v?\d+\.\d+\.\d+-fpk-r\d+\.fpk$/i.test(a.name));
+  return hasRevision
+    ? all.filter(a => !/^nowen-note-v?\d+\.\d+\.\d+\.fpk$/i.test(a.name))
+    : all;
 }
 
 /** 平台分组顺序与图标映射 —— 不受 GitHub assets 原始顺序影响。
@@ -266,10 +204,10 @@ export default function DownloadPanel() {
   const [htmlUrl, setHtmlUrl] = useState<string>("");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
-
-  // 当前选中的镜像源 id：'' 表示直连 GitHub。
-  // 不持久化：见顶部说明。每次会话默认走 GitHub 直链，国内用户主动点切换。
-  const [activeMirror, setActiveMirror] = useState<string>("");
+  // R2 is the default; unmirrored files automatically use GitHub official URLs.
+  const [activeMirror, setActiveMirror] = useState<string>("r2");
+  const [r2Urls, setR2Urls] = useState<Record<string, string>>({});
+  const [r2Status, setR2Status] = useState<"loading" | "ready" | "unavailable">("loading");
 
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
@@ -279,6 +217,8 @@ export default function DownloadPanel() {
     let cancelled = false;
     setLoading(true);
     setErrMsg(null);
+    setR2Urls({});
+    setR2Status("loading");
     api
       .getLatestRelease()
       .then((r) => {
@@ -287,18 +227,43 @@ export default function DownloadPanel() {
           setErrMsg(r.reason || "unavailable");
           return;
         }
+        const releaseTag = r.tag || (r.version ? `v${r.version}` : "");
+        const visible = preferCorrectedFpk((r.assets || []).filter((a) => isUserDownloadAsset(a.name)));
         setVersion(r.version);
-        setTag(r.tag || (r.version ? `v${r.version}` : ""));
+        setTag(releaseTag);
         setHtmlUrl(r.htmlUrl);
-        setAssets(
-          (r.assets || [])
-            .filter((a) => isUserDownloadAsset(a.name))
-            .map((a) => ({
-              name: a.name,
-              size: a.size,
-              browserDownloadUrl: a.browserDownloadUrl,
-            })),
-        );
+        setAssets(visible.map(a => ({
+          name: a.name,
+          size: a.size,
+          browserDownloadUrl: a.browserDownloadUrl,
+        })));
+
+        // The backend fetches the manifest, avoiding CORS problems on NAS,
+        // desktop local mode and mobile WebViews. A failed lookup keeps GitHub.
+        void api.getLatestReleaseMirror().then(mirror => {
+          if (cancelled) return;
+          if (!mirror.available || mirror.tag !== releaseTag || !/^v\d+\.\d+\.\d+$/.test(releaseTag) ||
+              mirror.assets.length !== 10) {
+            setR2Status("unavailable");
+            return;
+          }
+          const original = new Map(visible.map(a => [a.name, a]));
+          const urls: Record<string, string> = {};
+          for (const item of mirror.assets) {
+            const github = original.get(item.name);
+            const expected = `https://download.nowen.cn/${releaseTag}/${encodeURIComponent(item.name)}`;
+            if (!github || github.size !== item.size || item.downloadUrl !== expected ||
+                Object.hasOwn(urls, item.name)) {
+              setR2Status("unavailable");
+              return;
+            }
+            urls[item.name] = expected;
+          }
+          setR2Urls(urls);
+          setR2Status("ready");
+        }).catch(() => {
+          if (!cancelled) setR2Status("unavailable");
+        });
       })
       .catch((e) => {
         if (!cancelled) setErrMsg(e instanceof Error ? e.message : String(e));
@@ -348,7 +313,6 @@ export default function DownloadPanel() {
   };
 
   const activeMirrorSource = useMemo<MirrorSource | null>(() => {
-    if (!activeMirror) return null;
     return MIRROR_SOURCES.find((m) => m.id === activeMirror) ?? null;
   }, [activeMirror]);
 
@@ -362,7 +326,7 @@ export default function DownloadPanel() {
         </h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {t("download.subtitle", {
-            defaultValue: "在桌面、手机、NAS 多端使用弄文笔记。国内用户建议切换「加速下载」。",
+            defaultValue: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
           })}
         </p>
       </div>
@@ -408,11 +372,23 @@ export default function DownloadPanel() {
           <div className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
             {t("download.proxyTip", {
               defaultValue:
-                "国内网络无法直接下载时，可切换上方加速源；若加速源不可用，可打开或复制每个文件的 GitHub 原始链接。",
+                "R2 安装包已与 GitHub 正式版校验；未镜像的 UPK、便携版等继续走 GitHub。也可自行切换下载源。",
             })}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setActiveMirror("r2")}
+            className={cn(
+              "px-2.5 py-1 rounded-md text-xs font-medium transition-colors border",
+              activeMirror === "r2"
+                ? "bg-accent-primary text-white border-accent-primary"
+                : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40",
+            )}
+          >
+            R2 官方下载
+          </button>
           <button
             type="button"
             onClick={() => setActiveMirror("")}
@@ -435,20 +411,10 @@ export default function DownloadPanel() {
                 activeMirror === m.id
                   ? "bg-accent-primary text-white border-accent-primary"
                   : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40",
-                m.kind === "gitee" && activeMirror !== m.id
-                  ? "ring-1 ring-emerald-400/40"
-                  : "",
               )}
-              title={
-                m.kind === "proxy"
-                  ? m.prefix
-                  : `https://gitee.com/${m.owner}/${m.repo}/releases（仅小文件 ≤95MB）`
-              }
+              title={m.prefix}
             >
               {m.label}
-              {m.kind === "gitee" && (
-                <span className="ml-1 text-[10px] opacity-80">⭐</span>
-              )}
             </button>
           ))}
         </div>
@@ -510,15 +476,10 @@ export default function DownloadPanel() {
                 </div>
                 <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
                   {items.map(({ asset: a, category }) => {
-                    // Gitee 不支持当前文件时（如 .fpk/.upk/.dmg/.AppImage），
-                    // 自动回落到 GitHub 直连，避免用户点了 404。
-                    const effectiveMirror =
-                      activeMirrorSource?.kind === "gitee" && !isGiteeSupported(a.name)
-                        ? null
-                        : activeMirrorSource;
-                    const url = resolveDownloadUrl(a.browserDownloadUrl, a.name, tag, effectiveMirror);
-                    const giteeFallback =
-                      activeMirrorSource?.kind === "gitee" && !isGiteeSupported(a.name);
+                    const mirroredUrl = r2Urls[a.name];
+                    const usesR2 = activeMirror === "r2" && Boolean(mirroredUrl);
+                    const url = usesR2 ? mirroredUrl : resolveDownloadUrl(a.browserDownloadUrl, activeMirrorSource);
+                    const fallbackToGithub = activeMirror === "r2" && !mirroredUrl;
                     return (
                       <div
                         key={a.name}
@@ -539,13 +500,10 @@ export default function DownloadPanel() {
                                 {formatSize(a.size)}
                               </span>
                             )}
-                            {giteeFallback && (
-                              <span
-                                className="text-[11px] text-amber-600 dark:text-amber-400"
-                                title="Gitee 单文件 100MB 限制，此文件未同步，已自动回落到 GitHub"
-                              >
-                                {t("download.giteeFallbackTip", {
-                                  defaultValue: "Gitee 不支持，已回落 GitHub",
+                            {fallbackToGithub && r2Status !== "loading" && (
+                              <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                                {t("download.r2FallbackTip", {
+                                  defaultValue: "R2 未镜像，使用 GitHub",
                                 })}
                               </span>
                             )}
@@ -560,7 +518,7 @@ export default function DownloadPanel() {
                             download
                           >
                             <Download size={12} />
-                            {effectiveMirror
+                            {usesR2 || activeMirrorSource
                               ? t("download.btnAccelerated", { defaultValue: "加速下载" })
                               : t("download.btnDownload", { defaultValue: "下载" })}
                           </a>
@@ -576,12 +534,12 @@ export default function DownloadPanel() {
                           </a>
                           <button
                             type="button"
-                            onClick={() => handleCopyLink(a.browserDownloadUrl)}
+                            onClick={() => handleCopyLink(url)}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
-                            title={a.browserDownloadUrl}
+                            title={url}
                           >
-                            {copiedLink === a.browserDownloadUrl ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedLink === a.browserDownloadUrl
+                            {copiedLink === url ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedLink === url
                               ? t("download.copied", { defaultValue: "已复制" })
                               : t("download.copyLink", { defaultValue: "复制链接" })}
                           </button>

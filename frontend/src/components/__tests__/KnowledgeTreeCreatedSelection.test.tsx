@@ -18,10 +18,13 @@ const mock = vi.hoisted(() => ({
   update: vi.fn(),
   actions: { setSearchQuery: vi.fn(), setViewMode: vi.fn(), clearSelectedTags: vi.fn(), setActiveNote: vi.fn(),
     setSelectedNotebook: vi.fn(), setSelectedKnowledgeTreeParent: vi.fn(), openNoteTab: vi.fn(),
-    setMobileView: vi.fn(), setMobileSidebar: vi.fn(), refreshNotebooks: vi.fn(), refreshNotes: vi.fn() },
+    setMobileView: vi.fn(), setMobileSidebar: vi.fn(), refreshNotebooks: vi.fn(), refreshNotes: vi.fn(),
+    beginNoteLoad: vi.fn(), showNoteLoad: vi.fn(), markNoteLoadSlow: vi.fn(),
+    finishNoteLoad: vi.fn(), failNoteLoad: vi.fn(), setNoteLoading: vi.fn() },
   state: { viewMode: "all", searchQuery: "", selectedNotebookId: null, activeNote: null, notebooks: [], noteListCollapsed: false },
 }));
 vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: mock.state }), useAppActions: () => mock.actions }));
+vi.mock("@/lib/noteLoadSource", () => ({ loadNoteCacheFirst: ({ fetchRemote }: { fetchRemote: () => Promise<unknown> }) => fetchRemote() }));
 vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: { list: mock.list, listShared: async () => ({ nodes: [] }), update: mock.update } }));
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.createTemplate } }));
 vi.mock("@/lib/api", () => ({ api: { getNote: mock.getNote }, getCurrentWorkspace: () => "personal", getBaseUrl: () => "/api", getServerUrl: () => "" }));

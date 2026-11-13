@@ -58,6 +58,33 @@ const test = base.extend<{ server: string }>({
   },
 });
 
+test("registration displays a duplicate username error and allows correction", async ({ page, server }) => {
+  const username = "registration_existing", password = "registration-test-password";
+  const existing = await page.request.post(`${server}/api/auth/register`, { data: { username, password } });
+  expect(existing.status()).toBe(201);
+  await page.addInitScript(() => localStorage.setItem("i18nextLng", "zh-CN"));
+  await page.goto(server);
+  await page.getByRole("button", { name: "注册", exact: true }).click();
+  await page.locator('input[autocomplete="username"]').fill(username);
+  for (const input of await page.locator('input[autocomplete="new-password"]').all()) await input.fill(password);
+  const rejected = page.waitForResponse(response => response.url().endsWith("/api/auth/register") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "创建账号", exact: true }).click();
+  expect((await rejected).status()).toBe(409);
+  await expect(page.getByText("该用户名已被占用", { exact: true })).toBeVisible();
+  await expect.poll(() => page.getByText("该用户名已被占用", { exact: true })
+    .evaluate(element => getComputedStyle(element.parentElement!).opacity)).toBe("1");
+  await expect(page.getByText("登录后的本地会话处理失败，请重试或查看应用日志。", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("nowen-token"))).toBeNull();
+  await expect(page.locator('input[autocomplete="username"]')).toHaveValue(username);
+  await expect(page.locator('input[autocomplete="new-password"]').first()).toHaveValue(password);
+  await page.screenshot({ path: test.info().outputPath("registration-duplicate-username.png"), fullPage: true, animations: "disabled" });
+  await page.locator('input[autocomplete="username"]').fill("registration_corrected");
+  const accepted = page.waitForResponse(response => response.url().endsWith("/api/auth/register") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "创建账号", exact: true }).click();
+  expect((await accepted).status()).toBe(201);
+  await expect(page.locator('input[autocomplete="username"]')).not.toBeVisible();
+});
+
 for (const { width, platform } of [
   { width: 1440, platform: "MacIntel" },
   { width: 1440, platform: "Linux x86_64" },
