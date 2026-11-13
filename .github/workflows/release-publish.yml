@@ -105,6 +105,13 @@ jobs:
     with:
       tag: v${{ inputs.version }}
     secrets: inherit
+  r2-downloads:
+    needs: [verify, github]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
+    uses: ./.github/workflows/sync-r2-release.yml
+    with:
+      tag: v${{ inputs.version }}
+    secrets: inherit
   testflight:
     needs: verify
     if: contains(fromJSON(needs.verify.outputs.channels), 'testflight')
