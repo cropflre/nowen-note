@@ -1,0 +1,66 @@
+name: Settings Download R2 Contracts
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/routes/releases.ts'
+      - 'backend/src/routes/release-r2-mirror.ts'
+      - 'backend/src/routes/__tests__/release-r2-mirror.test.ts'
+      - 'frontend/src/components/DownloadPanel.tsx'
+      - 'frontend/src/components/__tests__/DownloadPanel.r2.test.tsx'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/i18n/**'
+      - '.github/workflows/download-r2-settings-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/releases.ts'
+      - 'backend/src/routes/release-r2-mirror.ts'
+      - 'backend/src/routes/__tests__/release-r2-mirror.test.ts'
+      - 'frontend/src/components/DownloadPanel.tsx'
+      - 'frontend/src/components/__tests__/DownloadPanel.r2.test.tsx'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/i18n/**'
+      - '.github/workflows/download-r2-settings-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend-mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Fail-closed mirror manifest unit tests
+        run: node --import tsx --test src/routes/__tests__/release-r2-mirror.test.ts
+      - name: Backend TypeScript
+        run: npm run build:tsc
+
+  frontend-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Settings download interaction tests
+        run: npx vitest run src/components/__tests__/DownloadPanel.r2.test.tsx
+      - name: Frontend TypeScript
+        run: npx tsc -b --pretty false
