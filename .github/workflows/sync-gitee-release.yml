@@ -1,9 +1,9 @@
-# Sync GitHub Release → Gitee Release（仅小文件，国内加速兜底）
+# Sync GitHub Release → Gitee Release (metadata first; native assets opt-in)
 #
 # 触发：人工发布 Release 时由 release 事件触发；统一发布流程通过 workflow_call 显式调用，
 #       避免 GitHub Actions 使用 GITHUB_TOKEN 发布 Release 时被 GitHub 的事件抑制规则跳过。
-# 目的：同步 Gitee Release 元数据，以及不超过 95MB 的可分发附件。
-#       让国内用户在 GitHub 直连慢、ghproxy 公共代理挂掉时仍有可用下载渠道。
+# 目的：同步 Gitee Release 标题、说明及全部官方安装包下载链接。
+#       原生 Gitee 附件上传可手动开启，但默认关闭不稳定的跨境上传。
 #
 # 不同步的内容（故意排除）：
 #   - .upk / .dmg / .AppImage / .rpm 等大文件：Gitee 单文件上限约 100MB，
@@ -29,12 +29,22 @@ on:
         description: '要同步的 tag（如 v1.5.5），留空则用最新 release'
         required: false
         type: string
+      sync_assets:
+        description: '实验性：上传 ≤95MB 原生 Gitee 附件（默认关闭）'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
         description: GitHub Release tag to mirror
         required: true
         type: string
+      sync_assets:
+        description: Explicitly enable native attachment uploads
+        required: false
+        type: boolean
+        default: false
 
 # 同一个 tag 只允许一个同步任务在跑，避免重入打架
 concurrency:
@@ -75,7 +85,7 @@ jobs:
           fi
 
       - name: Download release assets from GitHub
-        if: steps.check.outputs.skip == '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -97,7 +107,7 @@ jobs:
           ls -lh assets/ || true
 
       - name: Filter assets by size (≤ 95MB)
-        if: steps.check.outputs.skip == '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true
         id: filter
         run: |
           set -euo pipefail
@@ -279,7 +289,7 @@ jobs:
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - name: Upload assets to Gitee
-        if: steps.check.outputs.skip == '0' && steps.filter.outputs.count != '0'
+        if: steps.check.outputs.skip == '0' && inputs.sync_assets == true && steps.filter.outputs.count != '0'
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
