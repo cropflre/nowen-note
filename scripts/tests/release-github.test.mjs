@@ -166,4 +166,11 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.match(giteeReleaseStep.run, /for attempt in 1 2 3 4/);
   assert.match(giteeReleaseStep.run, /--http1\.1/);
   assert.match(giteeReleaseStep.run, /recovered existing release after ambiguous POST/);
+  const giteeUpload = gitee.jobs.sync.steps.find(step => step.name === "Upload assets to Gitee");
+  assert.ok(giteeUpload);
+  assert.match(giteeUpload.run, /if http=\$\(curl/);
+  assert.match(giteeUpload.run, /--max-time 180/);
+  assert.match(giteeUpload.run, /--speed-limit 10240/);
+  assert.match(giteeUpload.run, /if ! attachments=\$\(list_attachments\)/);
+  assert.match(giteeUpload.run, /recovered completed upload/);
 });

@@ -286,62 +286,124 @@ jobs:
           GITEE_REPO: ${{ secrets.GITEE_REPO }}
           RELEASE_ID: ${{ steps.gitee_release.outputs.id }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           fail=0
           ok=0
           shopt -s nullglob
 
-          # Read existing attachments first so retries do not upload duplicates.
-          attachments_resp=$(curl -sS -w "\n%{http_code}" \
-            "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files?access_token=$GITEE_TOKEN")
-          attachments_body=$(echo "$attachments_resp" | sed '$d')
-          attachments_code=$(echo "$attachments_resp" | tail -n 1)
-          if [ "$attachments_code" != "200" ]; then
-            echo "[gitee] list release attachments failed: HTTP $attachments_code"
-            echo "$attachments_body"
-            exit 1
-          fi
+          API="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files"
+          # Gitee may accept a file even if the upload response is lost.
+          # Reconcile by name + size before and after every ambiguous upload.
+          list_attachments() {
+            local resp body code
+            if ! resp=$(curl --http1.1 --connect-timeout 15 --max-time 30 -sS \
+              -w "\n%{http_code}" "$API?access_token=$GITEE_TOKEN"); then
+              echo "[gitee] list attachments: network error" >&2
+              return 1
+            fi
+            body=$(printf '%s' "$resp" | sed '$d')
+            code=$(printf '%s' "$resp" | tail -n 1)
+            if [ "$code" != "200" ]; then
+              echo "[gitee] list attachments failed (HTTP $code)" >&2
+              return 1
+            fi
+            if ! printf '%s' "$body" | jq -e 'if type == "array" then true elif type == "object" then (.assets | type) == "array" else false end' >/dev/null; then
+              echo "[gitee] unexpected attachment-list response" >&2
+              return 1
+            fi
+            printf '%s' "$body"
+          }
 
-          for f in upload/*; do
-            base=$(basename "$f")
-            size=$(stat -c%s "$f")
-            existing_size=$(printf '%s' "$attachments_body" | jq -r --arg name "$base" '
+          existing_size() {
+            jq -r --arg name "$1" '
               (if type == "array" then . else (.assets // []) end)
               | map(select(.name == $name))
               | first
               | .size // empty
-            ' 2>/dev/null || true)
+            '
+          }
 
-            if [ -n "$existing_size" ]; then
-              if [ "$existing_size" = "$size" ]; then
-                echo "[gitee]   = already uploaded: $base"
+          for f in upload/*; do
+            base=$(basename "$f")
+            size=$(stat -c%s "$f")
+            if ! attachments=$(list_attachments); then
+              echo "[gitee] cannot verify existing attachments; aborting safely"
+              exit 1
+            fi
+            found=$(printf '%s' "$attachments" | existing_size "$base")
+            if [ -n "$found" ]; then
+              if [ "$found" = "$size" ]; then
+                echo "[gitee] already uploaded: $base"
                 ok=$((ok+1))
               else
-                echo "[gitee]   ✗ existing attachment has a different size: $base ($existing_size != $size)"
+                echo "[gitee] existing attachment has different size: $base ($found != $size)"
                 fail=$((fail+1))
               fi
               continue
             fi
 
-            echo "[gitee] uploading: $base"
-            http=$(curl -sS -o /tmp/gitee_resp.json -w "%{http_code}" \
-              -X POST \
-              -F "access_token=$GITEE_TOKEN" \
-              -F "file=@$f" \
-              "https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID/attach_files")
-            if [ "$http" = "201" ] || [ "$http" = "200" ]; then
+            uploaded=0
+            for attempt in 1 2; do
+              echo "[gitee] uploading $base (attempt $attempt/2, max 180s)"
+              result_file="$RUNNER_TEMP/gitee-upload-response.json"
+              error_file="$RUNNER_TEMP/gitee-upload-error.txt"
+              # Use 'if curl' so runner-level bash -e cannot bypass failure handling.
+              if http=$(curl --http1.1 --connect-timeout 15 --max-time 180 \
+                --speed-limit 10240 --speed-time 45 \
+                -sS -o "$result_file" -w "%{http_code}" \
+                -X POST -F "access_token=$GITEE_TOKEN" -F "file=@$f" \
+                "$API" 2>"$error_file"); then
+                if [ "$http" = "201" ] || [ "$http" = "200" ]; then
+                  echo "[gitee] uploaded: $base"
+                  uploaded=1
+                  break
+                fi
+                echo "[gitee] upload returned HTTP $http: $base"
+                if [[ "$http" =~ ^4[0-9][0-9]$ ]] && [ "$http" != "408" ] && [ "$http" != "429" ]; then
+                  echo "[gitee] permanent client error; will reconcile once and not retry"
+                  permanent=1
+                else
+                  permanent=0
+                fi
+              else
+                permanent=0
+                echo "[gitee] upload network error: $base"
+                sed -E 's/(access_token=)[^& ]+/\1***/g' "$error_file" || true
+              fi
+
+              # An interrupted POST may have created the attachment on Gitee.
+              if ! attachments=$(list_attachments); then
+                echo "[gitee] attachment state unknown; not retrying a potentially successful POST"
+                break
+              fi
+              found=$(printf '%s' "$attachments" | existing_size "$base")
+              if [ -n "$found" ]; then
+                if [ "$found" = "$size" ]; then
+                  echo "[gitee] recovered completed upload: $base"
+                  uploaded=1
+                else
+                  echo "[gitee] remote size mismatch after upload: $base"
+                fi
+                break
+              fi
+              if [ "$permanent" = "1" ] || [ "$attempt" = "2" ]; then
+                break
+              fi
+              sleep 3
+            done
+
+            if [ "$uploaded" = "1" ]; then
               ok=$((ok+1))
-              echo "[gitee]   ✓ $base"
             else
+              echo "[gitee] FAILED to upload: $base"
               fail=$((fail+1))
-              echo "[gitee]   ✗ $base (http=$http)"
-              cat /tmp/gitee_resp.json || true
-              echo
             fi
-            sleep 1.2
+            sleep 1
           done
+
           echo "[gitee] done: ok=$ok fail=$fail"
-          if [ "$fail" -gt "0" ]; then
+          # Keep failures visible; a successful Release record is not a complete asset mirror.
+          if [ "$fail" -gt 0 ]; then
             exit 1
           fi
 
