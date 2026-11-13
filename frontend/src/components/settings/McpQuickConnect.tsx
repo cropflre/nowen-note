@@ -41,7 +41,9 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
   const loadOptions = useCallback(async (signal: AbortSignal) => {
     try {
       const [result, existing] = await Promise.all([session.notebooks(signal), session.list(signal)]);
-      if (!signal.aborted && session.current()) { setBooks(result.notebooks); setSaved(existing); }
+      if (!signal.aborted && session.current()) {
+        setBooks(result.notebooks); setSelected(result.notebooks.map(book => book.id)); setSaved(existing);
+      }
     } catch {
       if (!signal.aborted && session.current()) setError("笔记本加载失败，请重新打开设置重试");
     }
@@ -74,15 +76,16 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
     }
   };
   const create = () => run(async signal => {
-    if (!service?.available || !selected.length) return;
+    if (!service?.available || !books || !selected.length) return;
     let status = service;
-    if (!status.enabled) {
-      if (!status.canManage) throw new Error("请联系管理员开启 AI 连接服务");
-      status = await session.enable({ enabled: true, allowWrite: status.allowWrite, publicUrl: status.publicUrl || defaultUrl }, signal);
+    if (!status.enabled || !status.allowWrite) {
+      if (!status.canManage) throw new Error("请联系管理员开启 AI 连接和编辑功能");
+      status = await session.enable({ enabled: true, allowWrite: true, publicUrl: status.publicUrl || defaultUrl }, signal);
       if (!active()) return;
       onServiceChange(status);
+      if (!status.enabled || !status.allowWrite) throw new Error("AI 连接和编辑功能尚未开启，请重试");
     }
-    const value = await session.create({ client, notebookIds: selected, writable: false, url: status.publicUrl || defaultUrl }, signal);
+    const value = await session.create({ client, notebooks: books.filter(book => selected.includes(book.id)).map(({ id, canWrite }) => ({ id, canWrite })), writable: true, url: status.publicUrl || defaultUrl }, signal);
     if (!active() || signal.aborted) return;
     setConnection(value);
     setSaved(values => [...values, { id: value.id, name: `MCP · ${MCP_CLIENT_NAMES[value.client]}`, expiresAt: value.expiresAt, revokedAt: null }]);
@@ -104,18 +107,18 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
       toast.success("已断开");
     }
   });
-  const unavailable = !service?.available || (!service.enabled && !service.canManage);
+  const unavailable = !service?.available || ((!service.enabled || !service.allowWrite) && !service.canManage);
   const installLink = connection ? buildMcpInstallLink(connection) : null;
   return (
     <section aria-label="快速连接 AI 助手" className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-text-primary)] sm:p-5">
       <div className="flex items-start gap-3">
         <div className="rounded-xl bg-[var(--color-active)] p-2.5 text-[var(--color-accent-primary)]"><PlugZap className="h-5 w-5" /></div>
         <div><h3 className="text-base font-semibold">连接 AI 助手</h3>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">让 AI 帮你查找和总结笔记。</p></div>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">让 AI 帮你查找、整理和编辑笔记。</p></div>
       </div>
       {!service ? <div role="status" className="mt-4 text-sm text-[var(--color-text-secondary)]">{loadError ? <>连接服务检查失败。<button type="button" onClick={onRetry} className={`${control} ml-2`}>重新检查</button></> : "正在检查连接服务…"}</div> :
         !service.available ? <p role="status" className="mt-4 text-sm text-[var(--color-text-secondary)]">当前版本暂不支持连接，请先升级 Docker 镜像。</p> :
-          !service.enabled && !service.canManage ? <p role="status" className="mt-4 text-sm text-[var(--color-text-secondary)]">请联系管理员开启 AI 连接服务，开启后即可为自己创建连接。</p> : null}
+          (!service.enabled || !service.allowWrite) && !service.canManage ? <p role="status" className="mt-4 text-sm text-[var(--color-text-secondary)]">请联系管理员开启 AI 连接和编辑功能，开启后即可为自己创建连接。</p> : null}
       {!connection ? <div className="mt-5 space-y-5">
         <fieldset disabled={Boolean(busy) || unavailable}>
           <legend className="mb-2 text-sm font-medium">选择助手</legend>
@@ -128,13 +131,20 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
         </fieldset>
         <fieldset disabled={Boolean(busy) || unavailable}>
           <legend className="text-sm font-medium">选择笔记本</legend>
-          <p id="mcp-scope-help" className="mt-1 text-xs text-[var(--color-text-secondary)]">AI 只能读取所选笔记本及子笔记本，不会修改内容。</p>
+          <p id="mcp-scope-help" className="mt-1 text-xs text-[var(--color-text-secondary)]">AI 可查看、新建、修改所选笔记本中的笔记；删除会移入回收站，共享只读笔记不可修改。</p>
           <div aria-describedby="mcp-scope-help" className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-2">
+            {books && books.length > 0 && <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm font-medium hover:bg-[var(--color-hover)]">
+              <input type="checkbox" checked={selected.length === books.length}
+                ref={element => { if (element) element.indeterminate = selected.length > 0 && selected.length < books.length; }}
+                onChange={event => setSelected(event.target.checked ? books.map(book => book.id) : [])} />
+              <span>全部笔记</span>
+            </label>}
             {!books ? <p className="p-2 text-xs text-[var(--color-text-secondary)]">{service?.available ? "正在读取笔记本…" : "服务就绪后显示笔记本"}</p> :
               !books.length ? <p className="p-2 text-xs text-[var(--color-text-secondary)]">还没有可授权的笔记本，请先创建一个。</p> :
                 books.map(book => <label key={book.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm hover:bg-[var(--color-hover)]">
                   <input type="checkbox" checked={selected.includes(book.id)} onChange={event => setSelected(ids => event.target.checked ? [...ids, book.id] : ids.filter(id => id !== book.id))} />
                   <span className="min-w-0 truncate" title={book.name}>{book.name}</span>
+                  {!book.canWrite && <span className="shrink-0 text-xs text-[var(--color-text-secondary)]">只读</span>}
                 </label>)}
           </div>
         </fieldset>

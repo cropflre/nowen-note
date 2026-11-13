@@ -65,7 +65,8 @@ export function buildMcpAgentInstructions(connection: McpConnection): string {
   const location = clientLocations[connection.client];
   return [
     `请帮我把 Nowen Note 连接到 ${client}，使用远程 HTTP MCP，无需安装 npm 包或本地 MCP 服务。`,
-    `我已为这次连接选择笔记本并授予${connection.writable ? "读取与编辑" : "只读"}权限，服务端会强制限制访问范围。`,
+    `我已为这次连接选择笔记本并授予${connection.writable ? "查看、新建、修改和移入回收站" : "只读"}权限，服务端会强制限制访问范围，共享只读笔记仍不可修改。`,
+    ...(connection.writable ? ["删除笔记前请先预览并征得我的明确确认，再按预览版本移入回收站，不得永久删除。"] : []),
     `请将下面的连接合并到 ${location}，保留现有配置和其他 MCP 服务。如需宿主确认或重载，请告诉我下一步。`,
     "如果已有同名但地址不同的连接，请先询问我，不要覆盖。",
     "配置包含专属授权，只保存到本机私有配置，不写入项目、版本库或日志，也不要在回复中复述密钥。", "",
@@ -128,14 +129,15 @@ export function createMcpConnectionSession() {
     notebooks: (signal?: AbortSignal) => request<{ notebooks: McpNotebookOption[] }>("/tokens/notebook-options", { signal }),
     enable: (settings: Pick<EmbeddedMcpStatus, "enabled" | "allowWrite" | "publicUrl">, signal?: AbortSignal) =>
       request<EmbeddedMcpStatus>("/mcp", { method: "PUT", body: JSON.stringify(settings), signal }),
-    create: async (input: { client: McpClient; notebookIds: string[]; writable: boolean; url: string }, signal?: AbortSignal): Promise<McpConnection> => {
+    create: async (input: { client: McpClient; notebooks: Pick<McpNotebookOption, "id" | "canWrite">[]; writable: boolean; url: string }, signal?: AbortSignal): Promise<McpConnection> => {
       const url = endpoint(input.url);
-      if (!input.notebookIds.length) throw new Error("请至少选择一个笔记本");
+      if (!input.notebooks.length) throw new Error("请至少选择一个笔记本");
+      const notebooks = [...new Map(input.notebooks.map(book => [book.id, book])).values()];
       const created = await request<{ id: string; token: string; expiresAt: string | null }>("/tokens", {
         method: "POST", signal, body: JSON.stringify({
           name: `MCP · ${MCP_CLIENT_NAMES[input.client]}`, expiresInDays: 90, resourceMode: "restricted",
-          scopes: ["notes:read", "notebooks:read", ...(input.writable ? ["notes:write", "notebooks:write"] : [])],
-          notebookResources: [...new Set(input.notebookIds)].map(notebookId => ({ notebookId, permission: input.writable ? "write" : "read", includeDescendants: true })),
+          scopes: ["notes:read", "notebooks:read", ...(input.writable ? ["notes:write"] : [])],
+          notebookResources: notebooks.map(book => ({ notebookId: book.id, permission: input.writable && book.canWrite ? "write" : "read", includeDescendants: false })),
         }),
       });
       if (!created.id || !created.token?.startsWith("nkn_")) throw new Error("未能获取连接授权，请在授权管理中检查后重试");

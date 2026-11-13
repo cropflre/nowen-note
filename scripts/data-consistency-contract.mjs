@@ -61,11 +61,11 @@ if ([...argumentsSet].some((arg) => !supported.includes(arg)) || argumentsSet.si
         continue;
       }
       const source = fs.readFileSync(fullPath, "utf8");
-      // Test titles are actual cases (it/test), not merely comments or docs.
+      // Test titles are actual cases (it/test or node:test t.test), not comments or docs.
       // Prefix permits deliberate partial titles, while still detecting deleted
       // or renamed tests before the CI runner is invoked.
       const found = source.split("\n").some((line) =>
-        /^\s*(?:test|it)(?:\.skip|\.only|\.todo)?\(\s*["'`]/.test(line) &&
+        /^\s*(?:await\s+)?(?:test|it|t\.test)(?:\.skip|\.only|\.todo)?\(\s*["'`]/.test(line) &&
         line.includes(check.case) && !/\.skip\(|\.todo\(/.test(line),
       );
       if (!found) {

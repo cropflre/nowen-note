@@ -13,7 +13,7 @@ vi.mock("@/lib/mcpConnections", async importOriginal => ({
 import McpQuickConnect from "../McpQuickConnect";
 
 let host: HTMLDivElement, root: Root;
-const status: EmbeddedMcpStatus = { available: true, enabled: true, canManage: true, allowWrite: false, publicUrl: "https://note.test/mcp" };
+const status: EmbeddedMcpStatus = { available: true, enabled: true, canManage: true, allowWrite: true, publicUrl: "https://note.test/mcp" };
 const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent?.trim() === label)!;
 const click = async (label: string) => { await act(async () => button(label).click()); };
 const selectClient = async (name: string) => { await act(async () => {
@@ -24,7 +24,11 @@ const selectClient = async (name: string) => { await act(async () => {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }); };
 const render = async (service = status) => { await act(async () => root.render(<McpQuickConnect service={service} defaultUrl="https://note.test/mcp" onServiceChange={mocks.changed}/>)); };
-const select = async () => { await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click()); };
+const toggleBook = async (name: string) => { await act(async () => {
+  const label = [...host.querySelectorAll("label")].find(node => node.querySelector("span")?.textContent?.trim() === name)!;
+  expect(label).toBeDefined();
+  label.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+}); };
 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,20 +45,64 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe("simple AI connection flow", () => {
-  it("starts without credential fields and requires an explicitly selected notebook", async () => {
+  it("starts with all notebooks selected and keeps the primary flow free of credential fields", async () => {
     await render();
     expect(host.querySelector('input[type="password"]')).toBeNull();
-    expect(button("连接").disabled).toBe(true);
-    expect(host.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+    expect(button("连接").disabled).toBe(false);
+    const boxes = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(boxes).toHaveLength(2);
+    expect(boxes.every(node => node.checked)).toBe(true);
     expect(host.querySelectorAll("select")).toHaveLength(1);
     expect([...host.querySelectorAll("optgroup")].map(group => group.label)).toEqual(["国内助手", "其他助手"]);
     expect(host.textContent).not.toMatch(/高级设置|访问令牌|完整配置|MCP|JSON/);
-    await select();
+    await toggleBook("全部笔记");
+    expect(button("连接").disabled).toBe(true);
+    expect(boxes.every(node => !node.checked)).toBe(true);
+    await toggleBook("全部笔记");
     expect(button("连接").disabled).toBe(false);
+    expect(boxes.every(node => node.checked)).toBe(true);
+  });
+  it("allows a subset while passing each selected notebook's actual write permission", async () => {
+    mocks.notebooks.mockResolvedValue({ notebooks: [
+      { id: "book-a", name: "工作笔记", parentId: null, canWrite: true },
+      { id: "shared-read", name: "只读共享笔记", parentId: null, canWrite: false },
+      { id: "unselected", name: "私人日记", parentId: null, canWrite: true },
+    ] });
+    await render();
+    expect([...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].every(node => node.checked)).toBe(true);
+    await toggleBook("私人日记");
+    const all = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(all.checked).toBe(false);
+    expect(all.indeterminate).toBe(true);
+    await click("连接");
+    expect(mocks.create).toHaveBeenCalledWith({
+      client: "claude-code", url: status.publicUrl, writable: true,
+      notebooks: [{ id: "book-a", canWrite: true }, { id: "shared-read", canWrite: false }],
+    }, expect.any(AbortSignal));
+  });
+  it("excludes an unchecked child notebook even when its parent remains selected", async () => {
+    mocks.notebooks.mockResolvedValue({ notebooks: [
+      { id: "parent", name: "工作笔记", parentId: null, canWrite: true },
+      { id: "child", name: "私人日记", parentId: "parent", canWrite: true },
+    ] });
+    await render();
+    await toggleBook("私人日记");
+    await click("连接");
+    expect(mocks.create).toHaveBeenCalledWith({
+      client: "claude-code", url: status.publicUrl, writable: true,
+      notebooks: [{ id: "parent", canWrite: true }],
+    }, expect.any(AbortSignal));
+  });
+  it("does not create an empty authorization when there are no notebooks", async () => {
+    mocks.notebooks.mockResolvedValue({ notebooks: [] });
+    await render();
+    expect(button("连接").disabled).toBe(true);
+    await click("连接");
+    expect(mocks.create).not.toHaveBeenCalled();
   });
   it("automatically creates, checks and hands a complete connection to the selected AI", async () => {
-    await render(); await selectClient("Cursor"); await select(); await click("连接");
-    expect(mocks.create).toHaveBeenCalledWith({ client: "cursor", notebookIds: ["book-a"], writable: false, url: status.publicUrl }, expect.any(AbortSignal));
+    await render(); await selectClient("Cursor"); await click("连接");
+    expect(mocks.create).toHaveBeenCalledWith({ client: "cursor", notebooks: [{ id: "book-a", canWrite: true }], writable: true, url: status.publicUrl }, expect.any(AbortSignal));
     expect(mocks.probe).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("准备好了");
     expect(host.querySelector<HTMLAnchorElement>('a[href^="cursor:"]')).not.toBeNull();
@@ -63,13 +111,34 @@ describe("simple AI connection flow", () => {
     expect(host.textContent).not.toContain("nkn_private-a");
   });
   it("explicitly enables the service with the detected address when an administrator generates the first connection", async () => {
-    await render({ ...status, enabled: false, publicUrl: "" }); await select(); await click("连接");
-    expect(mocks.enable).toHaveBeenCalledWith({ enabled: true, allowWrite: false, publicUrl: status.publicUrl }, expect.any(AbortSignal));
+    await render({ ...status, enabled: false, publicUrl: "" }); await click("连接");
+    expect(mocks.enable).toHaveBeenCalledWith({ enabled: true, allowWrite: true, publicUrl: status.publicUrl }, expect.any(AbortSignal));
     expect(mocks.changed).toHaveBeenCalledWith(status);
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
+  it("enables editing when an administrator connects to a read-only service", async () => {
+    await render({ ...status, allowWrite: false }); await click("连接");
+    expect(mocks.enable).toHaveBeenCalledWith({ enabled: true, allowWrite: true, publicUrl: status.publicUrl }, expect.any(AbortSignal));
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ writable: true }), expect.any(AbortSignal));
+  });
+  it("does not issue a writable authorization if editing was not successfully enabled", async () => {
+    mocks.enable.mockResolvedValue({ ...status, allowWrite: false });
+    await render({ ...status, enabled: false, allowWrite: false }); await click("连接");
+    expect(mocks.enable).toHaveBeenCalledTimes(1);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.probe).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  });
+  it("does not let a regular user enable editing on a read-only service", async () => {
+    await render({ ...status, allowWrite: false, canManage: false });
+    expect(host.textContent).toContain("请联系管理员");
+    expect(button("连接").disabled).toBe(true);
+    await click("连接");
+    expect(mocks.enable).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it.each(["Claude Code", "Codex"])("provides one ready-to-paste handoff for %s", async name => {
-    await render(); await selectClient(name); await select(); await click("连接");
+    await render(); await selectClient(name); await click("连接");
     await click(`复制给 ${name}`);
     expect(mocks.copy.mock.calls[0][0]).toContain("nkn_private-a");
     expect(mocks.copy.mock.calls[0][0]).not.toMatch(/<your|<replace/);
@@ -83,9 +152,9 @@ describe("simple AI connection flow", () => {
     ["qoder", "Qoder"],
     ["kimi-code", "Kimi Code"],
     ["qwen-code", "Qwen Code（千问）"],
-  ] as const)("connects %s through the same simple selection and read-only authorization flow", async (client, name) => {
-    await render(); await selectClient(name); await select(); await click("连接");
-    expect(mocks.create).toHaveBeenCalledWith({ client, notebookIds: ["book-a"], writable: false, url: status.publicUrl }, expect.any(AbortSignal));
+  ] as const)("connects %s through the same simple selection and CRUD authorization flow", async (client, name) => {
+    await render(); await selectClient(name); await click("连接");
+    expect(mocks.create).toHaveBeenCalledWith({ client, notebooks: [{ id: "book-a", canWrite: true }], writable: true, url: status.publicUrl }, expect.any(AbortSignal));
     expect(mocks.probe).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("准备好了");
     if (client === "trae-cn") {
@@ -121,7 +190,7 @@ describe("simple AI connection flow", () => {
   });
   it("keeps a failed probe retryable without creating another credential or exposing copy actions", async () => {
     mocks.probe.mockRejectedValueOnce(new Error("Unable to connect"));
-    await render(); await select(); await click("连接");
+    await render(); await click("连接");
     expect(button("复制给 Claude Code").disabled).toBe(true);
     await click("重试");
     expect(mocks.create).toHaveBeenCalledTimes(1);
@@ -129,7 +198,7 @@ describe("simple AI connection flow", () => {
     expect(button("复制给 Claude Code").disabled).toBe(false);
   });
   it("retains a connection on revocation failure and removes its handoff only after revocation succeeds", async () => {
-    await render(); await select(); await click("连接");
+    await render(); await click("连接");
     mocks.revoke.mockRejectedValueOnce(new Error("Revoke failed"));
     await click("断开");
     expect(button("复制给 Claude Code")).toBeDefined();
@@ -141,9 +210,9 @@ describe("simple AI connection flow", () => {
   it("does not continue a late setup after its account panel is unmounted", async () => {
     let finish!: (value: unknown) => void;
     mocks.create.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    await render(); await select(); await click("连接");
+    await render(); await click("连接");
     await act(async () => root.render(<div>Another account</div>));
-    await act(async () => finish({ id: "grant-a", token: "nkn_private-a", url: status.publicUrl, client: "codex", writable: false, expiresAt: null }));
+    await act(async () => finish({ id: "grant-a", token: "nkn_private-a", url: status.publicUrl, client: "codex", writable: true, expiresAt: null }));
     expect(mocks.probe).not.toHaveBeenCalled();
     expect(host.textContent).toBe("Another account");
   });
