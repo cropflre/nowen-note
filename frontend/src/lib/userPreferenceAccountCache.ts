@@ -43,6 +43,7 @@ export interface UserPreferences {
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
   codeBlockCollapseMode: CodeBlockCollapseMode;
+  codeBlockWordWrap: boolean;
   noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
@@ -83,6 +84,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
   codeBlockCollapseMode: "long",
+  codeBlockWordWrap: true,
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: ["notifications"],
@@ -184,6 +186,9 @@ export function normalizeUserPreferences(
       raw.codeBlockCollapseMode,
       fallback.codeBlockCollapseMode,
     ),
+    codeBlockWordWrap: typeof raw.codeBlockWordWrap === "boolean"
+      ? raw.codeBlockWordWrap
+      : fallback.codeBlockWordWrap,
     noteTheme: isNoteThemeId(raw.noteTheme) ? raw.noteTheme : fallback.noteTheme,
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly

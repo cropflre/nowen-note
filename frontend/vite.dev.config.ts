@@ -18,6 +18,10 @@ export default defineConfig((env) => {
           target: backendUrl,
           changeOrigin: true,
         },
+        "/mcp": {
+          target: backendUrl,
+          changeOrigin: false,
+        },
         "/ws": {
           target: backendWsUrl,
           ws: true,

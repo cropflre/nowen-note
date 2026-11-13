@@ -18,6 +18,10 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import migrationsRouter from "./routes/migrations";
+import migrationUploadsRouter from "./routes/migration-uploads";
+import { recoverMigrationUploadSessions } from "./services/migrationUploads";
+import { recoverMigrations } from "./services/migrationService";
 import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
@@ -59,7 +63,8 @@ import aiRouter from "./routes/ai";
 import sharedAIProfilesRouter from "./routes/shared-ai-profiles";
 import aiTaskPlanRouter from "./routes/ai-task-plan";
 import voiceRouter from "./routes/voice";
-import pluginsRouter from "./routes/plugins";
+import pluginsRouter, { pluginAppDocumentResponse } from "./routes/plugins";
+import { getApplicationV3FeatureFlags } from "./plugins/applicationV3";
 import pluginStudioRouter from "./routes/plugin-studio";
 import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
@@ -77,6 +82,7 @@ import authRouter from "./routes/auth";
 import onboardingRouter from "./routes/onboarding";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
+import { createEmbeddedMcpRouter, createMcpSettingsRouter } from "./mcp";
 import userPreferencesRouter from "./routes/user-preferences";
 import versionRouter, { resolveAppVersion } from "./routes/version";
 import releasesRouter from "./routes/releases";
@@ -171,7 +177,7 @@ app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.re
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
 
-app.use("*", cors({
+const corsMiddleware = cors({
   origin: (origin) => {
     return resolveCorsOrigin({ origin, isProd, corsOrigins });
   },
@@ -179,7 +185,8 @@ app.use("*", cors({
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
   exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path", "X-Request-Id"],
   credentials: true,
-}));
+});
+app.use("*", (c, next) => c.req.path === "/mcp" || c.req.path.startsWith("/mcp/") ? next() : corsMiddleware(c, next));
 
 if (isProd) {
   if (corsOrigins.length > 0) {
@@ -220,6 +227,9 @@ try {
 try { initWebhookTables(); } catch (e) { console.warn("[init] initWebhookTables failed:", e); }
 try { initAuditTables(); } catch (e) { console.warn("[init] initAuditTables failed:", e); }
 try { initApiTokensTable(getDb()); } catch (e) { console.warn("[init] initApiTokensTable failed:", e); }
+
+// Same port, no child process or second externally exposed listener.
+app.route("/mcp", createEmbeddedMcpRouter(request => app.fetch(request)));
 
 // 认证路由（无需 JWT）
 app.route("/api/auth", authRouter);
@@ -507,7 +517,13 @@ function touchSessionLastSeen(sessionId: string) {
   }
 }
 
+app.get("/api/plugin-ui-v3/:ticket", pluginAppDocumentResponse);
+
 app.use("/api/*", async (c, next) => {
+  // Identity context is server-owned, including when the verified token has no scopes.
+  for (const name of ["X-User-Id", "X-Session-Id", "X-Auth-Mode", "X-Api-Token-Id", "X-Api-Resource-Mode", "X-Api-Scopes", "X-Api-Allowed-Notebook-Ids"]) {
+    c.req.raw.headers.delete(name);
+  }
   const authHeader = c.req.header("Authorization");
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -589,6 +605,7 @@ app.use("/api/*", async (c, next) => {
       return c.json({ error: "登录已超过 30 天，请重新登录", code: "SESSION_EXPIRED" }, 401);
     }
     touchSessionLastSeen(payload.jti);
+    c.set("migrationApprovalSession" as never, { userId: payload.userId, sessionId: payload.jti } as never);
   }
 
   c.req.raw.headers.set("X-User-Id", payload.userId);
@@ -606,8 +623,11 @@ app.use("/api/*", syncChangeNoticeMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
+app.route("/api/mcp", createMcpSettingsRouter());
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/migrations", migrationUploadsRouter);
+app.route("/api/migrations", migrationsRouter);
 app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
@@ -910,7 +930,7 @@ if (process.env.NODE_ENV === "production") {
           "font-src 'self' data:",
           "connect-src 'self' ws: wss: https://raw.githubusercontent.com/cropflre/nowen-note/main/frontend/public/holidays/",
           "media-src 'self' blob: https:",
-          "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com",
+          `frame-src ${getApplicationV3FeatureFlags().appPages ? "'self' " : ""}https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com`,
           "object-src 'none'",
           "base-uri 'self'",
           "frame-ancestors 'none'",
@@ -967,6 +987,11 @@ try {
 } catch (e) {
   console.warn("[init] startEmbeddingWorker failed:", e);
 }
+
+try { recoverMigrations(); }
+catch { console.warn("[migration-hub] recovery deferred"); }
+try { recoverMigrationUploadSessions(); }
+catch { console.warn("[migration-hub] upload recovery deferred"); }
 
 try {
   automationRuntime.start();

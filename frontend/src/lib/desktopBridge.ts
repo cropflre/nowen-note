@@ -105,6 +105,23 @@ export interface LiteMigrationProgress {
   attachmentsDone?: number;
   attachmentsPending?: number;
   error?: string | null;
+  /** 失败分类（后端 SyncErrorCode），例如 DATA_STRUCTURE。 */
+  errorCode?: string | null;
+  /** false 表示同一份数据再试必然得到同样的结果，应停止自动重试。旧版后端不返回，按可重试处理。 */
+  retryable?: boolean | null;
+  /** 脱敏诊断：阶段、步骤、原因标记、SQLite 错误码、父目录状态与脱敏后的实体标识，不含任何内容。 */
+  diagnostic?: LiteMigrationDiagnostic | null;
+}
+
+export interface LiteMigrationDiagnostic {
+  stage?: string;
+  step?: string;
+  reason?: string;
+  sqliteCode?: string;
+  entityType?: string;
+  entityId?: string;
+  parentId?: string;
+  parentState?: string;
 }
 
 export interface LiteMigrationResult {

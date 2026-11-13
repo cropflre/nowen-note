@@ -19,17 +19,28 @@ const knownPermissions = new Set([
 
 function fail(message) { throw new Error(message); }
 function isDeclarative(manifest) { return manifest.apiVersion === 2 && manifest.runtime === "declarative"; }
+function isApp(manifest) { return manifest.apiVersion === 3 && manifest.runtime === "declarative"; }
 function readManifest() {
   if (!fs.existsSync(manifestPath)) fail("manifest.json not found");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(manifest.id || "")) fail("invalid plugin id");
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version || "")) fail("invalid version");
-  if (![1, 2].includes(manifest.apiVersion)) fail("unsupported apiVersion");
+  if (![1, 2, 3].includes(manifest.apiVersion)) fail("unsupported apiVersion");
   if (manifest.apiVersion === 1 && manifest.runtime !== "node-action") fail("V1 requires node-action");
   if (manifest.apiVersion === 2 && !["declarative", "sandbox-js", "node-action"].includes(manifest.runtime)) fail("invalid V2 runtime");
   if (manifest.apiVersion === 2 && (!manifest.publisher || !manifest.id.startsWith(`${manifest.publisher}.`) || !manifest.repository || !manifest.license || !Array.isArray(manifest.categories))) fail("V2 publisher namespace, repository, license and categories are required");
   if (!manifest.engines?.nowen) fail("engines.nowen is required");
-  if (isDeclarative(manifest)) {
+  if (manifest.apiVersion === 3) {
+    if (!isApp(manifest) || !manifest.publisher || !manifest.id.startsWith(`${manifest.publisher}.`)) fail("V3 requires a declarative publisher namespace");
+    if (["main", "actions", "connections", "events", "eventHandlers"].some(field => field in manifest)) fail("V3 UI cannot declare executable fields");
+    const pages = manifest.contributes?.appPages, assets = manifest.contributes?.uiAssets;
+    if (!Array.isArray(pages) || !pages.length || !assets || typeof assets !== "object" || !Object.keys(assets).length) fail("V3 requires appPages and uiAssets");
+    for (const [file, digest] of Object.entries(assets)) {
+      if (!/^ui\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+(?:[.-][A-Za-z0-9_-]+)*\.(html|js|css|json|png|jpg|jpeg|webp|gif|woff2)$/.test(file) || !/^sha256:[a-f0-9]{64}$/.test(digest)) fail("invalid V3 asset declaration");
+    }
+    if (pages.some(page => !/^ui\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.html$/.test(page.entry) || !assets[page.entry])) fail("V3 page entry must be a hashed packaged HTML file");
+    for (const image of [manifest.icon, ...(manifest.screenshots || [])].filter(Boolean)) if (!assets[image] || !/\.(png|jpg|jpeg|webp|gif)$/.test(image)) fail("V3 metadata images must be hashed UI images");
+  } else if (isDeclarative(manifest)) {
     for (const field of ["main", "actions", "connections", "events", "eventHandlers"]) {
       if (field in manifest) fail(`declarative plugin cannot declare ${field}`);
     }
@@ -57,13 +68,21 @@ function readManifest() {
 
 function validate(requireMain = true) {
   const manifest = readManifest();
-  if (requireMain && !isDeclarative(manifest) && !fs.existsSync(path.resolve(cwd, manifest.main))) fail(`main not found: ${manifest.main}`);
+  if (requireMain && isApp(manifest)) {
+    for (const [file, digest] of Object.entries(manifest.contributes.uiAssets)) {
+      const target = path.resolve(cwd, file), relative = path.relative(fs.realpathSync(cwd), fs.realpathSync(target));
+      if (relative.startsWith("..") || path.isAbsolute(relative) || fs.lstatSync(target).isSymbolicLink() || !fs.statSync(target).isFile()) fail("V3 asset escapes plugin directory");
+      if ("sha256:" + crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex") !== digest) fail(`V3 asset integrity mismatch: ${file}`);
+    }
+  }
+  if (requireMain && !isDeclarative(manifest) && !isApp(manifest) && !fs.existsSync(path.resolve(cwd, manifest.main))) fail(`main not found: ${manifest.main}`);
   process.stdout.write(`valid ${manifest.id}@${manifest.version}\n`);
   return manifest;
 }
 
 async function doctor() {
   const manifest = validate(true);
+  if (isApp(manifest)) { process.stdout.write(`doctor ok (${manifest.contributes.appPages.length} V3 app pages; UI execution requires compatible sandbox host)\n`); return; }
   if (isDeclarative(manifest)) {
     const contributionCount = Object.values(manifest.contributes || {})
       .reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
@@ -91,6 +110,7 @@ async function doctor() {
 
 function build() {
   const manifest = validate(false);
+  if (isApp(manifest)) { process.stdout.write("V3 UI must be built before packing; validate its uiAssets hashes after building\n"); return; }
   if (isDeclarative(manifest)) {
     process.stdout.write("declarative plugin requires no build\n"); return;
   }
@@ -119,8 +139,8 @@ async function pack() {
     const archive = archiver("zip", { zlib: { level: 9 } });
     output.on("close", resolve); output.on("error", reject); archive.on("error", reject); archive.pipe(output);
     archive.file(manifestPath, { name: "manifest.json" });
-    if (!isDeclarative(manifest)) archive.file(path.resolve(cwd, manifest.main), { name: manifest.main.replace(/\\/g, "/") });
-    for (const optional of ["README.md", manifest.icon, ...(manifest.screenshots || []), ...(manifest.contributes?.automationTemplates || []).map((item) => item.file)].filter(Boolean)) {
+    if (!isDeclarative(manifest) && !isApp(manifest)) archive.file(path.resolve(cwd, manifest.main), { name: manifest.main.replace(/\\/g, "/") });
+    for (const optional of (isApp(manifest) ? Object.keys(manifest.contributes.uiAssets) : ["README.md", manifest.icon, ...(manifest.screenshots || []), ...(manifest.contributes?.automationTemplates || []).map((item) => item.file)]).filter(Boolean)) {
       const absolute = path.resolve(cwd, optional);
       if (fs.existsSync(absolute)) archive.file(absolute, { name: String(optional).replace(/\\/g, "/") });
     }

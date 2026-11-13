@@ -1,4 +1,5 @@
 import AssetDescription from "../fileExplorer/AssetDescription";
+import PluginInspector from "../PluginInspector";
 import AssetTagEditor from "../fileExplorer/AssetTagEditor";
 /**
  * AttachmentDetailDrawer
@@ -29,7 +30,7 @@ import {
   FileText,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, resolveAttachmentUrl } from "@/lib/api";
+import { api, getCurrentWorkspace, resolveAttachmentUrl } from "@/lib/api";
 import { FileDetail } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -473,6 +474,7 @@ export default function AttachmentDetailDrawer({
           <h3 className="text-sm font-semibold text-tx-primary">{t("attachmentDetail.title")}</h3>
           <div className="flex items-center gap-1">
             {extraHeaderActions}
+            {detail?.id === attachmentId && <PluginInspector resource={{ type: "attachment", id: detail.id }} workspaceId={getCurrentWorkspace()} />}
             <button
               className="hidden sm:inline-flex p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
               onClick={() => setExpanded((v) => !v)}

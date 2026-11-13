@@ -7,7 +7,15 @@ on:
       - release/v1.5.2
     paths:
       - "packages/nowen-mcp/**"
+      - "Dockerfile"
+      - "backend/src/mcp.ts"
+      - "backend/tests/mcp-embedded.test.ts"
+      - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/settings/McpQuickConnect.tsx"
+      - "frontend/src/components/settings/__tests__/McpQuickConnect.test.tsx"
+      - "frontend/src/lib/mcpConnections.ts"
+      - "frontend/src/lib/__tests__/mcpConnections.test.ts"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/TokenManagement.tsx"
       - "backend/src/middleware/api-token-resource-scope.ts"
@@ -27,7 +35,15 @@ on:
   pull_request:
     paths:
       - "packages/nowen-mcp/**"
+      - "Dockerfile"
+      - "backend/src/mcp.ts"
+      - "backend/tests/mcp-embedded.test.ts"
+      - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/settings/McpQuickConnect.tsx"
+      - "frontend/src/components/settings/__tests__/McpQuickConnect.test.tsx"
+      - "frontend/src/lib/mcpConnections.ts"
+      - "frontend/src/lib/__tests__/mcpConnections.test.ts"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/TokenManagement.tsx"
       - "backend/src/middleware/api-token-resource-scope.ts"
@@ -81,6 +97,9 @@ jobs:
       - name: Verify MCP connection settings type safety
         run: npx tsc -p tsconfig.app.json --noEmit
         working-directory: frontend
+      - name: Test embedded MCP controls and real protocol diagnostics
+        run: npx vitest run src/components/settings/__tests__/McpConnectionPanel.test.tsx src/components/settings/__tests__/McpQuickConnect.test.tsx src/components/settings/__tests__/MigrationConnectionSetup.test.tsx src/lib/__tests__/mcpConnections.test.ts src/components/__tests__/TokenManagement.deletion.test.tsx
+        working-directory: frontend
 
   api-token-scope-test:
     runs-on: ubuntu-latest
@@ -95,6 +114,15 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
         run: npm ci --prefix backend
+      - name: Build embedded MCP runtime
+        run: |
+          npm ci --prefix packages/nowen-mcp
+          npm run build --prefix packages/nowen-mcp
+      - name: Test embedded MCP identity and authorization
+        run: node --import tsx --test tests/mcp-embedded.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
       - name: Test PAT resource and task boundaries
         run: node --import tsx --test tests/api-token-resource-scope.test.ts
         working-directory: backend

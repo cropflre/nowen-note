@@ -1,3 +1,4 @@
+import { enMigrationTranslations, zhCNMigrationTranslations } from "./migrationTranslations";
 import { enAssetAITranslations, zhCNAssetAITranslations } from "./assetAITranslations";
 import { enAICollaborationTranslations, zhCNAICollaborationTranslations } from "./aiCollaborationTranslations";
 import { enAssetReliabilityTranslations, zhCNAssetReliabilityTranslations } from "./assetReliabilityTranslations";
@@ -55,6 +56,7 @@ import { enEncryptedConversionTranslations, zhCNEncryptedConversionTranslations 
 import { enTaskComposerTranslations, zhCNTaskComposerTranslations } from "./taskComposerTranslations";
 import { enFileExplorerTranslations, zhCNFileExplorerTranslations } from "./fileExplorerTranslations";
 import { enTaskRemovalTranslations, zhCNTaskRemovalTranslations } from "./taskRemovalTranslations";
+import { enPluginAppTranslations, zhCNPluginAppTranslations } from "./pluginAppTranslations";
 import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
@@ -96,7 +98,9 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNAssetAITranslations,
   zhCNAICollaborationTranslations,
   zhCNTaskRemovalTranslations,
+  zhCNPluginAppTranslations,
   zhCNAutomationTranslations,
+  zhCNMigrationTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -122,7 +126,9 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enAssetAITranslations,
   enAICollaborationTranslations,
   enTaskRemovalTranslations,
+  enPluginAppTranslations,
   enAutomationTranslations,
+  enMigrationTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

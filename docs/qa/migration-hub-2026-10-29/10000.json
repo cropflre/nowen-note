@@ -1,0 +1,19 @@
+{
+  "platform": "darwin/arm64",
+  "os": "27.2.0",
+  "node": "v24.22.1",
+  "cpus": 10,
+  "heapLimitMiB": 256,
+  "count": 10000,
+  "assetMiB": 0,
+  "zipBytes": 1586782,
+  "peakRssMiB": 565.7,
+  "peakHeapMiB": 75.7,
+  "previewSeconds": 5.66,
+  "totalSeconds": 164.49,
+  "actualNotes": 10000,
+  "actualAssets": 0,
+  "status": "COMPLETED",
+  "failed": 0,
+  "warnings": []
+}

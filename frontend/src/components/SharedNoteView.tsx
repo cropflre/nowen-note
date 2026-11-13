@@ -8,33 +8,43 @@ import { cn } from "@/lib/utils";
 import { sharePageWidthClass } from "@/lib/sharePageWidth";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { toast } from "@/lib/toast";
-import { common, createLowlight } from "lowlight";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { sanitizeForShare, sanitizeSvg } from "@/lib/sanitizeHtml";
-import PlainTextEditor from "@/components/PlainTextEditor";
-import TiptapEditor from "@/components/TiptapEditor";
 import { MotionPhotoOverlay, SharedPhotoMotionBridge } from "@/components/MotionPhotoOverlay";
-import { AttachmentPhotoPreview } from "@/components/attachmentPreview/AttachmentPreview";
+import { AttachmentPhotoPreview } from "@/components/attachmentPreview/AttachmentPhotoPreview";
 import type { NoteEditorUpdatePayload } from "@/components/editors/types";
-import { detectFormat } from "@/lib/contentFormat";
+import { detectFormat } from "@/lib/detectContentFormat";
 import MermaidView from "@/components/MermaidView";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { remarkPreserveLineBreaks } from "@/lib/markdownLineBreaks";
-import { normalizeIndentValue } from "@/lib/codeBlockIndent";
-import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
+import { normalizeIndentValue } from "@/lib/indentValue";
+import type { FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import {
   hydrateSharedMindMapPlaceholders,
   preprocessSharedMindMapMarkdown,
   renderSharedMindMapPlaceholder,
 } from "@/lib/sharedMindMapSnapshots";
 
-// 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
-const sharedLowlight = createLowlight(common);
+// Reading a share must not download the editor or image lightbox.
+const PlainTextEditor = React.lazy(async () => {
+  const { initializeSharedEditorRuntime } = await import("@/lib/sharedEditorRuntime");
+  await initializeSharedEditorRuntime();
+  return import("@/components/PlainTextEditor");
+});
+const TiptapEditor = React.lazy(async () => {
+  const { initializeSharedEditorRuntime } = await import("@/lib/sharedEditorRuntime");
+  await initializeSharedEditorRuntime();
+  return import("@/components/TiptapEditor");
+});
+const FullscreenImageViewer = React.lazy(async () => {
+  await import("@/i18n");
+  return import("@/components/FullscreenImageViewer");
+});
 
 /** 访客昵称本地存储 key，用户在同一浏览器上只需要填写一次 */
 const GUEST_NAME_KEY = "nowen-guest-name";
@@ -151,6 +161,20 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     : "",
   [content?.content, content?.contentFormat],
 );
+
+  useEffect(() => {
+    const blocks = pmRenderRef.current?.querySelectorAll<HTMLElement>(".shared-code-content");
+    if (!blocks?.length || !isReadOnlyContent) return;
+    let cancelled = false;
+    void import("@/lib/sharedCodeHighlight").then(({ highlightSharedCode }) => {
+      if (cancelled) return;
+      for (const block of blocks) {
+        const language = /language-([\w-]+)/.exec(block.className)?.[1] || "auto";
+        block.innerHTML = sanitizeForShare(highlightSharedCode(block.textContent || "", language));
+      }
+    }).catch(() => { /* The escaped code remains readable if highlighting fails. */ });
+    return () => { cancelled = true; };
+  }, [content?.content, isEditing, isReadOnlyContent]);
 
   // DOM 后处理 + DEBUG：统一给分享页正文图片补 width style
   useEffect(() => {
@@ -1209,12 +1233,14 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         <section className="min-w-0">
           {isEditing && (content.permission === "edit" || content.permission === "edit_auth") && fakeNoteForEditing ? (
             <div className="shared-note-editor">
-              {content.contentFormat === "plaintext" ? <PlainTextEditor key={fakeNoteForEditing.id} note={fakeNoteForEditing} onUpdate={handleGuestSave} editable={!content.isLocked} isGuest /> : <TiptapEditor
-                note={fakeNoteForEditing}
-                onUpdate={handleGuestSave}
-                editable={!content.isLocked}
-                isGuest
-              />}
+              <React.Suspense fallback={<div role="status">正在加载编辑器…</div>}>
+                {content.contentFormat === "plaintext" ? <PlainTextEditor key={fakeNoteForEditing.id} note={fakeNoteForEditing} onUpdate={handleGuestSave} editable={!content.isLocked} isGuest /> : <TiptapEditor
+                  note={fakeNoteForEditing}
+                  onUpdate={handleGuestSave}
+                  editable={!content.isLocked}
+                  isGuest
+                />}
+              </React.Suspense>
             </div>
           ) : content.contentFormat === "plaintext" ? (
             <pre className="whitespace-pre-wrap break-words text-tx-primary" style={{ fontFamily: "inherit" }}>{content.content}</pre>
@@ -1557,12 +1583,16 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         </div>
       )}
 
-      <FullscreenImageViewer
-        open={!!imageViewer}
-        images={imageViewer?.images}
-        initialIndex={imageViewer?.initialIndex || 0}
-        onClose={() => setImageViewer(null)}
-      />
+      {imageViewer && (
+        <React.Suspense fallback={null}>
+          <FullscreenImageViewer
+            open
+            images={imageViewer.images}
+            initialIndex={imageViewer.initialIndex}
+            onClose={() => setImageViewer(null)}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 }
@@ -2030,8 +2060,8 @@ function renderCodeBlock(node: any): string {
 
   const languageClass = langLabel && langLabel !== "auto" ? ` language-${escapeHtml(langLabel)}` : "";
 
-  // 用 lowlight 生成带 hljs token 的 hast，再序列化为 HTML 注入 <code>
-  const highlighted = highlightCode(codeText, langLabel);
+  // Code stays readable while the optional syntax highlighter downloads.
+  const highlighted = escapeHtml(codeText);
 
   return `
 <div class="shared-code-block"${renderSharedIndentAttribute(node)}>
@@ -2052,53 +2082,6 @@ function renderCodeBlock(node: any): string {
   <pre class="shared-code-pre"><code class="shared-code-content hljs${languageClass}">${highlighted}</code></pre>
 </div>
 `.trim();
-}
-
-/**
- * 使用 lowlight 对代码做语法高亮，返回可直接插入 <code> 的 HTML 字符串
- * - 已知语言：highlight(lang, code)
- * - auto 或未注册语言：highlightAuto(code)
- * - 失败时回退为转义后的纯文本
- */
-function highlightCode(code: string, lang: string): string {
-  if (!code) return "";
-  try {
-    let tree: any;
-    if (lang && lang !== "auto" && sharedLowlight.registered(lang)) {
-      tree = sharedLowlight.highlight(lang, code);
-    } else {
-      tree = sharedLowlight.highlightAuto(code);
-    }
-    return hastToHtml(tree);
-  } catch {
-    return escapeHtml(code);
-  }
-}
-
-/**
- * 极简 hast → HTML 序列化器，只处理 lowlight 会产出的三种节点：
- *   - root：仅渲染 children
- *   - element：标签名 + className + children（lowlight 不产出其他属性）
- *   - text：转义后输出
- */
-function hastToHtml(node: any): string {
-  if (!node) return "";
-  if (node.type === "root") {
-    return (node.children || []).map(hastToHtml).join("");
-  }
-  if (node.type === "text") {
-    return escapeHtml(node.value || "");
-  }
-  if (node.type === "element") {
-    const tag = String(node.tagName || "span");
-    const classList = node.properties && Array.isArray(node.properties.className)
-      ? node.properties.className.join(" ")
-      : "";
-    const classAttr = classList ? ` class="${escapeHtml(classList)}"` : "";
-    const inner = (node.children || []).map(hastToHtml).join("");
-    return `<${tag}${classAttr}>${inner}</${tag}>`;
-  }
-  return "";
 }
 
 function escapeHtml(str: string): string {

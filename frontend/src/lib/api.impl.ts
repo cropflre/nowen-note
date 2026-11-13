@@ -1287,7 +1287,20 @@ async function requireTaskSeriesSupport(): Promise<void> {
   if (capabilities.taskRecurrenceLifecycle !== "v1") throw Object.assign(new Error("TASK_RECURRENCE_UNSUPPORTED"),{code:"TASK_RECURRENCE_UNSUPPORTED"});
 }
 
+export interface EmbeddedMcpStatus {
+  available: boolean;
+  canManage: boolean;
+  enabled: boolean;
+  allowWrite: boolean;
+  publicUrl: string;
+}
+
 export const api = {
+  mcp: {
+    status: () => request<EmbeddedMcpStatus>("/mcp", { _skipOfflineQueue: true }),
+    configure: (input: Pick<EmbeddedMcpStatus, "enabled" | "allowWrite" | "publicUrl">) =>
+      request<EmbeddedMcpStatus>("/mcp", { method: "PUT", body: JSON.stringify(input), _skipOfflineQueue: true }),
+  },
   agentLibrary: {
     request: <T>(workspaceId: string, path: string, method = "GET", body?: unknown) => request<T>(`/agent/library${path}?workspaceId=${encodeURIComponent(workspaceId)}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), _skipOfflineQueue: true }),
   },
@@ -1446,6 +1459,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1462,6 +1476,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    codeBlockWordWrap?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1476,6 +1491,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 

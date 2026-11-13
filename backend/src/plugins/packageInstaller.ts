@@ -62,7 +62,9 @@ async function extract(zip: Awaited<ReturnType<typeof validatePluginPackage>>["z
 
 function developmentReferencedFiles(manifest: PluginManifest): string[] {
   const referenced = [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => Boolean(item));
-  if (isDeclarativePluginManifest(manifest)) {
+  if (manifest.apiVersion === 3) {
+    referenced.push(...Object.keys(manifest.contributes.uiAssets));
+  } else if (isDeclarativePluginManifest(manifest)) {
     referenced.push(...(manifest.contributes.automationTemplates || []).map((template) => template.file));
   } else {
     referenced.push(manifest.main);
@@ -193,8 +195,14 @@ export class PluginPackageInstaller {
       const target = path.resolve(absolute, relativePath);
       assertInside(absolute, target);
       if (!fs.existsSync(target) || !fs.statSync(target).isFile()) throw new Error(`插件资源不存在: ${relativePath}`);
-      if (isDeclarativePluginManifest(manifest) && /\.(?:mjs|cjs|js|wasm)$/i.test(relativePath)) throw Object.assign(new Error(`声明式插件禁止可执行代码资源: ${relativePath}`), { code: "PLUGIN_CONTRIBUTION_INVALID" });
-      createHash.update(relativePath).update(fs.readFileSync(target));
+      if (fs.lstatSync(target).isSymbolicLink()) throw new Error(`开发插件禁止符号链接资源: ${relativePath}`);
+      assertInside(fs.realpathSync(absolute), fs.realpathSync(target));
+      if (manifest.apiVersion !== 3 && isDeclarativePluginManifest(manifest) && /\.(?:mjs|cjs|js|wasm)$/i.test(relativePath)) throw Object.assign(new Error(`声明式插件禁止可执行代码资源: ${relativePath}`), { code: "PLUGIN_CONTRIBUTION_INVALID" });
+      const bytes = fs.readFileSync(target);
+      if (manifest.apiVersion === 3 && manifest.contributes.uiAssets[relativePath] !== "sha256:" + crypto.createHash("sha256").update(bytes).digest("hex")) {
+        throw Object.assign(new Error(`V3 开发插件资源完整性校验失败: ${relativePath}`), { code: "PLUGIN_UI_INTEGRITY_INVALID" });
+      }
+      createHash.update(relativePath).update(bytes);
     }
     return { absolute, manifest, checksum: createHash.digest("hex") };
   }

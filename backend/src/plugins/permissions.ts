@@ -58,7 +58,7 @@ export class PluginPermissions {
   replaceGrants(pluginId: string, requested: string[], grantedBy: string): PermissionRow[] {
     const record = getDb().prepare("SELECT apiVersion FROM plugin_registry WHERE id=?")
       .get(pluginId) as { apiVersion: number } | undefined;
-    const permissionSupported = record?.apiVersion === 2
+    const permissionSupported = record?.apiVersion === 2 || record?.apiVersion === 3
       ? isV2SupportedPluginPermission
       : (permission: string): permission is PluginPermission => legacyPermissions.has(permission);
     if (requested.some((permission) => !permissionSupported(permission))) {

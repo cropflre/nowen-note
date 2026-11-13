@@ -3,11 +3,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import DataManager from "../DataManager";
 import zh from "@/i18n/locales/zh-CN.json";
+import { zhCNMigrationTranslations } from "@/i18n/migrationTranslations";
 const mocks = vi.hoisted(() => ({ me: vi.fn(), download: vi.fn(), dryRun: vi.fn(), import: vi.fn(), export: vi.fn(), backupStatus: vi.fn(), deviceOnly: false,
   workspace: vi.fn(), actions: { refreshNotes: vi.fn(), refreshNotebooks: vi.fn(), setNotebooks: vi.fn(), setSelectedNotebook: vi.fn(), setActiveNote: vi.fn(), setViewMode: vi.fn(), setMobileView: vi.fn() },
 }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isMobileLocalMode: () => mocks.deviceOnly }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key.split(".").reduce((value: any, part) => value?.[part], zh) || key }) }));
+// MigrationHub 的加载副作用依赖 t；与 react-i18next 一样保持 t 引用稳定，避免测试中反复重载。
+const translations = { ...zh, ...zhCNMigrationTranslations };
+const translate = (key: string) => (key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown> | undefined)?.[part], translations) as string | undefined) || key;
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: translate }) }));
 vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: { notebooks: [] } }), useAppActions: () => mocks.actions }));
 vi.mock("@/lib/api", () => ({ getBaseUrl: () => "/api", getServerUrl: () => "", getCurrentWorkspace: () => "other-global-space", setCurrentWorkspace: mocks.workspace, withSudo: vi.fn(), api: {
   getMe: mocks.me, getWorkspaces: async () => [{ id: "chosen-space", name: "工作区 A" }], downloadNowenPackage: mocks.download, dryRunNowenPackage: mocks.dryRun, importNowenPackage: mocks.import,
@@ -90,7 +94,7 @@ describe("数据管理首页和迁移范围", () => {
   });
   it("Nowen 导入的预览与正式导入使用同一个所选工作区", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    await mount(); await click("导入数据");
+    await mount(); await click("导入与迁移"); await click("其他导入方式");
     const method = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(zh.dataManager.importMethodNowenDesc))!;
     await act(async () => method.click());
     const scope = host.querySelector<HTMLSelectElement>('select[aria-label="选择数据范围"]')!;
@@ -103,7 +107,7 @@ describe("数据管理首页和迁移范围", () => {
     expect(mocks.import).toHaveBeenCalledWith(file, { workspaceId: "chosen-space" });
   });
   it("语雀使用所选空间，查看结果切换空间并直接打开移动端编辑页", async () => {
-    await mount(); await click("导入数据");
+    await mount(); await click("导入与迁移"); await click("其他导入方式");
     const method = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(zh.yuqueFileImport.sourceDescription))!;
     await act(async () => method.click());
     const scope = host.querySelector<HTMLSelectElement>('select[aria-label="选择数据范围"]')!;

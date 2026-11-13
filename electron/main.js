@@ -1099,6 +1099,7 @@ function createWindow() {
       webSecurity: true,
       allowRunningInsecureContent: false,
       session: currentRendererSession || session.defaultSession,
+      nodeIntegrationInSubFrames: false,
       // sandbox 不能开：preload 使用 require("electron")，sandbox 下 require 不可用
       preload: preloadPath,
       additionalArguments: isLiteOnlyBuild() ? ["--nowen-lite-only"] : [],

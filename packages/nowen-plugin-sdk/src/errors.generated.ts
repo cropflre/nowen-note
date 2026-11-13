@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export type NowenPluginErrorCode = "CAPTURE_EXTRACTION_FAILED" | "CAPTURE_FETCH_FAILED" | "CAPTURE_TOO_LARGE" | "CAPTURE_URL_DENIED" | "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
+export type NowenPluginErrorCode = "CAPTURE_EXTRACTION_FAILED" | "CAPTURE_FETCH_FAILED" | "CAPTURE_TOO_LARGE" | "CAPTURE_URL_DENIED" | "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DATA_BACKUP_MISSING" | "PLUGIN_DATA_CONFLICT" | "PLUGIN_DATA_DISABLED" | "PLUGIN_DATA_INVALID" | "PLUGIN_DATA_QUOTA_EXCEEDED" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
 
 export interface NowenPluginErrorMetadata {
   code: NowenPluginErrorCode;
@@ -143,6 +143,36 @@ export const NOWEN_PLUGIN_ERROR_CATALOG: readonly NowenPluginErrorMetadata[] = d
     "category": "validation",
     "retryable": false,
     "description": "A declarative contribution failed validation"
+  },
+  {
+    "code": "PLUGIN_DATA_BACKUP_MISSING",
+    "category": "validation",
+    "retryable": false,
+    "description": "No collection migration snapshot is available"
+  },
+  {
+    "code": "PLUGIN_DATA_CONFLICT",
+    "category": "validation",
+    "retryable": false,
+    "description": "Record, schema or snapshot changed; reload before retrying"
+  },
+  {
+    "code": "PLUGIN_DATA_DISABLED",
+    "category": "validation",
+    "retryable": false,
+    "description": "Structured plugin data is disabled"
+  },
+  {
+    "code": "PLUGIN_DATA_INVALID",
+    "category": "validation",
+    "retryable": false,
+    "description": "Invalid structured data input"
+  },
+  {
+    "code": "PLUGIN_DATA_QUOTA_EXCEEDED",
+    "category": "validation",
+    "retryable": false,
+    "description": "Plugin data capacity or record budget exceeded"
   },
   {
     "code": "PLUGIN_DECLARATIVE_NOT_EXECUTABLE",

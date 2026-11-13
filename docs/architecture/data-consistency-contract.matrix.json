@@ -26,6 +26,9 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
+        { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
+        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         {"file": "backend/tests/agent-workflow.test.ts", "case": "DCC-002: Outbox failure preserves the completed note, retries only tasks and survives reopening"},
         {"file": "backend/tests/agent-workflow.test.ts", "case": "reviewed task edits rotate approval, exclude drafts and persist only the selected fields once (DCC-002)"},
         { "file": "backend/tests/agent.test.ts", "case": "approved editor save captures Outbox intent and keeps it after reopening (DCC-002)" },
@@ -97,6 +100,10 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
+        { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "partial failures retry only failed items and persist successful mappings" },
+        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "repairs directory positions while retaining a failed cloud attachment download" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-003: lost upload responses recover the exact persisted PDF identity, including deduplicated uploads" },
         { "file": "frontend/src/lib/__tests__/rtfImageUploader.test.ts", "case": "keeps a failed image available while uploading the remaining photos (DCC-003)" },
@@ -138,7 +145,22 @@
           "case": "native recurrence intent stays durable until the server advertises support"
         },
         { "file": "frontend/src/lib/__tests__/mobileAttachmentDownloadRetry.test.ts", "case": "DCC-003: retries a failed remote download with GET after engine recreation" },
-        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" }
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" },
+        { "file": "frontend/src/lib/__tests__/mobileAttachmentUploadTransport.test.ts", "case": "DCC-003: Android native HTTP upload stores the original bytes" },
+        { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-003: HEAD reports metadata-only bytes as missing so desktop and NAS clients upload them" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a structural failure is classified non-retryable, rolls the page back, keeps local work and does not advance cursors" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: failure diagnostics carry stage, error kind, redacted ids, parent state and SQLite code but no content or credentials" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a network failure in the middle of the notebook segment keeps the cursor and retries to the same structure" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: an interruption after notebooks were committed resumes from the stored cursor without re-conflicting" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a structural failure after a successful retry cycle recovers once the remote data is repaired" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a structural bootstrap failure is recorded as non-retryable and leaves local data, cursor and queue alone" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: a structural failure on the real snapshot stops cleanly, keeps both sides intact, and a retry after repair completes" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: Windows offline edits survive, upload after reconnect, and a second device converges to the same tree" },
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: a structural download failure stops the 5-second retry loop and the online-event retry, and shows redacted diagnostics" },
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: after a structural failure the user can still retry by hand once the data is repaired, and a retryable failure keeps its automatic retry" },
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: a legacy backend that does not report retryable keeps the previous retrying behavior" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a same-name tag with unsent local changes is never merged silently and fails with a precise non-retryable reason" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" }
       ]
     },
     {
@@ -146,6 +168,11 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "DCC-004: editing an imported note during the job preserves the newer body" },
         { "file": "frontend/src/lib/__tests__/editorRemoteReconcile.test.ts", "case": "reports user edits made after the clean rendering" },
         { "file": "frontend/src/lib/__tests__/editorRemoteReconcile.test.ts", "case": "stays conservative when no matching clean rendering exists" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Android edit replaces persisted Yjs state so a Markdown session never resurrects the old body" },
@@ -181,7 +208,8 @@
         {
           "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
           "case": "keeps both local and server snapshots in a bounded conflict vault"
-        }
+        },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" }
       ]
     },
     {
@@ -212,7 +240,21 @@
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-005: a crashed in-memory bootstrap rereads every snapshot page" },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness verifies bounded batches of actual files, including when sync is paused" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-005: native offline availability checks actual files without treating local edits as server ACKs" },
-        { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" }
+        { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: the sync test database carries the production notebook parent guards" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: a NAS-shaped notebook batch (deleted subtree, hidden root container, child before parent) applies with its structure intact" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: notebook structure is identical for every delivery order of the same NAS data" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: deep nesting resolves regardless of delivery order, including a deleted tail of the chain" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: re-applying a batch and renaming a folder under a deleted parent do not re-run the parent guard" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: an incremental batch can hang a new folder under a parent the replica already holds as deleted" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: lite migration keeps parent links that straddle snapshot pages" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: the persisted lite cursor never runs ahead of notebooks that are still held for dependency ordering" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: replaying the whole snapshot after a reset is idempotent and records no bogus conflicts" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the NAS snapshot delivers every parent before its children, across page boundaries and for any page size" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: Windows first download from a NAS-shaped database converges exactly for random ids and any page size" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: a nested delete on the NAS reaches a synced device in either id order without tripping the parent guard" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" }
       ]
     },
     {
@@ -220,6 +262,13 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
+        { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access" },
+        { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
@@ -251,6 +300,12 @@
         { "file": "frontend/src/lib/__tests__/fileShareClipboard.test.ts", "case": "does not silently copy private named images when sharing is denied (DCC-006)" },
         { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT diary publishing is opt-in and confined to personal posts (DCC-006)" },
         { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
+        { "file": "backend/tests/application-v3-inspector.test.ts", "case": "V3 inspector sessions bind one ACL-checked resource and revoke on resource or feature changes" },
+        { "file": "frontend/src/lib/__tests__/pluginInspector.test.tsx", "case": "closes the inspector on account or workspace change" },
+        { "file": "frontend/src/lib/__tests__/pluginDataActions.test.tsx", "case": "rejects an account change while the confirmation dialog is open" },
+        { "file": "frontend/src/lib/__tests__/pluginDashboard.test.ts", "case": "separates workspace, account and mobile layouts" },
+        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
+        { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "confirmation retries are persistent and payload conflicts or revoked access cannot replay results" },
@@ -290,6 +345,10 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
+        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
+        { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "direct Sync delete refuses an active note without changing body, tree, history or attachments"},
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset tombstones reject stale offline resurrection without losing the offline name" },
         {
@@ -344,7 +403,20 @@
           "file": "backend/tests/attachment-trash.test.ts",
           "case": "purge requires explicit confirmation, trash state and a fresh backend reference check"
         },
-        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" }
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" },
+        { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-007: attachment reads before the bytes arrive return BLOB_NOT_READY instead of EISDIR or 500" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: remote restore of a deleted subtree and a later re-delete keep tombstone state and parent links" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a dangling parent falls back to the root visibly instead of failing or silently flattening" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a remote parent cycle is broken deterministically at its smallest id and counted" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap into a database that already has folders links remote children to local ones and keeps both versions of a clash" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap uploads local folders parents-first even when a child was created before its parent" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: a first download never rewrites, deletes or advances anything on the NAS" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: connecting a Windows database that already has notes merges both directions without losing either side" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: the NAS refuses a child pushed before its parent instead of attaching it to the root, and accepts it once the parent exists" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: pushing a deleted subtree parent-first, and renaming a folder under the hidden root container, are accepted with every link kept" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: server push mode refuses an unresolved parent and never touches a notebook that belongs to another user" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a same-name tag seeded on the Windows install is merged into the server's tag and keeps every note association" },
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" }
       ]
     },
     {
@@ -352,6 +424,7 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-service.test.ts", "case": "a failed partial source scan cannot be previewed as a complete import (DCC-008)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "rolls back structure, history and the backup if apply cannot finish" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-008: SQLite backup preserves shared credentials, grants and selection on reopen" },
@@ -362,6 +435,7 @@
         { "file": "backend/tests/docker-updater-jobs.test.ts", "case": "DCC-008: Docker upgrade lifecycle refuses unsafe rollback" },
         { "file": "backend/tests/migration-task-version-compatibility.test.ts", "case": "reopens pre-split v134 databases without losing retained app data or Studio history" },
         { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
+        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "retained storage migration is repeatable and included in SQLite backup restoration" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "failed mutation ledger rolls back deletion, cleanup job and knowledge tree atomically"},
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "incoming trash visibility cannot reopen a previously public link after restoration" },
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "asset migration preserves queue order, failed retry state, conflict history and the feed high-water mark" },
@@ -508,6 +582,18 @@
           "case": "refreshes both Markdown and rich-text notes only after new Outbox commits"
         },
         {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "keeps the native receipt pending until this note's attachment bytes reach the server"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "reports a failed attachment upload as a sync error, not cloud confirmation"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "ignores download-only attachment states and other notes' uploads"
+        },
+        {
           "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
           "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
         },
@@ -522,6 +608,7 @@
       "title": "Native independent SQLite clients preserve durable edits across sync failures",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-012: Migration Hub 100MiB ZIP converges across three native SQLite clients with bytes, restart, conflict and exact ACK" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Web REST save reaches an open Android note through /ws, Pull and native SQLite without a manual refresh" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "Android edit reaches an open Web editor through note:updated and note:list-updated" },
         { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Android 断线期间 Web 保存：重连后是否自动补齐（实时缺口诊断）" },

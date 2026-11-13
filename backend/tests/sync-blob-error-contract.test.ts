@@ -40,6 +40,12 @@ test("HEAD 403 is a permission error, not an expired login", async () => {
   assert.equal(calledMethod(), "HEAD");
 });
 
+test("HEAD 409 from servers that route HEAD to GET means the bytes are not uploaded yet", async () => {
+  const { client, calledMethod } = clientFor(409, {}, "HEAD");
+  assert.equal(await client.exists("attachment-id"), false);
+  assert.equal(calledMethod(), "HEAD");
+});
+
 test("upload checksum mismatch is non-retryable validation failure", async () => {
   const { client } = clientFor(409, { code: "CHECKSUM_MISMATCH" }, "PUT");
   await assert.rejects(client.upload("attachment-id", Buffer.from("bad")), (error: unknown) => (

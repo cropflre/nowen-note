@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-29",
+  "sourceCommit": "a254635abf70f4cbec61270f0cd907a6274da2d6",
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v24.22.1",
+    "electron": "43.8.4",
+    "nativeAbi": 148
+  },
+  "command": "cd backend && ELECTRON_RUN_AS_NODE=1 ../node_modules/.bin/electron --import tsx --test --test-concurrency=1 tests/migration-release-upgrade.test.ts",
+  "results": [
+    {
+      "historicalCommit": "fb93d4932639c3967b883e416b1233b8b65198b0",
+      "fromSchema": 142,
+      "toSchema": 145,
+      "packagedEntry": "bundle",
+      "imported": 30,
+      "priorImportedIdsRetained": 5,
+      "originalPendingMutationsRetained": 27,
+      "resumedOffset": 0,
+      "unapprovedPreviewImported": 0,
+      "repeatRestartDuplicates": 0,
+      "sourceFallback": false
+    },
+    {
+      "historicalCommit": "3c486e395f54101f7b4eb825f62d5f937776063f",
+      "fromSchema": 145,
+      "toSchema": 145,
+      "packagedEntry": "tsc",
+      "imported": 1,
+      "priorImportedIdsRetained": 0,
+      "originalPendingMutationsRetained": 5,
+      "resumedOffset": 4194304,
+      "unapprovedPreviewImported": 0,
+      "repeatRestartDuplicates": 0,
+      "sourceFallback": false
+    }
+  ],
+  "tests": 2,
+  "passed": 2,
+  "failed": 0,
+  "skipped": 0,
+  "scope": "Real historical source creates persistent fixtures; current bundle and isolated tsc CommonJS hardened entry run without backend/src. macOS runtime only, not a Linux image or physical-device test.",
+  "preconditions": [
+    "P0/P1 git objects available (full history for CI)",
+    "backend npm run build has generated the current bundle",
+    "Electron-compatible native dependencies; no ABI rebuild performed"
+  ],
+  "privateDataUsed": false
+}

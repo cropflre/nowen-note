@@ -1,0 +1,93 @@
+{
+  "date": "2026-10-29",
+  "branch": "codex/ai-migration-hub-v160",
+  "baseCommit": "3c486e395f54101f7b4eb825f62d5f937776063f",
+  "backend": {
+    "cwd": "backend",
+    "tests": 53,
+    "passed": 53,
+    "failed": 0,
+    "command": "ELECTRON_RUN_AS_NODE=1 ../node_modules/.bin/electron --import tsx --test --test-concurrency=1 <files>",
+    "files": [
+      "tests/migration-source-adapters.test.ts",
+      "tests/migration-format-source.test.ts",
+      "tests/migration-notion-adapter.test.ts",
+      "tests/migration-siyuan-adapter.test.ts",
+      "tests/migration-service.test.ts",
+      "tests/migration-http.test.ts",
+      "tests/openapi-migrations.test.ts"
+    ],
+    "typecheck": "npx tsc --noEmit",
+    "build": "npm run build"
+  },
+  "frontend": {
+    "cwd": "frontend",
+    "tests": 32,
+    "passed": 32,
+    "failed": 0,
+    "command": "npm run test:run -- src/components/settings/__tests__/MigrationConnectionSetup.test.tsx src/lib/__tests__/migrationClientSetup.test.ts src/lib/__tests__/migrations.test.ts src/components/__tests__/MigrationHub.test.tsx",
+    "build": "npm run build (tsc -b, Vite, sync-notification verification)",
+    "warning": "Existing large chunk warning"
+  },
+  "sdk": {
+    "cwd": "packages/nowen-sdk",
+    "command": "npm test",
+    "tests": 35,
+    "passed": 35,
+    "failed": 0
+  },
+  "mcp": {
+    "cwd": "packages/nowen-mcp",
+    "command": "npm test",
+    "tests": 35,
+    "passed": 35,
+    "failed": 0,
+    "generatedConfigStartsActualLauncher": true,
+    "generatedConfigCredentials": "Synthetic fixture resolves environment reference; not a real AI host"
+  },
+  "configurationParsing": {
+    "parsedConfigurations": 12,
+    "toml": 2,
+    "json": 10,
+    "parsers": [
+      "Python 3.12 tomllib",
+      "Python 3.12 json"
+    ],
+    "status": "passed"
+  },
+  "lint": {
+    "command": "frontend: npm run lint:baseline",
+    "status": "failed-existing-generated-files",
+    "historicalSourceErrors": 1443,
+    "generatedFileErrors": 96,
+    "generatedFilePaths": [
+      "dist.bak/",
+      "ios/App/App/public/assets/pdf.worker-*.mjs"
+    ],
+    "sourceOnly": {
+      "existing": 1443,
+      "added": 0
+    },
+    "baselineChanged": false
+  },
+  "dcc": {
+    "command": "node scripts/data-consistency-contract.mjs --verify",
+    "invariants": 12,
+    "testReferences": 243,
+    "status": "passed"
+  },
+  "skills": {
+    "validator": "skill-creator/scripts/quick_validate.py",
+    "agents": "passed",
+    "claude": "passed",
+    "mirrorsIdentical": true
+  },
+  "browser": "browser-validation.json",
+  "unrun": [
+    "Real AI host applications and versions",
+    "Physical Huawei/Android and Electron packages",
+    "Real NAS/proxy/S3 or production data",
+    "Push/CI/merge/release"
+  ],
+  "performance": "P1 record remains separate; not rerun for all P2 sources"
+}

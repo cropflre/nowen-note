@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { fetchWebUiEnabled } from "@/lib/webUiAccess";
+import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
@@ -70,6 +72,8 @@ import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
 import FloatingLayerHost from "@/components/FloatingLayerHost";
+import PluginApps from "@/components/PluginApps";
+import { parsePluginAppPath } from "@/lib/pluginApps";
 import { isNativeClientRuntime, stripServerBasePath } from "@/lib/serverUrl";
 import { reportBootStage } from "@/lib/bootSplash";
 import {
@@ -206,32 +210,6 @@ function getTokenExpiresAt(token: string): number | null {
   } catch {
     return null;
   }
-}
-
-async function fetchWebUiEnabled(): Promise<boolean> {
-  try {
-    const baseUrl = getBaseUrl();
-    const res = await fetch(`${baseUrl}/settings`, { cache: "no-store" });
-    if (!res.ok) return true;
-    const data = await res.json().catch(() => ({}));
-    return data?.web_ui_enabled !== "false";
-  } catch {
-    // 网络/后端异常时不做前端自锁，避免误伤本地开发和临时故障恢复。
-    return true;
-  }
-}
-
-function WebUiDisabledPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 px-6 text-center text-zinc-600">
-      <main className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-zinc-900 mb-3">网页端已被管理员关闭</h1>
-        <p className="text-sm leading-7">
-          当前服务器仅提供 API 服务。请使用 Nowen Note 桌面客户端连接该服务器。
-        </p>
-      </main>
-    </div>
-  );
 }
 
 function SidebarResizeHandle() {
@@ -414,13 +392,25 @@ function AppLayout() {
   const { t } = useTranslation();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
+  const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
   const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
   const [notificationCount, setNotificationCount] = useState(0);
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
+    const resetPluginApp = () => {
+      if (!parsePluginAppPath(resolveCurrentAppPathname()).matched) return;
+      replaceAppPathState("/"); actions.setViewMode("all");
+    };
+    window.addEventListener("nowen:token-changed", resetPluginApp);
+    return () => window.removeEventListener("nowen:token-changed", resetPluginApp);
+  }, [actions]);
+
+  useEffect(() => {
     const applyRoute = (event?: Event) => {
       const pathname = resolveCurrentAppPathname();
+      const nextPluginAppRoute = parsePluginAppPath(pathname);
+      setPluginAppRoute(nextPluginAppRoute);
       const route = parseMindMapAppPath(pathname);
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
@@ -428,7 +418,11 @@ function AppLayout() {
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
-      if (pathname === "/trash") {
+      if (nextPluginAppRoute.matched) {
+        actions.setViewMode("plugin-apps");
+        actions.setEditorFullscreen(false);
+        actions.setMobileSidebar(false);
+      } else if (pathname === "/trash") {
         actions.setViewMode("trash");
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
@@ -461,6 +455,12 @@ function AppLayout() {
 
   useEffect(() => {
     if (!appPathReady) return;
+    const currentPluginAppRoute = parsePluginAppPath(resolveCurrentAppPathname());
+    if (state.viewMode === "plugin-apps") {
+      if (!currentPluginAppRoute.matched) replaceAppPathState("/apps");
+      return;
+    }
+    if (currentPluginAppRoute.matched) replaceAppPathState("/");
     const currentRoute = getCurrentMindMapAppRoute();
     const currentIssueRoute = parseIssueAppPath(resolveCurrentAppPathname());
     if (state.viewMode === "trash") {
@@ -788,6 +788,7 @@ function AppLayout() {
       actions.setMobileView("list");
       actions.setSearchQuery("");
       actions.clearNoteTabs();
+      if (parsePluginAppPath(resolveCurrentAppPathname()).matched) replaceAppPathState("/");
       actions.refreshNotes();
       actions.refreshNotebooks();
     };
@@ -905,7 +906,7 @@ function AppLayout() {
       {/* 折叠 / 展开时外层宽度在 0 与内容宽度之间过渡，内层保持固定宽度，侧栏文字不会被挤压重排。
           动画结束后外层回到 width:auto，拖拽调整宽度仍是 1:1 跟手。首次渲染不播放。 */}
       <AnimatePresence initial={false}>
-        {showSidebar && !mediumNoteWorkspace && !isFilesView && (
+        {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && (
           <motion.div
             key="desktop-sidebar"
             className="hidden md:flex shrink-0 overflow-hidden"
@@ -924,10 +925,12 @@ function AppLayout() {
           </motion.div>
         )}
       </AnimatePresence>
-      {showSidebar && !mediumNoteWorkspace && !isFilesView && <SidebarResizeHandle />}
+      {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
-      {state.viewMode === "trash" ? (
+      {state.viewMode === "plugin-apps" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} manage={pluginAppRoute.manage} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+      ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
           <TrashPage />

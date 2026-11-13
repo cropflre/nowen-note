@@ -30,6 +30,7 @@ import {
   getUploadMonthPath,
   readAttachmentObject,
   writeAttachmentObject,
+  checkAttachmentObjectExists,
 } from "../services/attachment-storage";
 import { resolveAuthorizedScope, type SyncScopeDescriptor } from "../sync/scope";
 import {
@@ -270,6 +271,15 @@ app.get("/:attachmentId", async (c) => {
     return c.json({ error: error.message, code: error.code }, error.status);
   }
 
+  // Hono dispatches HEAD through GET, so the explicit HEAD registration above
+  // cannot carry this metadata on the real HTTP path.
+  if (c.req.method === "HEAD") {
+    const exists = row!.path ? await checkAttachmentObjectExists(row!.path) : { exists: false };
+    c.header("X-Blob-Size", String(row!.size));
+    if (row!.hash) c.header("X-Blob-Hash", row!.hash);
+    return c.body(null, exists.exists ? 200 : 404);
+  }
+
   let buffer: Buffer | null = null;
   try {
     buffer = row!.path ? await readAttachmentObject(row!.path) : null;
@@ -284,7 +294,9 @@ app.get("/:attachmentId", async (c) => {
   }
 
   c.header("Content-Type", row!.mimeType || "application/octet-stream");
-  c.header("Content-Length", String(buffer.length));
+  c.header("X-Blob-Size", String(buffer.length));
+  // The Node adapter derives Content-Length for byte bodies. Setting it here
+  // emits both normalized and adapter-generated headers, breaking real HTTP clients.
   if (row!.hash) c.header("X-Blob-Hash", row!.hash);
   // 不回传 row.path —— 那是服务器本机文件系统路径，
   // 对客户端无意义，泄漏还会暴露服务器目录结构。

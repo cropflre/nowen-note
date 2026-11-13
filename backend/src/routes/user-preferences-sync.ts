@@ -36,6 +36,7 @@ export interface SyncedUserPreferences {
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockTheme;
   codeBlockCollapseMode: CodeBlockCollapseMode;
+  codeBlockWordWrap: boolean;
   noteTheme: NoteTheme;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
@@ -83,6 +84,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
   codeBlockCollapseMode: "long",
+  codeBlockWordWrap: true,
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: ["notifications"],
@@ -136,6 +138,7 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "noteListTitleOnly":
     case "journalLockOnEntry":
     case "showNoteListDividers":
+    case "codeBlockWordWrap":
       return (typeof value === "boolean" ? value : fallback) as SyncedUserPreferences[K];
     case "hiddenNavigationModules":
       return (

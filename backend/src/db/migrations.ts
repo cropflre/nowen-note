@@ -1,4 +1,8 @@
 import { agentP2Migration } from "./agentP2Migration.js";
+import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
+import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
+import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
+import { migrationUploadSessionsMigration } from "./migrationUploadSessionsMigration.js";
 import { sharedAIProfilesMigration } from "./sharedAIProfilesMigration.js";
 import { agentWorkflowMigration } from "./agentWorkflowMigration.js";
 import { agentMigration } from "./agentMigration.js";
@@ -359,6 +363,11 @@ const taskInboxCanonicalMigration: Migration = {
 };
 
 export const MIGRATIONS: Migration[] = [
+  migrationHubMigration,
+  migrationHubRecoveryLedgerMigration,
+  migrationDecisionsMigration,
+  migrationStableSourcesMigration,
+  migrationUploadSessionsMigration,
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
   activityMigration,
@@ -443,8 +452,6 @@ export const MIGRATIONS: Migration[] = [
   assetSyncMigration,
   assetAIMigration,
   noteDeletionLifecycleMigration,
-  // Keep v132-v134 compatible with databases already upgraded before the
-  // Apps/Studio feature split; their runtime and UI continue in release/v1.6.0.
   pluginRetainedStorageMigration,
   nowenStudioMigration,
   nowenStudioHistoryMigration,

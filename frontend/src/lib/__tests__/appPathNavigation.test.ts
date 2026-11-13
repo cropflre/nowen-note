@@ -5,6 +5,14 @@ import {
 } from "../appPathNavigation";
 
 describe("app path navigation", () => {
+  it("keeps V3 app routes out of the server prefix and preserves reverse proxy deployment paths", () => {
+    expect(resolveCurrentAppPathname("https://note.example.com/apps", false)).toBe("/apps");
+    expect(resolveCurrentAppPathname("https://note.example.com/nowen/apps/nowenlab.hello-app/home", false)).toBe("/apps/nowenlab.hello-app/home");
+    expect(buildAppPathUrl("/apps/nowenlab.hello-app/home", "https://note.example.com/nowen/apps", false)).toBe("/nowen/apps/nowenlab.hello-app/home");
+    expect(buildAppPathUrl("/", "https://note.example.com/nowen/apps/nowenlab.hello-app/home", false)).toBe("/nowen/");
+    // A deployment mounted at /apps/ must keep its API prefix. The app directory uses /apps.
+    expect(resolveCurrentAppPathname("https://note.example.com/apps/", false)).toBe("/");
+  });
   it.each([
     ["/notes/note-two", "https://note.example.com/nowen/notes/note-one", "/nowen/notes/note-two"],
     ["/sheets/sheet-one", "https://note.example.com/nowen/notes/note-one", "/nowen/sheets/sheet-one"],

@@ -2,6 +2,7 @@ import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { aiClipboardText, createAiProvenance, markAiMarkdown } from "@/lib/aiContentProvenance";
 ﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import PluginInspector from "./PluginInspector";
 import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
 import EncryptedNotePane from "./EncryptedNotePane";
 import EncryptedNoteConversionDialog from "./EncryptedNoteConversionDialog";
@@ -2818,6 +2819,7 @@ const moveToTrash = useCallback(async () => {
         {compactMobileEditing ? (
           <div className="flex items-center gap-1">
             <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />
+            {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
             <Button
               data-mobile-note-menu-trigger
               variant="ghost"
@@ -2933,6 +2935,7 @@ const moveToTrash = useCallback(async () => {
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
             {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
           </span>
+          {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
           {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
             data-editor-ai-entry="mobile"
             variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-accent-primary"
@@ -3651,6 +3654,7 @@ const moveToTrash = useCallback(async () => {
             </Button>
           )}
 
+          {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
           {(!userPrefs.enableNoteTabs || state.openNoteTabs.length === 0 || state.editorSplit) && (
             <EditorToolbarExpandSlot location="header" />
           )}
@@ -4590,7 +4594,7 @@ function SyncIndicator({
         )}
         {displayStatus === "idle" && (
           lastSyncedAt
-            ? <>{t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
+            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
             : t('editor.sync')
         )}
       </span>

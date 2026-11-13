@@ -1,0 +1,12 @@
+{
+  "notes": 100,
+  "assetBytes": 109051904,
+  "zipBytes": 109100867,
+  "nativeClients": 3,
+  "downloadedBytes": 327155712,
+  "seconds": 4.67,
+  "conflictsResolved": 1,
+  "duplicateMutations": 0,
+  "transport": "Real HTTP production routes; three independent Native SQLite client adapters and SyncEngine",
+  "physicalDevice": false
+}

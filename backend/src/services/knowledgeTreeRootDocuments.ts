@@ -150,6 +150,7 @@ export function createKnowledgeChild(input: {
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
+  noteId?: string;
   contentFormat?: "plaintext";
   sheetData?: unknown;
   db?: Database.Database;

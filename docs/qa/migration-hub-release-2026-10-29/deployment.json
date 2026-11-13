@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "node": "v24.22.1",
+  "platform": "linux/arm64",
+  "entry": "tsc/index.hardened.js",
+  "proxyPrefix": "/nowen",
+  "proxyRequests": 396,
+  "lostAcks": 1,
+  "crashRestarts": 2,
+  "confirmedUploadOffsetAfterCrash": 8388608,
+  "notes": 100,
+  "attachments": 13,
+  "assetBytes": 109051904,
+  "zipBytes": 109102247,
+  "downloadedBytes": 109051904,
+  "importedBeforeCrash": 5,
+  "duplicateNotes": 0,
+  "patApprovalRejected": true,
+  "crossUserDenied": true,
+  "totalSeconds": 13.2,
+  "cgroup": {
+    "memoryMax": "536870912",
+    "memoryPeak": "537112576",
+    "memoryEvents": "low 0\nhigh 0\nmax 1284\noom 0\noom_kill 0\noom_group_kill 0",
+    "memoryPeakMiB": 512.23
+  },
+  "date": "2026-10-29",
+  "sourceCommit": "a254635abf70f4cbec61270f0cd907a6274da2d6",
+  "environment": {
+    "image": "c1f30777991a",
+    "network": "none; real loopback HTTP proxy and backend",
+    "cpuQuota": 2,
+    "swapMiB": 0,
+    "storage": "dedicated disposable Docker volume; forced local despite inherited synthetic s3 selection",
+    "rootFilesystem": "read-only",
+    "mainHeapMiB": 96,
+    "backendHeapMiB": 192
+  },
+  "limits": [
+    "memory pressure reached cgroup limit; no OOM; not physical NAS stability acceptance",
+    "Existing Linux glibc runtime image with current tsc artifact; not a newly built Alpine release image",
+    "Package versions remain 1.5.3; candidate identified by source commit",
+    "No TLS termination, real provider, NAS or physical Android acceptance"
+  ]
+}

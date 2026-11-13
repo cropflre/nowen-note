@@ -51,6 +51,7 @@ import {
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useKnowledgeTreeDisplaySize } from "@/hooks/useKnowledgeTreeDisplaySize";
@@ -258,6 +259,7 @@ export default function MobileKnowledgeTreePanel({
   const sortLabel = (mode: MobileKnowledgeTreeSortMode) => t(`knowledgeTreeUi.${SORT_LABELS[mode]}`);
   const { state } = useApp();
   const actions = useAppActions();
+  const { loadNote, cancelNoteLoad } = useNoteLoader();
   const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const [sidebarTextStyle] = useSidebarTextStyle();
@@ -616,12 +618,20 @@ export default function MobileKnowledgeTreePanel({
       if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
-    try {
-      activateNote(await api.getNote(node.resourceId), node.parentId);
-    } catch (requestError: any) {
-      toast.error(requestError?.message || "打开文档失败");
+    if (state.activeNote?.id === node.resourceId) {
+      cancelNoteLoad();
+      activateNote(state.activeNote, node.parentId);
+      return;
     }
-  }, [actions, activateNote, closeMenu, rememberOpened, unlockedFolderIds, variant]);
+    try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
+    await loadNote({
+      noteId: node.resourceId,
+      summary: { title: node.title, notebookId: "" },
+      request: () => api.getNote(node.resourceId),
+      onSuccess: (note) => activateNote(note, node.parentId),
+      onError: (requestError: any) => toast.error(requestError?.message || "打开文档失败"),
+    });
+  }, [actions, activateNote, cancelNoteLoad, closeMenu, loadNote, rememberOpened, state.activeNote, unlockedFolderIds, variant]);
 
   const handleNodeSelection = (event: React.MouseEvent, node: KnowledgeTreeNode) => {
     if (multiSelectMode || event.ctrlKey || event.metaKey) {

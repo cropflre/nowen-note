@@ -407,6 +407,29 @@ function parseCursor(
   return { type: order[0], id: "" };
 }
 
+/**
+ * 目录按"深度 + id"分页，而不是只按 id。
+ *
+ * 只按 id 排序时（随机 UUID）子目录经常先于父目录到达，客户端逐页落库时父目录还不存在。
+ * 按深度排序后，父目录的深度严格小于子目录，**跨页也保证父先子后**。
+ *
+ * 游标是 `<深度>|<id>`，对客户端不透明（它们只原样回传）。
+ * 成环或父目录不在本作用域内的行拿不到合法深度：悬空的父目录按根处理（深度 0），
+ * 成环的行排在最后（兜底深度），保证每一行都会被下发一次。
+ *
+ * 已软删除的目录同样下发：服务端删除只翻转子树的 isDeleted 并保留 parentId，
+ * 副本需要完整的树才能还原；删除标记由客户端在建好父子链后再落库。
+ */
+const NOTEBOOK_UNREACHABLE_DEPTH = 1_000_000;
+const NOTEBOOK_CURSOR = /^(\d{1,7})\|([\s\S]*)$/;
+
+function parseNotebookCursor(afterId: string): { depth: number; id: string } {
+  const match = NOTEBOOK_CURSOR.exec(afterId);
+  // 空游标是第一页。旧格式（纯 id）只可能来自升级前已开始的 Snapshot：从头重发即可，
+  // 目录体量很小，客户端按 id upsert 是幂等的。
+  return match ? { depth: Number(match[1]), id: match[2] } : { depth: -1, id: "" };
+}
+
 function snapshotPage(
   db: Database.Database,
   userId: string,
@@ -414,7 +437,7 @@ function snapshotPage(
   type: SyncNegotiatedEntityType,
   afterId: string,
   limit: number,
-): Array<{ id: string; payload: Record<string, unknown> }> {
+): Array<{ id: string; payload: Record<string, unknown>; cursor?: string }> {
   const map = (rows: Array<Record<string, unknown>>) =>
     rows.map((row) => ({ id: String(row.id), payload: type === "note" ? withEncryptedBlocksSupport(row) : row }));
 
@@ -424,13 +447,34 @@ function snapshotPage(
       return (db.prepare("SELECT id,payload,version FROM asset_sync_metadata WHERE userId=? AND id>? ORDER BY id LIMIT ?")
         .all(userId,afterId,limit) as {id:string;payload:string;version:number}[])
         .map(row => ({id:row.id,payload:{...JSON.parse(row.payload),version:row.version}}));
-    case "notebook":
-      return map(db.prepare(`
-        SELECT id, userId, parentId, name, description, icon, color,
-               sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-        FROM notebooks WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND id > ?
-        ORDER BY id ASC LIMIT ?
-      `).all(workspaceId, workspaceId, userId, afterId, limit) as Array<Record<string, unknown>>);
+    case "notebook": {
+      const after = parseNotebookCursor(afterId);
+      const rows = db.prepare(`
+        WITH RECURSIVE scope(id, parentId) AS (
+          SELECT id, parentId FROM notebooks WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+        ),
+        tree(id, depth) AS (
+          SELECT id, 0 FROM scope WHERE parentId IS NULL OR parentId NOT IN (SELECT id FROM scope)
+          UNION ALL
+          SELECT child.id, tree.depth + 1 FROM scope child JOIN tree ON child.parentId = tree.id
+        )
+        SELECT n.id, n.userId, n.parentId, n.name, n.description, n.icon, n.color,
+               n.sortOrder, n.isExpanded, n.isDeleted, n.deletedAt, n.createdAt, n.updatedAt, n.workspaceId,
+               COALESCE(tree.depth, ${NOTEBOOK_UNREACHABLE_DEPTH}) AS depth
+        FROM notebooks n
+        JOIN scope ON scope.id = n.id
+        LEFT JOIN tree ON tree.id = n.id
+        WHERE COALESCE(tree.depth, ${NOTEBOOK_UNREACHABLE_DEPTH}) > ?
+           OR (COALESCE(tree.depth, ${NOTEBOOK_UNREACHABLE_DEPTH}) = ? AND n.id > ?)
+        ORDER BY COALESCE(tree.depth, ${NOTEBOOK_UNREACHABLE_DEPTH}) ASC, n.id ASC
+        LIMIT ?
+      `).all(workspaceId, workspaceId, userId, after.depth, after.depth, after.id, limit) as Array<Record<string, unknown>>;
+      return rows.map(({ depth, ...payload }) => ({
+        id: String(payload.id),
+        payload,
+        cursor: `${depth}|${payload.id}`,
+      }));
+    }
 
     case "tag":
       return map(db.prepare(`
@@ -527,7 +571,8 @@ function authorizedSnapshotPage(
     const batch = snapshotPage(db,userId,workspaceId,type,scannedThrough,scanSize);
     if (batch.length === 0) return {rows,scannedThrough,exhausted:true};
     for (const row of batch) {
-      scannedThrough = row.id;
+      // 目录用"深度|id"复合游标；其它实体的游标就是 id。
+      scannedThrough = row.cursor ?? row.id;
       const noteId = typeof row.payload.noteId === "string" ? row.payload.noteId : null;
       if (canViewWorkspaceEntity(db,userId,workspaceId,type,row.id,noteId)) rows.push(row);
       if (rows.length >= limit) return {rows,scannedThrough,exhausted:false};

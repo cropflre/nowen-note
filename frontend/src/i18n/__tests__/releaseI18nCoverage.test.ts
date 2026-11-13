@@ -1,3 +1,4 @@
+import { enPluginAppTranslations, zhCNPluginAppTranslations } from "../pluginAppTranslations";
 import i18n from "../index";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -153,6 +154,9 @@ describe("release i18n coverage", () => {
     }
   });
 
+  it("keeps plugin app and inspector translations in parity", () => {
+    expectPatchParity(zhCNPluginAppTranslations, enPluginAppTranslations, "pluginApps");
+  });
   it("keeps the complete runtime translation trees in parity", () => {
     const zhEntries = leafEntries(zh);
     const enEntries = leafEntries(en);
