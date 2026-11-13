@@ -9,7 +9,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-embedded-mcp-"));
 process.env.DB_PATH = path.join(dir, "test.db");
 process.env.ELECTRON_USER_DATA = dir;
 
-test("DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation", async () => {
+test("DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation", async (t) => {
   const { getDb, closeDb } = await import("../src/db/schema");
   const { initApiTokensTable, hashApiToken, resolveApiToken } = await import("../src/lib/api-tokens");
   const { enforceApiTokenAccess } = await import("../src/middleware/api-token-resource-scope");
@@ -127,6 +127,94 @@ test("DCC-006: embedded MCP isolates concurrent credentials, notebook grants and
     assert.equal((await configure({ ...settings, allowWrite: true })).status, 200);
     assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: "mcp-note-a", title: "Allowed write" })).isError, undefined);
     assert.equal((db.prepare("SELECT title FROM notes WHERE id='mcp-note-a'").get() as any).title, "Allowed write");
+    await t.test("DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access", async () => {
+      db.exec(`INSERT INTO notebooks (id, name, userId, parentId) VALUES
+        ('mcp-book-selected','Selected Book','mcp-a',NULL),
+        ('mcp-book-unselected-child','Unselected Child','mcp-a','mcp-book-selected'),
+        ('mcp-book-read-parent','Read Parent','mcp-a',NULL),
+        ('mcp-book-write-child','Write Child','mcp-a','mcp-book-read-parent');
+        INSERT INTO notes (id,title,notebookId,userId,content,contentText) VALUES
+        ('mcp-note-readonly','Read Only','mcp-book-read-parent','mcp-a','Read body','Read body'),
+        ('mcp-note-unselected-child','Excluded child note','mcp-book-unselected-child','mcp-a','Excluded body','Excluded body');
+        INSERT INTO api_token_resources (id,tokenId,resourceType,resourceId,permission,includeDescendants) VALUES
+        ('mcp-grant-selected','mcp-token-a','notebook','mcp-book-selected','write',0),
+        ('mcp-grant-parent','mcp-token-a','notebook','mcp-book-read-parent','read',0),
+        ('mcp-grant-child','mcp-token-a','notebook','mcp-book-write-child','write',0);`);
+      const catalog = JSON.stringify(await tool(tokens.a, "nowen_list_notebooks"));
+      assert.match(catalog, /Selected Book/);
+      assert.match(catalog, /Read Parent/);
+      assert.match(catalog, /Write Child/);
+      assert.doesNotMatch(catalog, /Book B|Denied|Unselected Child/);
+      for (const notebookId of ["mcp-book-a", "mcp-book-selected", "mcp-book-write-child"]) {
+        const title = `Created in ${notebookId}`;
+        const created = await tool(tokens.a, "nowen_create_note", { notebookId, title, content: "Original body" });
+        assert.equal(created.isError, undefined, JSON.stringify(created));
+        const note = db.prepare("SELECT id FROM notes WHERE notebookId=? AND title=?").get(notebookId, title) as { id: string };
+        assert.ok(note?.id);
+        const read = await tool(tokens.a, "nowen_read_note", { noteId: note.id });
+        assert.equal(read.isError, undefined);
+        assert.match(JSON.stringify(read), /Original body/);
+        assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: note.id, title: `${title} updated`, content: "Updated body" })).isError, undefined);
+        const updated = db.prepare("SELECT title,contentText FROM notes WHERE id=?").get(note.id) as { title: string; contentText: string };
+        assert.equal(updated.title, `${title} updated`);
+        assert.equal(updated.contentText, "Updated body");
+      }
+      const readonlyBefore = db.prepare("SELECT * FROM notes WHERE id='mcp-note-readonly'").get();
+      assert.equal((await tool(tokens.a, "nowen_read_note", { noteId: "mcp-note-readonly" })).isError, undefined);
+      assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: "mcp-note-readonly", content: "Denied" })).isError, true);
+      assert.equal((await tool(tokens.a, "nowen_create_note", { notebookId: "mcp-book-read-parent", title: "Denied read-only creation" })).isError, true);
+      assert.deepEqual(db.prepare("SELECT * FROM notes WHERE id='mcp-note-readonly'").get(), readonlyBefore);
+      assert.equal(db.prepare("SELECT id FROM notes WHERE title='Denied read-only creation'").get(), undefined);
+      const excludedBefore = db.prepare("SELECT * FROM notes WHERE id='mcp-note-unselected-child'").get();
+      assert.equal((await tool(tokens.a, "nowen_read_note", { noteId: "mcp-note-unselected-child" })).isError, true);
+      assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: "mcp-note-unselected-child", content: "Denied inherited edit" })).isError, true);
+      assert.equal((await tool(tokens.a, "nowen_create_note", { notebookId: "mcp-book-unselected-child", title: "Denied inherited creation" })).isError, true);
+      assert.deepEqual(db.prepare("SELECT * FROM notes WHERE id='mcp-note-unselected-child'").get(), excludedBefore);
+      assert.equal(db.prepare("SELECT id FROM notes WHERE title='Denied inherited creation'").get(), undefined);
+      assert.equal((await tool(tokens.a, "nowen_create_notebook", { name: "Denied root" })).isError, true);
+      assert.equal(db.prepare("SELECT id FROM notebooks WHERE name='Denied root'").get(), undefined);
+      assert.equal((await tool(tokens.a, "nowen_create_notebook", { parentId: "mcp-book-selected", name: "Denied child folder" })).isError, true);
+      assert.equal(db.prepare("SELECT id FROM notebooks WHERE name='Denied child folder'").get(), undefined);
+      assert.equal((await tool(tokens.a, "nowen_list_tasks")).isError, true);
+      // Even an erroneously broad resource grant must not bypass the user's ACL.
+      db.prepare(`INSERT INTO api_token_resources (id,tokenId,resourceType,resourceId,permission,includeDescendants)
+        VALUES ('mcp-grant-foreign','mcp-token-a','notebook','mcp-book-b','write',0)`).run();
+      const foreignBefore = db.prepare("SELECT * FROM notes WHERE id='mcp-note-b'").get();
+      assert.equal((await tool(tokens.a, "nowen_read_note", { noteId: "mcp-note-b" })).isError, true);
+      assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: "mcp-note-b", content: "Denied foreign edit" })).isError, true);
+      assert.equal((await tool(tokens.a, "nowen_create_note", { notebookId: "mcp-book-b", title: "Denied foreign creation" })).isError, true);
+      assert.deepEqual(db.prepare("SELECT * FROM notes WHERE id='mcp-note-b'").get(), foreignBefore);
+      assert.equal(db.prepare("SELECT id FROM notes WHERE title='Denied foreign creation'").get(), undefined);
+      assert.doesNotMatch(JSON.stringify(await tool(tokens.a, "nowen_list_notebooks")), /Book B/);
+      db.prepare("DELETE FROM api_token_resources WHERE id='mcp-grant-foreign'").run();
+    });
+    await t.test("DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin", async () => {
+      db.exec(`INSERT INTO notes (id,title,notebookId,userId,content,contentText) VALUES
+        ('mcp-note-delete','Delete safely','mcp-book-selected','mcp-a','Retained body','Retained body');`);
+      const beforeDelete = db.prepare("SELECT * FROM notes WHERE id='mcp-note-delete'").get() as { version: number };
+      const preview = await tool(tokens.a, "nowen_delete_note", { noteId: "mcp-note-delete" });
+      assert.equal(preview.isError, undefined);
+      assert.match(JSON.stringify(preview), /未执行/);
+      for (const args of [
+        { dryRun: false, expectedVersion: beforeDelete.version },
+        { dryRun: false, expectedVersion: beforeDelete.version + 1, confirmation: "MOVE_TO_TRASH" },
+        { permanent: true },
+      ]) {
+        assert.equal((await tool(tokens.a, "nowen_delete_note", { noteId: "mcp-note-delete", ...args })).isError, true);
+        assert.deepEqual(db.prepare("SELECT * FROM notes WHERE id='mcp-note-delete'").get(), beforeDelete);
+      }
+      for (const noteId of ["mcp-note-readonly", "mcp-note-unselected-child", "mcp-note-b"]) {
+        const untouched = db.prepare("SELECT * FROM notes WHERE id=?").get(noteId) as { version: number };
+        assert.equal((await tool(tokens.a, "nowen_delete_note", { noteId, dryRun: false, expectedVersion: untouched.version, confirmation: "MOVE_TO_TRASH" })).isError, true);
+        assert.deepEqual(db.prepare("SELECT * FROM notes WHERE id=?").get(noteId), untouched);
+      }
+      const removed = await tool(tokens.a, "nowen_delete_note", { noteId: "mcp-note-delete", dryRun: false, expectedVersion: beforeDelete.version, confirmation: "MOVE_TO_TRASH" });
+      assert.equal(removed.isError, undefined, JSON.stringify(removed));
+      const retained = db.prepare("SELECT isTrashed,contentText,notebookId FROM notes WHERE id='mcp-note-delete'").get();
+      assert.deepEqual(retained, { isTrashed: 1, contentText: "Retained body", notebookId: "mcp-book-selected" });
+      assert.equal((await tool(tokens.a, "nowen_delete_note", { noteId: "mcp-note-delete", permanent: true })).isError, true);
+      assert.deepEqual(db.prepare("SELECT isTrashed,contentText,notebookId FROM notes WHERE id='mcp-note-delete'").get(), retained);
+    });
     db.prepare("UPDATE api_token_resources SET permission='read' WHERE tokenId='mcp-token-a'").run();
     assert.equal((await tool(tokens.a, "nowen_update_note", { noteId: "mcp-note-a", title: "Still denied" })).isError, true);
     db.prepare("UPDATE api_tokens SET revokedAt=datetime('now') WHERE id='mcp-token-a'").run();

@@ -263,6 +263,7 @@
       "checks": [
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access" },
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
@@ -341,6 +342,7 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
         { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },

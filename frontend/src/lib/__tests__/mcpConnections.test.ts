@@ -83,25 +83,44 @@ describe("AI connection handoff", () => {
     mocks.request.mockResolvedValue(Response.json({ id: "grant-a", token: "nkn_private-a", expiresAt: null }, { status: 201 }));
     const storage = vi.spyOn(Storage.prototype, "setItem");
     const session = createMcpConnectionSession();
-    const result = await session.create({ client: "cursor", notebookIds: ["book-a", "book-a"], writable: false, url: connection.url });
+    const result = await session.create({ client: "cursor", notebooks: [{ id: "book-a", canWrite: true }, { id: "book-a", canWrite: true }], writable: false, url: connection.url });
     const [url, init] = mocks.request.mock.calls[0];
     expect(url).toBe("https://note.test/api/tokens");
     const body = JSON.parse(init.body);
     expect(body.resourceMode).toBe("restricted");
     expect(body.scopes).toEqual(["notes:read", "notebooks:read"]);
-    expect(body.notebookResources).toEqual([{ notebookId: "book-a", permission: "read", includeDescendants: true }]);
+    expect(body.notebookResources).toEqual([{ notebookId: "book-a", permission: "read", includeDescendants: false }]);
     expect(body.expiresInDays).toBe(90);
     expect(result.token).toBe("nkn_private-a");
     expect(storage).not.toHaveBeenCalled();
     storage.mockRestore();
-    await expect(session.create({ client: "cursor", notebookIds: [], writable: false, url: connection.url })).rejects.toThrow("至少选择");
+    await expect(session.create({ client: "cursor", notebooks: [], writable: false, url: connection.url })).rejects.toThrow("至少选择");
     expect(mocks.request).toHaveBeenCalledTimes(1);
+  });
+  it("grants note CRUD for selected writable notebooks while retaining read-only shared access", async () => {
+    mocks.request.mockResolvedValue(Response.json({ id: "grant-a", token: "nkn_private-a", expiresAt: null }, { status: 201 }));
+    const result = await createMcpConnectionSession().create({
+      client: "codex", writable: true, url: connection.url,
+      notebooks: [{ id: "book-a", canWrite: true }, { id: "shared-read", canWrite: false }, { id: "book-a", canWrite: true }],
+    });
+    const body = JSON.parse(mocks.request.mock.calls[0][1].body);
+    expect(body.resourceMode).toBe("restricted");
+    expect(body.scopes).toEqual(["notes:read", "notebooks:read", "notes:write"]);
+    expect(body.notebookResources).toEqual([
+      { notebookId: "book-a", permission: "write", includeDescendants: false },
+      { notebookId: "shared-read", permission: "read", includeDescendants: false },
+    ]);
+    expect(result.writable).toBe(true);
+    const prompt = buildMcpAgentInstructions(result);
+    expect(prompt).toMatch(/新建/);
+    expect(prompt).toMatch(/修改/);
+    expect(prompt).toMatch(/回收站/);
   });
   it("DCC-006: discards a one-time credential parsed after switching account or server", async () => {
     let finish!: (value: unknown) => void;
     mocks.request.mockResolvedValue({ ok: true, json: () => new Promise(resolve => { finish = resolve; }) });
     const session = createMcpConnectionSession();
-    const created = session.create({ client: "codex", notebookIds: ["book-a"], writable: false, url: connection.url });
+    const created = session.create({ client: "codex", notebooks: [{ id: "book-a", canWrite: true }], writable: false, url: connection.url });
     await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
     mocks.scope = "server:user-b";
     finish({ id: "grant-a", token: "nkn_private-a", expiresAt: null });
