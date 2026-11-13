@@ -496,12 +496,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           setError(t("auth.passwordMismatch"));
           return;
         }
-        const data = await registerAccount({
-          username: username.trim(),
-          password,
-          email: email.trim() || undefined,
-          displayName: displayName.trim() || undefined,
-        }, baseUrl || undefined);
+        let data: Awaited<ReturnType<typeof registerAccount>>;
+        try {
+          data = await registerAccount({
+            username: username.trim(),
+            password,
+            email: email.trim() || undefined,
+            displayName: displayName.trim() || undefined,
+          }, baseUrl || undefined);
+        } catch (err: any) {
+          if (!isClientMode && (err?.name === "TypeError" || err?.status >= 500)) setServiceUnavailable(true);
+          else setError(err?.status >= 400 && err?.status < 500 ? err.message || t("auth.registerFailed") : t("auth.registerFailed"));
+          return;
+        }
         storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
         await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
         onLogin(data.token, data.user);
