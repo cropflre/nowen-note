@@ -168,6 +168,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
         { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { fetchWebUiEnabled } from "@/lib/webUiAccess";
+import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
@@ -208,32 +210,6 @@ function getTokenExpiresAt(token: string): number | null {
   } catch {
     return null;
   }
-}
-
-async function fetchWebUiEnabled(): Promise<boolean> {
-  try {
-    const baseUrl = getBaseUrl();
-    const res = await fetch(`${baseUrl}/settings`, { cache: "no-store" });
-    if (!res.ok) return true;
-    const data = await res.json().catch(() => ({}));
-    return data?.web_ui_enabled !== "false";
-  } catch {
-    // 网络/后端异常时不做前端自锁，避免误伤本地开发和临时故障恢复。
-    return true;
-  }
-}
-
-function WebUiDisabledPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 px-6 text-center text-zinc-600">
-      <main className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-zinc-900 mb-3">网页端已被管理员关闭</h1>
-        <p className="text-sm leading-7">
-          当前服务器仅提供 API 服务。请使用 Nowen Note 桌面客户端连接该服务器。
-        </p>
-      </main>
-    </div>
-  );
 }
 
 function SidebarResizeHandle() {
