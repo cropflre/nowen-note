@@ -149,8 +149,21 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.equal(workflow.jobs.docker.needs, "verify");
   assert.equal(workflow.jobs.docker.environment, "release-docker");
   assert.ok(workflow.jobs.verify.steps.some(step => step.run === "node scripts/release-cloud-ci.mjs verify"));
+  assert.deepEqual(workflow.jobs.gitee.needs, ["verify", "github"]);
+  assert.equal(workflow.jobs.gitee.uses, "./.github/workflows/sync-gitee-release.yml");
+  assert.equal(workflow.jobs.gitee.with.tag, "v${{ inputs.version }}");
   for (const job of Object.values(workflow.jobs)) {
+    // Reusable-workflow jobs use \x60uses\x60 instead of \x60runs-on\x60 and \x60steps\x60.
+    if (job.uses) continue;
     assert.doesNotMatch(JSON.stringify(job["runs-on"]), /self-hosted/);
     assert.ok(job.steps.filter(s => s.uses?.startsWith("actions/checkout@")).every(s => s.with?.["persist-credentials"] === false));
   }
+  const gitee = yaml.load(fs.readFileSync(new URL("../../.github/workflows/sync-gitee-release.yml", import.meta.url), "utf8"));
+  assert.equal(gitee.on.workflow_call.inputs.tag.required, true);
+  assert.equal(gitee.on.workflow_call.inputs.tag.type, "string");
+  const giteeReleaseStep = gitee.jobs.sync.steps.find(step => step.name === "Ensure Gitee release exists");
+  assert.ok(giteeReleaseStep);
+  assert.match(giteeReleaseStep.run, /for attempt in 1 2 3 4/);
+  assert.match(giteeReleaseStep.run, /--http1\.1/);
+  assert.match(giteeReleaseStep.run, /recovered existing release after ambiguous POST/);
 });
