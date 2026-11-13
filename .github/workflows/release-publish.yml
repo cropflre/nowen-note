@@ -99,7 +99,9 @@ jobs:
       - run: node scripts/release-cloud-publish.mjs github
         env: *publish-inputs
   gitee:
-    needs: [verify, github]
+    # Sync metadata after the R2 mirror finishes, even when its optional upload fails.
+    # In that case, Gitee metadata retains verified GitHub official links.
+    needs: [verify, github, r2-downloads]
     if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
     uses: ./.github/workflows/sync-gitee-release.yml
     with:
