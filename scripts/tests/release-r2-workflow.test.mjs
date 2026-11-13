@@ -42,6 +42,8 @@ test("R2 mirrors exactly user-facing platform installers and extension ZIPs", ()
   assert.match(select, /edge/);
   assert.match(select, /firefox/);
   assert.match(select, /ten unique files/);
+  assert.doesNotMatch(select, /PLACEHOLDER|unused/);
+  assert.match(select, /\$\{#matched\[@\]\}/);
   assert.doesNotMatch(select, /--pattern '\*'/);
   assert.doesNotMatch(select, /Nowen-Note-Lite-\$version/);
   assert.doesNotMatch(select, /Nowen-Note-\$version\.aab/);
