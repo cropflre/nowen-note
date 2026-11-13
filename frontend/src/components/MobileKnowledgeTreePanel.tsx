@@ -37,6 +37,7 @@ import {
 import KnowledgeTreeDropdownMenu from "@/components/KnowledgeTreeDropdownMenu";
 import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMenuButton";
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
+import MobileSidebarSearchPortal from "@/components/MobileSidebarSearchPortal";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
 import {
@@ -1335,6 +1336,7 @@ export default function MobileKnowledgeTreePanel({
           : "items-center gap-0.5 px-2 pb-1.5",
       )}>
         <div className={compactToolbar ? "flex w-full items-center gap-2" : "contents"}>
+          <MobileSidebarSearchPortal collapsed={controlsCollapsed} mode="navigator">
           <div className={cn(
             "flex min-w-0 items-center border border-app-border bg-app-bg",
             variant === "mobile"
@@ -1360,7 +1362,7 @@ export default function MobileKnowledgeTreePanel({
                 : compactToolbar ? "搜索…" : "搜索目录与文档"}
               aria-label={searchScope === "content" ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档"}
               title={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
-              className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+              className={cn("min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary", controlsCollapsed && "no-focus-ring")}
               data-mobile-knowledge-tree-search=""
               data-search-scope={searchScope}
             />
@@ -1393,6 +1395,7 @@ export default function MobileKnowledgeTreePanel({
               />
             )}
           </div>
+          </MobileSidebarSearchPortal>
           {compactToolbar && (
             <>
               <button
