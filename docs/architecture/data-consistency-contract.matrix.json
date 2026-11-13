@@ -262,6 +262,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },
