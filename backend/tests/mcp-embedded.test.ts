@@ -58,6 +58,35 @@ test("DCC-006: embedded MCP isolates concurrent credentials, notebook grants and
     app.route("/api/mcp", createMcpSettingsRouter());
     app.route("/api/notebooks", notebooks);
     app.route("/api/notes", notes);
+    const { default: tokenRoutes } = await import("../src/routes/tokens");
+    app.route("/api/tokens", tokenRoutes);
+    await t.test("DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management", async () => {
+      const create = (days?: number, bearer = "admin-session") => app.request("http://localhost/api/tokens", {
+        method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "MCP · expiry test", resourceMode: "restricted",
+          scopes: ["notes:read", "notebooks:read", "notes:write"],
+          notebookResources: [{ notebookId: "mcp-book-a", permission: "write", includeDescendants: false }],
+          ...(days === undefined ? { expiresAt: null } : { expiresInDays: days }),
+        }),
+      });
+      const permanent = await create();
+      assert.equal(permanent.status, 201);
+      const saved = await permanent.json() as any;
+      assert.equal(saved.expiresAt, null);
+      assert.deepEqual(db.prepare("SELECT expiresAt FROM api_tokens WHERE id=?").get(saved.id), { expiresAt: null });
+      assert.ok(resolveApiToken(db, saved.token));
+      const started = Date.now();
+      const custom = await create(30);
+      assert.equal(custom.status, 201);
+      const expiring = await custom.json() as any;
+      const expiry = Date.parse(expiring.expiresAt);
+      assert.ok(expiry >= started + 30 * 86400_000 && expiry <= Date.now() + 30 * 86400_000);
+      assert.deepEqual(db.prepare("SELECT expiresAt FROM api_tokens WHERE id=?").get(expiring.id), { expiresAt: expiring.expiresAt });
+      assert.equal((await create(undefined, saved.token)).status, 403);
+      db.prepare("UPDATE api_tokens SET expiresAt='2000-01-01T00:00:00Z' WHERE id=?").run(expiring.id);
+      assert.equal(resolveApiToken(db, expiring.token), null);
+      assert.ok(resolveApiToken(db, saved.token), "permanent grant remains valid");
+    });
     const configure = (body: unknown, bearer = "admin-session") => app.request("http://localhost/api/mcp", {
       method: "PUT", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
