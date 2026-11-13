@@ -21,6 +21,10 @@
 name: Sync Release to Gitee
 
 on:
+  # Reconcile the latest published release after the sync workflow itself is changed.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sync-gitee-release.yml']
   release:
     types: [published, edited]
   workflow_dispatch:
@@ -55,7 +59,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     # 没配 GITEE_TOKEN 时不跑，避免 fork / 新仓库报错
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event.release.draft == false }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event.release.draft == false }}
     permissions:
       contents: read
     steps:
