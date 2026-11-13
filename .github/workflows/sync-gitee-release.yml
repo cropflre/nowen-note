@@ -288,6 +288,79 @@ jobs:
 
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      - name: Sync official release notes and download links
+        if: steps.check.outputs.skip == '0'
+        id: metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: ${{ secrets.GITEE_OWNER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          RELEASE_ID: ${{ steps.gitee_release.outputs.id }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "[gitee] missing release ID"
+            exit 1
+          fi
+
+          source=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")
+          name=$(printf '%s' "$source" | jq -r --arg tag "$TAG" '.name // $tag')
+          notes=$(printf '%s' "$source" | jq -r '.body // ""')
+          prerelease=$(printf '%s' "$source" | jq -r '.prerelease // false')
+          # These point to GitHub official downloads, NOT to Gitee attachments.
+          asset_links=$(printf '%s' "$source" | jq -r '
+            [.assets[]? | select(.name | test("\\.(exe|msi|dmg|zip|AppImage|deb|rpm|apk|aab|fpk|upk|tar|tar\\.gz)$"; "i"))]
+            | sort_by(.name)
+            | map("- [" + .name + "](" + .browser_download_url + ") (" + (((.size / 1048576) * 10 | round / 10) | tostring) + " MiB)")
+            | join("\n")
+          ')
+          if [ -z "$asset_links" ]; then
+            asset_links="本版本没有单独提供可分发的安装包。"
+          fi
+          body=$(printf '%s\n\n---\n\n### 官方安装包下载\n\n%s\n\n> 以上是 GitHub 官方下载链接，不代表文件已上传到 Gitee。本仓库仅镜像代码与发行版信息，安装包仍由 GitHub 分发。\n\n[GitHub 原版发布页](https://github.com/%s/releases/tag/%s)\n' \
+            "$notes" "$asset_links" "$GITHUB_REPOSITORY" "$TAG")
+
+          api="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID"
+          payload=$(jq -n --arg token "$GITEE_TOKEN" --arg tag "$TAG" \
+            --arg name "$name" --arg body "$body" --argjson prerelease "$prerelease" \
+            '{access_token:$token, tag_name:$tag, name:$name, body:$body, prerelease:$prerelease}')
+
+          # The update is idempotent. If Gitee drops the response, GET and compare before retrying.
+          for attempt in 1 2 3; do
+            echo "[gitee] update metadata attempt $attempt/3"
+            if response=$(curl --http1.1 --connect-timeout 15 --max-time 40 \
+              -sS -w "\n%{http_code}" -X PATCH \
+              -H "Content-Type: application/json" -d "$payload" "$api" 2>/dev/null); then
+              code=$(printf '%s' "$response" | tail -n 1)
+              if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+                echo "[gitee] release metadata updated: $TAG"
+                echo "status=success" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "[gitee] PATCH returned HTTP $code"
+            else
+              echo "[gitee] PATCH network error"
+            fi
+
+            if verify=$(curl --http1.1 --connect-timeout 15 --max-time 30 \
+              -sS -w "\n%{http_code}" "$api?access_token=$GITEE_TOKEN" 2>/dev/null); then
+              verify_code=$(printf '%s' "$verify" | tail -n 1)
+              verify_body=$(printf '%s' "$verify" | sed '$d')
+              if [ "$verify_code" = "200" ] && printf '%s' "$verify_body" | jq -e \
+                --arg body "$body" --arg tag "$TAG" \
+                '.body == $body and .tag_name == $tag' >/dev/null; then
+                echo "[gitee] recovered a completed metadata update"
+                echo "status=success" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 3)); fi
+          done
+          echo "[gitee] metadata update failed"
+          exit 1
+
       - name: Upload assets to Gitee
         if: steps.check.outputs.skip == '0' && inputs.sync_assets == true && steps.filter.outputs.count != '0'
         env:
@@ -423,5 +496,7 @@ jobs:
           echo "## Gitee Sync Summary" >> $GITHUB_STEP_SUMMARY
           echo "- tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- skipped (no secrets): ${{ steps.check.outputs.skip }}" >> $GITHUB_STEP_SUMMARY
-          echo "- files queued: ${{ steps.filter.outputs.count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- release metadata: ${{ steps.metadata.outputs.status || 'failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- native attachment upload requested: ${{ inputs.sync_assets || false }}" >> $GITHUB_STEP_SUMMARY
+          echo "- files queued for native attachment upload: ${{ steps.filter.outputs.count || '0' }}" >> $GITHUB_STEP_SUMMARY
           echo "- gitee release id: ${{ steps.gitee_release.outputs.id }}" >> $GITHUB_STEP_SUMMARY
