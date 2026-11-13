@@ -225,11 +225,34 @@ jobs:
             echo "[r2] verified remote: $key"
           done < upload-names.txt
 
+          # Publish the manifest LAST, only after all ten binaries and SHA256SUMS
+          # are verified. Consumers must never guess that a Release has an R2 mirror.
+          jq -n --arg tag "$TAG" --slurpfile release release.json --rawfile names selected.txt '
+            ($names | split("\n") | map(select(length > 0))) as $selected |
+            {schema: 1, version: $tag,
+             assets: ([ $selected[] as $name |
+               $release[0].assets[] | select(.name == $name) | {name, size}
+             ] | sort_by(.name))}
+          ' > r2-files/manifest.json
+          jq -e --arg tag "$TAG" '
+            .schema == 1 and .version == $tag and
+            (.assets | length) == 10 and
+            ([.assets[].name] | unique | length) == 10
+          ' r2-files/manifest.json >/dev/null
+          api_upload "$TAG/manifest.json" r2-files/manifest.json > manifest-response.json
+          jq -e '.success == true' manifest-response.json >/dev/null
+          api_list > manifest-verified.json
+          manifest_size=$(stat -c%s r2-files/manifest.json)
+          manifest_md5=$(md5sum r2-files/manifest.json | cut -d' ' -f1)
+          jq -e --arg key "$TAG/manifest.json" --argjson size "$manifest_size" --arg md5 "$manifest_md5" '
+            any(.result[]; .key == $key and .size == $size and .etag == $md5)
+          ' manifest-verified.json >/dev/null
+
           {
             echo "## R2 Release Downloads — $TAG"
             echo "- Bucket: nowen-releases"
             echo "- Domain: https://download.nowen.cn"
-            echo "- Verified installers: 10 + SHA256SUMS"
+            echo "- Verified installers: 10 + SHA256SUMS + manifest.json"
             echo ""
             echo "| Release asset | Download |"
             echo "| --- | --- |"
@@ -237,4 +260,4 @@ jobs:
               echo "| $name | https://download.nowen.cn/$TAG/$name |"
             done < upload-names.txt
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "[r2] SUCCESS: 10 packages + SHA256SUMS uploaded and verified"
+          echo "[r2] SUCCESS: 10 packages + SHA256SUMS + manifest.json uploaded and verified"
