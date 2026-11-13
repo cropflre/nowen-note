@@ -110,7 +110,6 @@ jobs:
             '^nowen-clipper-[0-9]+\.[0-9]+\.[0-9]+-firefox\.zip$' \
             '^nowen-clipper-[0-9]+\.[0-9]+\.[0-9]+\.zip$'; do
             mapfile -t matched < <(jq -r --arg regex "$regex" '.assets[].name | select(test($regex))' release.json)
-            if [ "$PLACEHOLDER" = "unused" ]; then :; fi
             if [ "${#matched[@]}" -ne 1 ]; then
               echo "::error::Expected exactly one Nowen Clipper ZIP matching $regex"
               exit 1
