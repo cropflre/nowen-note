@@ -175,6 +175,9 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.match(giteeUpload.run, /recovered completed upload/);
   // Gitee's cross-border asset endpoint is unreliable: metadata + official links
   // must succeed independently; native upload requires an explicit opt-in.
+  assert.deepEqual(gitee.on.push.branches, ["main"]);
+  assert.deepEqual(gitee.on.push.paths, [".github/workflows/sync-gitee-release.yml"]);
+  assert.match(gitee.jobs.sync.if, /github.event_name == 'push'/);
   assert.equal(gitee.on.workflow_dispatch.inputs.sync_assets.default, false);
   assert.equal(gitee.on.workflow_call.inputs.sync_assets.default, false);
   const downloadStep = gitee.jobs.sync.steps.find(step => step.name === "Download release assets from GitHub");
