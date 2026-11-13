@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Copy, Loader2, PlugZap } from "lucide-react";
 import type { EmbeddedMcpStatus } from "@/lib/api";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
@@ -20,6 +20,7 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
   const [books, setBooks] = useState<McpNotebookOption[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [expiryInput, setExpiryInput] = useState("");
+  const expiryInputId = useId();
   const expiresInDays = expiryInput === "" ? undefined : Number(expiryInput);
   const validExpiry = expiryInput === "" || (/^\d+$/.test(expiryInput) && isValidMcpExpiryDays(expiresInDays));
   const [saved, setSaved] = useState<SavedMcpConnection[]>([]);
@@ -152,13 +153,13 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
                 </label>)}
           </div>
         </fieldset>
-        <label className="flex flex-wrap items-center gap-2 text-sm">
-          <span>有效期（天）</span>
-          <input type="text" inputMode="numeric" placeholder="永久" value={expiryInput}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label htmlFor={expiryInputId}>有效期（天）</label>
+          <input id={expiryInputId} type="text" inputMode="numeric" placeholder="永久" value={expiryInput}
             disabled={Boolean(busy) || unavailable} aria-invalid={!validExpiry} aria-describedby="mcp-expiry-help"
             onChange={event => setExpiryInput(event.target.value)} className={`${control} w-28 bg-[var(--color-bg)]`} />
           <span id="mcp-expiry-help" className="text-xs text-[var(--color-text-secondary)]">{validExpiry ? "留空为永久" : "请输入正整数天数"}</span>
-        </label>
+        </div>
         <button type="button" disabled={Boolean(busy) || unavailable || !selected.length || !validExpiry} onClick={() => void create()}
           className={`${control} inline-flex items-center gap-2 border-transparent bg-[var(--color-accent-primary)] text-[var(--color-text-inverse)]`}>
           {busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
