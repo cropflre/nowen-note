@@ -28,7 +28,7 @@
 
 主界面只呈现一个助手下拉框、笔记本选择与「连接」，不展示协议、Token、JSON 或高级折叠项。
 助手下拉框按「国内助手 / 其他助手」分组，不增加新的设置面板。国内选项包括 WorkBuddy、CodeBuddy Code、TRAE 国内版、Qoder、Kimi Code 和 Qwen Code；保留 Claude Code、Cursor、Codex。
-`mcpConnections.ts` 复用现有 `/api/tokens` 和 `/api/mcp`，默认全选当前可授权的笔记本，也可通过「全部笔记」全选/取消或逐个调整。创建 90 天的 restricted 授权，仅包含笔记 CRUD 所需的 `notes:read`、`notebooks:read`、`notes:write`，每个笔记本按当前用户的 `canWrite` 分别授予 write/read，`includeDescendants=false`，确保取消子笔记本时不会仍由父本授权；不使用离线队列，也不在浏览器存储明文。
+`mcpConnections.ts` 复用现有 `/api/tokens` 和 `/api/mcp`，默认全选当前可授权的笔记本，也可通过「全部笔记」全选/取消或逐个调整。创建默认永久、可自定义正整数天数的 restricted 授权，仅包含笔记 CRUD 所需的 `notes:read`、`notebooks:read`、`notes:write`，每个笔记本按当前用户的 `canWrite` 分别授予 write/read，`includeDescendants=false`，确保取消子笔记本时不会仍由父本授权；不使用离线队列，也不在浏览器存储明文。
 服务或写入未开启时，仅管理员点击「连接」才会启用。普通用户不能自行启动或提升全局写权限。已有只读授权保持原有权限，需断开后重新连接才使用新授权。
 授权只覆盖当前勾选的笔记本，以后新建笔记本需重新连接时选中；不授予笔记本结构写权限。笔记增删改查复用现有工具和 REST 路径；删除先预览并明确确认，只移入回收站，保留版本检查且禁止永久删除。
 创建后依次执行 initialize、tools/list、nowen_list_notebooks，成功后才提供接入材料；失败重试复用已创建的授权。

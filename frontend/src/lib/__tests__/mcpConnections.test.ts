@@ -90,7 +90,8 @@ describe("AI connection handoff", () => {
     expect(body.resourceMode).toBe("restricted");
     expect(body.scopes).toEqual(["notes:read", "notebooks:read"]);
     expect(body.notebookResources).toEqual([{ notebookId: "book-a", permission: "read", includeDescendants: false }]);
-    expect(body.expiresInDays).toBe(90);
+    expect(body.expiresInDays).toBeUndefined();
+    expect(body.expiresAt).toBeNull();
     expect(result.token).toBe("nkn_private-a");
     expect(storage).not.toHaveBeenCalled();
     storage.mockRestore();
@@ -115,6 +116,21 @@ describe("AI connection handoff", () => {
     expect(prompt).toMatch(/新建/);
     expect(prompt).toMatch(/修改/);
     expect(prompt).toMatch(/回收站/);
+  });
+  it("creates a custom expiry and rejects invalid days instead of issuing a permanent credential", async () => {
+    const expiresAt = "2030-01-31T00:00:00Z";
+    mocks.request.mockResolvedValue(Response.json({ id: "grant-a", token: "nkn_private-a", expiresAt }, { status: 201 }));
+    const session = createMcpConnectionSession();
+    const input = { client: "codex" as const, notebooks: [{ id: "book-a", canWrite: true }], writable: true, url: connection.url };
+    const result = await session.create({ ...input, expiresInDays: 30 });
+    const body = JSON.parse(mocks.request.mock.calls[0][1].body);
+    expect(body.expiresInDays).toBe(30);
+    expect(body.expiresAt).toBeUndefined();
+    expect(result.expiresAt).toBe(expiresAt);
+    for (const expiresInDays of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+      await expect(session.create({ ...input, expiresInDays })).rejects.toThrow("正整数天数");
+    }
+    expect(mocks.request).toHaveBeenCalledTimes(1);
   });
   it("DCC-006: discards a one-time credential parsed after switching account or server", async () => {
     let finish!: (value: unknown) => void;

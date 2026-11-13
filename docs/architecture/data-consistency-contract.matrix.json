@@ -263,6 +263,7 @@
       "checks": [
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
+        { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access" },
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },

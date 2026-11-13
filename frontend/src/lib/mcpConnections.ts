@@ -27,6 +27,11 @@ export interface McpConnection {
   id: string; token: string; url: string; client: McpClient; writable: boolean; expiresAt: string | null;
 }
 
+export function isValidMcpExpiryDays(days?: number): boolean {
+  return days === undefined || (Number.isSafeInteger(days) && days > 0
+    && Number.isFinite(new Date(Date.now() + days * 86400_000).getTime()));
+}
+
 function endpoint(value: string): string {
   const url = new URL(value);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash
@@ -129,13 +134,15 @@ export function createMcpConnectionSession() {
     notebooks: (signal?: AbortSignal) => request<{ notebooks: McpNotebookOption[] }>("/tokens/notebook-options", { signal }),
     enable: (settings: Pick<EmbeddedMcpStatus, "enabled" | "allowWrite" | "publicUrl">, signal?: AbortSignal) =>
       request<EmbeddedMcpStatus>("/mcp", { method: "PUT", body: JSON.stringify(settings), signal }),
-    create: async (input: { client: McpClient; notebooks: Pick<McpNotebookOption, "id" | "canWrite">[]; writable: boolean; url: string }, signal?: AbortSignal): Promise<McpConnection> => {
+    create: async (input: { client: McpClient; notebooks: Pick<McpNotebookOption, "id" | "canWrite">[]; writable: boolean; url: string; expiresInDays?: number }, signal?: AbortSignal): Promise<McpConnection> => {
       const url = endpoint(input.url);
       if (!input.notebooks.length) throw new Error("请至少选择一个笔记本");
+      if (!isValidMcpExpiryDays(input.expiresInDays)) throw new Error("有效期请填写有效的正整数天数，留空为永久");
       const notebooks = [...new Map(input.notebooks.map(book => [book.id, book])).values()];
       const created = await request<{ id: string; token: string; expiresAt: string | null }>("/tokens", {
         method: "POST", signal, body: JSON.stringify({
-          name: `MCP · ${MCP_CLIENT_NAMES[input.client]}`, expiresInDays: 90, resourceMode: "restricted",
+          name: `MCP · ${MCP_CLIENT_NAMES[input.client]}`, resourceMode: "restricted",
+          ...(input.expiresInDays === undefined ? { expiresAt: null } : { expiresInDays: input.expiresInDays }),
           scopes: ["notes:read", "notebooks:read", ...(input.writable ? ["notes:write"] : [])],
           notebookResources: notebooks.map(book => ({ notebookId: book.id, permission: input.writable && book.canWrite ? "write" : "read", includeDescendants: false })),
         }),

@@ -5,7 +5,7 @@ import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { toast } from "@/lib/toast";
 import {
   buildMcpInstallLink, buildMcpAgentInstructions, createMcpConnectionSession,
-  MCP_CLIENT_NAMES, MCP_CLIENT_GROUPS, type McpClient, type McpConnection, type McpNotebookOption, type SavedMcpConnection,
+  MCP_CLIENT_NAMES, MCP_CLIENT_GROUPS, isValidMcpExpiryDays, type McpClient, type McpConnection, type McpNotebookOption, type SavedMcpConnection,
 } from "@/lib/mcpConnections";
 
 const control = "min-h-11 rounded-xl border border-[var(--color-border)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent-primary)] disabled:opacity-50";
@@ -19,6 +19,9 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
   const [client, setClient] = useState<McpClient>("claude-code");
   const [books, setBooks] = useState<McpNotebookOption[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [expiryInput, setExpiryInput] = useState("");
+  const expiresInDays = expiryInput === "" ? undefined : Number(expiryInput);
+  const validExpiry = expiryInput === "" || (/^\d+$/.test(expiryInput) && isValidMcpExpiryDays(expiresInDays));
   const [saved, setSaved] = useState<SavedMcpConnection[]>([]);
   const [connection, setConnection] = useState<McpConnection | null>(null);
   const [busy, setBusy] = useState("");
@@ -76,7 +79,7 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
     }
   };
   const create = () => run(async signal => {
-    if (!service?.available || !books || !selected.length) return;
+    if (!service?.available || !books || !selected.length || !validExpiry) return;
     let status = service;
     if (!status.enabled || !status.allowWrite) {
       if (!status.canManage) throw new Error("请联系管理员开启 AI 连接和编辑功能");
@@ -85,7 +88,8 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
       onServiceChange(status);
       if (!status.enabled || !status.allowWrite) throw new Error("AI 连接和编辑功能尚未开启，请重试");
     }
-    const value = await session.create({ client, notebooks: books.filter(book => selected.includes(book.id)).map(({ id, canWrite }) => ({ id, canWrite })), writable: true, url: status.publicUrl || defaultUrl }, signal);
+    const value = await session.create({ client, notebooks: books.filter(book => selected.includes(book.id)).map(({ id, canWrite }) => ({ id, canWrite })), writable: true, url: status.publicUrl || defaultUrl,
+      ...(expiresInDays === undefined ? {} : { expiresInDays }) }, signal);
     if (!active() || signal.aborted) return;
     setConnection(value);
     setSaved(values => [...values, { id: value.id, name: `MCP · ${MCP_CLIENT_NAMES[value.client]}`, expiresAt: value.expiresAt, revokedAt: null }]);
@@ -148,7 +152,14 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
                 </label>)}
           </div>
         </fieldset>
-        <button type="button" disabled={Boolean(busy) || unavailable || !selected.length} onClick={() => void create()}
+        <label className="flex flex-wrap items-center gap-2 text-sm">
+          <span>有效期（天）</span>
+          <input type="text" inputMode="numeric" placeholder="永久" value={expiryInput}
+            disabled={Boolean(busy) || unavailable} aria-invalid={!validExpiry} aria-describedby="mcp-expiry-help"
+            onChange={event => setExpiryInput(event.target.value)} className={`${control} w-28 bg-[var(--color-bg)]`} />
+          <span id="mcp-expiry-help" className="text-xs text-[var(--color-text-secondary)]">{validExpiry ? "留空为永久" : "请输入正整数天数"}</span>
+        </label>
+        <button type="button" disabled={Boolean(busy) || unavailable || !selected.length || !validExpiry} onClick={() => void create()}
           className={`${control} inline-flex items-center gap-2 border-transparent bg-[var(--color-accent-primary)] text-[var(--color-text-inverse)]`}>
           {busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
           {busy || "连接"}
@@ -166,7 +177,7 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
           {!verified && <button type="button" disabled={Boolean(busy)} onClick={() => void run(signal => checkConnection(connection, signal))} className={control}>重试</button>}
           <button type="button" disabled={Boolean(busy)} onClick={() => void disconnect(connection.id)} className={control}>断开</button>
         </div>
-        <p className="text-xs text-[var(--color-text-secondary)]">接入信息含访问授权，请勿公开分享。有效期 90 天。</p>
+        <p className="text-xs text-[var(--color-text-secondary)]">接入信息含访问授权，请勿公开分享。{connection.expiresAt ? `有效期至 ${new Date(connection.expiresAt).toLocaleDateString()}。` : "永久有效。"}</p>
       </div>}
       {error && <p role="alert" className="mt-3 text-sm text-[var(--color-accent-danger)]">{error}</p>}
       {saved.some(value => value.id !== connection?.id) && <div className="mt-5 border-t border-[var(--color-border)] pt-3">

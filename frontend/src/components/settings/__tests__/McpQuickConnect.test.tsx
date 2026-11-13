@@ -24,6 +24,11 @@ const selectClient = async (name: string) => { await act(async () => {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }); };
 const render = async (service = status) => { await act(async () => root.render(<McpQuickConnect service={service} defaultUrl="https://note.test/mcp" onServiceChange={mocks.changed}/>)); };
+const setExpiry = async (value: string) => { await act(async () => {
+  const input = host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}); };
 const toggleBook = async (name: string) => { await act(async () => {
   const label = [...host.querySelectorAll("label")].find(node => node.querySelector("span")?.textContent?.trim() === name)!;
   expect(label).toBeDefined();
@@ -37,7 +42,7 @@ beforeEach(() => {
   mocks.notebooks.mockResolvedValue({ notebooks: [{ id: "book-a", name: "工作笔记", parentId: null, canWrite: true }] });
   mocks.list.mockResolvedValue([]);
   mocks.enable.mockResolvedValue(status);
-  mocks.create.mockImplementation(async input => ({ id: "grant-a", token: "nkn_private-a", url: input.url, client: input.client, writable: input.writable, expiresAt: "2027-02-01" }));
+  mocks.create.mockImplementation(async input => ({ id: "grant-a", token: "nkn_private-a", url: input.url, client: input.client, writable: input.writable, expiresAt: input.expiresInDays ? "2030-01-31T00:00:00Z" : null }));
   mocks.probe.mockResolvedValue(undefined); mocks.revoke.mockResolvedValue({ success: true }); mocks.copy.mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: mocks.copy } });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -45,6 +50,32 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe("simple AI connection flow", () => {
+  it("defaults to permanent access without requiring an expiry choice", async () => {
+    await render();
+    expect(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!.value).toBe("");
+    expect(host.textContent).toContain("留空为永久");
+    await click("连接");
+    expect(mocks.create.mock.calls[0][0].expiresInDays).toBeUndefined();
+    expect(host.textContent).toContain("永久有效");
+  });
+  it("accepts custom days and displays the expiry returned by the server", async () => {
+    await render(); await setExpiry("30"); await click("连接");
+    expect(mocks.create.mock.calls[0][0].expiresInDays).toBe(30);
+    expect(host.textContent).toContain(`有效期至 ${new Date("2030-01-31T00:00:00Z").toLocaleDateString()}`);
+    expect(host.textContent).not.toContain("永久有效");
+  });
+  it("blocks invalid days and permits clearing them back to permanent", async () => {
+    await render({ ...status, enabled: false });
+    for (const value of ["0", "-1", "1.5", "abc", "1e3"]) {
+      await setExpiry(value);
+      expect(button("连接").disabled).toBe(true);
+      await click("连接");
+    }
+    expect(mocks.enable).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    await setExpiry(""); await click("连接");
+    expect(mocks.create.mock.calls[0][0].expiresInDays).toBeUndefined();
+  });
   it("starts with all notebooks selected and keeps the primary flow free of credential fields", async () => {
     await render();
     expect(host.querySelector('input[type="password"]')).toBeNull();
