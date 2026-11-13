@@ -1439,6 +1439,22 @@ export const api = {
     }
   },
 
+
+  // Only returns R2 URLs if the server verified all ten manifest entries against
+  // the current official GitHub release, including exact filename and size.
+  getLatestReleaseMirror: async (): Promise<
+    | { available: true; tag: string; assets: Array<{ name: string; size: number; downloadUrl: string }> }
+    | { available: false; tag: string }
+  > => {
+    try {
+      const res = await fetch(`${getBaseUrl()}/releases/latest/mirror`);
+      if (!res.ok) return { available: false, tag: "" };
+      return res.json();
+    } catch {
+      return { available: false, tag: "" };
+    }
+  },
+
   // User
   getMe: () => request<User>("/me"),
   claimOnboardingWelcome: () => request<{ noteId: string | null }>("/onboarding/welcome", {
