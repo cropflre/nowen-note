@@ -35,6 +35,39 @@ async function fitsSidebar(sidebar: Locator, element: Locator) {
   expect(box!.width).toBeGreaterThanOrEqual(bounds!.width < 280 ? 64 : 100);
 }
 
+async function assertHeaderAlignment(page: Page, sidebar: Locator, expanded: boolean) {
+  const header = sidebar.locator("header");
+  const elements = {
+    rail: page.locator("[data-mobile-rail-hide]:visible > svg"),
+    fold: header.locator(":scope > div:first-child > button > svg"),
+    title: header.locator("[data-sidebar-title]"),
+    close: header.getByRole("button", { name: "关闭", exact: true }).locator("svg"),
+  };
+  const originalInset = await page.locator("html").evaluate(element => ({
+    value: element.style.getPropertyValue("--safe-area-top"),
+    priority: element.style.getPropertyPriority("--safe-area-top"),
+  }));
+  const measurements = [];
+  for (const safeAreaTop of [null, 24, 52]) {
+    if (safeAreaTop !== null) {
+      await page.locator("html").evaluate((element, inset) => element.style.setProperty("--safe-area-top", `${inset}px`, "important"), safeAreaTop);
+    }
+    const centers = Object.fromEntries(await Promise.all(Object.entries(elements).map(async ([name, element]) => {
+      const box = (await element.boundingBox())!;
+      return [name, box.y + box.height / 2];
+    })));
+    for (const name of ["fold", "title", "close"]) {
+      expect(Math.abs(centers[name] - centers.rail), `${name} aligns with the rail at safe area ${safeAreaTop ?? "default"}`).toBeLessThanOrEqual(0.5);
+    }
+    measurements.push({ expanded, safeAreaTop, centers });
+  }
+  await page.locator("html").evaluate((element, original) => {
+    if (original.value) element.style.setProperty("--safe-area-top", original.value, original.priority);
+    else element.style.removeProperty("--safe-area-top");
+  }, originalInset);
+  return measurements;
+}
+
 for (const width of [320, 390]) {
   for (const mode of ["navigator", "tree"] as const) {
     for (const railHidden of [false, true]) {
@@ -90,6 +123,28 @@ for (const width of [320, 390]) {
             expect(slotBox.y).toBeGreaterThanOrEqual(box!.y + box!.height);
             if (index > 0) expect(Math.abs(box!.x - actionBoxes[index - 1]!.x - actionBoxes[index - 1]!.width)).toBeLessThanOrEqual(1);
           }
+          const alignments = railHidden ? [] : await assertHeaderAlignment(page, sidebar, false);
+          if (width === 390 && mode === "tree" && !railHidden) {
+            // Exercise the lazy Android guard through the palette's existing application event.
+            await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:open-command-palette")));
+            await expect(page.locator("style[data-mobile-drawer-ux]")).toBeAttached();
+            const palette = page.getByRole("dialog", { name: "全局搜索与工作台命令", exact: true });
+            await expect(palette).toBeVisible();
+            const guarded = await assertHeaderAlignment(page, sidebar, false);
+            fs.writeFileSync(test.info().outputPath("header-alignment-android-guard.json"), JSON.stringify(guarded, null, 2));
+            await expect(header).toHaveCSS("padding-top", "44px");
+            expect((await page.locator("[data-mobile-rail-hide]:visible").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+            await page.keyboard.press("Escape");
+            await expect(palette).toHaveCount(0);
+            await expect(page.locator("style[data-mobile-drawer-ux]")).toHaveCount(0);
+          }
+          if (!railHidden) {
+            const headerBox = (await header.boundingBox())!;
+            await page.screenshot({
+              path: test.info().outputPath("header-aligned-strip.png"),
+              clip: { x: 0, y: 0, width, height: Math.ceil(headerBox.y + headerBox.height + 1) },
+            });
+          }
           await page.screenshot({ path: test.info().outputPath("folded-empty-search.png") });
 
           // Keyboard focus belongs to the whole search field, without a second inner outline.
@@ -129,6 +184,8 @@ for (const width of [320, 390]) {
           await expect(visibleSearch).toHaveCount(1);
           await expect(visibleSearch).toHaveValue("项目开发");
           await expect(header.getByRole("button", { name: "折叠目录工具区", exact: true })).toHaveAttribute("aria-expanded", "true");
+          if (!railHidden) alignments.push(...await assertHeaderAlignment(page, sidebar, true));
+          fs.writeFileSync(test.info().outputPath("header-alignment.json"), JSON.stringify(alignments, null, 2));
           await page.screenshot({ path: test.info().outputPath("expanded-search.png") });
 
           await header.getByRole("button", { name: "折叠目录工具区", exact: true }).click();

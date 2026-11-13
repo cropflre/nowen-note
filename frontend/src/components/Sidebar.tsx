@@ -248,9 +248,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
       <header
         className={cn("shrink-0 border-b border-app-border", variant === "mobile"
-          ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 pb-3 pt-2"
+          ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[44px] items-center gap-x-3 gap-y-2 px-3 pb-3 pt-2"
           : "flex items-center justify-between px-4 py-3")}
         data-mobile-controls-collapsed={variant === "mobile" ? mobileControlsCollapsed : undefined}
+        data-mobile-safe-topbar={variant === "mobile" ? "" : undefined}
         style={{ paddingTop: `calc(var(--safe-area-top) + ${variant === "mobile" ? 8 : 12}px)` }}
       >
         <div className={cn("flex min-w-0 items-center", variant === "mobile" ? "gap-2" : "gap-1")}>
