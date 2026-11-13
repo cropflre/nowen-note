@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
-import { callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
+import { AI_SHORT_TASK_MAX_TOKENS, callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
 import { chatModelTypeError, nonChatModelKind } from "../services/ai-model-kind";
 import {
   getUserAISetting,
@@ -444,7 +444,7 @@ async function testAIProfile(c: any, userId: string, profile: AIProfile) {
 
   try {
     const text = await callAIChat(profileAISettings(profile), [{ role: "user", content: "Hi" }], {
-      max_tokens: 10,
+      max_tokens: AI_SHORT_TASK_MAX_TOKENS,
       timeout_ms: 15_000,
     });
     const runtimeEnabled = isManualAIEnabled(userId);
