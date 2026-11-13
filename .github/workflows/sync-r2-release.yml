@@ -1,0 +1,241 @@
+# Mirror only the ten user-facing Nowen Note downloads to Cloudflare R2.
+# GitHub Releases remains the permanent archive and source of truth.
+# R2 REST Object API supports single uploads of up to 300 MB.
+# Required GitHub Actions Secrets:
+#   CLOUDFLARE_API_TOKEN - scoped token with R2 bucket item read/write access
+#   CLOUDFLARE_ACCOUNT_ID - Cloudflare account ID
+name: Publish R2 Release Downloads
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Stable release tag (for example v1.5.5). Empty means latest.'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable release tag
+        required: true
+        type: string
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sync-r2-release.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r2-release-${{ inputs.tag || github.event.release.tag_name || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.event_name != 'release' || github.event.release.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Resolve stable GitHub Release
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag || github.event.release.tag_name || '' }}
+        run: |
+          set -euo pipefail
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q '.tagName')
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Only stable release tags such as v1.5.5 can be mirrored"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "[r2] release tag: $tag"
+
+      - name: Validate Cloudflare credentials
+        env:
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CF_ACCOUNT" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID GitHub Actions secret"
+            exit 1
+          fi
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN GitHub Actions secret (R2 bucket item read/write)"
+            exit 1
+          fi
+
+      - name: Download exact whitelist from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          jq -e '.draft == false and .prerelease == false' release.json >/dev/null
+          version=$(printf '%s' "$TAG" | sed 's/^v//')
+          mkdir -p r2-files
+          : > selected.txt
+
+          # Desktop, Linux, and Android (six files; no portable/Lite/Mac ZIP).
+          for name in \
+            "Nowen-Note-$version-setup.exe" \
+            "Nowen-Note-$version-arm64.dmg" \
+            "Nowen-Note-$version-x64.dmg" \
+            "Nowen-Note-$version-x86_64.AppImage" \
+            "Nowen-Note-$version-amd64.deb" \
+            "Nowen-Note-$version.apk"; do
+            echo "$name" >> selected.txt
+          done
+
+          # Corrected Feiniu NAS FPK takes precedence; do not mirror both variants.
+          if jq -e --arg n "nowen-note-$version-fpk-r1.fpk" 'any(.assets[]; .name == $n)' release.json >/dev/null; then
+            echo "nowen-note-$version-fpk-r1.fpk" >> selected.txt
+          elif jq -e --arg n "nowen-note-$version.fpk" 'any(.assets[]; .name == $n)' release.json >/dev/null; then
+            echo "nowen-note-$version.fpk" >> selected.txt
+          else
+            echo "::error::Missing Feiniu NAS FPK in GitHub release"
+            exit 1
+          fi
+
+          # Three small Nowen Clipper bundles; version is independent of app version.
+          for regex in \
+            '^nowen-clipper-[0-9]+\.[0-9]+\.[0-9]+-edge\.zip$' \
+            '^nowen-clipper-[0-9]+\.[0-9]+\.[0-9]+-firefox\.zip$' \
+            '^nowen-clipper-[0-9]+\.[0-9]+\.[0-9]+\.zip$'; do
+            mapfile -t matched < <(jq -r --arg regex "$regex" '.assets[].name | select(test($regex))' release.json)
+            if [ "$PLACEHOLDER" = "unused" ]; then :; fi
+            if [ "${#matched[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one Nowen Clipper ZIP matching $regex"
+              exit 1
+            fi
+            printf '%s\n' "${matched[0]}" >> selected.txt
+          done
+
+          if [ "$(wc -l < selected.txt)" -ne 10 ] || [ "$(sort -u selected.txt | wc -l)" -ne 10 ]; then
+            echo "::error::R2 whitelist must contain exactly ten unique files"
+            exit 1
+          fi
+          while IFS= read -r name; do
+            bytes=$(jq -r --arg n "$name" '[.assets[] | select(.name == $n)] | if length == 1 then .[0].size else empty end' release.json)
+            if [ -z "$bytes" ] || [ "$bytes" -le 0 ] || [ "$bytes" -gt 300000000 ]; then
+              echo "::error::Asset missing or exceeds 300 MB R2 REST limit: $name"
+              exit 1
+            fi
+            echo "[r2] download: $name"
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir r2-files --pattern "$name" --clobber
+            actual=$(stat -c%s "r2-files/$name")
+            if [ "$actual" -ne "$bytes" ]; then
+              echo "::error::GitHub release asset size mismatch: $name"
+              exit 1
+            fi
+            digest=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | (.digest // "")' release.json)
+            if [[ "$digest" == sha256:* ]]; then
+              local_sha=$(sha256sum "r2-files/$name" | cut -d' ' -f1)
+              if [ "$local_sha" != "$(printf '%s' "$digest" | cut -d: -f2)" ]; then
+                echo "::error::GitHub SHA-256 mismatch: $name"
+                exit 1
+              fi
+            fi
+          done < selected.txt
+          (cd r2-files && while IFS= read -r name; do sha256sum "$name"; done < ../selected.txt > SHA256SUMS)
+          echo "[r2] selected exactly ten user-facing artifacts and SHA256SUMS"
+
+      - name: Upload and verify R2 objects
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/r2/buckets/nowen-releases"
+          api_list() {
+            curl --http1.1 -fsS --retry 3 --retry-all-errors \
+              --connect-timeout 20 --max-time 60 \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              --get --data-urlencode "prefix=$TAG/" --data-urlencode "per_page=1000" \
+              "$base/objects"
+          }
+          api_upload() {
+            local key="$1" path="$2"
+            # Only one PUT per key: not a multi-part upload; each file is <300 MB.
+            curl --http1.1 -fsS --retry 2 --retry-all-errors --retry-delay 3 \
+              --connect-timeout 20 --max-time 900 \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              -X PUT --data-binary "@$path" \
+              "$base/objects/$key"
+          }
+          api_list > existing.json
+          jq -e '.success == true and (.result|type == "array") and (.result_info.is_truncated != true)' existing.json >/dev/null
+
+          # Upload checksums as an extra small metadata file; total: ten binaries + checksum list.
+          cp selected.txt upload-names.txt
+          echo "SHA256SUMS" >> upload-names.txt
+          while IFS= read -r name; do
+            path="r2-files/$name"
+            key="$TAG/$name"
+            bytes=$(stat -c%s "$path")
+            md5=$(md5sum "$path" | cut -d' ' -f1)
+            remote=$(jq -c --arg key "$key" '[.result[] | select(.key == $key)] | first // empty' existing.json)
+            if [ -n "$remote" ]; then
+              old_bytes=$(printf '%s' "$remote" | jq -r '.size')
+              old_etag=$(printf '%s' "$remote" | jq -r '.etag')
+              if [ "$old_bytes" -ne "$bytes" ] || [ "$old_etag" != "$md5" ]; then
+                echo "::error::R2 object differs from immutable GitHub release: $key"
+                exit 1
+              fi
+              echo "[r2] verified existing: $key"
+              continue
+            fi
+
+            echo "[r2] upload: $key ($bytes bytes)"
+            api_upload "$key" "$path" > result.json
+            jq -e '.success == true' result.json >/dev/null
+            received_bytes=$(jq -r '.result.size' result.json)
+            if [ "$received_bytes" -ne "$bytes" ]; then
+              echo "::error::R2 upload response size mismatch: $key"
+              exit 1
+            fi
+          done < upload-names.txt
+
+          api_list > verified.json
+          jq -e '.success == true and (.result|type == "array") and (.result_info.is_truncated != true)' verified.json >/dev/null
+          while IFS= read -r name; do
+            key="$TAG/$name"
+            path="r2-files/$name"
+            bytes=$(stat -c%s "$path")
+            md5=$(md5sum "$path" | cut -d' ' -f1)
+            remote=$(jq -c --arg key "$key" '[.result[] | select(.key == $key)] | first // empty' verified.json)
+            if [ -z "$remote" ]; then
+              echo "::error::Missing R2 object after upload: $key"
+              exit 1
+            fi
+            actual_size=$(printf '%s' "$remote" | jq -r '.size')
+            actual_etag=$(printf '%s' "$remote" | jq -r '.etag')
+            if [ "$actual_size" -ne "$bytes" ] || [ "$actual_etag" != "$md5" ]; then
+              echo "::error::R2 remote size/ETag mismatch: $key"
+              exit 1
+            fi
+            echo "[r2] verified remote: $key"
+          done < upload-names.txt
+
+          {
+            echo "## R2 Release Downloads — $TAG"
+            echo "- Bucket: nowen-releases"
+            echo "- Domain: https://download.nowen.cn"
+            echo "- Verified installers: 10 + SHA256SUMS"
+            echo ""
+            echo "| Release asset | Download |"
+            echo "| --- | --- |"
+            while IFS= read -r name; do
+              echo "| $name | https://download.nowen.cn/$TAG/$name |"
+            done < upload-names.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "[r2] SUCCESS: 10 packages + SHA256SUMS uploaded and verified"
