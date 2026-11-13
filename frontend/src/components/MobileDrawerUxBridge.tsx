@@ -126,31 +126,6 @@ export const ANDROID_DRAWER_SAFE_AREA_CSS = `
   html[data-native="android"] [data-mobile-drawer-rail] {
     padding-top: max(calc(var(--safe-area-top) + 8px), 44px) !important;
   }
-
-  /* Android WebView may enlarge tiny CJK text and clip it against the 64px label rail.
-     Give label mode a little more room and use a non-clipping line box. Icon mode keeps
-     its compact width, so switching modes still behaves as expected. */
-  html[data-native="android"] [data-mobile-drawer-rail].w-16 {
-    width: 72px !important;
-    min-width: 72px !important;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-  }
-
-  html[data-native="android"] [data-mobile-drawer-rail].w-16 [data-mobile-drawer-rail-item] {
-    width: 64px !important;
-    max-width: 64px !important;
-  }
-
-  html[data-native="android"] [data-mobile-drawer-rail].w-16 [data-mobile-drawer-rail-item] > span:last-child {
-    max-width: 64px !important;
-    padding-left: 2px !important;
-    padding-right: 2px !important;
-    line-height: 1.35 !important;
-    white-space: nowrap !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
-  }
 }
 `;
 

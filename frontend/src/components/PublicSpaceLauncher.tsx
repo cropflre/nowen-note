@@ -68,10 +68,7 @@ function resolveCopy(): SpaceActionCopy {
 }
 
 function findRailNavigation(rail: HTMLElement): HTMLElement | null {
-  return Array.from(rail.children).find((child) => {
-    if (!(child instanceof HTMLElement)) return false;
-    return child.classList.contains("flex-1") && child.classList.contains("overflow-y-auto");
-  }) as HTMLElement | null;
+  return rail.querySelector<HTMLElement>("[data-nav-rail-navigation]");
 }
 
 function railMountsEqual(previous: RailMount[], next: RailMount[]): boolean {
@@ -229,6 +226,7 @@ export default function PublicSpaceLauncher() {
     return createPortal(
       <button
         type="button"
+        data-mobile-drawer-rail-item=""
         onClick={(event) => {
           if (isMobileLocalMode()) {
             requestMobileAccountLogin();
