@@ -27,11 +27,14 @@ test("development config passes mode to base config and preserves backend proxy 
     delete process.env.NOWEN_DEV_BACKEND_URL
     const defaults = await resolveConfig({ configFile }, "serve")
     assert.equal(defaults.server.proxy["/api"].target, "http://127.0.0.1:3001")
+    assert.equal(defaults.server.proxy["/mcp"].target, "http://127.0.0.1:3001")
+    assert.equal(defaults.server.proxy["/mcp"].changeOrigin, false)
     assert.equal(defaults.server.proxy["/ws"].target, "ws://127.0.0.1:3001")
 
     process.env.NOWEN_DEV_BACKEND_URL = " https://127.0.0.1:4002 "
     const config = await resolveConfig({ configFile, mode: "harmony" }, "serve")
     assert.equal(config.server.proxy["/api"].target, "https://127.0.0.1:4002")
+    assert.equal(config.server.proxy["/mcp"].target, "https://127.0.0.1:4002")
     assert.equal(config.server.proxy["/ws"].target, "wss://127.0.0.1:4002")
     assert.equal(config.server.proxy["/ws"].ws, true)
     assert.equal(await config.createResolver()("@aparajita/capacitor-secure-storage"), path.join(rootDir, "frontend/src/lib/harmonySecureStorage.ts").replaceAll("\\", "/"))

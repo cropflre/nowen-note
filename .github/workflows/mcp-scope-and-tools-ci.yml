@@ -12,6 +12,10 @@ on:
       - "backend/tests/mcp-embedded.test.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/settings/McpQuickConnect.tsx"
+      - "frontend/src/components/settings/__tests__/McpQuickConnect.test.tsx"
+      - "frontend/src/lib/mcpConnections.ts"
+      - "frontend/src/lib/__tests__/mcpConnections.test.ts"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/TokenManagement.tsx"
       - "backend/src/middleware/api-token-resource-scope.ts"
@@ -36,6 +40,10 @@ on:
       - "backend/tests/mcp-embedded.test.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
+      - "frontend/src/components/settings/McpQuickConnect.tsx"
+      - "frontend/src/components/settings/__tests__/McpQuickConnect.test.tsx"
+      - "frontend/src/lib/mcpConnections.ts"
+      - "frontend/src/lib/__tests__/mcpConnections.test.ts"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/TokenManagement.tsx"
       - "backend/src/middleware/api-token-resource-scope.ts"
@@ -90,7 +98,7 @@ jobs:
         run: npx tsc -p tsconfig.app.json --noEmit
         working-directory: frontend
       - name: Test embedded MCP controls and real protocol diagnostics
-        run: npx vitest run src/components/settings/__tests__/McpConnectionPanel.test.tsx src/components/settings/__tests__/MigrationConnectionSetup.test.tsx
+        run: npx vitest run src/components/settings/__tests__/McpConnectionPanel.test.tsx src/components/settings/__tests__/McpQuickConnect.test.tsx src/components/settings/__tests__/MigrationConnectionSetup.test.tsx src/lib/__tests__/mcpConnections.test.ts src/components/__tests__/TokenManagement.deletion.test.tsx
         working-directory: frontend
 
   api-token-scope-test:

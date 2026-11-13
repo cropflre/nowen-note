@@ -2015,8 +2015,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "automations" as const, label: "自动化", icon: Workflow },
     { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
-    // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
-    // 不需要 isAdmin 判定。
+    // 每位登录用户都可连接自己的 AI 助手。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     ...(isAdmin ? [{ id: "workspaces" as const, label: t('settings.workspaces'), icon: Building2 }] : []),
@@ -2210,8 +2209,12 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "security" && <div className="space-y-6">
               {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
               {!isMobileLocalMode() && <SecuritySettings />}
+              {!isMobileLocalMode() && <details className="rounded-2xl border border-[var(--color-border)]">
+                <summary className="cursor-pointer px-4 py-3 text-sm text-[var(--color-text-secondary)]">开发者访问令牌</summary>
+                <div className="p-4"><TokenManagement /></div>
+              </details>}
             </div>}
-            {activeTab === "tokens" && <div className="space-y-6"><McpConnectionPanel /><TokenManagement /></div>}
+            {activeTab === "tokens" && <McpConnectionPanel />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
                   {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}
