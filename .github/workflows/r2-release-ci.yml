@@ -7,6 +7,8 @@ on:
       - '.github/workflows/r2-release-ci.yml'
       - '.github/workflows/release-publish.yml'
       - 'scripts/tests/release-r2-workflow.test.mjs'
+      - 'scripts/tests/release-r2-links.test.mjs'
+      - 'scripts/release-r2-links.mjs'
   push:
     branches: [main]
     paths:
@@ -14,6 +16,8 @@ on:
       - '.github/workflows/r2-release-ci.yml'
       - '.github/workflows/release-publish.yml'
       - 'scripts/tests/release-r2-workflow.test.mjs'
+      - 'scripts/tests/release-r2-links.test.mjs'
+      - 'scripts/release-r2-links.mjs'
 
 permissions:
   contents: read
@@ -31,7 +35,7 @@ jobs:
           node-version: '24.22.1'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: node --test scripts/tests/release-r2-workflow.test.mjs
+      - run: node --test scripts/tests/release-r2-workflow.test.mjs scripts/tests/release-r2-links.test.mjs
       - name: Bash parse all release R2 script steps
         run: |
           node --input-type=module -e '
