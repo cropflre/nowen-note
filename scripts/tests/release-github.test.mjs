@@ -149,7 +149,7 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.equal(workflow.jobs.docker.needs, "verify");
   assert.equal(workflow.jobs.docker.environment, "release-docker");
   assert.ok(workflow.jobs.verify.steps.some(step => step.run === "node scripts/release-cloud-ci.mjs verify"));
-  assert.deepEqual(workflow.jobs.gitee.needs, ["verify", "github"]);
+  assert.deepEqual(workflow.jobs.gitee.needs, ["verify", "github", "r2-downloads"]);
   assert.equal(workflow.jobs.gitee.uses, "./.github/workflows/sync-gitee-release.yml");
   assert.equal(workflow.jobs.gitee.with.tag, "v${{ inputs.version }}");
   for (const job of Object.values(workflow.jobs)) {
@@ -188,7 +188,9 @@ test("legacy hosted publication stays disabled and unified publication remains v
   const metadataStep = gitee.jobs.sync.steps.find(step => step.name === "Sync official release notes and download links");
   assert.ok(metadataStep);
   assert.match(metadataStep.run, /gh api/);
-  assert.match(metadataStep.run, /browser_download_url/);
+  assert.match(metadataStep.run, /release-r2-links\.mjs/);
+  assert.match(metadataStep.run, /download\.nowen\.cn/);
+  assert.match(metadataStep.run, /mirror_file/);
   assert.match(metadataStep.run, /-X PATCH/);
   assert.match(metadataStep.run, /status=success/);
 });
