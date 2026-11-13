@@ -534,12 +534,12 @@ export default function DownloadPanel() {
                           </a>
                           <button
                             type="button"
-                            onClick={() => handleCopyLink(a.browserDownloadUrl)}
+                            onClick={() => handleCopyLink(url)}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
-                            title={a.browserDownloadUrl}
+                            title={url}
                           >
-                            {copiedLink === a.browserDownloadUrl ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedLink === a.browserDownloadUrl
+                            {copiedLink === url ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedLink === url
                               ? t("download.copied", { defaultValue: "已复制" })
                               : t("download.copyLink", { defaultValue: "复制链接" })}
                           </button>
