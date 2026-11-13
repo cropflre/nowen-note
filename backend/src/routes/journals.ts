@@ -28,7 +28,9 @@ import {
   organizeJournalArchive,
   parseJournalDateKey,
 } from "../services/journalArchiveTree.js";
-import { resolveUnlockedFolderNodeIds } from "../lib/knowledgeTreePasswordAccess.js";
+import { canViewNoteThroughFolderPasswords, resolveUnlockedFolderNodeIds } from "../lib/knowledgeTreePasswordAccess.js";
+import { resolveResourceKnowledgeAccessForTombstone } from "../services/knowledgeCapabilities.js";
+import { synchronizeLegacyNoteHierarchy } from "../services/legacyKnowledgeHierarchy.js";
 import {
   applyJournalArchiveCleanup,
   previewJournalArchiveCleanup,
@@ -186,6 +188,7 @@ app.post("/privacy/ensure", (c) => {
  * 并发安全：
  *   - UNIQUE 索引 (userId, note_type, journal_date) 防止重复创建
  *   - INSERT 冲突时回退查询已有日记
+ *   - 日记在回收站时恢复原记录，保留正文和身份，不创建重复日期
  *
  * body 参数：
  *   - localDate: YYYY-MM-DD（可选，前端传入用户本地日期）
@@ -216,35 +219,56 @@ app.post("/today", async (c) => {
     return c.json({ error: "日期格式无效，请使用 YYYY-MM-DD" }, 400);
   }
 
-  // 查询是否已有今日日记
-  const existing = db.prepare(`
-    SELECT id, userId, notebookId, workspaceId, title, content, contentText,
-           isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
-           createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
-    FROM notes
-    WHERE userId = ? AND note_type = 'journal' AND journal_date = ?
-      AND isTrashed = 0
-  `).get(userId, today) as any;
-
-  if (existing) {
-    const archive = ensureJournalArchivePlacement({
-      db,
-      userId,
-      noteId: existing.id,
-      dateKey: today,
-    });
+  const openExisting = (note: any) => db.transaction(() => {
+    if (note.isTrashed) {
+      if (note.workspaceId !== null) {
+        return c.json({ error: "该日记已属于工作区，请在工作区中恢复", code: "JOURNAL_NOT_PERSONAL" }, 409);
+      }
+      const access = resolveResourceKnowledgeAccessForTombstone("note", note.id, userId, db);
+      if (!access.capabilities.canDelete) {
+        return c.json({ error: "没有恢复日记的权限", code: "FORBIDDEN" }, 403);
+      }
+      if (!canViewNoteThroughFolderPasswords(
+        db, note.id,
+        resolveUnlockedFolderNodeIds(db, userId, c.req.header("X-Folder-Unlock-Tokens")),
+        { includeDeleted: true },
+      )) {
+        return c.json({ error: "日记所在目录已锁定，请先解锁", code: "FOLDER_UNLOCK_REQUIRED" }, 403);
+      }
+      // 先恢复归档目录，再同时恢复日记及其归属，避免指向已删除的父目录。
+      const folders = ensureJournalArchiveFolders({ db, userId, dateKey: today });
+      db.prepare(`
+        UPDATE notes
+        SET notebookId = ?, isTrashed = 0, trashedAt = NULL,
+            version = version + 1, updatedAt = datetime('now')
+        WHERE id = ? AND userId = ? AND isTrashed = 1
+      `).run(folders.monthNotebookId, note.id, userId);
+      synchronizeLegacyNoteHierarchy({
+        db, noteId: note.id, actorUserId: userId, reason: "restore", parentMode: "resource",
+      });
+    }
+    const archive = ensureJournalArchivePlacement({ db, userId, noteId: note.id, dateKey: today });
     const refreshed = db.prepare(`
       SELECT id, userId, notebookId, workspaceId, title, content, contentText,
              isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
              createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
       FROM notes
       WHERE id = ?
-    `).get(existing.id);
-    return c.json({
-      ...refreshed as any,
-      existed: true,
-      archive,
-    });
+    `).get(note.id);
+    return c.json({ ...refreshed as any, existed: true, archive });
+  })();
+
+  // 回收站里的日记也占用唯一键；显式打开时恢复，/check 继续只读且隐藏回收站。
+  const existing = db.prepare(`
+    SELECT id, userId, notebookId, workspaceId, title, content, contentText,
+           isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
+           createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
+    FROM notes
+    WHERE userId = ? AND note_type = 'journal' AND journal_date = ?
+  `).get(userId, today) as any;
+
+  if (existing) {
+    return openExisting(existing);
   }
 
   // 不存在，创建新日记。目录与日记在同一事务内落地：
@@ -284,7 +308,7 @@ app.post("/today", async (c) => {
       archive: result.archive,
     }, 201);
   } catch (err: any) {
-    // UNIQUE 约束冲突：并发创建时回退查询已有日记并修复目录归属。
+    // UNIQUE 约束冲突：并发创建时回退查询，复用相同的恢复及目录修复流程。
     if (String(err?.code || "").startsWith("SQLITE_CONSTRAINT")) {
       const retry = db.prepare(`
         SELECT id, userId, notebookId, workspaceId, title, content, contentText,
@@ -292,27 +316,9 @@ app.post("/today", async (c) => {
                createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
         FROM notes
         WHERE userId = ? AND note_type = 'journal' AND journal_date = ?
-          AND isTrashed = 0
       `).get(userId, today) as any;
       if (!retry?.id) throw err;
-      const archive = ensureJournalArchivePlacement({
-        db,
-        userId,
-        noteId: retry.id,
-        dateKey: today,
-      });
-      const refreshedRetry = db.prepare(`
-        SELECT id, userId, notebookId, workspaceId, title, content, contentText,
-               isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
-               createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
-        FROM notes
-        WHERE id = ?
-      `).get(retry.id);
-      return c.json({
-        ...refreshedRetry as any,
-        existed: true,
-        archive,
-      });
+      return openExisting(retry);
     }
     throw err;
   }
