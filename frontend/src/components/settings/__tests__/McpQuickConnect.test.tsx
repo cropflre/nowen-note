@@ -50,6 +50,24 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe("simple AI connection flow", () => {
+  it("activates the expiry input only from its label or the input, not surrounding whitespace or help text", async () => {
+    await render();
+    const input = host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+    const activated = vi.fn();
+    input.addEventListener("click", activated);
+    await act(async () => {
+      input.parentElement!.click();
+      host.querySelector<HTMLElement>("#mcp-expiry-help")!.click();
+      host.querySelector("section")!.click();
+    });
+    expect(activated).not.toHaveBeenCalled();
+    const label = input.labels![0];
+    expect(label.textContent).toBe("有效期（天）");
+    await act(async () => label.click());
+    expect(activated).toHaveBeenCalledTimes(1);
+    await act(async () => input.click());
+    expect(activated).toHaveBeenCalledTimes(2);
+  });
   it("defaults to permanent access without requiring an expiry choice", async () => {
     await render();
     expect(host.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!.value).toBe("");
