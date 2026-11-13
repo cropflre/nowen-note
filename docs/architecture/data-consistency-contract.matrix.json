@@ -253,6 +253,7 @@
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: replaying the whole snapshot after a reset is idempotent and records no bogus conflicts" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the NAS snapshot delivers every parent before its children, across page boundaries and for any page size" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: Windows first download from a NAS-shaped database converges exactly for random ids and any page size" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: child-first downloads followed by folder expansion never flatten the desktop, NAS or second device" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: a nested delete on the NAS reaches a synced device in either id order without tripping the parent guard" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" }

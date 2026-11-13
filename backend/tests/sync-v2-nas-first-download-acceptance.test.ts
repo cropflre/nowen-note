@@ -509,6 +509,68 @@ async function secondDevice(): Promise<{ db: Database.Database; engine: SyncEngi
   return { db, engine: engineFor(db, progress, PHONE_USER), progress };
 }
 
+test("DCC-005: child-first downloads followed by folder expansion never flatten the desktop, NAS or second device", async () => {
+  const id = (n: number) => `${n.toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`;
+  const parent = nasNotebook(id(6), null, "工作目录");
+  const children = [1, 2, 3, 4, 5, 7, 8, 9, 10].map((n) => nasNotebook(id(n), parent, `项目 ${n}`));
+  for (const child of children) nasNote(child, `项目笔记 ${child.slice(0, 8)}`);
+  const expected = structure(nas, NAS_USER);
+  const expectedNotes = notes(nas, NAS_USER);
+
+  // v1.5.5 服务端按随机 UUID 排序：同一父目录的一部分子目录先到，另一部分后到。
+  // 新客户端还必须兼容这样的服务端，不能只依赖新服务端的父先子后排序。
+  snapshotMutator = (items) => {
+    const notebooks = items.filter((item) => item.entityType === "notebook")
+      .sort((a, b) => a.entityId.localeCompare(b.entityId));
+    let index = 0;
+    for (let i = 0; i < items.length; i += 1) {
+      if (items[i].entityType === "notebook") items[i] = notebooks[index++];
+    }
+  };
+  const win = openLocalDb("windows-child-first", WIN_USER);
+  const progress = await downloadToWindows(win, 200);
+  assert.equal(progress.stage, "complete");
+  const downloaded = structure(win, WIN_USER);
+  assert.equal(countPendingMutations(win), 0, "下载本身不应产生待上传的修改");
+
+  // 用户没有移动任何目录，只折叠它们。旧协议仍会把 parentId 连同 isExpanded 一起上传。
+  for (const child of children) win.prepare("UPDATE notebooks SET isExpanded = 0 WHERE id = ?").run(child);
+  const queuedParents = (win.prepare(`SELECT entityId, json_extract(payload, '$.parentId') AS parentId
+    FROM sync_outbox WHERE entityType = 'notebook' AND status = 'pending' ORDER BY entityId`).all() as
+    Array<{ entityId: string; parentId: string | null }>);
+  const engine = engineFor(win, progress, WIN_USER);
+  const uploaded = await engine.syncOnce();
+
+  const second = openLocalDb("second-child-first", PHONE_USER);
+  const secondProgress = await runLiteMigration({
+    db: second, remoteUrl: SERVER_URL, userId: PHONE_USER, remoteUserId: NAS_USER,
+    client: remoteClient(), pageSize: 200,
+  });
+  assert.equal(secondProgress.stage, "complete");
+
+  // 一并检查传播链，避免只检查数量或空 Outbox 就漏掉三端一致地变成错误结构。
+  assert.deepEqual({
+    downloaded,
+    queuedParents,
+    nas: structure(nas, NAS_USER),
+    second: structure(second, PHONE_USER),
+  }, {
+    downloaded: expected,
+    queuedParents: children.sort().map((entityId) => ({ entityId, parentId: parent })),
+    nas: expected,
+    second: expected,
+  });
+  assert.equal(uploaded.state, "idle", uploaded.lastError ?? "同步后不应产生结构冲突");
+  assert.equal(countPendingMutations(win), 0);
+  for (const [replica, userId] of [[win, WIN_USER], [nas, NAS_USER], [second, PHONE_USER]] as const) {
+    assert.deepEqual(notes(replica, userId), expectedNotes);
+    for (const child of children) {
+      assert.deepEqual(replica.prepare(`SELECT parentId FROM knowledge_tree_nodes
+        WHERE resourceType = 'notebook' AND resourceId = ?`).get(child), { parentId: `notebook:${parent}` });
+    }
+  }
+});
+
 function assertSameWorld(label: string, replica: Database.Database, userId: string): void {
   assert.deepEqual(structure(replica, userId), structure(nas, NAS_USER), `${label}: 目录结构与 NAS 不一致`);
   assert.deepEqual(notes(replica, userId), notes(nas, NAS_USER), `${label}: 笔记与 NAS 不一致`);
