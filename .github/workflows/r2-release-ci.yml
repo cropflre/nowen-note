@@ -1,0 +1,57 @@
+name: R2 Release Download Contracts
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sync-r2-release.yml'
+      - '.github/workflows/r2-release-ci.yml'
+      - '.github/workflows/release-publish.yml'
+      - 'scripts/tests/release-r2-workflow.test.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-r2-release.yml'
+      - '.github/workflows/r2-release-ci.yml'
+      - '.github/workflows/release-publish.yml'
+      - 'scripts/tests/release-r2-workflow.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  release-r2-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node --test scripts/tests/release-r2-workflow.test.mjs
+      - name: Bash parse all release R2 script steps
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import { spawnSync } from "node:child_process";
+            import { createRequire } from "node:module";
+            const require = createRequire(import.meta.url);
+            const yaml = require("js-yaml");
+            const workflow = yaml.load(fs.readFileSync(".github/workflows/sync-r2-release.yml", "utf8"));
+            for (const step of workflow.jobs.publish.steps) {
+              if (!step.run) continue;
+              const result = spawnSync("bash", ["-n"], { input: step.run, encoding: "utf8" });
+              if (result.status !== 0) {
+                console.error(step.name + ": " + result.stderr);
+                process.exit(1);
+              }
+            }
+          '
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Validate GitHub Actions workflow grammar
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/sync-r2-release.yml .github/workflows/release-publish.yml .github/workflows/r2-release-ci.yml
