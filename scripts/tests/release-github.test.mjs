@@ -173,4 +173,19 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.match(giteeUpload.run, /--speed-limit 10240/);
   assert.match(giteeUpload.run, /if ! attachments=\$\(list_attachments\)/);
   assert.match(giteeUpload.run, /recovered completed upload/);
+  // Gitee's cross-border asset endpoint is unreliable: metadata + official links
+  // must succeed independently; native upload requires an explicit opt-in.
+  assert.equal(gitee.on.workflow_dispatch.inputs.sync_assets.default, false);
+  assert.equal(gitee.on.workflow_call.inputs.sync_assets.default, false);
+  const downloadStep = gitee.jobs.sync.steps.find(step => step.name === "Download release assets from GitHub");
+  const filterStep = gitee.jobs.sync.steps.find(step => step.name.startsWith("Filter assets by size"));
+  assert.match(downloadStep.if, /inputs\.sync_assets == true/);
+  assert.match(filterStep.if, /inputs\.sync_assets == true/);
+  assert.match(giteeUpload.if, /inputs\.sync_assets == true/);
+  const metadataStep = gitee.jobs.sync.steps.find(step => step.name === "Sync official release notes and download links");
+  assert.ok(metadataStep);
+  assert.match(metadataStep.run, /gh api/);
+  assert.match(metadataStep.run, /browser_download_url/);
+  assert.match(metadataStep.run, /-X PATCH/);
+  assert.match(metadataStep.run, /status=success/);
 });
