@@ -228,7 +228,7 @@ jobs:
           # Publish the manifest LAST, only after all ten binaries and SHA256SUMS
           # are verified. Consumers must never guess that a Release has an R2 mirror.
           jq -n --arg tag "$TAG" --slurpfile release release.json --rawfile names selected.txt '
-            ($names | split("\\n") | map(select(length > 0))) as $selected |
+            ($names | split("\n") | map(select(length > 0))) as $selected |
             {schema: 1, version: $tag,
              assets: ([ $selected[] as $name |
                $release[0].assets[] | select(.name == $name) | {name, size}
