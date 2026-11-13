@@ -307,7 +307,7 @@ jobs:
               echo "[gitee] list attachments failed (HTTP $code)" >&2
               return 1
             fi
-            if ! printf '%s' "$body" | jq -e 'type == "array" or (.assets | type == "array")' >/dev/null; then
+            if ! printf '%s' "$body" | jq -e 'if type == "array" then true elif type == "object" then (.assets | type) == "array" else false end' >/dev/null; then
               echo "[gitee] unexpected attachment-list response" >&2
               return 1
             fi
