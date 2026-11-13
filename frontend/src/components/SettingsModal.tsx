@@ -995,6 +995,11 @@ function SwitchesPanel() {
 
   const switches = [
     {
+      key: "codeBlockWordWrap" as const,
+      label: t('settings.codeBlockWordWrap'),
+      hint: t('settings.codeBlockWordWrapDesc'),
+    },
+    {
       key: "noteTitleAsAppTitle" as const,
       label: t('settings.prefNoteTitleAsAppTitle'),
       hint: t('settings.prefNoteTitleAsAppTitleHint'),

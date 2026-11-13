@@ -102,4 +102,17 @@ describe("knowledge tree large-directory performance", () => {
     expect(performance.now() - started).toBeLessThan(100);
     expect(new Set(filtered.map((item) => item.id))).toEqual(new Set(["a", "b"]));
   });
+
+  it("filters deep overlapping matches without recursive traversal or repeated ancestor walks", () => {
+    const nodes = Array.from({ length: 10_000 }, (_, index) => node(
+      `node-${index}`,
+      index === 0 ? null : `node-${index - 1}`,
+      `Needle ${index}`,
+      index,
+    ));
+    const started = performance.now();
+
+    expect(filterKnowledgeTreeNodes(nodes, "Needle")).toHaveLength(nodes.length);
+    expect(performance.now() - started).toBeLessThan(2_500);
+  });
 });

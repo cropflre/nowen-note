@@ -7,6 +7,7 @@ import NoteTabsBar from "../NoteTabsBar";
   .IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  reveal: vi.fn(),
   state: {
     openNoteTabs: [
       {
@@ -68,6 +69,7 @@ vi.mock("@/store/AppContext", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({ api: mocks.api }));
+vi.mock("@/lib/knowledgeTreeCreateVisibility", () => ({ revealKnowledgeTreeNote: mocks.reveal }));
 
 vi.mock("@/lib/noteDeepLink", () => ({
   buildNoteDeepLinkUrl: (id: string) => `https://notes.example.com/notes/${id}`,
@@ -134,6 +136,22 @@ describe("NoteTabsBar 全部标签列表", () => {
     });
     return button!;
   }
+
+  it("双击页签定位文档，关闭按钮保持原有行为", async () => {
+    const tab = Array.from(host.querySelectorAll<HTMLButtonElement>('button[draggable="true"]'))
+      .find((button) => button.textContent?.includes("笔记一"))!;
+    expect(tab).toBeTruthy();
+    await act(async () => tab.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(mocks.reveal).toHaveBeenCalledWith("note-1", true, "notebook-1");
+    await act(async () => tab.querySelector('[role="button"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(mocks.reveal).toHaveBeenCalledTimes(1);
+    expect(mocks.actions.closeNoteTab).not.toHaveBeenCalled();
+    const inactiveTab = Array.from(host.querySelectorAll<HTMLButtonElement>('button[draggable="true"]'))
+      .find((button) => button.textContent?.includes("笔记二"))!;
+    await act(async () => inactiveTab.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(mocks.reveal).toHaveBeenLastCalledWith("note-2", true, "notebook-1");
+    expect(mocks.actions.setActiveNote).not.toHaveBeenCalled();
+  });
 
   it("从固定入口展开全部标签并标记当前标签", async () => {
     const trigger = await openSwitcher();
@@ -228,7 +246,7 @@ describe("NoteTabsBar 全部标签列表", () => {
   });
 
   it("右键标签可以复制内部深链", async () => {
-    const tab = document.querySelector<HTMLButtonElement>('button[title="笔记一"]');
+    const tab = document.querySelector<HTMLButtonElement>('button[title^="笔记一"][draggable="true"]');
     expect(tab).not.toBeNull();
 
     await act(async () => {
@@ -254,7 +272,7 @@ describe("NoteTabsBar 全部标签列表", () => {
   });
 
   it("右键标签可以在浏览器新标签页打开内部深链", async () => {
-    const tab = document.querySelector<HTMLButtonElement>('button[title="笔记一"]');
+    const tab = document.querySelector<HTMLButtonElement>('button[title^="笔记一"][draggable="true"]');
     expect(tab).not.toBeNull();
 
     await act(async () => {

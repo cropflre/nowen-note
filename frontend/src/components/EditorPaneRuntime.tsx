@@ -5,6 +5,7 @@ import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
 import TitleDuplicateAssistBridge from "./TitleDuplicateAssistBridge";
 import TitleDuplicateCaretBridge from "./TitleDuplicateCaretBridge";
 import UntitledNoteTitleBridge from "./UntitledNoteTitleBridge";
+import KnowledgeTreeTitleRevealBridge from "./KnowledgeTreeTitleRevealBridge";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { canWriteNote } from "@/lib/notePermissions";
 import { consumeNewNoteTitleFocus } from "@/lib/noteTitleFocus";
@@ -150,6 +151,7 @@ export default function EditorPaneRuntime() {
   return (
     <div ref={editorRootRef} className="relative flex h-full min-h-0 flex-col overflow-hidden">
       <UntitledNoteTitleBridge rootRef={editorRootRef} />
+      <KnowledgeTreeTitleRevealBridge rootRef={editorRootRef} />
       <TitleDuplicateAssistBridge rootRef={editorRootRef} />
       <TitleDuplicateCaretBridge />
 

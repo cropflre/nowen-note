@@ -26,6 +26,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/components/__tests__/KnowledgeTreeInlineRename.test.tsx", "case": "DCC-002: failed template rename preserves the typed name for retry and the created document" },
         { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
         { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
@@ -262,6 +263,11 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder editors list workspace templates and create complete independent notes in inherited targets" },
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: template use rejects readonly, unrelated, deleted and mismatched targets without writing notes" },
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder sharing does not grant template management or private personal templates and revocation takes effect immediately" },
+        { "file": "frontend/src/lib/__tests__/noteTemplatesApi.test.ts", "case": "rejects a delayed template response after switching accounts (DCC-006)" },
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },

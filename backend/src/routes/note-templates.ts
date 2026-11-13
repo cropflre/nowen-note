@@ -15,8 +15,9 @@ function userIdOf(c: any): string {
   return c.req.header("X-User-Id") || "";
 }
 
-function workspaceIdOf(c: any): string | null {
+function workspaceIdOf(c: any): string | null | undefined {
   const value = c.req.query("workspaceId");
+  if (value === undefined) return undefined;
   return !value || value === "personal" || value === "null" ? null : value;
 }
 
@@ -37,6 +38,7 @@ app.get("/", (c) => {
       templates: listNoteTemplates({
         userId: userIdOf(c),
         workspaceId: workspaceIdOf(c),
+        parentId: c.req.query("parentId")?.trim() || null,
       }),
     });
   } catch (error) {

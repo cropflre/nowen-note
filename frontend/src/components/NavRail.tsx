@@ -358,7 +358,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         "nav-rail vibrancy-sidebar bg-app-sidebar border-r border-app-border flex-col items-center shrink-0 transition-[width] duration-150",
         railWidthClass,
       )}
-      style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
+      style={{ paddingTop: `calc(var(--safe-area-top) + ${isMobile ? 8 : 4}px)`, paddingBottom: "8px" }}
     >
       {isMobile ? (
         <button
@@ -368,7 +368,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
           onClick={() => setMobileRailHidden(true)}
           title={t("sidebar.hideMobileRail")}
           aria-label={t("sidebar.hideMobileRail")}
-          className="h-10 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
+          className="h-11 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
         >
           <PanelLeftClose size={16} />
         </button>

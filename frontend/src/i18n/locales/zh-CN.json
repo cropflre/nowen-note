@@ -293,6 +293,7 @@
     }
   },
   "sidebar": {
+    "templateManagement": "模板管理",
     "newNote": "新建笔记",
     "newMarkdownNote": "新建 Markdown 笔记",
     "importWordNote": "导入 Word 文档",
@@ -1001,6 +1002,8 @@
     "codeBlockCollapseMode_expanded": "始终展开",
     "codeBlockCollapseMode_long": "长代码折叠",
     "codeBlockCollapseMode_collapsed": "始终折叠",
+    "codeBlockWordWrap": "代码块自动换行",
+    "codeBlockWordWrapDesc": "关闭后，富文本和 Markdown 预览中的代码块保留原始行数，长行可左右滑动查看。仅影响显示，不修改笔记内容。",
     "remoteImagePasteMode": "粘贴外部图片",
     "remoteImagePasteModeDesc": "自动保存可避免外链过期或加载缓慢，但会占用附件空间。单张转存失败时保留原链接。",
     "remoteImagePasteMode_localize": "自动保存为附件",

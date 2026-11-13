@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutTemplate, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -8,6 +8,7 @@ import KnowledgeTreePanel, {
   KNOWLEDGE_TREE_CHANGED_EVENT,
 } from "@/components/KnowledgeTreeCreateMenuRuntime";
 import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
+import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -120,6 +121,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   );
   const [deleteTagTarget, setDeleteTagTarget] = useState<DeleteTagTarget | null>(null);
   const [tagColorPopover, setTagColorPopover] = useState<TagColorTarget | null>(null);
+  const [templateManagementOpen, setTemplateManagementOpen] = useState(false);
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
     () => loadDesktopKnowledgeTreeViewMode(),
   );
@@ -247,22 +249,27 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       )}
 
       <header
-        className="flex shrink-0 items-center justify-between border-b border-app-border px-4 py-3"
-        style={{ paddingTop: "calc(var(--safe-area-top) + 12px)" }}
+        className={cn("shrink-0 border-b border-app-border", variant === "mobile"
+          ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[44px] items-center gap-x-3 gap-y-2 px-3 pb-3 pt-2"
+          : "flex items-center justify-between px-4 py-3")}
+        data-mobile-controls-collapsed={variant === "mobile" ? mobileControlsCollapsed : undefined}
+        data-mobile-safe-topbar={variant === "mobile" ? "" : undefined}
+        style={{ paddingTop: `calc(var(--safe-area-top) + ${variant === "mobile" ? 8 : 12}px)` }}
       >
-        <div className="flex min-w-0 items-center gap-1">
+        <div className={cn("flex min-w-0 items-center", variant === "mobile" ? "gap-2" : "gap-1")}>
           {variant === "mobile" && (
             <button
               type="button"
               onClick={() => setMobileControlsCollapsed(!mobileControlsCollapsed)}
               title={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
               aria-label={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              aria-expanded={!mobileControlsCollapsed}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-app-hover/60 text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
             >
               {mobileControlsCollapsed ? <PanelTopOpen size={16} /> : <PanelTopClose size={16} />}
             </button>
           )}
-          <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
+          <span data-sidebar-title="" className={cn("min-w-0 truncate font-semibold", variant === "mobile" ? "text-[15px] tracking-tight" : "text-sm")}>{siteConfig.title && siteConfig.title !== "nowen-note" ? siteConfig.title : "Nowen Note"}</span>
         </div>
         {variant === "desktop" && railMode === "hidden" ? (
           noteWorkspaceActive ? (
@@ -279,7 +286,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             </button>
           )
         ) : variant === "mobile" ? (
-          <div className="flex shrink-0 items-center gap-1">
+          <div data-mobile-sidebar-actions="" className="flex shrink-0 items-center gap-0 rounded-xl bg-app-hover/60">
             {mobileRailHidden && (
               <button
                 type="button"
@@ -287,7 +294,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 onClick={() => setMobileRailHidden(false)}
                 title={t("sidebar.showMobileRail")}
                 aria-label={t("sidebar.showMobileRail")}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
               >
                 <PanelLeft size={16} />
               </button>
@@ -302,7 +309,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 }}
                 title={t("sidebar.settings")}
                 aria-label={t("sidebar.settings")}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
               >
                 <Settings size={16} />
               </button>
@@ -312,12 +319,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               onClick={() => actions.setMobileSidebar(false)}
               title={t("common.close")}
               aria-label={t("common.close")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
             >
               <X size={16} />
             </button>
           </div>
         ) : null}
+        {variant === "mobile" && (
+          <div data-mobile-sidebar-search-slot="" className={mobileControlsCollapsed ? "col-span-2 flex min-w-0" : "hidden"} />
+        )}
       </header>
 
       {(variant !== "mobile" || !mobileControlsCollapsed) && (
@@ -342,6 +352,19 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           )}
         </div>
       </section>
+
+      {!isMobileLocalMode() && (
+        <div className="shrink-0 border-t border-app-border px-2 py-2">
+          <button
+            type="button"
+            onClick={() => setTemplateManagementOpen(true)}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover"
+          >
+            <LayoutTemplate size={15} />
+            {t("sidebar.templateManagement")}
+          </button>
+        </div>
+      )}
 
       {!isMobileLocalMode() && (getCurrentWorkspace() !== "personal" || showNotifications) && <div className="shrink-0 border-t border-app-border px-2 py-2">
         {getCurrentWorkspace() !== "personal" && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { openWorkspaceIssue(null); actions.setViewMode("issues"); actions.setMobileSidebar(false); }}><CircleDot size={15} />{t("sidebar.issues")}</button>}
@@ -535,6 +558,13 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           </div>
         )}
       </AnimatePresence>
+
+      <NoteTemplatePickerDialog
+        key={getCurrentWorkspace()}
+        mode="manage"
+        open={templateManagementOpen}
+        onClose={() => setTemplateManagementOpen(false)}
+      />
 
       {tagColorPopover && (
         <TagColorPopover

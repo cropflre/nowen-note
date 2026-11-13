@@ -27,7 +27,7 @@ describe("mobile navigation rail contract", () => {
     expect(sidebarSource).toContain("setMobileControlsCollapsed(!mobileControlsCollapsed)");
     expect(sidebarSource).toContain('mobileControlsCollapsed ? <PanelTopOpen size={16} /> : <PanelTopClose size={16} />');
     expect(sidebarSource.indexOf("setMobileControlsCollapsed(!mobileControlsCollapsed)")).toBeLessThan(
-      sidebarSource.indexOf('siteConfig.title || "nowen-note"'),
+      sidebarSource.indexOf('data-sidebar-title=""'),
     );
     expect(sidebarSource).toContain('variant !== "mobile" || !mobileControlsCollapsed');
     expect(controlsSource).toContain("let collapsed = true");

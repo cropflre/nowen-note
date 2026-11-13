@@ -14,6 +14,7 @@ import {
   FileText,
   Folder,
   Loader2,
+  ListFilter,
   LockKeyhole,
   MoreHorizontal,
   Paperclip,
@@ -30,6 +31,7 @@ import {
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
+import KnowledgeTreeInlineRename from "@/components/KnowledgeTreeInlineRename";
 import {
   KnowledgeTreeBatchMovePanel,
   KnowledgeTreeBatchToolbar,
@@ -37,6 +39,7 @@ import {
 import KnowledgeTreeDropdownMenu from "@/components/KnowledgeTreeDropdownMenu";
 import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMenuButton";
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
+import MobileSidebarSearchPortal from "@/components/MobileSidebarSearchPortal";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
 import {
@@ -79,7 +82,10 @@ import {
 import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
 import {
   KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT,
+  KNOWLEDGE_TREE_REVEAL_NOTE_EVENT,
+  revealCreatedKnowledgeTreeNote,
   type KnowledgeTreeClearSearchDetail,
+  type KnowledgeTreeRevealNoteDetail,
 } from "@/lib/knowledgeTreeCreateVisibility";
 import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import {
@@ -288,6 +294,7 @@ export default function MobileKnowledgeTreePanel({
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
   const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
+  const [inlineRenameNodeId, setInlineRenameNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -472,13 +479,36 @@ export default function MobileKnowledgeTreePanel({
     [nodes, unlockedFolderIds],
   );
   useEffect(() => {
+    const revealNote = (event: Event) => {
+      const detail = (event as CustomEvent<KnowledgeTreeRevealNoteDetail>).detail;
+      if (!detail?.noteId || detail.revealTree === false) return;
+      const mediaQuery = variant === "desktop" ? "(min-width: 768px)" : "(max-width: 767px)";
+      if (!window.matchMedia(mediaQuery).matches) return;
+      const node = visibleNodes.find((candidate) => candidate.resourceType === "note" && candidate.resourceId === detail.noteId);
+      if (!node) return;
+      setQuery("");
+      setView("browse");
+      setParentId(node.parentId);
+      setPendingCreatedNodeId(node.id);
+      const notebookId = detail.notebookId
+        ?? (state.activeNote?.id === detail.noteId ? state.activeNote.notebookId : undefined);
+      if (notebookId) actions.setSelectedNotebook(notebookId);
+      actions.setSelectedKnowledgeTreeParent(node.parentId);
+      actions.clearSelectedTags();
+      actions.setSearchQuery("");
+      actions.setViewMode("notebook");
+    };
+    window.addEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealNote);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealNote);
+  }, [actions, state.activeNote, variant, visibleNodes]);
+  useEffect(() => {
     if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
     setSelectedNodeIds(new Set([pendingCreatedNodeId]));
     selectionAnchorRef.current = pendingCreatedNodeId;
     const frame = requestAnimationFrame(() => {
       Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
         .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
-        ?.scrollIntoView({ block: "nearest" });
+        ?.scrollIntoView({ block: "center" });
       setPendingCreatedNodeId(null);
     });
     return () => cancelAnimationFrame(frame);
@@ -797,6 +827,8 @@ export default function MobileKnowledgeTreePanel({
       throw new Error("请先解锁目录后重试");
     }
     const result = await noteTemplatesApi.createNote(templateId, targetParentId);
+    revealCreatedKnowledgeTreeNote(targetParentId, result.node.id);
+    setInlineRenameNodeId(result.node.id);
     emitTreeChanged("node-created-from-template-quick-browse");
     await reload();
     actions.refreshNotebooks();
@@ -804,11 +836,12 @@ export default function MobileKnowledgeTreePanel({
     rememberOpened(result.node.id);
     try {
       activateNote(await api.getNote(result.noteId), targetParentId, true);
+      if (variant === "mobile") actions.setMobileSidebar(true);
     } catch (openError: any) {
       toast.error(openError?.message || "文档已创建，但自动打开失败");
     }
     toast.success("已从模板创建笔记");
-  }, [actions, activateNote, nodes, reload, rememberOpened, templatePicker?.parentId, unlockedFolderIds]);
+  }, [actions, activateNote, nodes, reload, rememberOpened, templatePicker?.parentId, unlockedFolderIds, variant]);
 
   const createFromPluginTemplate = useCallback(async (pluginId: string, templateId: string, values: Record<string, unknown>) => {
     const targetParentId = templatePicker?.parentId ?? null;
@@ -1087,7 +1120,18 @@ export default function MobileKnowledgeTreePanel({
         data-knowledge-tree-select-id={node.id}
         aria-selected={selected}
       >
-        <button
+        {inlineRenameNodeId === node.id && node.access.capabilities.canEdit ? (
+          <KnowledgeTreeInlineRename
+            key={node.id}
+            node={node}
+            onSaved={(title) => {
+              setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, title } : candidate));
+              setInlineRenameNodeId(null);
+              void reload().then(() => revealCreatedKnowledgeTreeNote(node.parentId, node.id));
+            }}
+            onCancel={() => setInlineRenameNodeId(null)}
+          />
+        ) : <button
           type="button"
           onClick={(event) => handleNodeSelection(event, node)}
           className={cn(
@@ -1149,7 +1193,7 @@ export default function MobileKnowledgeTreePanel({
             )}
           </span>
           {node.nodeType === "folder" && <ChevronRight size={16} className={cn("shrink-0 text-tx-tertiary", desktopHoverHidden)} />}
-        </button>
+        </button>}
         {node.nodeType !== "folder" && hasChildren && (
           <button
             type="button"
@@ -1324,15 +1368,12 @@ export default function MobileKnowledgeTreePanel({
             ? "items-center gap-1 px-2 pb-1.5"
           : "items-center gap-0.5 px-2 pb-1.5",
       )}>
-        <div className={compactToolbar ? "flex w-full items-center gap-2" : "contents"}>
-          <div className={cn(
-            "flex min-w-0 items-center border border-app-border bg-app-bg",
-            variant === "mobile"
-              ? "flex-1 gap-1.5 rounded-lg px-2 py-1.5 shadow-sm"
-              : compactToolbar
-                ? "flex-1 gap-1.5 rounded-lg px-1.5 py-1 shadow-sm"
-              : "flex-1 gap-1.5 rounded-lg px-1.5 py-1",
-          )}>
+        <div className={compactToolbar ? "flex w-full items-center gap-1" : "contents"}>
+          <MobileSidebarSearchPortal collapsed={controlsCollapsed} mode="navigator">
+          <div
+            data-knowledge-search-field={variant}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2"
+          >
             {!compactToolbar && (
               <KnowledgeSearchScopeSwitch
                 scope={searchScope}
@@ -1340,7 +1381,9 @@ export default function MobileKnowledgeTreePanel({
                 onChange={changeSearchScope}
               />
             )}
-            <Search size={variant === "mobile" ? 14 : 15} className="shrink-0 text-tx-tertiary" />
+            {searchScope === "content"
+              ? <Search size={14} className="shrink-0 text-tx-tertiary" aria-hidden="true" />
+              : <ListFilter size={14} className="shrink-0 text-tx-tertiary" aria-hidden="true" />}
             <input
               ref={searchRef}
               value={query}
@@ -1349,8 +1392,8 @@ export default function MobileKnowledgeTreePanel({
                 ? "搜索笔记标题与正文…"
                 : compactToolbar ? "搜索…" : "搜索目录与文档"}
               aria-label={searchScope === "content" ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档"}
-              title={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
-              className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+              aria-description={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
+              className="no-focus-ring min-w-0 flex-1 border-0 bg-transparent p-0 text-xs leading-5 text-tx-primary outline-none placeholder:text-tx-tertiary"
               data-mobile-knowledge-tree-search=""
               data-search-scope={searchScope}
             />
@@ -1369,7 +1412,7 @@ export default function MobileKnowledgeTreePanel({
             {query && (
               <button
                 type="button"
-                onClick={() => setQuery("")}
+                onClick={() => { setQuery(""); searchRef.current?.focus(); }}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
                 aria-label="清空搜索"
               >
@@ -1383,6 +1426,7 @@ export default function MobileKnowledgeTreePanel({
               />
             )}
           </div>
+          </MobileSidebarSearchPortal>
           {compactToolbar && (
             <>
               <button
@@ -1740,6 +1784,7 @@ export default function MobileKnowledgeTreePanel({
       />
       <NoteTemplatePickerDialog
         open={Boolean(templatePicker)}
+        parentId={templatePicker?.parentId ?? null}
         onClose={() => setTemplatePicker(null)}
         onCreate={createFromTemplate}
         onCreatePlugin={createFromPluginTemplate}

@@ -10,6 +10,7 @@ import {
   FileCode,
   FileText,
   Folder,
+  ListFilter,
   Loader2,
   LockKeyhole,
   MoreHorizontal,
@@ -36,7 +37,9 @@ import {
 import KnowledgeTreeDropdownMenu from "@/components/KnowledgeTreeDropdownMenu";
 import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMenuButton";
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
+import MobileSidebarSearchPortal from "@/components/MobileSidebarSearchPortal";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
+import KnowledgeTreeInlineRename from "@/components/KnowledgeTreeInlineRename";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
 import {
   importMarkdownIntoKnowledgeTree,
@@ -124,8 +127,11 @@ import {
 } from "@/lib/sharedKnowledgeTree";
 import {
   KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT,
+  KNOWLEDGE_TREE_REVEAL_NOTE_EVENT,
   revealCreatedKnowledgeTreeNote,
+  revealKnowledgeTreeNote,
   type KnowledgeTreeClearSearchDetail,
+  type KnowledgeTreeRevealNoteDetail,
 } from "@/lib/knowledgeTreeCreateVisibility";
 import { useApp, useAppActions } from "@/store/AppContext";
 
@@ -344,6 +350,11 @@ export function KnowledgeTreePanel({
   const [error, setError] = useState<string | null>(null);
   const [sharedLoadError, setSharedLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState(() => state.viewMode === "search" ? state.searchQuery : "");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const [searchDisclosure, setSearchDisclosure] = useState(() => ({
+    query: normalizedQuery,
+    collapsedIds: new Set<string>(),
+  }));
   const [draft, setDraft] = useState<KnowledgeTreeInlineDraft | null>(null);
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
@@ -351,6 +362,7 @@ export function KnowledgeTreePanel({
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
   const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
+  const [inlineRenameNodeId, setInlineRenameNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -382,6 +394,18 @@ export function KnowledgeTreePanel({
   );
   const expansionSnapshot = useSyncExternalStore(subscribeExpansion, readExpansion, readExpansion);
   const expanded = useMemo(() => new Set(expansionSnapshot.expandedNodeIds), [expansionSnapshot]);
+
+  useEffect(() => {
+    setSearchDisclosure({ query: normalizedQuery, collapsedIds: new Set() });
+  }, [normalizedQuery]);
+
+  const setSearchNodeExpanded = (nodeId: string, opening: boolean) => {
+    setSearchDisclosure((current) => {
+      const collapsedIds = new Set(current.query === normalizedQuery ? current.collapsedIds : []);
+      if (opening) collapsedIds.delete(nodeId); else collapsedIds.add(nodeId);
+      return { query: normalizedQuery, collapsedIds };
+    });
+  };
 
   const setNodeExpanded = useCallback((nodeId: string, opening: boolean) => {
     const next = new Set(getKnowledgeTreeExpansionSnapshot(expansionScope).expandedNodeIds);
@@ -520,9 +544,30 @@ export function KnowledgeTreePanel({
     [nodes, unlockedFolderIds],
   );
   useEffect(() => {
+    if (!surfaceActive) return;
+    const revealNote = (event: Event) => {
+      const detail = (event as CustomEvent<KnowledgeTreeRevealNoteDetail>).detail;
+      if (!detail?.noteId || detail.revealTree === false) return;
+      const target = visibleNodes.find((node) => node.resourceType === "note" && node.resourceId === detail.noteId);
+      if (!target) return;
+      setQuery("");
+      actions.setSearchQuery("");
+      actions.clearSelectedTags();
+      const notebookId = detail.notebookId || (state.activeNote?.id === detail.noteId ? state.activeNote.notebookId : null);
+      if (notebookId) actions.setSelectedNotebook(notebookId);
+      actions.setSelectedKnowledgeTreeParent(target.parentId);
+      actions.setViewMode("notebook");
+      setPendingCreatedNodeId(target.id);
+    };
+    window.addEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealNote);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealNote);
+  }, [actions, state.activeNote?.id, state.activeNote?.notebookId, surfaceActive, visibleNodes]);
+  useEffect(() => {
     if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
     let parentId = visibleNodes.find((node) => node.id === pendingCreatedNodeId)?.parentId;
-    while (parentId) {
+    const visited = new Set<string>();
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
       setNodeExpanded(parentId, true);
       parentId = visibleNodes.find((node) => node.id === parentId)?.parentId;
     }
@@ -531,7 +576,7 @@ export function KnowledgeTreePanel({
     const frame = requestAnimationFrame(() => {
       Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
         .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
-        ?.scrollIntoView({ block: "nearest" });
+        ?.scrollIntoView({ block: "center" });
       setPendingCreatedNodeId(null);
     });
     return () => cancelAnimationFrame(frame);
@@ -554,7 +599,11 @@ export function KnowledgeTreePanel({
   const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(nodes), [nodes]);
   const filteredNodes = useMemo(() => filterKnowledgeTreeNodes(visibleNodes, query), [visibleNodes, query]);
   const children = useMemo(() => buildChildren(filteredNodes), [filteredNodes]);
-  const effectiveExpanded = query.trim() ? new Set(filteredNodes.map((node) => node.id)) : expanded;
+  const effectiveExpanded = useMemo(() => normalizedQuery
+    ? new Set(filteredNodes.filter((node) => (
+      searchDisclosure.query !== normalizedQuery || !searchDisclosure.collapsedIds.has(node.id)
+    )).map((node) => node.id))
+    : expanded, [expanded, filteredNodes, normalizedQuery, searchDisclosure]);
   const expandableFolderIds = visibleNodes.filter((node) => (
     node.nodeType === "folder"
     && (children.get(node.id)?.length || 0) > 0
@@ -596,6 +645,8 @@ export function KnowledgeTreePanel({
     actions.setActiveNote(note);
     actions.setSelectedNotebook(note.notebookId);
     actions.setSelectedKnowledgeTreeParent(treeParentId);
+    actions.clearSelectedTags();
+    actions.setSearchQuery("");
     actions.setViewMode("notebook");
     actions.openNoteTab({
       id: note.id,
@@ -609,6 +660,7 @@ export function KnowledgeTreePanel({
     });
     actions.setMobileView("editor");
     if (variant === "mobile") actions.setMobileSidebar(false);
+    revealKnowledgeTreeNote(note.id, false);
   }, [actions, variant]);
 
   const rememberOpened = useCallback((nodeId: string) => {
@@ -617,6 +669,10 @@ export function KnowledgeTreePanel({
   }, []);
 
   const toggle = async (node: KnowledgeTreeNode) => {
+    if (normalizedQuery) {
+      setSearchNodeExpanded(node.id, !effectiveExpanded.has(node.id));
+      return;
+    }
     const opening = !getKnowledgeTreeExpansionSnapshot(expansionScope).expandedNodeIds.includes(node.id);
     setNodeExpanded(node.id, opening);
     if (!node.sharedRootId) {
@@ -730,6 +786,7 @@ export function KnowledgeTreePanel({
       return;
     }
     if (node.resourceType !== "note") return;
+    if (normalizedQuery) setSearchNodeExpanded(node.id, true);
     rememberOpened(node.id);
     if (node.noteType === "sheet") {
       pushSheetAppPath(node.resourceId);
@@ -936,7 +993,8 @@ export function KnowledgeTreePanel({
           templateCreateRequest.templateId,
           templateCreateRequest.parentId,
         );
-        revealCreatedKnowledgeTreeNote(templateCreateRequest.parentId);
+        revealCreatedKnowledgeTreeNote(templateCreateRequest.parentId, result.node.id);
+        setInlineRenameNodeId(result.node.id);
         if (templateCreateRequest.parentId) {
           setNodeExpanded(templateCreateRequest.parentId, true);
           if (!parent?.sharedRootId) {
@@ -949,6 +1007,7 @@ export function KnowledgeTreePanel({
         actions.refreshNotes();
         try {
           activateNote(await api.getNote(result.noteId), templateCreateRequest.parentId, true);
+          if (variant === "mobile") actions.setMobileSidebar(true);
         } catch (openError: any) {
           toast.error(openError?.message || "文档已创建，但自动打开失败");
         }
@@ -969,6 +1028,7 @@ export function KnowledgeTreePanel({
     setNodeExpanded,
     templateCreateRequest,
     unlockedFolderIds,
+    variant,
   ]);
 
   const commitDraft = async () => {
@@ -1005,7 +1065,7 @@ export function KnowledgeTreePanel({
 
     setDraft(null);
     if (snapshot.parentId) setNodeExpanded(snapshot.parentId, true);
-    if (snapshot.kind === "note" || snapshot.kind === "markdown" || snapshot.kind === "plaintext") revealCreatedKnowledgeTreeNote(snapshot.parentId);
+    if (snapshot.kind === "note" || snapshot.kind === "markdown" || snapshot.kind === "plaintext") revealCreatedKnowledgeTreeNote(snapshot.parentId, created.id);
     emitTreeChanged("node-created-inline");
     await reload();
     actions.refreshNotebooks();
@@ -1401,6 +1461,7 @@ export function KnowledgeTreePanel({
               variant === "mobile" ? "h-8 w-5" : "h-7 w-5",
             )}
             aria-label={isExpanded ? "折叠" : "展开"}
+            aria-expanded={hasChildren ? isExpanded : undefined}
           >
             {/* 单个箭头旋转 90°，展开 / 折叠两个方向都有连续反馈。 */}
             {hasChildren ? (
@@ -1410,7 +1471,18 @@ export function KnowledgeTreePanel({
               />
             ) : null}
           </button>
-          <button
+          {inlineRenameNodeId === node.id && node.access.capabilities.canEdit ? (
+            <KnowledgeTreeInlineRename
+              key={node.id}
+              node={node}
+              onSaved={(title) => {
+                setNodes((current) => current.map((item) => item.id === node.id ? { ...item, title } : item));
+                setInlineRenameNodeId(null);
+                void reload().then(() => revealCreatedKnowledgeTreeNote(node.parentId, node.id));
+              }}
+              onCancel={() => setInlineRenameNodeId(null)}
+            />
+          ) : <button
             type="button"
             onClick={(event) => handleNodeSelection(event, node)}
             className={cn(
@@ -1473,7 +1545,7 @@ export function KnowledgeTreePanel({
             )}
             {isSharedRoot(node) && <span className="rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary">共享</span>}
             {node.access.source === "inherited" && <span className="rounded bg-app-active px-1 text-[9px] text-tx-tertiary">继承</span>}
-          </button>
+          </button>}
           {node.access.capabilities.canCreate && isFolderUnlocked(node, unlockedFolderIds) && (
             <button
               type="button"
@@ -1614,18 +1686,14 @@ export function KnowledgeTreePanel({
           : "items-center gap-0.5 px-2 pb-1.5",
       )}>
         <div className={compactToolbar
-          ? "flex w-full items-center gap-0"
+          ? "flex w-full items-center gap-1"
           : "contents"}
         >
-          <div className={cn(
-            // 聚焦反馈：边框转为主色并带一圈柔光，只过渡颜色与阴影。
-            "flex min-w-0 items-center border border-app-border bg-app-bg transition-[border-color,box-shadow] duration-fast ease-standard focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/15",
-            variant === "mobile"
-              ? "w-full gap-1.5 rounded-lg px-2 py-1.5 shadow-sm"
-              : compactToolbar
-                ? "flex-1 gap-1.5 rounded-md px-1.5 py-1 shadow-sm"
-              : "flex-1 gap-1.5 rounded-md px-1.5 py-1",
-          )}>
+          <MobileSidebarSearchPortal collapsed={controlsCollapsed} mode="tree">
+          <div
+            data-knowledge-search-field={variant}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2"
+          >
             {!compactToolbar && (
               <KnowledgeSearchScopeSwitch
                 scope={searchScope}
@@ -1633,7 +1701,9 @@ export function KnowledgeTreePanel({
                 onChange={changeSearchScope}
               />
             )}
-            <Search size={variant === "mobile" ? 14 : 13} className="shrink-0 text-tx-tertiary" />
+            {searchScope === "content"
+              ? <Search size={14} className="shrink-0 text-tx-tertiary" aria-hidden="true" />
+              : <ListFilter size={14} className="shrink-0 text-tx-tertiary" aria-hidden="true" />}
             <input
               ref={searchRef}
               value={query}
@@ -1642,12 +1712,12 @@ export function KnowledgeTreePanel({
                 ? "搜索笔记标题与正文…"
                 : variant === "mobile" ? "搜索…" : compactToolbar ? "筛选…" : "筛选目录与文档…"}
               aria-label={searchScope === "content" ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档"}
-              title={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
-              className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+              aria-description={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
+              className="no-focus-ring min-w-0 flex-1 border-0 bg-transparent p-0 text-xs leading-5 text-tx-primary outline-none placeholder:text-tx-tertiary"
               data-knowledge-tree-search=""
               data-search-scope={searchScope}
             />
-            {query && <button type="button" onClick={() => setQuery("")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" aria-label="清空筛选"><X size={variant === "mobile" ? 15 : 12} /></button>}
+            {query && <button type="button" onClick={() => { setQuery(""); searchRef.current?.focus(); }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" aria-label="清空筛选"><X size={14} /></button>}
             {compactToolbar && (
               <KnowledgeSearchScopeMenuButton
                 scope={searchScope}
@@ -1655,6 +1725,7 @@ export function KnowledgeTreePanel({
               />
             )}
           </div>
+          </MobileSidebarSearchPortal>
           {compactToolbar && compactActionButtons}
         </div>
         {!compactToolbar && (

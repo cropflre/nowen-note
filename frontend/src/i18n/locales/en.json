@@ -293,6 +293,7 @@
     }
   },
   "sidebar": {
+    "templateManagement": "Templates",
     "newNote": "New Note",
     "newMarkdownNote": "New Markdown Note",
     "importWordNote": "Import Word Document",
@@ -994,6 +995,8 @@
     "codeBlockCollapseMode_expanded": "Always expand",
     "codeBlockCollapseMode_long": "Collapse long",
     "codeBlockCollapseMode_collapsed": "Always collapse",
+    "codeBlockWordWrap": "Wrap code-block lines",
+    "codeBlockWordWrapDesc": "Turn off to preserve source lines in rich text and Markdown previews and scroll long lines horizontally. Display only; note content is unchanged.",
     "remoteImagePasteMode": "Paste external images",
     "remoteImagePasteModeDesc": "Saving attachments avoids slow or expired links but uses storage. Failed images keep their original links.",
     "remoteImagePasteMode_localize": "Save as attachments",

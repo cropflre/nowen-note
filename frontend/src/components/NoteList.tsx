@@ -61,7 +61,7 @@ import {
   getNoteFormatConversionTarget,
   requestActiveNoteFormatConversion,
 } from "@/lib/noteFormatConversion";
-import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { compactNotebookLabels, noteListPreview, noteListRowHeight } from "@/lib/noteListPresentation";
@@ -1131,6 +1131,7 @@ export const NoteCard = React.memo(function NoteCard({
     <motion.div
       ref={cardRef}
       data-note-list-card
+      data-note-list-note-id={note.id}
       style={{ minHeight: (rowHeight ?? noteListRowHeight(titleOnly, searchQuery)) - 4 }}
       // 仅做轻量淡入。早期版本用了 y:4 → y:0 的位移，会造成切换笔记本时
       // 整列卡片"先在面板底部出现再上移"的错觉（尤其当 list 项很少、
@@ -1311,6 +1312,8 @@ export function VirtualNoteList({
   dragHint,
   sidebarTextStyle,
   titleOnly = false,
+  revealNoteId,
+  onNoteRevealed,
 }: {
   notes: NoteListItem[];
   scrollScopeKey: string;
@@ -1338,6 +1341,8 @@ export function VirtualNoteList({
   dragHint?: string;
   sidebarTextStyle: SidebarTextStyle;
   titleOnly?: boolean;
+  revealNoteId?: string | null;
+  onNoteRevealed?: (noteId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1390,6 +1395,23 @@ export function VirtualNoteList({
     container.scrollTop = nextTop;
     setScrollTop(nextTop);
   }, [totalHeight]);
+  useEffect(() => {
+    if (!revealNoteId) return;
+    const container = containerRef.current;
+    const index = notes.findIndex((note) => note.id === revealNoteId);
+    if (!container || index < 0) return;
+    const top = index * itemHeight;
+    const bottom = top + itemHeight;
+    const height = container.clientHeight || containerHeight;
+    const nextTop = top < container.scrollTop
+      ? top
+      : bottom > container.scrollTop + height
+        ? Math.max(0, bottom - height)
+        : container.scrollTop;
+    container.scrollTop = nextTop;
+    setScrollTop(nextTop);
+    onNoteRevealed?.(revealNoteId);
+  }, [containerHeight, itemHeight, notes, onNoteRevealed, revealNoteId]);
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
   const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
   const visibleNotes = notes.slice(startIndex, endIndex);
@@ -1603,6 +1625,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "plaintext" | "word">("normal");
   const [dateFilter, setDateFilter] = useState<string | null>(null); // YYYY-MM-DD
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
+  const [loadedNotesQueryKey, setLoadedNotesQueryKey] = useState<string | null>(null);
+  const [pendingRevealNoteId, setPendingRevealNoteId] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const notesFetchSeqRef = useRef(0);
   const notesQueryKeyRef = useRef("");
@@ -1754,6 +1778,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       }
       if (requestSeq !== notesFetchSeqRef.current) return;
       actions.setNotes(notes);
+      setLoadedNotesQueryKey(notesQueryKey);
     } catch (err: any) {
       if (requestSeq !== notesFetchSeqRef.current) return;
       console.warn("[NoteList] fetch notes failed", err);
@@ -2017,6 +2042,36 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     const viewport = root.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
     if (viewport) viewport.scrollTop = 0;
   }, [notesQueryKey]);
+
+  useEffect(() => {
+    setPendingRevealNoteId(directNotebookScope ? state.activeNote?.id || null : null);
+  }, [directNotebookScope, state.activeNote?.id]);
+
+  useEffect(() => {
+    if (!directNotebookScope) return;
+    const reveal = (event: Event) => {
+      const noteId = (event as CustomEvent<{ noteId?: string }>).detail?.noteId;
+      if (!noteId) return;
+      setDateFilter(null);
+      setPendingRevealNoteId(noteId);
+    };
+    window.addEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, reveal);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, reveal);
+  }, [directNotebookScope]);
+
+  const finishNoteReveal = useCallback((noteId: string) => {
+    setPendingRevealNoteId((current) => current === noteId ? null : current);
+  }, []);
+  const readyRevealNoteId = directNotebookScope && loadedNotesQueryKey === notesQueryKey && !state.isLoading
+    ? pendingRevealNoteId
+    : null;
+  useEffect(() => {
+    if (!readyRevealNoteId || sortedNotes.length > 100) return;
+    const card = noteCardRefs.current.get(readyRevealNoteId);
+    if (!card || !sortedNotes.some((note) => note.id === readyRevealNoteId)) return;
+    card.scrollIntoView({ block: "nearest", inline: "nearest" });
+    finishNoteReveal(readyRevealNoteId);
+  }, [finishNoteReveal, readyRevealNoteId, sortedNotes]);
 
   // 全局 ESC 清空多选（多选状态下）
   useEffect(() => {
@@ -4004,6 +4059,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
             notes={sortedNotes}
             scrollScopeKey={notesQueryKey}
             activeNoteId={state.noteLoadingState.pendingNoteId || state.activeNote?.id}
+            revealNoteId={readyRevealNoteId}
+            onNoteRevealed={finishNoteReveal}
             menuState={{ isOpen: menu.isOpen, targetId: menu.targetId }}
             sharedNoteIds={sharedNoteIds}
             selectedIds={selectedIds}

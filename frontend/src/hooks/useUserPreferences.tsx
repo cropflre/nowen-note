@@ -159,6 +159,10 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     };
   }, [prefs.editorFontSize]);
 
+  useEffect(() => {
+    document.documentElement.setAttribute("data-code-block-word-wrap", String(prefs.codeBlockWordWrap));
+  }, [prefs.codeBlockWordWrap]);
+
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。
   useEffect(() => installKnowledgeTreeAutoLock({
