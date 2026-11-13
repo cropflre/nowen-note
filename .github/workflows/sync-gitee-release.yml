@@ -63,6 +63,8 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - name: Resolve target tag
         id: tag
         env:
@@ -313,17 +315,24 @@ jobs:
           name=$(printf '%s' "$source" | jq -r --arg tag "$TAG" '.name // $tag')
           notes=$(printf '%s' "$source" | jq -r '.body // ""')
           prerelease=$(printf '%s' "$source" | jq -r '.prerelease // false')
-          # These point to GitHub official downloads, NOT to Gitee attachments.
-          asset_links=$(printf '%s' "$source" | jq -r '
-            [.assets[]? | select(.name | test("\\.(exe|msi|dmg|zip|AppImage|deb|rpm|apk|aab|fpk|upk|tar|tar\\.gz)$"; "i"))]
-            | sort_by(.name)
-            | map("- [" + .name + "](" + .browser_download_url + ") (" + (((.size / 1048576) * 10 | round / 10) | tostring) + " MiB)")
-            | join("\n")
-          ')
+          # R2 manifest is published only after all ten binaries pass integrity checks.
+          # Missing/stale/invalid manifests fall back to official GitHub links.
+          printf '%s' "$source" > "$RUNNER_TEMP/nowen-gh-release.json"
+          mirror_file="$RUNNER_TEMP/nowen-r2-manifest.json"
+          if ! curl --http1.1 --connect-timeout 7 --max-time 18 -fsSL \
+            -o "$mirror_file" "https://download.nowen.cn/$TAG/manifest.json"; then
+            echo '[gitee] R2 mirror manifest unavailable; preserving GitHub links'
+            printf '%s' '{}' > "$mirror_file"
+          fi
+          if ! jq -e . "$mirror_file" >/dev/null 2>&1; then
+            printf '%s' '{}' > "$mirror_file"
+          fi
+          asset_links=$(node scripts/release-r2-links.mjs \
+            "$RUNNER_TEMP/nowen-gh-release.json" "$mirror_file")
           if [ -z "$asset_links" ]; then
             asset_links="本版本没有单独提供可分发的安装包。"
           fi
-          body=$(printf '%s\n\n---\n\n### 官方安装包下载\n\n%s\n\n> 以上是 GitHub 官方下载链接，不代表文件已上传到 Gitee。本仓库仅镜像代码与发行版信息，安装包仍由 GitHub 分发。\n\n[GitHub 原版发布页](https://github.com/%s/releases/tag/%s)\n' \
+          body=$(printf '%s\n\n---\n\n### 官方安装包下载\n\n%s\n\n> 已验证的文件优先使用 download.nowen.cn（R2）并保留 GitHub 备用链接；未镜像的安装包仍由 GitHub 分发，Gitee 不托管大文件。\n\n[GitHub 原版发布页](https://github.com/%s/releases/tag/%s)\n' \
             "$notes" "$asset_links" "$GITHUB_REPOSITORY" "$TAG")
 
           api="https://gitee.com/api/v5/repos/$GITEE_OWNER/$GITEE_REPO/releases/$RELEASE_ID"
