@@ -56,6 +56,9 @@ test("R2 mirrors exactly user-facing platform installers and extension ZIPs", ()
   assert.match(upload, /md5sum/);
   assert.match(upload, /R2 remote size\/ETag mismatch/);
   assert.match(upload, /download\.nowen\.cn/);
+  assert.match(upload, /manifest\.json/);
+  assert.match(upload, /Publish the manifest LAST/);
+  assert.match(upload, /manifest-verified\.json/);
 });
 
 test("R2 workflow is invoked from formal release publisher without blocking GitHub assets", () => {
