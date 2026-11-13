@@ -5,6 +5,7 @@
  * 除了公开路由，系统在线升级预检也复用同一个缓存函数，避免对 GitHub 重复外呼。
  */
 import { Hono } from "hono";
+import { fetchVerifiedR2Mirror } from "./release-r2-mirror.js";
 
 const router = new Hono();
 const GITHUB_OWNER = process.env.NOWEN_RELEASE_OWNER || "cropflre";
@@ -242,5 +243,13 @@ export async function getLatestReleasePayload(): Promise<LatestReleasePayload> {
 }
 
 router.get("/latest", async (c) => c.json(await getLatestReleasePayload()));
+
+// Mirror availability is separate from GitHub release discovery, so failures
+// never break the installation list or the desktop updater's release cache.
+router.get("/latest/mirror", async (c) => {
+  const release = await getLatestReleasePayload();
+  if (!release.available) return c.json({ available: false, tag: "" });
+  return c.json(await fetchVerifiedR2Mirror(release));
+});
 
 export default router;
