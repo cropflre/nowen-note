@@ -328,6 +328,71 @@ function getTurndown(): TurndownService {
   });
 
   /**
+   * GFM 表格。Tiptap 输出 `<table><colgroup>…</colgroup><tbody><tr><th|td><p>…</p></th|td></tr></tbody></table>`，
+   * 表头单元格也在 <tbody> 里；没有这条规则时 Turndown 会把单元格拍平成零散段落。
+   * - 表头：GFM 必须有表头行，首行一律输出为表头行。没有表头行的表格不补空表头（不凭空多出一行），
+   *   代价是转回富文本后首行变成表头单元格；其余行里的表头单元格（表头列）按普通单元格输出。
+   * - 单元格：每个段落单独转成行内 Markdown，段落之间与硬换行都用 `<br>` 连接，保证单元格只占一行；
+   *   转回富文本后多个段落合并为一个带硬换行的段落。
+   * - `|`：正文、行内代码、链接地址里的 `|` 写成 `\|`。公式（data-latex）和内部链接 `[[…|别名]]` 里的 `|`
+   *   会在 markdownToHtml 解析表格之前被预处理掉，转义反而改坏内容，所以不碰。
+   * - 列对齐：单元格 align 属性（TableFidelityExtension）整列一致时输出 `:---` / `:---:` / `---:`。
+   * - 列宽、行高、表格布局属性以及单元格内段落的对齐 / 缩进 GFM 无法表达，按管道表格输出时不保留。
+   * - GFM 无法表达的表格保留为 HTML（同 Details / Callout 等容器），保证内容不丢：合并单元格、单元格里有
+   *   段落以外的块（列表、代码块、图片、嵌套表格等）、行内代码含 `\|`（GFM 表格里的行内代码写不出 `\|`）。
+   *   HTML 块遇到空行就结束，所以换行写成 `&#10;`，整张表保持一行。
+   */
+  const PIPE_PLACEHOLDER = "\u0000";
+  const markPipes = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.nodeValue = (node.nodeValue || "").replace(/\|/g, PIPE_PLACEHOLDER);
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    const href = node.getAttribute("href");
+    if (href) node.setAttribute("href", href.replace(/\|/g, PIPE_PLACEHOLDER));
+    node.childNodes.forEach(markPipes);
+  };
+  const cellParagraphToMarkdown = (paragraph: Element): string => {
+    const clone = paragraph.cloneNode(true) as HTMLElement;
+    markPipes(clone);
+    return td.turndown(clone).split(PIPE_PLACEHOLDER).join("\\|").replace(/[ \t]*\n[ \t]*/g, "<br>");
+  };
+  const fitsGfmCell = (cell: Element): boolean =>
+    Number(cell.getAttribute("colspan") || 1) <= 1 &&
+    Number(cell.getAttribute("rowspan") || 1) <= 1 &&
+    Array.from(cell.children).every((child) => child.nodeName === "P") &&
+    !Array.from(cell.querySelectorAll("code")).some((code) => (code.textContent || "").includes("\\|"));
+  const delimiterOf = (align: string | null): string =>
+    align === "left" ? ":---" : align === "center" ? ":---:" : align === "right" ? "---:" : "---";
+
+  td.addRule("gfmTable", {
+    filter: "table",
+    replacement: (_content, node) => {
+      const table = node as HTMLElement;
+      const rows = Array.from(table.children).flatMap((child) =>
+        child.nodeName === "TR"
+          ? [child]
+          : /^T(HEAD|BODY|FOOT)$/.test(child.nodeName)
+            ? Array.from(child.children).filter((row) => row.nodeName === "TR")
+            : [],
+      );
+      const grid = rows.map((row) => Array.from(row.children).filter((cell) => cell.nodeName === "TH" || cell.nodeName === "TD"));
+      if (!grid[0]?.length || !grid.every((cells) => cells.every(fitsGfmCell))) {
+        return `\n\n${table.outerHTML.replace(/\n/g, "&#10;")}\n\n`;
+      }
+      const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+      const delimiter = grid[0].map((_cell, column) => {
+        const aligns = new Set(grid.map((cells) => cells[column]?.getAttribute("data-nowen-cell-align") ?? null));
+        return delimiterOf(aligns.size === 1 ? [...aligns][0] : null);
+      });
+      const lines = grid.map((cells) => line(cells.map((cell) => Array.from(cell.children).map(cellParagraphToMarkdown).join("<br>"))));
+      lines.splice(1, 0, line(delimiter));
+      return `\n\n${lines.join("\n")}\n\n`;
+    },
+  });
+
+  /**
    * 数学公式：把 Tiptap 输出的 `<span data-math-inline data-latex="x^2">` 和
    * `<div data-math-block data-latex="\int_0^1 x\\,dx">` 转回 Markdown 的
    * `$x^2$` / `$$\int_0^1 x\,dx$$`。
@@ -1151,6 +1216,23 @@ function extractCodeText(src: string, node: SyntaxNode): string {
   return raw.replace(/^```[^\n]*\n?/, "").replace(/```\s*$/, "");
 }
 
+/** 分隔行每列的对齐：`:---` 左、`:---:` 居中、`---:` 右，没有冒号为空串 */
+function parseTableAligns(delimiterRow: string): string[] {
+  return delimiterRow.trim().replace(/^\||\|$/g, "").split("|").map((spec) => {
+    const s = spec.trim();
+    if (s.startsWith(":")) return s.endsWith(":") ? "center" : "left";
+    return s.endsWith(":") ? "right" : "";
+  });
+}
+
+/** GFM 规定单元格里的 `\|` 在行内代码中同样表示 `|`；lezer 只在普通文字里按转义处理，这里补上 */
+function renderTableCellInline(src: string, cell: SyntaxNode): string {
+  return renderInlineChildren(src, cell).replace(
+    /<code>([^<]*)<\/code>/g,
+    (_m, code: string) => `<code>${code.replace(/\\\|/g, "|")}</code>`,
+  );
+}
+
 function renderTable(src: string, node: SyntaxNode): string {
   // GFM Table 结构：
   //   Table
@@ -1161,23 +1243,38 @@ function renderTable(src: string, node: SyntaxNode): string {
   //       TableCell*
   let header: SyntaxNode | null = null;
   const rows: SyntaxNode[] = [];
+  // 分隔行决定各列对齐，写成单元格的 align 属性（TableFidelityExtension 会解析）
+  let aligns: string[] = [];
   let c = node.firstChild;
   while (c) {
     if (c.name === "TableHeader") header = c;
     else if (c.name === "TableRow") rows.push(c);
+    else if (c.name === "TableDelimiter") aligns = parseTableAligns(sliceText(src, c));
     c = c.nextSibling;
   }
 
   const renderRow = (row: SyntaxNode, tag: "th" | "td") => {
-    const cells: string[] = [];
+    // 按 `|` 分隔符切出单元格：lezer 不给空单元格生成 TableCell 节点，直接跳过会让后面的单元格错列
+    const cells: Array<SyntaxNode | null> = [];
+    let pending: SyntaxNode | null = null;
+    let atRowStart = true;
     let cc = row.firstChild;
     while (cc) {
-      if (cc.name === "TableCell") {
-        cells.push(`<${tag}>${renderInlineChildren(src, cc)}</${tag}>`);
+      if (cc.name === "TableCell") pending = cc;
+      else if (cc.name === "TableDelimiter") {
+        // 行首的 `|` 前面没有单元格
+        if (pending || !atRowStart) cells.push(pending);
+        pending = null;
+        atRowStart = false;
       }
       cc = cc.nextSibling;
     }
-    return `<tr>${cells.join("")}</tr>`;
+    if (pending) cells.push(pending);
+    const html = cells.map((cell, i) => {
+      const align = aligns[i] ? ` align="${aligns[i]}"` : "";
+      return `<${tag}${align}>${cell ? renderTableCellInline(src, cell) : ""}</${tag}>`;
+    });
+    return `<tr>${html.join("")}</tr>`;
   };
 
   let html = "<table>";

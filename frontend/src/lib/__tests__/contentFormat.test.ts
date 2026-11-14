@@ -795,3 +795,143 @@ describe("带 blockId 的 RTE ↔ MD 往返", () => {
     });
   });
 });
+
+describe("表格 RTE ↔ MD", () => {
+  const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
+  const para = (...content: JSONContent[]): JSONContent => (content.length ? { type: "paragraph", content } : { type: "paragraph" });
+  const th = (content: JSONContent[], attrs?: JSONContent["attrs"]): JSONContent => ({ type: "tableHeader", ...(attrs ? { attrs } : {}), content });
+  const td = (content: JSONContent[], attrs?: JSONContent["attrs"]): JSONContent => ({ type: "tableCell", ...(attrs ? { attrs } : {}), content });
+  const tableDoc = (...rows: JSONContent[][]): JSONContent => ({
+    type: "doc",
+    content: [{ type: "table", content: rows.map((cells) => ({ type: "tableRow", content: cells })) }],
+  });
+  const tableOf = (json: JSONContent) => json.content?.find((node) => node.type === "table");
+  // 每个单元格摘要为「th/td:文字」，段落之间记为 ¶，硬换行记为 ⏎
+  const cellText = (cell: JSONContent) =>
+    (cell.content ?? []).map((block) => (block.content ?? []).map((n) => (n.type === "hardBreak" ? "⏎" : n.text ?? "")).join("")).join("¶");
+  const grid = (json: JSONContent) =>
+    tableOf(json)?.content?.map((row) => row.content?.map((cell) => `${cell.type === "tableHeader" ? "th" : "td"}:${cellText(cell)}`));
+  // RTE → MD → RTE，并要求第二次转成 MD 与第一次完全一致
+  const roundTrip = (doc: JSONContent) => {
+    const md = tiptapJsonToMarkdown(doc);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+
+  it("普通表格输出为 GFM 管道表格，往返后结构与内容一致", () => {
+    const doc = tableDoc(
+      [th([para(text("A"))]), th([para(text("B"))])],
+      [td([para(text("1"))]), td([para(text("2"))])],
+      [td([para(text("3"))]), td([para(text("4"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |");
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("没有表头行的表格把首行输出为表头行：不多出空行，转回后首行成为表头", () => {
+    const doc = tableDoc(
+      [td([para(text("1"))]), td([para(text("2"))])],
+      [td([para(text("3"))]), td([para(text("4"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| 1 | 2 |\n| --- | --- |\n| 3 | 4 |");
+    expect(grid(back)).toEqual([["th:1", "th:2"], ["td:3", "td:4"]]);
+  });
+
+  it("单元格里的 | 转义为 \\|，粗体、链接、行内代码往返不变", () => {
+    const doc = tableDoc(
+      [th([para(text("文字"))]), th([para(text("格式"))]), th([para(text("代码"))])],
+      [
+        td([para(text("a|b"))]),
+        td([para(text("加粗", [{ type: "bold" }]), text(" 与 "), text("链接", [{ type: "link", attrs: { href: "https://example.com/?q=a|b" } }]))]),
+        td([para(text("ls | wc", [{ type: "code" }]))]),
+      ],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md.split("\n")[2]).toBe("| a\\|b | **加粗** 与 [链接](https://example.com/?q=a\\|b) | `ls \\| wc` |");
+    const inline = (json: JSONContent) =>
+      tableOf(json)?.content?.[1]?.content?.map((cell) =>
+        (cell.content?.[0]?.content ?? []).map((n) => [n.text, n.marks?.map((m) => m.type) ?? [], n.marks?.[0]?.attrs?.href ?? null]),
+      );
+    expect(inline(back)).toEqual(inline(doc));
+  });
+
+  it("内部链接 [[…|别名]] 里的 | 不转义：解析表格前已被预处理，不会拆开单元格", () => {
+    const href = "note:00000000-0000-4000-8000-000000000001";
+    const md = normalizeToMarkdown(
+      `<table><tbody><tr><th><p>笔记</p></th><th><p>说明</p></th></tr>` +
+        `<tr><td><p><a href="${href}" rel="nowen-title-alias">别名</a></p></td><td><p>x</p></td></tr></tbody></table>`,
+    );
+    expect(md).toBe(`| 笔记 | 说明 |\n| --- | --- |\n| [[${href}|别名]] | x |`);
+    expect(markdownToHtml(md)).toMatch(/<tr><td><a href="note:[^"]+"[^>]*>别名<\/a><\/td><td>x<\/td><\/tr>/);
+  });
+
+  it("单元格里的多个段落与硬换行用 <br> 连接，每个单元格只占一行", () => {
+    const doc = tableDoc(
+      [th([para(text("段落"))]), th([para(text("换行"))])],
+      [td([para(text("one")), para(), para(text("two"))]), td([para(text("a"), { type: "hardBreak" }, text("b"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| 段落 | 换行 |\n| --- | --- |\n| one<br><br>two | a<br>b |");
+    // GFM 单元格只能放行内内容：转回后多个段落合并为一个带硬换行的段落，文字与换行位置不变
+    expect(grid(back)).toEqual([["th:段落", "th:换行"], ["td:one⏎⏎two", "td:a⏎b"]]);
+  });
+
+  it("空单元格不会让后面的单元格错列", () => {
+    const fromMd: JSONContent = markdownToTiptapJSON("| A | B | C |\n| --- | --- | --- |\n|  | 2 |  |");
+    expect(grid(fromMd)).toEqual([["th:A", "th:B", "th:C"], ["td:", "td:2", "td:"]]);
+
+    const doc = tableDoc([th([para(text("A"))]), th([para()]), th([para(text("C"))])], [td([para()]), td([para(text("2"))]), td([para()])]);
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| A |  | C |\n| --- | --- | --- |\n|  | 2 |  |");
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("单元格对齐属性与 GFM 列对齐互转；同一列对齐不一致时不输出对齐标记", () => {
+    const md = "| L | C | R | N |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |";
+    const json: JSONContent = markdownToTiptapJSON(md);
+    expect(tableOf(json)?.content?.map((row) => row.content?.map((cell) => cell.attrs?.align ?? null))).toEqual([
+      ["left", "center", "right", null],
+      ["left", "center", "right", null],
+    ]);
+    expect(tiptapJsonToMarkdown(json)).toBe(md);
+
+    const mixed = tableDoc([th([para(text("H"))], { align: "center" })], [td([para(text("1"))])]);
+    expect(tiptapJsonToMarkdown(mixed)).toBe("| H |\n| --- |\n| 1 |");
+  });
+
+  it("合并单元格保留为 HTML 表格，往返后合并与内容不丢", () => {
+    const doc = tableDoc(
+      [th([para(text("合并"))], { colspan: 2 })],
+      [td([para(text("1"))]), td([para(text("2"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md.startsWith("<table")).toBe(true);
+    expect(md).toContain('colspan="2"');
+    expect(tableOf(back)?.content?.[0]?.content?.[0]?.attrs?.colspan).toBe(2);
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("单元格里有段落以外的块，或行内代码含 \\| 时保留为单行 HTML 表格，内容不丢", () => {
+    const item = (value: string): JSONContent => ({ type: "listItem", content: [para(text(value))] });
+    const blocks = tableDoc(
+      [th([para(text("列表"))]), th([para(text("代码"))])],
+      [td([{ type: "bulletList", content: [item("x"), item("y")] }]), td([{ type: "codeBlock", content: [text("a\n\nb")] }])],
+    );
+    const { md, back } = roundTrip(blocks);
+    // 整个表格在一行里：HTML 块遇到空行就会结束，代码里的空行不能原样写出
+    expect(md.startsWith("<table")).toBe(true);
+    expect(md).not.toContain("\n");
+    const [listCell, codeCell] = tableOf(back)?.content?.[1]?.content ?? [];
+    expect(listCell?.content?.[0]?.type).toBe("bulletList");
+    expect(listCell?.content?.[0]?.content).toHaveLength(2);
+    expect(codeCell?.content?.[0]).toMatchObject({ type: "codeBlock", content: [{ text: "a\n\nb" }] });
+
+    const regex = tableDoc([th([para(text("正则"))])], [td([para(text("a\\|b", [{ type: "code" }]))])]);
+    const { md: regexMd, back: regexBack } = roundTrip(regex);
+    expect(regexMd.startsWith("<table")).toBe(true);
+    expect(tableOf(regexBack)?.content?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.text).toBe("a\\|b");
+  });
+});
