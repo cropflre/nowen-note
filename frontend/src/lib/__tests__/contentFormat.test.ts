@@ -192,6 +192,22 @@ describe("markdownToHtml", () => {
     );
   });
 
+  it("没有 URL 的方括号文字原样保留（段落、列表项、任务项）", () => {
+    expect(markdownToHtml("见 [备注]")).toBe("<p>见 [备注]</p>");
+    expect(markdownToHtml("- 见 [备注]")).toBe("<ul><li><p>见 [备注]</p></li></ul>");
+    expect(markdownToHtml("- [ ] 把 [x] 改成 [**重点**]")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        "<p>把 [x] 改成 [<strong>重点</strong>]</p>" +
+        "</li></ul>",
+    );
+  });
+
+  it("引用式链接：有定义时渲染为链接，没有定义时保留方括号原文", () => {
+    const html = markdownToHtml("[文档][ref]、[Ref][]、[REF] 与 [未定义][missing]\n\n[ref]: https://example.com/doc");
+    const link = (text: string) => `<a href="https://example.com/doc">${text}</a>`;
+    expect(html).toContain(`<p>${link("文档")}、${link("Ref")}、${link("REF")} 与 [未定义][missing]</p>`);
+  });
+
   it("围栏代码块带 language", () => {
     const md = "```js\nconst x = 1;\n```";
     const html = markdownToHtml(md);

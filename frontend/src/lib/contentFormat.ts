@@ -42,7 +42,7 @@ import TurndownService from "turndown";
 import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import { parser as baseMdParser } from "@lezer/markdown";
 import { GFM } from "@lezer/markdown";
-import type { SyntaxNode } from "@lezer/common";
+import type { SyntaxNode, Tree } from "@lezer/common";
 import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
@@ -706,7 +706,7 @@ function isMarkNode(name: string): boolean {
  *   "# H1"  → "<h1># H1</h1>"      （# 漏出）
  *   "**bold**" → "<strong>**bold**</strong>" （** 漏出）
  */
-function renderInlineChildren(src: string, parent: SyntaxNode): string {
+function renderInlineChildren(src: string, parent: SyntaxNode, keepMarks = false): string {
   const allKids = childrenOf(parent);
   let out = "";
   let cursor = parent.from;
@@ -715,7 +715,8 @@ function renderInlineChildren(src: string, parent: SyntaxNode): string {
       out += escapeHtml(src.slice(cursor, child.from));
     }
     if (isMarkNode(child.name)) {
-      // 跳过标记符（`**`、`#`、`` ` `` 等），不输出
+      // 跳过标记符（`**`、`#`、`` ` `` 等）；keepMarks 时作为普通文字输出
+      if (keepMarks) out += escapeHtml(sliceText(src, child));
     } else {
       out += renderInlineNode(src, child);
     }
@@ -747,8 +748,13 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
       // 链接文字本身是 URL 时会出现两个 URL 子节点，最后一个才是目标地址。
       const url = findLastChildText(src, node, "URL");
       const inner = renderLinkLabel(src, node);
-      if (!url) return inner;
-      return `<a href="${escapeAttr(url)}">${inner}</a>`;
+      if (url) return `<a href="${escapeAttr(url)}">${inner}</a>`;
+      // `[a]()`：目标为空的行内链接，只保留文字
+      if (childrenOf(node).some((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "(")) return inner;
+      // 引用式 `[t][ref]` / `[t][]` / `[t]`：有定义才是链接，否则按 CommonMark 是普通文字，保留方括号
+      const href = resolveLinkReference(src, node);
+      if (href) return `<a href="${escapeAttr(href)}">${inner}</a>`;
+      return renderInlineChildren(src, node, true);
     }
     case "Image": {
       // 结构：Image [ "!", "[", alt..., "]", "(", URL, ")" ]
@@ -775,6 +781,40 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
       if (node.firstChild) return renderInlineChildren(src, node);
       return escapeHtml(sliceText(src, node));
   }
+}
+
+/**
+ * 当前文档的链接引用定义（规范化标签 → URL），只在 markdownToHtml 同步渲染期间有效。
+ */
+let linkReferenceUrls = new Map<string, string>();
+
+function normalizeLinkLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function collectLinkReferenceUrls(src: string, tree: Tree): Map<string, string> {
+  const urls = new Map<string, string>();
+  tree.iterate({
+    enter: (ref) => {
+      if (ref.name !== "LinkReference") return;
+      const label = normalizeLinkLabel(findChildText(src, ref.node, "LinkLabel")?.slice(1, -1) ?? "");
+      const url = findChildText(src, ref.node, "URL")?.replace(/^<([\s\S]*)>$/, "$1");
+      // 同一标签有多个定义时以第一个为准（CommonMark）
+      if (label && url && !urls.has(label)) urls.set(label, url);
+      return false;
+    },
+  });
+  return urls;
+}
+
+function resolveLinkReference(src: string, node: SyntaxNode): string | undefined {
+  // `[t][ref]` 用 ref；折叠式 `[t][]` 与简写式 `[t]` 用链接文字本身
+  const label = findChildText(src, node, "LinkLabel")?.slice(1, -1);
+  const kids = childrenOf(node);
+  const open = kids.find((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "[");
+  const close = kids.find((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "]");
+  const text = open && close ? src.slice(open.to, close.from) : "";
+  return linkReferenceUrls.get(normalizeLinkLabel(label || text));
 }
 
 function renderLinkLabel(src: string, node: SyntaxNode): string {
@@ -1346,6 +1386,7 @@ export function markdownToHtml(md: string): string {
     const { text: preprocessed, refs, defs } = extractFootnotePlaceholders(afterMath);
 
     const tree = getMdParser().parse(preprocessed);
+    linkReferenceUrls = collectLinkReferenceUrls(preprocessed, tree);
     // Document 是根节点；它的直接子就是块级节点
     let out = "";
     const doc = tree.topNode;
@@ -1367,6 +1408,8 @@ export function markdownToHtml(md: string): string {
   } catch (err) {
     console.warn("[contentFormat] markdownToHtml failed:", err);
     return `<p>${escapeHtml(md)}</p>`;
+  } finally {
+    linkReferenceUrls = new Map();
   }
 }
 
