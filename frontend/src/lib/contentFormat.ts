@@ -468,6 +468,8 @@ function getTurndown(): TurndownService {
         return `${clean} ^${itemId}`;
       }
       if (!id) return content;
+      // 引用块最后一段与引用块共用标记行，一行只能带一个标记：写引用块的 ID，这一段自己的 ID 不写出
+      if (el.nodeName === "P" && el.parentElement?.nodeName === "BLOCKQUOTE" && el.parentElement.lastElementChild === el) return `\n\n${clean}\n\n`;
       if (/^H[1-6]$/.test(el.nodeName)) {
         const level = Number(el.nodeName.slice(1));
         return `\n\n${"#".repeat(level)} ${clean} ^${id}\n\n`;

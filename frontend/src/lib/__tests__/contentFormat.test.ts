@@ -649,6 +649,34 @@ describe("带 blockId 的 RTE ↔ MD 往返", () => {
     expect(tiptapJsonToMarkdown(back)).toBe(md);
   });
 
+  it("引用块：末段与引用块共用最后一行，只写引用块的 ID；往返后各段 ID 归位、正文无标记、输出稳定", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [{ type: "blockquote", attrs: { blockId: "blk_quot01" }, content: [para("blk_para01", "q1"), para("blk_para02", "q2")] }],
+    };
+    const md = tiptapJsonToMarkdown(doc);
+    // 非末段保留自己的 ID；末段自己的不写出，转回后由编辑器重新分配
+    expect(md).toBe(["> q1 ^blk_para01", "> ", "> q2 ^blk_quot01"].join("\n"));
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual({
+      type: "doc",
+      content: [{
+        type: "blockquote",
+        blockId: "blk_quot01",
+        content: [
+          { type: "paragraph", blockId: "blk_para01", content: [{ type: "text", text: "q1" }] },
+          { type: "paragraph", content: [{ type: "text", text: "q2" }] },
+        ],
+      }],
+    });
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    const solo: JSONContent = { type: "doc", content: [{ type: "blockquote", attrs: { blockId: "blk_quot02" }, content: [para("blk_para03", "solo")] }] };
+    expect(tiptapJsonToMarkdown(solo)).toBe("> solo ^blk_quot02");
+  });
+
   it("MD→RTE：标题、段落、引用、代码块的 ID 各归原节点，块间空行不被吞，代码块后的正文不进代码", () => {
     const md = [
       "## Title ^blk_head01", "", "alpha ^blk_para01", "", "beta ^blk_para02", "", "> quoted ^blk_quot01", "",
