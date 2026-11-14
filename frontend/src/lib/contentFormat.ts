@@ -1342,6 +1342,64 @@ function stripMathContainerPrefix(body: string): string {
     .join("\n");
 }
 
+// 围栏代码块（``` / ~~~）和行内代码在 Markdown 里的范围，按位置排序、互不重叠。公式抽取要绕开它们：shell 里的 `$$`（进程号）、
+// 代码示例里的 `$x$` 都不是公式，不绕开的话代码块被掏空，两个 `$$` 之间的正文还会被吞成一个假公式。
+function findMarkdownCodeRanges(md: string): Array<[number, number]> {
+  if (!md.includes("`") && !md.includes("~~~")) return [];
+  // 围栏行可以带引用块、列表前缀。结束围栏与开头同一种字符、不短于开头（四个反引号的围栏里可以有三个反引号的行）；
+  // 没有结束围栏时一直到文末
+  const fence = /^(?:[ \t]*>)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})([^\n]*)$/;
+  const fenced: Array<[number, number]> = [];
+  let open: { from: number; run: string } | null = null;
+  for (let from = 0; from <= md.length; ) {
+    const newline = md.indexOf("\n", from);
+    const to = newline < 0 ? md.length : newline;
+    const line = fence.exec(md.slice(from, to));
+    if (!open) {
+      // 反引号围栏的信息串里不能再有反引号，否则是行内代码
+      if (line && !(line[1][0] === "`" && line[2].includes("`"))) open = { from, run: line[1] };
+    } else if (line && line[1][0] === open.run[0] && line[1].length >= open.run.length && !line[2].trim()) {
+      fenced.push([open.from, to]);
+      open = null;
+    }
+    from = to + 1;
+  }
+  if (open) fenced.push([open.from, md.length]);
+
+  // 行内代码：n 个反引号开头、同样 n 个反引号结尾，不能跨段落（空行）、不能跨围栏；开头被反斜杠转义的反引号是普通字符
+  const inline: Array<[number, number]> = [];
+  const blankLine = /\n[ \t>\r]*\n/g;
+  let blankAt = -1;
+  let regionStart = 0;
+  for (const [fenceFrom, fenceTo] of [...fenced, [md.length, md.length] as [number, number]]) {
+    const runs: Array<[number, number]> = [];
+    const ticks = /`+/g;
+    const region = md.slice(regionStart, fenceFrom);
+    for (let tick = ticks.exec(region); tick; tick = ticks.exec(region)) {
+      const start = regionStart + tick.index;
+      let slashes = 0;
+      while (md[start - 1 - slashes] === "\\") slashes += 1;
+      if (start + (slashes % 2) < start + tick[0].length) runs.push([start + (slashes % 2), start + tick[0].length]);
+    }
+    for (let i = 0; i < runs.length; i += 1) {
+      const [openFrom, openTo] = runs[i];
+      if (openTo > blankAt) {
+        blankLine.lastIndex = openTo;
+        blankAt = blankLine.exec(md)?.index ?? md.length;
+      }
+      for (let j = i + 1; j < runs.length && runs[j][0] < blankAt; j += 1) {
+        if (runs[j][1] - runs[j][0] === openTo - openFrom) {
+          inline.push([openFrom, runs[j][1]]);
+          i = j;
+          break;
+        }
+      }
+    }
+    regionStart = fenceTo;
+  }
+  return [...fenced, ...inline].sort((a, b) => a[0] - b[0]);
+}
+
 /**
  * Markdown 字符串 → HTML 字符串
  *
@@ -1353,6 +1411,7 @@ function stripMathContainerPrefix(body: string): string {
  * 公式段提取出来用占位符替换，渲染完 HTML 再回填为 `<span data-math-inline>`
  * 或 `<div data-math-block>`，让 Tiptap 的 MathInline/MathBlock parseHTML
  * 能识别。占位符用 NUL 字符 + 自增 id，保证不会与正文冲突。
+ * 围栏代码块和行内代码原样保留，不在其中抽公式。
  */
 function extractMathPlaceholders(md: string): {
   text: string;
@@ -1361,7 +1420,18 @@ function extractMathPlaceholders(md: string): {
 } {
   const blocks: string[] = [];
   const inlines: string[] = [];
+  // 公式不会跨过代码段，所以代码段之间的每一片正文单独抽取
+  let text = "";
+  let cursor = 0;
+  for (const [from, to] of findMarkdownCodeRanges(md)) {
+    text += extractMathFromProse(md.slice(cursor, from), blocks, inlines) + md.slice(from, to);
+    cursor = to;
+  }
+  text += extractMathFromProse(md.slice(cursor), blocks, inlines);
+  return { text, blocks, inlines };
+}
 
+function extractMathFromProse(md: string, blocks: string[], inlines: string[]): string {
   // 先抽块级 `$$...$$`（支持跨行；非贪婪；要求两侧都是 `$$`）
   // 注意：必须先于 inline，否则 `$$x$$` 会被 inline 规则错切。
   let text = md.replace(/\$\$([\s\S]+?)\$\$/g, (_m, body) => {
@@ -1384,7 +1454,7 @@ function extractMathPlaceholders(md: string): {
     }
   );
 
-  return { text, blocks, inlines };
+  return text;
 }
 
 // 块级公式可以有多行。escapeAttr 会把换行压成空格，多行公式 RTE→MD→RTE 后就被拍平成一行（`%` 注释还会吞掉后面的内容），

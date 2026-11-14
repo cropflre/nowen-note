@@ -1113,9 +1113,98 @@ describe("公式 RTE ↔ MD", () => {
       expect(latexOf(markdownToTiptapJSON(">$$\n>a\n>b\n>$$"))).toEqual(["a\nb"]);
       // 引用块里公式内部的空行写成 `>`（没有后面的空格）
       expect(latexOf(markdownToTiptapJSON("> $$\n> a\n>\n> b\n> $$"))).toEqual(["a\n\nb"]);
-      const own ="\\begin{aligned}\n  a &= b\n> c\n\\end{aligned}";
+      const own = "\\begin{aligned}\n  a &= b\n> c\n\\end{aligned}";
       expect(latexOf(markdownToTiptapJSON(`$$\n${own}\n$$`))).toEqual([own]);
     });
+  });
+});
+
+// MD→RTE 抽取公式前必须绕开围栏代码块和行内代码：shell 里的 `$$`（进程号）、代码示例里的 `$x$` 都不是公式。
+// 不绕开时代码块被掏空，两个 `$$` 之间的正文还会被吞成一个假公式。
+describe("代码里的 $ 不是公式（MD→RTE）", () => {
+  const text = (value: string): JSONContent => ({ type: "text", text: value });
+  // 代码块的文字
+  const codeOf = (node: JSONContent | undefined): string => (node?.content ?? []).map((child) => child.text ?? "").join("");
+  // 段落内容摘要：公式记为 $源码$，行内代码记为 `源码`
+  const inlineOf = (node: JSONContent | undefined): Array<string | undefined> =>
+    (node?.content ?? []).map((child) => (child.type === "mathInline" ? `$${child.attrs?.latex}$` : child.marks?.some((mark) => mark.type === "code") ? `\`${child.text}\`` : child.text));
+  const typesOf = (node: JSONContent | undefined): Array<string | undefined> => (node?.content ?? []).map((child) => child.type);
+
+  it("围栏代码块里的 $$（shell 进程号）不是公式：代码块不被掏空，两个代码块之间的正文不被吞掉", () => {
+    const back: JSONContent = markdownToTiptapJSON("```bash\necho $$\n```\n\n正文段落\n\n```bash\necho $$\n```");
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(back.content?.[0])).toBe("echo $$");
+    expect(back.content?.[1]?.content).toEqual([text("正文段落")]);
+    expect(codeOf(back.content?.[2])).toBe("echo $$");
+  });
+
+  it("围栏里成对的 $$…$$ 和 $x$ 保持为代码内容（``` 与 ~~~ 围栏）", () => {
+    const back: JSONContent = markdownToTiptapJSON("```latex\n$$\nx\n$$\n```\n\n~~~\n$x$ 和 $y$\n~~~");
+    expect(typesOf(back)).toEqual(["codeBlock", "codeBlock"]);
+    expect(back.content?.map((node) => codeOf(node))).toEqual(["$$\nx\n$$", "$x$ 和 $y$"]);
+    // 围栏必须由同一种字符结束：反引号围栏里的 ~~~ 行不会结束它
+    const mixed: JSONContent = markdownToTiptapJSON("```md\n~~~\n$$\nx\n$$\n~~~\n```");
+    expect(typesOf(mixed)).toEqual(["codeBlock"]);
+    expect(codeOf(mixed.content?.[0])).toBe("~~~\n$$\nx\n$$\n~~~");
+  });
+
+  it("行内代码里的 $$、$x$ 不是公式（含双反引号包着反引号），代码外的公式照常识别", () => {
+    const back: JSONContent = markdownToTiptapJSON("用 `echo $$` 取进程号，再用 `echo $$` 打印；变量 `$x$` 不是公式，而 $y$ 是。");
+    expect(typesOf(back)).toEqual(["paragraph"]);
+    expect(inlineOf(back.content?.[0])).toEqual(["用 ", "`echo $$`", " 取进程号，再用 ", "`echo $$`", " 打印；变量 ", "`$x$`", " 不是公式，而 ", "$y$", " 是。"]);
+    expect(inlineOf(markdownToTiptapJSON("双反引号 ``a`$$b`` 与 ``$x$`` 都是代码").content?.[0])).toEqual(["双反引号 ", "`a`$$b`", " 与 ", "`$x$`", " 都是代码"]);
+  });
+
+  it("四个反引号的围栏里含三个反引号的行：内部的 $$ 仍是代码，围栏之后的公式照常识别", () => {
+    const back: JSONContent = markdownToTiptapJSON("````md\n```\n$$\nx\n$$\n```\n````\n\n公式 $a$");
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph"]);
+    expect(codeOf(back.content?.[0])).toBe("```\n$$\nx\n$$\n```");
+    expect(inlineOf(back.content?.[1])).toEqual(["公式 ", "$a$"]);
+  });
+
+  it("引用块、列表项里的围栏代码块同样绕开", () => {
+    const quoted: JSONContent = markdownToTiptapJSON("> ```\n> echo $$\n> ```\n>\n> 正文\n>\n> ```\n> echo $$\n> ```");
+    expect(typesOf(quoted.content?.[0])).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(quoted.content?.[0]?.content?.[0])).toBe("echo $$");
+    const listed: JSONContent = markdownToTiptapJSON("- 项\n\n  ```\n  echo $$\n  ```\n\n  正文\n\n  ```\n  echo $$\n  ```");
+    const item = listed.content?.[0]?.content?.[0];
+    expect(typesOf(item)).toEqual(["paragraph", "codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(item?.content?.[1])).toBe("echo $$");
+  });
+
+  it("没有结束围栏的代码块一直到文末，里面的 $$ 不是公式", () => {
+    const back: JSONContent = markdownToTiptapJSON("前文 $a$\n\n```\necho $$\n\n后面还是代码 $$");
+    expect(typesOf(back)).toEqual(["paragraph", "codeBlock"]);
+    expect(inlineOf(back.content?.[0])).toEqual(["前文 ", "$a$"]);
+    expect(codeOf(back.content?.[1])).toBe("echo $$\n\n后面还是代码 $$");
+  });
+
+  it("转义的反引号、没有配对的反引号不是代码，公式照常识别；块级公式前后的代码块不影响它", () => {
+    expect(inlineOf(markdownToTiptapJSON("\\`$x$\\`").content?.[0])).toEqual(["`", "$x$", "`"]);
+    expect(inlineOf(markdownToTiptapJSON("a ` b $x$ c").content?.[0])).toEqual(["a ` b ", "$x$", " c"]);
+    // 行首的 ```js foo``` 信息串里有反引号，是行内代码而不是围栏，不会把后面的内容都当成代码
+    expect(typesOf(markdownToTiptapJSON("```js foo``` 与 $$x$$"))).toContain("mathBlock");
+    // 反引号不跨段落配对：前一段里孤立的反引号和后一段里的反引号不构成行内代码
+    const split: JSONContent = markdownToTiptapJSON("a ` b\n\n$x$ c ` d");
+    expect(typesOf(split)).toEqual(["paragraph", "paragraph"]);
+    expect(inlineOf(split.content?.[1])).toEqual(["$x$", " c ` d"]);
+    // CRLF 换行的文档同样按空行分段
+    const crlf: JSONContent = markdownToTiptapJSON("a ` b\r\n\r\n$x$ c ` d");
+    expect(typesOf(crlf)).toEqual(["paragraph", "paragraph"]);
+    expect(inlineOf(crlf.content?.[1])).toEqual(["$x$", " c ` d"]);
+    const back: JSONContent = markdownToTiptapJSON("$$\na\n$$\n\n```\necho $$\n```\n\n$$\nb\n$$");
+    expect(typesOf(back)).toEqual(["mathBlock", "codeBlock", "mathBlock"]);
+    expect([back.content?.[0]?.attrs?.latex, back.content?.[2]?.attrs?.latex]).toEqual(["a", "b"]);
+  });
+
+  it("RTE→MD→RTE：代码块里的 $$ 和 $x$ 往返不变，第二次输出稳定", () => {
+    const code = (value: string): JSONContent => ({ type: "codeBlock", attrs: { language: "bash" }, content: [text(value)] });
+    const source: JSONContent = { type: "doc", content: [code("echo $$"), { type: "paragraph", content: [text("正文")] }, code("echo $$\nx=$y$")] };
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect([codeOf(back.content?.[0]), codeOf(back.content?.[2])]).toEqual(["echo $$", "echo $$\nx=$y$"]);
   });
 });
 
