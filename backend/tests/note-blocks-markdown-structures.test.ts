@@ -14,12 +14,13 @@ let db: Database.Database;
 let closeDb: () => void;
 let noteBlocks: typeof import("../src/lib/noteBlocks");
 let blockPatch: typeof import("../src/lib/markdownBlockPatch");
+let noteLinks: typeof import("../src/lib/noteLinks");
 
 test.before(async () => {
-  const [schema, blocks, patch] = await Promise.all([
-    import("../src/db/schema"), import("../src/lib/noteBlocks"), import("../src/lib/markdownBlockPatch"),
+  const [schema, blocks, patch, links] = await Promise.all([
+    import("../src/db/schema"), import("../src/lib/noteBlocks"), import("../src/lib/markdownBlockPatch"), import("../src/lib/noteLinks"),
   ]);
-  db = schema.getDb(); closeDb = schema.closeDb; noteBlocks = blocks; blockPatch = patch;
+  db = schema.getDb(); closeDb = schema.closeDb; noteBlocks = blocks; blockPatch = patch; noteLinks = links;
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES ('md-user', 'md-user', 'hash')").run();
   db.prepare("INSERT INTO notebooks (id, userId, name) VALUES ('md-book', 'md-user', 'Structures')").run();
 });
@@ -111,4 +112,16 @@ test("a multi-line HTML block keeps its ID when its content changes", () => {
     assert.equal(after.content, edited);
     assert.equal(after.blocks[0].blockId, html.blockId);
   }
+});
+
+test("ordered list items with a ) delimiter are list items", () => {
+  // The editor alternates . and ) so that adjacent ordered lists stay apart
+  const result = save("1. one\n2. two\n\n1) again");
+  assert.deepEqual(result.blocks.map((block) => [block.blockType, block.plainText]), [["listItem", "one"], ["listItem", "two"], ["listItem", "again"]]);
+  const [one, two, again] = result.blocks.map((block) => block.blockId);
+  assert.equal(result.content, `1. one ^${one}\n2. two ^${two}\n\n1) again ^${again}`);
+  // Links are attributed to the item they appear in, as with "." items
+  const first = "11111111-2222-4333-8444-555555555555", second = "99999999-2222-4333-8444-555555555555";
+  const links = noteLinks.extractNoteLinksFromContent(`1) see [[note:${first}]] ^blk_olsrc0001\n2) and [[note:${second}]] ^blk_olsrc0002`);
+  assert.deepEqual(links.map((link) => [link.targetNoteId, link.sourceBlockId]), [[first, "blk_olsrc0001"], [second, "blk_olsrc0002"]]);
 });

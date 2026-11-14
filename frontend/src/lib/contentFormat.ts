@@ -184,12 +184,20 @@ export function getTiptapExtensions() {
   return _extensions;
 }
 
-// 相邻的无序/任务列表若用同一个列表符号，在 Markdown 里会合并成一个列表（任务项随之退化成普通项）；
-// 紧跟在另一个 <ul> 之后的列表交替改用「*」，转回富文本时仍是独立的列表。
-function bulletMarkerOf(list: Element | null): "-" | "*" {
+// 相邻的同类列表若用同一个列表符号，在 Markdown 里会合并成一个列表（任务项退化成普通项，后一个有序列表丢掉起始编号）；
+// 紧跟在另一个同类列表之后的列表交替换一个符号（无序「-」/「*」，有序「.」/「)」），转回富文本时仍是独立的列表。
+function followsSameKindOfList(list: Element | null): boolean {
   let run = 0;
-  for (let prev = list?.previousElementSibling; prev?.nodeName === "UL"; prev = prev.previousElementSibling) run++;
-  return run % 2 ? "*" : "-";
+  for (let prev = list?.previousElementSibling; prev && prev.nodeName === list?.nodeName; prev = prev.previousElementSibling) run++;
+  return run % 2 === 1;
+}
+
+function bulletMarkerOf(list: Element | null): "-" | "*" {
+  return followsSameKindOfList(list) ? "*" : "-";
+}
+
+function orderedDelimiterOf(list: Element | null): "." | ")" {
+  return followsSameKindOfList(list) ? ")" : ".";
 }
 
 // 以 HTML 保留的块写成一行：HTML 块遇到空行就结束，代码里的空行会让后半段被当成 Markdown 解析。
@@ -532,13 +540,18 @@ function getTurndown(): TurndownService {
   // 标准 HTML 音频块在两种编辑器之间往返时保留媒体及元数据。
   td.keep(["audio"]);
 
-  // 紧跟在另一个无序列表之后的无序列表改用「*」（与 Turndown 默认的列表项规则一致，只换符号）
-  td.addRule("alternateBulletListItem", {
-    filter: (node) => node.nodeName === "LI" && node.parentElement?.nodeName === "UL"
-      && node.getAttribute("data-type") !== "taskItem" && !node.getAttribute("data-block-id")
-      && bulletMarkerOf(node.parentElement) === "*",
+  // 紧跟在另一个同类列表之后的列表换一个符号：无序改用「*」，有序改用「1)」（与 Turndown 默认的列表项规则一致，只换符号）
+  td.addRule("alternateListItem", {
+    filter: (node) => {
+      const list = node.parentElement;
+      if (node.nodeName !== "LI" || node.getAttribute("data-type") === "taskItem" || node.getAttribute("data-block-id")) return false;
+      return list?.nodeName === "OL" ? orderedDelimiterOf(list) === ")" : list?.nodeName === "UL" && bulletMarkerOf(list) === "*";
+    },
     replacement: (content, node) => {
-      const prefix = "*   ";
+      const list = node.parentElement as Element;
+      const prefix = list.nodeName === "OL"
+        ? `${Number(list.getAttribute("start") || 1) + Array.from(list.children).indexOf(node as Element)})  `
+        : "*   ";
       const paragraph = /\n$/.test(content);
       const body = content.replace(/^\n+|\n+$/g, "") + (paragraph ? "\n" : "");
       return prefix + body.replace(/\n/gm, `\n${" ".repeat(prefix.length)}`) + (node.nextSibling ? "\n" : "");
@@ -598,7 +611,7 @@ function getTurndown(): TurndownService {
         const ordered = list?.nodeName === "OL";
         // 有序列表按起始编号顺排（与 Turndown 默认规则一致）：写死「1.」会丢掉起始编号不是 1 的列表的编号
         const number = Number(list?.getAttribute("start") || 1) + Array.from(list?.children ?? []).indexOf(el);
-        const marker = task ? `${bulletMarkerOf(list)} [${checked ? "x" : " "}]` : (ordered ? `${number}.` : bulletMarkerOf(list));
+        const marker = task ? `${bulletMarkerOf(list)} [${checked ? "x" : " "}]` : (ordered ? `${number}${orderedDelimiterOf(list)}` : bulletMarkerOf(list));
         const body = content.replace(/^\n+|\n+$/g, "");
         // 首段为空时 Turndown 把它当空白节点跳过，没有写出 ID：补在标记之后
         const withId = listItemsWithLeadMarker.has(el) ? body : ` ^${id}${body ? `\n\n${body}` : ""}`;

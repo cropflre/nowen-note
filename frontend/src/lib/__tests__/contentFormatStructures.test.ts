@@ -37,6 +37,20 @@ describe("adjacent lists", () => {
   }
 });
 
+describe("adjacent ordered lists", () => {
+  for (const ids of [false, true]) {
+    it(`keeps adjacent ordered lists and their start numbers apart${ids ? " (with IDs)" : ""}`, () => {
+      const ol = (start: number, items: Array<[string, string]>): Json => ({ type: "orderedList", attrs: { start }, content: items.map(([value, blockId]) => (
+        { type: "listItem", attrs: ids ? { blockId } : {}, content: [p(value)] })) });
+      const { back } = roundTrip(doc(ol(1, [["one", "blk_olitem01"], ["two", "blk_olitem02"]]), ol(3, [["three", "blk_olitem03"]]), ol(1, [["again", "blk_olitem04"]])));
+      expect(back.content!.map((node) => [node.type, node.attrs?.start, node.content!.map(plain)])).toEqual([
+        ["orderedList", 1, ["one", "two"]], ["orderedList", 3, ["three"]], ["orderedList", 1, ["again"]],
+      ]);
+      if (ids) expect(find(back, "listItem").map((node) => node.attrs?.blockId)).toEqual(["blk_olitem01", "blk_olitem02", "blk_olitem03", "blk_olitem04"]);
+    });
+  }
+});
+
 describe("formatting kept in HTML", () => {
   it("keeps alignment, inline marks and IDs of paragraphs and headings", () => {
     const { back } = roundTrip(doc(

@@ -205,7 +205,8 @@ function classifyMarkdownLine(line: string): NoteBlockType | null {
   if (THEMATIC_BREAK_RE.test(line)) return null;
   if (/^\s{0,3}#{1,6}\s+/.test(line)) return "heading";
   if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) return "taskItem";
-  if (/^\s*(?:[-*+]|\d+\.)\s+/.test(line)) return "listItem";
+  // 有序列表的分隔符可以是「.」或「)」：编辑器让相邻的有序列表交替使用，避免合并成一个列表
+  if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line)) return "listItem";
   if (/^\s{0,3}>\s?/.test(line)) return "blockquote";
   return line.trim() ? "paragraph" : null;
 }
@@ -214,7 +215,7 @@ function cleanMarkdownText(type: NoteBlockType, value: string): string {
   let text = value.trim();
   if (type === "heading") text = text.replace(/^#{1,6}\s+/, "");
   else if (type === "taskItem") text = text.replace(/^[-*+]\s+\[[ xX]\]\s+/, "");
-  else if (type === "listItem") text = text.replace(/^(?:[-*+]|\d+\.)\s+/, "");
+  else if (type === "listItem") text = text.replace(/^(?:[-*+]|\d+[.)])\s+/, "");
   else if (type === "blockquote") text = text.replace(/^>\s?/, "");
   return text.replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/, "").trim();
 }
