@@ -999,3 +999,77 @@ describe("表格 RTE ↔ MD", () => {
     });
   });
 });
+
+// Tiptap 把公式渲染成没有子内容的 <span data-math-inline> / <div data-math-block>，Turndown 把它们当空白节点，
+// 自定义规则永远走不到，整段公式在 RTE→MD 时丢失。MD→RTE 由 extractMathPlaceholders 处理。
+describe("公式 RTE ↔ MD", () => {
+  const text = (value: string): JSONContent => ({ type: "text", text: value });
+  const para = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
+  const inlineMath = (latex: string): JSONContent => ({ type: "mathInline", attrs: { latex } });
+  const blockMath = (latex: string): JSONContent => ({ type: "mathBlock", attrs: { latex } });
+  const doc = (...content: JSONContent[]): JSONContent => ({ type: "doc", content });
+  // RTE → MD → RTE，并要求第二次转成 MD 与第一次完全一致
+  const roundTrip = (source: JSONContent) => {
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+
+  it("行内公式写成 $…$，前后空格保留，公式里的 | 不丢，往返后源码不变", () => {
+    const source = doc(para(text("f "), inlineMath("|x|"), text(" g")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("f $|x|$ g");
+    expect(back.content?.[0]).toMatchObject({
+      type: "paragraph",
+      content: [{ type: "text", text: "f " }, { type: "mathInline", attrs: { latex: "|x|" } }, { type: "text", text: " g" }],
+    });
+  });
+
+  it("块级公式写成独立的 $$ 块，上下段落不被并入，往返后源码不变", () => {
+    const source = doc(para(text("前")), blockMath("\\int_0^1 x\\,dx"), para(text("后")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("前\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n后");
+    expect(back.content?.map((node) => node.type)).toEqual(["paragraph", "mathBlock", "paragraph"]);
+    expect(back.content?.[1]?.attrs?.latex).toBe("\\int_0^1 x\\,dx");
+  });
+
+  it("多行块级公式、整段只有一个行内公式、紧贴中文的行内公式都不丢", () => {
+    const aligned = "a &= b \\\\\nc &= d";
+    const source = doc(blockMath(aligned), para(inlineMath("E=mc^2")), para(text("设"), inlineMath("x^2"), text("与"), inlineMath("y_1"), text("。")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe(`$$\n${aligned}\n$$\n\n$E=mc^2$\n\n设$x^2$与$y_1$。`);
+    expect(back.content?.[0]?.attrs?.latex).toBe(aligned);
+    expect(back.content?.[1]?.content).toEqual([inlineMath("E=mc^2")]);
+    expect(back.content?.[2]?.content?.map((node) => (node.type === "mathInline" ? `$${node.attrs?.latex}$` : node.text))).toEqual(["设", "$x^2$", "与", "$y_1$", "。"]);
+  });
+
+  it("表格单元格里的公式：| 不拆开单元格，往返后源码不变", () => {
+    const cell = (type: string, ...content: JSONContent[]): JSONContent => ({ type, content: [para(...content)] });
+    const source = doc({
+      type: "table",
+      content: [
+        { type: "tableRow", content: [cell("tableHeader", text("A")), cell("tableHeader", text("B"))] },
+        { type: "tableRow", content: [cell("tableCell", text("f "), inlineMath("|x|")), cell("tableCell", text("2"))] },
+      ],
+    });
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("| A | B |\n| --- | --- |\n| f $|x|$ | 2 |");
+    const table = back.content?.[0];
+    expect(table?.content?.[1]?.content?.length).toBe(2);
+    expect(table?.content?.[1]?.content?.[0]?.content?.[0]?.content).toEqual([text("f "), inlineMath("|x|")]);
+  });
+
+  it("列表项和引用块里的行内公式不丢", () => {
+    const source = doc(
+      { type: "bulletList", content: [{ type: "listItem", content: [para(text("项 "), inlineMath("a|b"))] }] },
+      { type: "blockquote", content: [para(text("引 "), inlineMath("c^2"))] },
+    );
+    const { md, back } = roundTrip(source);
+    // 无序列表的标记与缩进由 Turndown 默认规则决定，这里只关心公式与内容
+    expect(md).toContain("项 $a|b$");
+    expect(md).toContain("> 引 $c^2$");
+    expect(back.content?.[0]?.content?.[0]?.content?.[0]?.content).toEqual([text("项 "), inlineMath("a|b")]);
+    expect(back.content?.[1]?.content?.[0]?.content).toEqual([text("引 "), inlineMath("c^2")]);
+  });
+});

@@ -24,7 +24,7 @@
 
 import { AiProvenanceMark, addAiProvenanceMarkdownRule } from "@/components/extensions/AiProvenanceMark";
 import { aiMarkdownWithHtmlProvenance } from "@/lib/aiContentProvenance";
-import { generateHTML, generateJSON, Extension } from "@tiptap/core";
+import { generateHTML, generateJSON, Extension, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -79,6 +79,22 @@ export { detectFormat, type ContentFormat } from "./detectContentFormat";
 import { detectFormat } from "./detectContentFormat";
 
 // ---------- Tiptap → MD 转换（惰性初始化） ----------
+
+// Tiptap 把原子节点渲染成没有子内容的元素，Turndown 会把它们判为空白节点，走 blankRule（优先于自定义规则），
+// getTurndown() 里的 mathInline / mathBlock 规则就永远触发不了，公式在 RTE→MD 时整段丢失；空白节点还会让
+// collapseWhitespace 吃掉公式旁的一个空格（`f ‹公式› g` 变成 `f g`）。
+// 与 FootnoteExtensions / BlockEmbedExtension 一样，给转换链路里的节点补上文字子节点（写法同 restoreMathPlaceholders），
+// 源码仍从 data-latex 取。只改这份转换用的 renderHTML：编辑器、HTML 导出等用的仍是原节点。
+const MathInlineWithText = MathInline.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    return ["span", mergeAttributes(HTMLAttributes, { "data-math-inline": "true" }), `$${node.attrs.latex || ""}$`];
+  },
+});
+const MathBlockWithText = MathBlock.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-math-block": "true" }), `$$${node.attrs.latex || ""}$$`];
+  },
+});
 
 let _extensions: any[] | null = null;
 export function getTiptapExtensions() {
@@ -145,8 +161,8 @@ export function getTiptapExtensions() {
     BlockIdAttrs,
     // 数学公式：与 TiptapEditor 保持一致，避免 generateHTML 时 math 节点被 schema
     // 过滤掉。MathInline / MathBlock 都是 atom 节点，仅用属性 `latex` 携带源码。
-    MathInline,
-    MathBlock,
+    MathInlineWithText,
+    MathBlockWithText,
     // 脚注：与 TiptapEditor 对齐，generateHTML 时不能让 footnote 节点被过滤
     FootnoteReference,
     FootnoteDefinition,
@@ -1353,6 +1369,12 @@ function extractMathPlaceholders(md: string): {
   return { text, blocks, inlines };
 }
 
+// 块级公式可以有多行。escapeAttr 会把换行压成空格，多行公式 RTE→MD→RTE 后就被拍平成一行（`%` 注释还会吞掉后面的内容），
+// 所以换行写成字符引用，由 parseHTML 里的 getAttribute 原样读回。
+function escapeBlockLatexAttr(latex: string): string {
+  return escapeAttr(latex.replace(/\n/g, "&#10;"));
+}
+
 function restoreMathPlaceholders(
   html: string,
   blocks: string[],
@@ -1372,14 +1394,14 @@ function restoreMathPlaceholders(
     /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*<\/p>/g,
     (_m, idx) => {
       const latex = blocks[Number(idx)] || "";
-      const enc = escapeAttr(latex);
+      const enc = escapeBlockLatexAttr(latex);
       return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>`;
     }
   );
   // 兜底：如果块级占位没被段落包住（例如出现在表格里）
   out = out.replace(/\u0000MATHBLOCK(\d+)\u0000/g, (_m, idx) => {
     const latex = blocks[Number(idx)] || "";
-    const enc = escapeAttr(latex);
+    const enc = escapeBlockLatexAttr(latex);
     return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>`;
   });
   return out;
