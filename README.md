@@ -113,17 +113,31 @@ v1.5.1 的任务提醒、AI 任务操作与 Android 同步修复见 [v1.5.1 发�
 
 ## 截图
 
+以下截图取自在本地真实运行的 Nowen Note（演示账号，浅色主题，2× 分辨率）。
+
 ### 桌面端
 
-| AI 写作助手 | AI 服务商配置 |
+| 工作区总览 | 知识树与文档管理 |
 | :---: | :---: |
-| ![桌面 AI 写作](./docs/screenshots/desktop-ai-writing.png) | ![AI 设置](./docs/screenshots/settings-ai.png) |
+| ![工作区总览](./docs/screenshots/desktop-overview.png) | ![知识树与文档管理](./docs/screenshots/desktop-knowledge-tree.png) |
+
+| 富文本编辑器 | Markdown 分屏预览 |
+| :---: | :---: |
+| ![富文本编辑器](./docs/screenshots/desktop-editor.png) | ![Markdown 分屏预览](./docs/screenshots/desktop-markdown.png) |
+
+| AI 写作助手 | 任务中心 |
+| :---: | :---: |
+| ![AI 写作助手](./docs/screenshots/desktop-ai-writing.png) | ![任务中心](./docs/screenshots/desktop-tasks.png) |
+
+![AI 服务商配置](./docs/screenshots/settings-ai.png)
 
 ### 移动端
 
 | 侧边栏 | 笔记列表 | 编辑器 |
 | :---: | :---: | :---: |
-| ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
+| ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端笔记列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
+
+> 截图由 `node scripts/screenshots/capture-readme.mjs` 自动生成，连接本地开发环境时会自动准备演示数据。
 
 ## 官网与在线体验
 
