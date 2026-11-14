@@ -683,7 +683,6 @@ function isMarkNode(name: string): boolean {
     name === "LinkMark" ||
     name === "ListMark" ||
     name === "QuoteMark" ||
-    name === "URL" ||
     name === "LinkLabel" ||
     name === "LinkTitle" ||
     name === "CodeInfo" ||
@@ -767,8 +766,12 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
     }
     case "Autolink":
     case "URL": {
+      // URL 节点：<…> 自动链接的地址，或 GFM 识别出的裸 URL / www. / 邮箱
       const text = sliceText(src, node).replace(/^[<]|[>]$/g, "");
-      return `<a href="${escapeAttr(text)}">${escapeHtml(text)}</a>`;
+      let href = text;
+      if (/^www\./i.test(text)) href = `http://${text}`;
+      else if (!/^[a-z][a-z0-9+.-]*:/i.test(text) && text.includes("@")) href = `mailto:${text}`;
+      return `<a href="${escapeAttr(href)}">${escapeHtml(text)}</a>`;
     }
     case "HardBreak":
       return "<br>";

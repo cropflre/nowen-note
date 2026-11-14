@@ -211,6 +211,23 @@ describe("markdownToHtml", () => {
     );
   });
 
+  it("裸 URL（GFM 自动链接）渲染为链接，不再从正文里消失", () => {
+    expect(markdownToHtml("见 https://example.com/a?b=1 文档")).toBe(
+      '<p>见 <a href="https://example.com/a?b=1">https://example.com/a?b=1</a> 文档</p>',
+    );
+    expect(markdownToHtml("# 标题 https://h.example.com")).toBe(
+      '<h1>标题 <a href="https://h.example.com">https://h.example.com</a></h1>',
+    );
+    expect(markdownToHtml("- [ ] 打开 www.example.com")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        '<p>打开 <a href="http://www.example.com">www.example.com</a></p>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("联系 foo@example.com 或 <bar@example.com>")).toBe(
+      '<p>联系 <a href="mailto:foo@example.com">foo@example.com</a> 或 <a href="mailto:bar@example.com">bar@example.com</a></p>',
+    );
+  });
+
   it("引用式链接：有定义时渲染为链接，没有定义时保留方括号原文", () => {
     const html = markdownToHtml("[文档][ref]、[Ref][]、[REF] 与 [未定义][missing]\n\n[ref]: https://example.com/doc");
     const link = (text: string) => `<a href="https://example.com/doc">${text}</a>`;
@@ -362,6 +379,16 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(secondInline[0]).toMatchObject({ text: "完成", marks: [{ type: "bold" }] });
     expect(secondInline[2]).toMatchObject({
       text: "链接",
+      marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+    });
+  });
+
+  it("MD → Tiptap JSON：裸 URL 保留为带 link mark 的文字", () => {
+    const json: JSONContent = markdownToTiptapJSON("见 https://example.com 文档");
+    const inline = json.content?.[0]?.content ?? [];
+    expect(inline.map((n) => n.text).join("")).toBe("见 https://example.com 文档");
+    expect(inline[1]).toMatchObject({
+      text: "https://example.com",
       marks: [{ type: "link", attrs: { href: "https://example.com" } }],
     });
   });
