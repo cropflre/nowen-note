@@ -158,6 +158,11 @@ describe("markdownToHtml", () => {
     );
   });
 
+  it("GFM 任务项：勾选状态只看任务标记，正文里的 [x] 不算勾选", () => {
+    const html = markdownToHtml("- [ ] 把 [x] 改掉\n- [ ] 写成 [X] 也一样");
+    expect(html.match(/data-checked="\w+"/g)).toEqual(['data-checked="false"', 'data-checked="false"']);
+  });
+
   it("GFM 任务项：嵌套与缩进的任务同样去掉标记", () => {
     expect(markdownToHtml("- [ ] parent\n  - [x] child")).toBe(
       '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>parent</p>' +

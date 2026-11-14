@@ -992,8 +992,8 @@ function renderTaskItem(src: string, item: SyntaxNode): string {
     c = c.nextSibling;
   }
   if (taskNode) {
-    const text = sliceText(src, taskNode);
-    checked = /\[[xX]\]/.test(text);
+    // 只看 TaskMarker：正文里的 `[x]` 是普通文字，不代表勾选
+    checked = /^\[[xX]\]$/.test(findChildText(src, taskNode, "TaskMarker") ?? "");
   }
 
   // 渲染 item 内容（去掉 Task 节点本身）
