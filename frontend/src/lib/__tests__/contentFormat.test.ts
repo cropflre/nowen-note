@@ -649,6 +649,59 @@ describe("带 blockId 的 RTE ↔ MD 往返", () => {
     expect(tiptapJsonToMarkdown(back)).toBe(md);
   });
 
+  it("有序列表：按起始编号顺排并随标记宽度缩进续段，往返后起始编号、续段与 ID 不变", () => {
+    const list = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "orderedList",
+        attrs: { start: 9 },
+        content: [
+          listItem("blk_item01", [para(leadIds ? "blk_para01" : null, "a")]),
+          // 「10. 」的内容列是 4，续段缩进 3 格就会脱离该项
+          listItem("blk_item02", [para(leadIds ? "blk_para02" : null, "b"), para("blk_para03", "b2")]),
+          listItem("blk_item03", [para(leadIds ? "blk_para04" : null, "c")]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(list(true));
+    expect(md).toBe(["9. a ^blk_item01", "10. b ^blk_item02", "", "    b2 ^blk_para03", "11. c ^blk_item03"].join("\n"));
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(back.content?.[0]).toMatchObject({ type: "orderedList", attrs: { start: 9 } });
+    expect(outline(back)).toEqual(outline(list(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    // 没有起始编号的列表从 1 顺排，与不带 ID 的列表一致
+    const plain: JSONContent = { type: "doc", content: [{ type: "orderedList", content: [listItem("blk_item04", [para(null, "x")]), listItem("blk_item05", [para(null, "y")])] }] };
+    expect(tiptapJsonToMarkdown(plain)).toBe("1. x ^blk_item04\n2. y ^blk_item05");
+  });
+
+  it("有序列表：起始编号不是 1 的嵌套列表与上一段之间要有空行，否则被当成上一段的续行而丢掉列表", () => {
+    const doc = (withIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [{
+          type: "listItem",
+          ...(withIds ? { attrs: { blockId: "blk_item01" } } : {}),
+          content: [
+            para(null, "x"),
+            { type: "orderedList", attrs: { start: 4 }, content: [{ type: "listItem", ...(withIds ? { attrs: { blockId: "blk_item02" } } : {}), content: [para(null, "y")] }] },
+          ],
+        }],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- x ^blk_item01\n\n  4. y ^blk_item02");
+    for (const source of [md, tiptapJsonToMarkdown(doc(false))]) {
+      const back: JSONContent = markdownToTiptapJSON(source);
+      expect(back.content?.[0]?.content?.[0]?.content?.[1]).toMatchObject({ type: "orderedList", attrs: { start: 4 } });
+      expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+      expect(tiptapJsonToMarkdown(back)).toBe(source);
+    }
+  });
+
   it("引用块：末段与引用块共用最后一行，只写引用块的 ID；往返后各段 ID 归位、正文无标记、输出稳定", () => {
     const doc: JSONContent = {
       type: "doc",

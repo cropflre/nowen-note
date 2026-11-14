@@ -465,7 +465,10 @@ function getTurndown(): TurndownService {
         const itemId = item.getAttribute("data-block-id");
         if (!itemId) return content;
         listItemsWithLeadMarker.add(item);
-        return `${clean} ^${itemId}`;
+        // 起始编号不是 1 的有序列表不能打断段落（CommonMark）：紧跟在首段后面时要空一行，否则被当成这一段的续行而丢掉列表
+        const next = el.nextElementSibling;
+        const gap = next?.nodeName === "OL" && Number(next.getAttribute("start") || 1) !== 1 ? "\n\n" : "";
+        return `${clean} ^${itemId}${gap}`;
       }
       if (!id) return content;
       // 引用块最后一段与引用块共用标记行，一行只能带一个标记：写引用块的 ID，这一段自己的 ID 不写出
@@ -477,13 +480,16 @@ function getTurndown(): TurndownService {
       if (el.nodeName === "LI") {
         const task = el.getAttribute("data-type") === "taskItem";
         const checked = el.getAttribute("data-checked") === "true";
-        const ordered = el.parentElement?.nodeName === "OL";
-        const marker = task ? `- [${checked ? "x" : " "}]` : (ordered ? "1." : "-");
+        const list = el.parentElement;
+        const ordered = list?.nodeName === "OL";
+        // 有序列表按起始编号顺排（与 Turndown 默认规则一致）：写死「1.」会丢掉起始编号不是 1 的列表的编号
+        const number = Number(list?.getAttribute("start") || 1) + Array.from(list?.children ?? []).indexOf(el);
+        const marker = task ? `- [${checked ? "x" : " "}]` : (ordered ? `${number}.` : "-");
         const body = content.replace(/^\n+|\n+$/g, "");
         // 首段为空时 Turndown 把它当空白节点跳过，没有写出 ID：补在标记之后
         const withId = listItemsWithLeadMarker.has(el) ? body : ` ^${id}${body ? `\n\n${body}` : ""}`;
-        // 续行缩进到内容列（「- 」后 2 格，「1. 」后 3 格），否则嵌套列表和后续段落会脱离该项被拍平
-        return `${marker} ${withId.replace(/\n(?=[^\n])/g, ordered ? "\n   " : "\n  ")}\n`;
+        // 续行缩进到内容列（「- 」后 2 格，「1. 」后 3 格，「10. 」后 4 格），否则嵌套列表和后续段落会脱离该项被拍平
+        return `${marker} ${withId.replace(/\n(?=[^\n])/g, `\n${" ".repeat(ordered ? marker.length + 1 : 2)}`)}\n`;
       }
       if (el.nodeName === "BLOCKQUOTE") {
         // 引用块的标记写在最后一行行尾。末块是标题、列表项或代码块时，它们自己的标记已占着这一行
