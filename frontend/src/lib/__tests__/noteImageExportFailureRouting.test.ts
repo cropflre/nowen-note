@@ -106,3 +106,32 @@ describe("note image export failure routing", () => {
     expect(saveAs).not.toHaveBeenCalled();
   });
 });
+
+describe("note image export task items", () => {
+  it("renders Markdown task states as checkboxes in the image body", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0));
+    let items: { checked: boolean | null; nested: number }[] = [];
+    mocks.html2canvas.mockImplementation(async (clone: HTMLElement) => {
+      items = Array.from(clone.querySelectorAll('.nowen-note-image-export-body li[data-type="taskItem"]'), (item) => ({
+        checked: item.querySelector(':scope > label > input[type="checkbox"]')?.hasAttribute("checked") ?? null,
+        nested: item.querySelectorAll(':scope > div > ul[data-type="taskList"] > li').length,
+      }));
+      return renderCanvas();
+    });
+
+    const result = await exportNoteImageDetailed({
+      id: "note-tasks",
+      title: "任务导出",
+      content: "- [ ] 待补充\n- [x] 已完成\n  - [ ] 子任务",
+      contentText: "待补充 已完成 子任务",
+      contentFormat: "markdown",
+    }, { format: "png", destination: "download" });
+
+    expect(result.ok).toBe(true);
+    expect(items).toEqual([
+      { checked: false, nested: 0 },
+      { checked: true, nested: 1 },
+      { checked: false, nested: 0 },
+    ]);
+  });
+});

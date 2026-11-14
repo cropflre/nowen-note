@@ -150,8 +150,8 @@ describe("printNote", () => {
 
     await printNote({
       title: "任务打印",
-      content: "- [ ] 待补充\n- [x] 已完成",
-      contentText: "待补充 已完成",
+      content: "- [ ] 待补充\n- [x] 已完成\n  - [ ] 子任务",
+      contentText: "待补充 已完成 子任务",
       contentFormat: "markdown",
       createdAt: "2026-11-13 10:00:00",
       updatedAt: "2026-11-13 11:00:00",
@@ -160,7 +160,8 @@ describe("printNote", () => {
     const printed = new DOMParser().parseFromString(requestNotePrint.mock.lastCall![0], "text/html");
     expect(exportedTaskItems(printed.body.innerHTML)).toEqual([
       { checked: false, text: "待补充", nested: 0 },
-      { checked: true, text: "已完成", nested: 0 },
+      { checked: true, text: "已完成", nested: 1 },
+      { checked: false, text: "子任务", nested: 0 },
     ]);
   });
 });
