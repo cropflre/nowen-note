@@ -118,6 +118,16 @@ describe("markers the server writes after HTML blocks", () => {
   });
 });
 
+describe("markers older saves wrote inside HTML code", () => {
+  it("are dropped from the editor's titled code HTML, while fenced code keeps marker-like text", () => {
+    const junk = "blk_11111111-2222-4333-8444-555555555555", own = "blk_99999999-2222-4333-8444-555555555555";
+    const [code] = find(markdownToTiptapJSON(`<pre data-title="x"><code class="language-js">line1 ^${junk}\n\nline2</code></pre> ^${own}`) as Json, "codeBlock");
+    expect([code.attrs?.blockId, code.attrs?.title, plain(code)]).toEqual([own, "x", "line1\n\nline2"]);
+    const [fenced] = find(markdownToTiptapJSON(`\`\`\`\nline1 ^${junk}\n\`\`\``) as Json, "codeBlock");
+    expect(plain(fenced)).toBe(`line1 ^${junk}`);
+  });
+});
+
 describe("math block IDs", () => {
   const ofBlocks = (node: Json) => node.content!.map((child) => [child.type, child.attrs?.blockId, child.attrs?.latex ?? plain(child)]);
 

@@ -150,3 +150,22 @@ test("block math keeps its ID when the formula changes", () => {
   assert.equal(after.content, edited);
   assert.equal(after.blocks[0].blockId, math.blockId);
 });
+
+test("markers older saves wrote inside a multi-line HTML block are removed and its own ID moves after it", () => {
+  const junk = "blk_11111111-2222-4333-8444-555555555555", own = "blk_99999999-2222-4333-8444-555555555555";
+  const code = '<pre data-title="x"><code>line1\n\nline2</code></pre>';
+  const result = save(`<pre data-title="x"><code>line1 ^${junk}\n\nline2</code></pre> ^${own}\n\nAfter`);
+  assert.equal(result.content, `${code}\n^${own}\n\nAfter ^${result.blocks[1].blockId}`);
+  assert.deepEqual(result.blocks.slice(0, 1).map((block) => [block.blockType, block.blockId, block.plainText]), [["codeBlock", own, "line1 line2"]]);
+  assert.equal(blockPatch.parseMarkdownPatchDocument(result.content).blocks[0].content, code);
+
+  // Old saves also gave single lines inside other HTML blocks markers of their own
+  const details = save(`<details>\n<summary>More</summary>\n- item ^${junk}\n</details> ^${own}\n\nAfter`);
+  assert.ok(details.content.startsWith(`<details>\n<summary>More</summary>\n- item\n</details>\n^${own}\n\n`));
+  assert.equal(details.blocks[0].blockId, own);
+
+  // Text that only looks like a marker, and a single-line block's own marker, stay as written
+  for (const kept of ['<pre data-title="x"><code>a ^blk_custom01\n\nb</code></pre>', `<p style="text-align: center;">x</p> ^${own}`]) {
+    assert.ok(save(`${kept}\n\nAfter`).content.startsWith(kept));
+  }
+});

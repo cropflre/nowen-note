@@ -48,6 +48,7 @@ const MARKDOWN_BLOCK_ID_RE = /(?:\s+|^)(\^blk_[A-Za-z0-9_-]{6,})\s*$/;
 const GENERATED_MARKDOWN_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
 const GENERATED_MARKER_LINE_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
 const ATTACHED_GENERATED_MARKER_RE = new RegExp(String.raw`^(.*\S)\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
+const TRAILING_GENERATED_MARKER_RE = new RegExp(String.raw`^(.*\S)[ \t]*\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
 const STANDALONE_MARKER_RE = /^[ \t]*\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/;
 // CommonMark 分隔线（---、***、- - -）没有文本也不带 ID：行尾加标记会让它变成普通段落
 const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
@@ -236,6 +237,7 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
   // 与 parseMarkdown 划分 HTML 块的方式一致：pre/script/style 到结束标签为止，其余到空行为止
   let htmlClose: RegExp | null = null;
   let inHtml = false;
+  let htmlStart = -1;
   let inMath = false;
 
   for (let index = 0; index < lines.length; index++) {
@@ -262,13 +264,22 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
       const tag = html[1].toLowerCase();
       if (tag === "pre" || tag === "script" || tag === "style") htmlClose = new RegExp(`</${tag}\\s*>`, "i");
       else inHtml = true;
+      htmlStart = index;
     }
     if (htmlClose || inHtml) {
       // 多行 HTML 块的 ID 与代码块相同，独占一行写在块后（pre/script/style 在结束标签之后，其余在空行之前）
-      if (htmlClose?.test(line.text)) {
+      const last = htmlClose ? htmlClose.test(line.text) : !lines[index + 1]?.text.trim();
+      if (htmlClose && last) {
         htmlClose = null;
         expectsCodeMarker = true;
-      } else if (inHtml && marker && !lines[index + 1]?.text.trim()) {
+      } else if (inHtml && marker && last) {
+        continue;
+      }
+      // 旧版按行和空行切块，把标记写进了多行 HTML 块的中间行或末行行尾（代码里就多出 ^blk_ 文字，块补丁也会拒绝）：
+      // 中间行的去掉，末行的挪到块后独占一行。单行 HTML 块行尾的标记是正常写法，不动
+      const trailing = line.text.match(TRAILING_GENERATED_MARKER_RE);
+      if (trailing && !(last && index === htmlStart)) {
+        edits.push({ from: line.start, to: line.end, insert: last ? `${trailing[1]}\n^${trailing[2]}` : trailing[1] });
         continue;
       }
     } else if (MATH_FENCE_RE.test(line.text)) {

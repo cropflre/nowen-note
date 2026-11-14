@@ -1682,6 +1682,8 @@ const INLINE_HTML_TAGS = new Set([
   "label", "mark", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "sup", "time", "u", "var",
 ]);
 const VOID_HTML_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+// 后端生成的块 ID（blk_ 加 UUID），与用户自己写的 ^blk_ 文字区分开
+const GENERATED_BLOCK_ID_RE = /^blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}$/i;
 
 interface ScannedHtmlElement {
   name: string;
@@ -1746,8 +1748,18 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
   for (const token of tokens) {
     const ancestors: ScannedHtmlElement[] = [];
     for (let el: ScannedHtmlElement | null = token.container; el && el !== root; el = el.parent) ancestors.push(el);
-    if (ancestors.some((el) => el.name === "pre" || el.name === "code")) {
-      edits.push({ from: token.start, to: token.end, insert: `^${token.id}` });
+    const pre = ancestors.find((el) => el.name === "pre");
+    if (pre || ancestors.some((el) => el.name === "code")) {
+      // 代码里形如标记的文字是代码内容，原样还原。只有编辑器生成的带标题代码块 HTML 例外：
+      // 旧版保存时按空行切块，把系统标记写进了代码中间，这里不再显示成代码文字（后端下次保存时也会清掉）
+      const editorCodeHtml = pre && /\sdata-(?:title|block-id)=/.test(html.slice(pre.start, pre.openEnd));
+      if (editorCodeHtml && GENERATED_BLOCK_ID_RE.test(token.id)) {
+        let from = token.start;
+        while (from > 0 && (html[from - 1] === " " || html[from - 1] === "\t")) from--;
+        edits.push({ from, to: token.end, insert: "" });
+      } else {
+        edits.push({ from: token.start, to: token.end, insert: `^${token.id}` });
+      }
       continue;
     }
     let removeFrom = token.start;
