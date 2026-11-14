@@ -348,6 +348,35 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(tiptapJsonToMarkdown(markdownToTiptapJSON(once))).toBe(md);
   });
 
+  it("Tiptap→MD：嵌套任务列表与任务项的后续段落保持缩进，不被拍平", () => {
+    const para = (text: string): JSONContent => ({ type: "paragraph", content: [{ type: "text", text }] });
+    const item = (checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { checked }, content });
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            item(false, [para("parent"), { type: "taskList", content: [item(true, [para("child")])] }]),
+            item(false, [para("first"), para("second para")]),
+          ],
+        },
+      ],
+    };
+    expect(tiptapJsonToMarkdown(doc)).toBe("- [ ] parent\n\n  - [x] child\n- [ ] first\n\n  second para");
+  });
+
+  it("MD → RTE → MD：嵌套任务列表往返后仍保持嵌套", () => {
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON("- [ ] parent\n  - [x] child\n- [ ] sibling"));
+    expect(once).toBe("- [ ] parent\n\n  - [x] child\n- [ ] sibling");
+
+    const json: JSONContent = markdownToTiptapJSON(once);
+    const items = json.content?.[0]?.content ?? [];
+    expect(items).toHaveLength(2);
+    expect(items[0].content?.[1]).toMatchObject({ type: "taskList", content: [{ attrs: { checked: true } }] });
+    expect(tiptapJsonToMarkdown(json)).toBe(once);
+  });
+
   it("MD→Tiptap JSON：表格结构正确", () => {
     const md = "| A | B |\n|---|---|\n| 1 | 2 |";
     const json = markdownToTiptapJSON(md);

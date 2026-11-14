@@ -184,7 +184,9 @@ function getTurndown(): TurndownService {
     replacement: (content, node) => {
       const checked = (node as Element).getAttribute("data-checked") === "true";
       const cleanContent = content.replace(/^\n+/, "").replace(/\n+$/, "");
-      return `${checked ? "- [x]" : "- [ ]"} ${cleanContent}\n`;
+      // 续行（嵌套列表、后续段落）缩进到「- 」之后的内容列，否则会脱离该任务项被拍平
+      const indented = cleanContent.replace(/\n(?=[^\n])/g, "\n  ");
+      return `${checked ? "- [x]" : "- [ ]"} ${indented}\n`;
     },
   });
 
