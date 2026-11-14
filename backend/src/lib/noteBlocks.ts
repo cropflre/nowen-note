@@ -58,6 +58,9 @@ const TABLE_DELIMITER_RE = /^\|?(\s*:?-+:?\s*\|)+(\s*:?-+:?\s*)?$/;
 // 编辑器转 Markdown 时保留为 HTML 的块：pre/script/style 到结束标签为止，其余到空行为止（CommonMark HTML 块）
 const HTML_BLOCK_OPEN_RE = /^ {0,3}<(pre|script|style|details|div|table|section|article|iframe|video|audio|p|h[1-6])(?=[\s>/])/i;
 const HTML_BLOCK_ID_RE = /^ {0,3}<[a-z][\w-]*\b[^>]*?\sdata-block-id="(blk_[A-Za-z0-9_-]{6,})"/i;
+// 块级公式的开始/结束行：与代码块相同，ID 独占一行写在结束 `$$` 之后，写在行尾它就不再是结束行
+const MATH_FENCE_RE = /^ {0,3}\$\$[ \t]*$/;
+const LEGACY_MATH_CLOSE_RE = new RegExp(String.raw`^( {0,3}\$\$)[ \t]+\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
 
 /** GFM 表格行的单元格：按未转义的「|」切分，忽略行首行尾可选的「|」。 */
 function tableCells(line: string): string[] {
@@ -233,6 +236,7 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
   // 与 parseMarkdown 划分 HTML 块的方式一致：pre/script/style 到结束标签为止，其余到空行为止
   let htmlClose: RegExp | null = null;
   let inHtml = false;
+  let inMath = false;
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
@@ -267,6 +271,17 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
       } else if (inHtml && marker && !lines[index + 1]?.text.trim()) {
         continue;
       }
+    } else if (MATH_FENCE_RE.test(line.text)) {
+      // 块级公式与代码块相同，结束 `$$` 之后独占一行的 ID 不是孤立标记
+      expectsCodeMarker = inMath;
+      inMath = !inMath;
+      continue;
+    } else if (inMath && LEGACY_MATH_CLOSE_RE.test(line.text)) {
+      // 旧版把 ID 接在结束 `$$` 行尾，这一行因此不再闭合公式（块补丁会整篇拒绝）：挪到下一行
+      const [, close, id] = line.text.match(LEGACY_MATH_CLOSE_RE)!;
+      edits.push({ from: line.start, to: line.end, insert: `${close}\n^${id}` });
+      inMath = false;
+      continue;
     } else {
       const opener = line.text.match(/^\s{0,3}(`{3,}|~{3,})/);
       if (opener) {
@@ -356,6 +371,33 @@ function parseMarkdown(noteId: string, content: string): {
       });
       i = Math.max(j, i + 1);
       continue;
+    }
+
+    if (MATH_FENCE_RE.test(line.text)) {
+      let close = i + 1;
+      while (close < lines.length && !MATH_FENCE_RE.test(lines[close].text)) close++;
+      if (close < lines.length) {
+        const standalone = lines[close + 1]?.text.match(STANDALONE_MARKER_RE);
+        const end = standalone ? close + 2 : close + 1;
+        const latex = lines.slice(i + 1, close).map((row) => row.text).join("\n").trim();
+        candidates.push({
+          noteId,
+          blockId: standalone?.[1] ?? null,
+          explicitBlockId: Boolean(standalone),
+          blockType: "mathBlock",
+          parentBlockId: null,
+          blockOrder: order++,
+          plainText: latex,
+          contentHash: hashText("mathBlock", latex),
+          path: String(order - 1),
+          startOffset: line.start,
+          endOffset: lines[end - 1].endWithNewline,
+          markerInsertOffset: lines[close].end,
+          markerStyle: "standalone",
+        });
+        i = end;
+        continue;
+      }
     }
 
     if (isTableStart(lines, i)) {
@@ -452,7 +494,7 @@ function parseMarkdown(noteId: string, content: string): {
     let j = i + 1;
     if (type === "paragraph") {
       while (j < lines.length && lines[j].text.trim() && classifyMarkdownLine(lines[j].text) === "paragraph" && !/^\s*(```+|~~~+)/.test(lines[j].text)
-        && !SETEXT_UNDERLINE_RE.test(lines[j].text) && !HTML_BLOCK_OPEN_RE.test(lines[j].text)) {
+        && !SETEXT_UNDERLINE_RE.test(lines[j].text) && !HTML_BLOCK_OPEN_RE.test(lines[j].text) && !MATH_FENCE_RE.test(lines[j].text)) {
         j++;
       }
     }

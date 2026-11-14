@@ -125,3 +125,28 @@ test("ordered list items with a ) delimiter are list items", () => {
   const links = noteLinks.extractNoteLinksFromContent(`1) see [[note:${first}]] ^blk_olsrc0001\n2) and [[note:${second}]] ^blk_olsrc0002`);
   assert.deepEqual(links.map((link) => [link.targetNoteId, link.sourceBlockId]), [[first, "blk_olsrc0001"], [second, "blk_olsrc0002"]]);
 });
+
+test("block math is one block whose ID sits on its own line after the closing $$", () => {
+  const result = save("Intro\n\n$$\na + b\n$$\n\nOutro");
+  const [intro, math, outro] = result.blocks;
+  assert.deepEqual(result.blocks.map((block) => [block.blockType, block.plainText]), [["paragraph", "Intro"], ["mathBlock", "a + b"], ["paragraph", "Outro"]]);
+  assert.equal(result.content, `Intro ^${intro.blockId}\n\n$$\na + b\n$$\n^${math.blockId}\n\nOutro ^${outro.blockId}`);
+  // A marker on the closing line kept the formula open, and block patches refused the whole note
+  assert.equal(blockPatch.parseMarkdownPatchDocument(result.content).blocks[1].content, "$$\na + b\n$$");
+});
+
+test("a marker that older saves put on the closing $$ moves to its own line and keeps its ID", () => {
+  const id = "blk_11111111-2222-4333-8444-555555555555";
+  const result = save(`$$\na + b\n$$ ^${id}\n\nAfter`);
+  assert.equal(result.blocks[0].blockId, id);
+  assert.equal(result.content, `$$\na + b\n$$\n^${id}\n\nAfter ^${result.blocks[1].blockId}`);
+});
+
+test("block math keeps its ID when the formula changes", () => {
+  const before = save("$$\na + b\n$$\n\nAfter");
+  const [math] = before.blocks;
+  const edited = before.content.replace("a + b", "a + c");
+  const after = noteBlocks.syncNoteBlocks(db, math.noteId, edited, "markdown");
+  assert.equal(after.content, edited);
+  assert.equal(after.blocks[0].blockId, math.blockId);
+});

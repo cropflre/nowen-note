@@ -462,7 +462,9 @@ function getTurndown(): TurndownService {
     replacement: (_content, node) => {
       const latex = (node as Element).getAttribute("data-latex") || "";
       if (!latex) return "";
-      return `\n\n$$\n${latex}\n$$\n\n`;
+      // ID 与代码块相同，独占一行写在结束 `$$` 之后：写在结束行行尾，这一行就不再闭合公式
+      const id = (node as Element).getAttribute("data-block-id");
+      return `\n\n$$\n${latex}\n$$${id ? `\n^${id}` : ""}\n\n`;
     },
   });
 
@@ -1512,12 +1514,14 @@ function restoreMathPlaceholders(
   // 块级：放到 <div data-math-block>，外面通常被 renderBlock 包了 <p>，
   // 这里需要把"包着公式占位的段落"剥掉 <p>，否则 Tiptap parseHTML 会把
   // mathBlock 嵌进段落（block-in-inline）而被丢弃。
+  // 公式块的 ID 标记（结束 `$$` 后独占一行，或旧版接在结束行行尾）与公式落在同一段：
+  // 拆成公式后面只含标记的段落，由块 ID 还原挂到公式块上，不留空段落
   out = out.replace(
-    /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*<\/p>/g,
-    (_m, idx) => {
+    /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*(NOWENBLOCKIDTOKEN\d+END)?\s*<\/p>/g,
+    (_m, idx, token?: string) => {
       const latex = blocks[Number(idx)] || "";
       const enc = escapeBlockLatexAttr(latex);
-      return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>`;
+      return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>${token ? `<p>${token}</p>` : ""}`;
     }
   );
   // 兜底：如果块级占位没被段落包住（例如出现在表格里）
@@ -1695,7 +1699,7 @@ interface ScannedHtmlElement {
 /**
  * 把占位令牌换回所属块的 data-block-id。归属与 RTE→MD 写标记的约定、后端的 Markdown 块模型一致：
  *   - 列表项首段行尾 → 列表项（taskItem / listItem）；列表项里的后续段落 → 该段落
- *   - 代码块结束围栏后独占一行（渲染成只含令牌的段落）→ 代码块，并去掉这个段落；别处独占一行的孤立标记连段落一起去掉
+ *   - 代码块结束围栏、块级公式结束 `$$` 后独占一行（渲染成只含令牌的段落）→ 该块，并去掉这个段落；别处独占一行的孤立标记连段落一起去掉
  *   - 引用块最后一段行尾 → 引用块
  *   - 表格最后一行行尾（渲染成该行多出来的只含令牌的单元格）→ 表格（表格是引用块的最后一个块时归引用块），并去掉这个单元格
  *   - 标题、其他段落 → 自身
@@ -1761,8 +1765,9 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
       if (parent?.name === "li" && block.index === 0) {
         target = parent;
       } else if (tokenOnly) {
-        // 独占一行的标记只在代码块后有意义；别处的孤立标记（后端保存时也会删掉）不生成空段落
-        if (block.prev?.name === "pre") target = block.prev;
+        // 独占一行的标记只在代码块、块级公式后有意义；别处的孤立标记（后端保存时也会删掉）不生成空段落
+        const prevIsMath = block.prev?.name === "div" && /\sdata-math-block=/.test(html.slice(block.prev.start, block.prev.openEnd));
+        if (block.prev?.name === "pre" || prevIsMath) target = block.prev;
         removeFrom = block.start;
         removeTo = block.end;
       } else if (parent?.name === "blockquote" && block.index === parent.childCount - 1) {

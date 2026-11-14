@@ -117,3 +117,28 @@ describe("markers the server writes after HTML blocks", () => {
     expect(JSON.stringify(back)).not.toContain("^blk_");
   });
 });
+
+describe("math block IDs", () => {
+  const ofBlocks = (node: Json) => node.content!.map((child) => [child.type, child.attrs?.blockId, child.attrs?.latex ?? plain(child)]);
+
+  it("writes a math block's ID on its own line after the closing $$ and reads it back", () => {
+    const { md, back } = roundTrip(doc(p("before", { blockId: "blk_para0001" }), { type: "mathBlock", attrs: { latex: "a + b", blockId: "blk_math0001" } }, p("after", { blockId: "blk_para0002" })));
+    // Like a code fence: a marker at the end of the closing line would stop it from closing the formula
+    expect(md).toContain("$$\na + b\n$$\n^blk_math0001\n\n");
+    expect(ofBlocks(back)).toEqual([["paragraph", "blk_para0001", "before"], ["mathBlock", "blk_math0001", "a + b"], ["paragraph", "blk_para0002", "after"]]);
+  });
+
+  it("reads a marker that older saves put at the end of the closing $$ without adding empty paragraphs", () => {
+    expect(ofBlocks(markdownToTiptapJSON("$$\na + b\n$$ ^blk_math0001\n\nafter ^blk_para0002") as Json)).toEqual([
+      ["mathBlock", "blk_math0001", "a + b"], ["paragraph", "blk_para0002", "after"],
+    ]);
+  });
+
+  it("keeps the ID of a math block that ends a quote", () => {
+    const { back } = roundTrip(doc({ type: "blockquote", attrs: { blockId: "blk_quote0002" }, content: [
+      p("intro", { blockId: "blk_qintro01" }), { type: "mathBlock", attrs: { latex: "x", blockId: "blk_math0002" } },
+    ] }));
+    expect(ofBlocks(find(back, "blockquote")[0])).toEqual([["paragraph", "blk_qintro01", "intro"], ["mathBlock", "blk_math0002", "x"]]);
+    expect(JSON.stringify(back)).not.toContain("^blk_");
+  });
+});
