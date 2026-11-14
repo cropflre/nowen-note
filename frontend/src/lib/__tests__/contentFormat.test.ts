@@ -192,6 +192,15 @@ describe("markdownToHtml", () => {
     );
   });
 
+  it("混合列表（只有部分项是任务）：任务标记作为文字保留，行内格式照常渲染", () => {
+    expect(markdownToHtml("- 普通项\n- [ ] **粗体** 与 `code`")).toBe(
+      "<ul><li><p>普通项</p></li><li><p>[ ] <strong>粗体</strong> 与 <code>code</code></p></li></ul>",
+    );
+    expect(markdownToHtml("1. 普通项\n2. [x] *斜体*")).toBe(
+      "<ol><li><p>普通项</p></li><li><p>[x] <em>斜体</em></p></li></ol>",
+    );
+  });
+
   it("没有 URL 的方括号文字原样保留（段落、列表项、任务项）", () => {
     expect(markdownToHtml("见 [备注]")).toBe("<p>见 [备注]</p>");
     expect(markdownToHtml("- 见 [备注]")).toBe("<ul><li><p>见 [备注]</p></li></ul>");

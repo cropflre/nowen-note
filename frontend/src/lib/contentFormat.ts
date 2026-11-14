@@ -1011,6 +1011,11 @@ function renderListItem(src: string, item: SyntaxNode): string {
       if (c.name === "Paragraph") {
         return `<p>${renderInlineChildren(src, c)}</p>`;
       }
+      if (c.name === "Task") {
+        // 混合列表（只有部分项是任务）按普通列表渲染：任务标记作为文字保留，其余行内内容照常渲染
+        const marker = findChildText(src, c, "TaskMarker") ?? "";
+        return `<p>${escapeHtml(marker)}${renderInlineChildren(src, c)}</p>`;
+      }
       return renderBlock(src, c);
     })
     .join("");
