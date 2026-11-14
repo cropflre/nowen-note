@@ -341,6 +341,9 @@ function getTurndown(): TurndownService {
    * - GFM 无法表达的表格保留为 HTML（同 Details / Callout 等容器），保证内容不丢：合并单元格、单元格里有
    *   段落以外的块（列表、代码块、图片、嵌套表格等）、行内代码含 `\|`（GFM 表格里的行内代码写不出 `\|`）。
    *   HTML 块遇到空行就结束，所以换行写成 `&#10;`，整张表保持一行。
+   * - blockId：表格各行在后端 Markdown 块模型里是同一个块，一行又只能带一个标记，所以表格 ID 写在最后一行行尾，
+   *   单元格段落的 ID 不写出（转回后由编辑器重新分配）；只有表头行时最后一行是分隔行，接上标记就不再是表格，不写。
+   *   保留为 HTML 时，表格与单元格段落的 ID 都随属性保留，行尾同样写表格 ID 供后端识别。
    */
   const PIPE_PLACEHOLDER = "\u0000";
   const markPipes = (node: Node): void => {
@@ -378,8 +381,13 @@ function getTurndown(): TurndownService {
             : [],
       );
       const grid = rows.map((row) => Array.from(row.children).filter((cell) => cell.nodeName === "TH" || cell.nodeName === "TD"));
+      const id = table.getAttribute("data-block-id");
+      // 表格是带 ID 的引用块的最后一个块时，这一行行尾留给引用块的标记
+      const quote = table.parentElement;
+      const lineOwnedByQuote = quote?.nodeName === "BLOCKQUOTE" && quote.lastElementChild === table && !!quote.getAttribute("data-block-id");
+      const marker = id && !lineOwnedByQuote ? ` ^${id}` : "";
       if (!grid[0]?.length || !grid.every((cells) => cells.every(fitsGfmCell))) {
-        return `\n\n${table.outerHTML.replace(/\n/g, "&#10;")}\n\n`;
+        return `\n\n${table.outerHTML.replace(/\n/g, "&#10;")}${marker}\n\n`;
       }
       const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
       const delimiter = grid[0].map((_cell, column) => {
@@ -388,7 +396,7 @@ function getTurndown(): TurndownService {
       });
       const lines = grid.map((cells) => line(cells.map((cell) => Array.from(cell.children).map(cellParagraphToMarkdown).join("<br>"))));
       lines.splice(1, 0, line(delimiter));
-      return `\n\n${lines.join("\n")}\n\n`;
+      return `\n\n${lines.join("\n")}${grid.length > 1 ? marker : ""}\n\n`;
     },
   });
 
@@ -1545,6 +1553,7 @@ interface ScannedHtmlElement {
  *   - 列表项首段行尾 → 列表项（taskItem / listItem）；列表项里的后续段落 → 该段落
  *   - 代码块结束围栏后独占一行（渲染成只含令牌的段落）→ 代码块，并去掉这个段落；别处独占一行的孤立标记连段落一起去掉
  *   - 引用块最后一段行尾 → 引用块
+ *   - 表格最后一行行尾（渲染成该行多出来的只含令牌的单元格）→ 表格（表格是引用块的最后一个块时归引用块），并去掉这个单元格
  *   - 标题、其他段落 → 自身
  * 代码里形如标记的文字是代码内容，还原成 `^blk_…` 文字；找不到可挂的块时丢弃该 ID。
  */
@@ -1610,6 +1619,15 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
         target = parent;
       } else {
         target = block;
+      }
+    } else if (block && (block.name === "td" || block.name === "th")) {
+      const table = ancestors.find((el) => el.name === "table") ?? null;
+      const quote = table?.parent;
+      // 表格是引用块的最后一个块时，行尾的标记属于引用块（同引用块最后一段）
+      target = quote?.name === "blockquote" && table?.index === quote.childCount - 1 ? quote : table;
+      if (block.end >= 0 && html.slice(block.openEnd, block.closeStart).trim() === html.slice(token.start, token.end)) {
+        removeFrom = block.start;
+        removeTo = block.end;
       }
     } else if (block && /^(h[1-6]|li|blockquote)$/.test(block.name)) {
       target = block;

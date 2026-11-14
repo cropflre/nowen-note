@@ -934,4 +934,68 @@ describe("表格 RTE ↔ MD", () => {
     expect(regexMd.startsWith("<table")).toBe(true);
     expect(tableOf(regexBack)?.content?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.text).toBe("a\\|b");
   });
+
+  // 编辑器里的表格和每个单元格段落都带 blockId。一行只能带一个标记，表格各行又是同一个块（后端 Markdown 块模型），
+  // 所以表格 ID 写在最后一行行尾，单元格段落的 ID 不写出，转回后由编辑器重新分配。
+  describe("带 blockId 的表格", () => {
+    const idPara = (blockId: string, value: string): JSONContent => ({ type: "paragraph", attrs: { blockId }, ...(value ? { content: [text(value)] } : {}) });
+    const withId = (doc: JSONContent, blockId: string): JSONContent => ({
+      ...doc,
+      content: doc.content?.map((node) => (node.type === "table" ? { ...node, attrs: { blockId } } : node)),
+    });
+    const noMarkerText = (json: JSONContent) => expect(JSON.stringify(json)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+
+    it("管道表格：表格 ID 写在最后一行行尾，往返后 ID 归表格，单元格不多不少", () => {
+      const table = withId(
+        tableDoc([th([idPara("blk_cell01", "A")]), th([idPara("blk_cell02", "B")])], [td([idPara("blk_cell03", "1")]), td([idPara("blk_cell04", "")])]),
+        "blk_table01",
+      );
+      const doc: JSONContent = { ...table, content: [...(table.content ?? []), idPara("blk_para09", "after")] };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe("| A | B |\n| --- | --- |\n| 1 |  | ^blk_table01\n\nafter ^blk_para09");
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      expect(tableOf(back)?.attrs?.blockId).toBe("blk_table01");
+      expect(grid(back)).toEqual([["th:A", "th:B"], ["td:1", "td:"]]);
+      expect(back.content?.[1]).toMatchObject({ type: "paragraph", attrs: { blockId: "blk_para09" } });
+      expect(JSON.stringify(back)).not.toContain("blk_cell");
+      noMarkerText(back);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    });
+
+    it("表格是带 ID 的引用块的最后一个块时，最后一行行尾的标记属于引用块（同引用块最后一段）", () => {
+      const table = tableOf(withId(tableDoc([th([idPara("blk_cell01", "A")])], [td([idPara("blk_cell02", "1")])]), "blk_table04"));
+      const doc: JSONContent = { type: "doc", content: [{ type: "blockquote", attrs: { blockId: "blk_quote01" }, content: table ? [table] : [] }] };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe("> | A |\n> | --- |\n> | 1 | ^blk_quote01");
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      expect(back.content?.[0]).toMatchObject({ type: "blockquote", attrs: { blockId: "blk_quote01" } });
+      expect(grid(back.content?.[0] ?? {})).toEqual([["th:A"], ["td:1"]]);
+      noMarkerText(back);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    });
+
+    it("只有表头行的表格不写标记：分隔行后接上标记就不再是表格", () => {
+      const md = tiptapJsonToMarkdown(withId(tableDoc([th([idPara("blk_cell01", "A")])]), "blk_table02"));
+      expect(md).toBe("| A |\n| --- |");
+      expect(grid(markdownToTiptapJSON(md))).toEqual([["th:A"]]);
+    });
+
+    it("保留为 HTML 的表格：表格与单元格段落的 ID 随属性往返，行尾另写表格 ID", () => {
+      const doc = withId(
+        tableDoc([th([idPara("blk_cell01", "合并")], { colspan: 2 })], [td([idPara("blk_cell02", "1")]), td([idPara("blk_cell03", "2")])]),
+        "blk_table03",
+      );
+      const { md, back } = roundTrip(doc);
+      expect(md.startsWith("<table")).toBe(true);
+      expect(md.endsWith("</table> ^blk_table03")).toBe(true);
+      expect(tableOf(back)?.attrs?.blockId).toBe("blk_table03");
+      expect(tableOf(back)?.content?.map((row) => row.content?.map((cell) => cell.content?.[0]?.attrs?.blockId))).toEqual([
+        ["blk_cell01"],
+        ["blk_cell02", "blk_cell03"],
+      ]);
+      noMarkerText(back);
+    });
+  });
 });
