@@ -1623,7 +1623,7 @@ function AppearancePanel() {
                 maxLength={100}
                 disabled={!canEditSiteIdentity}
                 className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                placeholder="通过 Nowen Note 分享"
+                placeholder={t("auditI18n.shareFooterPlaceholder")}
               />
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
@@ -2021,9 +2021,9 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
-    ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: "快捷键", icon: Keyboard }] : []),
+    ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: t("auditI18n.shortcuts"), icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
-    { id: "automations" as const, label: "自动化", icon: Workflow },
+    { id: "automations" as const, label: t("auditI18n.automations"), icon: Workflow },
     { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 每位登录用户都可连接自己的 AI 助手。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
@@ -2034,7 +2034,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     // 「同步」：Local-first 多设备同步（Sync V2）。产品层只呈现
     // 「不同步，仅此设备」/「我的 Nowen Server」，不暴露 Full/Lite/SQLite 概念。
     // Flag 关闭时组件内部会自行降级为一句说明，不需要在这里做条件渲染。
-    { id: "sync" as const, label: isAndroidNativeRuntime() ? "数据与同步" : "同步", icon: RefreshCw },
+    { id: "sync" as const, label: isAndroidNativeRuntime() ? t("auditI18n.dataAndSync") : t("auditI18n.sync"), icon: RefreshCw },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：

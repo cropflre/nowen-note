@@ -339,7 +339,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
         {variant === "desktop" && (
           <div className={cn("shrink-0 px-4 pb-1 pt-2 font-medium", classicText ? "text-[11px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
-            内容
+            {t("auditI18n.content")}
           </div>
         )}
         <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -115,7 +115,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
   };
 
   const currentWs = workspaces.find((w) => w.id === current);
-  const displayName = current === "personal" ? "我的笔记" : currentWs?.name || "我的笔记";
+  const displayName = current === "personal" ? t("auditI18n.myNotes") : currentWs?.name || t("auditI18n.myNotes");
   const displayIcon = current === "personal" ? "🏠" : currentWs?.icon || DEFAULT_WORKSPACE_ICON;
 
   // 在入口按钮（展开/收起态）上右键当前工作区时，直接弹出对应右键菜单。
@@ -289,8 +289,8 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
                 {/* 个人空间 */}
                 <WorkspaceItem
                   icon="🏠"
-                  name="我的笔记"
-                  subtitle="个人内容"
+                  name={t("auditI18n.myNotes")}
+                  subtitle={t("auditI18n.personalContent")}
                   active={current === "personal"}
                   onClick={() => switchTo("personal")}
                 />

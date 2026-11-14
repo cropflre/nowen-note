@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
@@ -11,6 +12,7 @@ export default function KnowledgeSearchScopeMenuButton({
   scope: KnowledgeSearchScope;
   onChange: (scope: KnowledgeSearchScope) => void;
 }) {
+  const { t } = useTranslation();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -22,20 +24,20 @@ export default function KnowledgeSearchScopeMenuButton({
         onClick={() => setOpen((current) => !current)}
         className="inline-flex !h-7 !min-h-7 !max-h-7 self-center shrink-0 items-center gap-1 rounded-md bg-transparent px-1.5 text-[10px] font-medium leading-none text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
         data-knowledge-search-scope-button="true"
-        aria-label={`搜索范围：${scope === "tree" ? "目录" : "全文"}`}
+        aria-label={`${t("auditI18n.searchScope")}: ${t(scope === "tree" ? "auditI18n.tree" : "auditI18n.fullText")}`}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span>{scope === "tree" ? "目录" : "全文"}</span>
+        <span>{t(scope === "tree" ? "auditI18n.tree" : "auditI18n.fullText")}</span>
         <ChevronDown size={10} aria-hidden="true" />
       </button>
       <KnowledgeTreeDropdownMenu
         open={open}
         anchor={buttonRef.current}
-        ariaLabel="搜索范围"
+        ariaLabel={t("auditI18n.searchScope")}
         items={[
-          { value: "tree", label: "目录与文档名称", checked: scope === "tree" },
-          { value: "content", label: "笔记标题与正文", checked: scope === "content" },
+          { value: "tree", label: t("auditI18n.treeNames"), checked: scope === "tree" },
+          { value: "content", label: t("auditI18n.noteContents"), checked: scope === "content" },
         ]}
         onSelect={(value) => {
           setOpen(false);

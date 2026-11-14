@@ -3195,7 +3195,7 @@ const moveToTrash = useCallback(async () => {
                       className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                     >
                       <Scissors size={15} className="text-accent-primary" />
-                      <span>拆分文档</span>
+                      <span>{t("auditI18n.splitDocument")}</span>
                     </button>
                   )}
                   {/* HTML Ԥ�� / �༭�л����� HTML Ƭ�αʼ���ʾ����ȫ��¡��֧�ֱ༭�� */}
@@ -3719,7 +3719,7 @@ const moveToTrash = useCallback(async () => {
                       className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
                     >
                       <Scissors size={15} className="text-accent-primary" />
-                      <span>拆分文档</span>
+                      <span>{t("auditI18n.splitDocument")}</span>
                     </button>
                   )}
 
@@ -4501,7 +4501,7 @@ function SyncIndicator({
   lastSyncedAt: string | null;
   onManualSync: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const android = isAndroidNativeRuntime();
   // 失败、排队和离线状态继续保留在同步状态机中，但不再主动展示为失败提示。
   // 手动同步入口仍保持可见，真正冲突继续走独立的冲突处理流程。
@@ -4510,7 +4510,7 @@ function SyncIndicator({
       ? "idle"
       : syncStatus;
   const formatFullTime = (ts: string) => {
-    try { return new Date(ts).toLocaleString(); } catch { return ts; }
+    try { return new Date(ts).toLocaleString(i18n.resolvedLanguage); } catch { return ts; }
   };
 
   const getTooltip = () => {
@@ -4587,14 +4587,14 @@ function SyncIndicator({
             {android ? "已保存到本机" : t('editor.savedStatus')}
             {!android && lastSyncedAt && (
               <span className="ml-1 opacity-70">
-                · {new Date(lastSyncedAt).toLocaleTimeString()}
+                · {new Date(lastSyncedAt).toLocaleTimeString(i18n.resolvedLanguage)}
               </span>
             )}
           </>
         )}
         {displayStatus === "idle" && (
           lastSyncedAt
-            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString()}</span></>
+            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString(i18n.resolvedLanguage)}</span></>
             : t('editor.sync')
         )}
       </span>

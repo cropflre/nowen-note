@@ -1069,7 +1069,7 @@ export default function MobileKnowledgeTreePanel({
             "min-w-0 flex-1 rounded border bg-app-bg px-1.5 py-1 text-xs text-tx-primary outline-none",
             draft.error ? "border-red-500" : "border-accent-primary/60 focus:border-accent-primary",
           )}
-          aria-label="新内容名称"
+          aria-label={t("auditI18n.newContentName")}
         />
         <button
           type="button"
@@ -1077,8 +1077,8 @@ export default function MobileKnowledgeTreePanel({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => void commitDraft()}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50"
-          title="确认创建"
-          aria-label="确认创建"
+          title={t("auditI18n.confirmCreate")}
+          aria-label={t("auditI18n.confirmCreate")}
         >
           {draft.saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
         </button>
@@ -1088,8 +1088,8 @@ export default function MobileKnowledgeTreePanel({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => setDraft(null)}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
-          title="取消创建"
-          aria-label="取消创建"
+          title={t("auditI18n.cancelCreate")}
+          aria-label={t("auditI18n.cancelCreate")}
         >
           <X size={13} />
         </button>
@@ -1173,7 +1173,7 @@ export default function MobileKnowledgeTreePanel({
                 </span>
               )}
               {node.nodeType === "folder" && node.isPasswordProtected === 1 && (
-                <LockKeyhole size={12} className="shrink-0 text-tx-tertiary" aria-label="密码保护" />
+                <LockKeyhole size={12} className="shrink-0 text-tx-tertiary" aria-label={t("auditI18n.passwordProtected")} />
               )}
               {variant !== "mobile" && firstLevelNoteCount !== null && (
                 <span
@@ -1191,7 +1191,7 @@ export default function MobileKnowledgeTreePanel({
                 <Star size={11} className={cn("shrink-0 fill-current text-amber-400", desktopHoverHidden)} />
               )}
               {isSharedRoot(node) && (
-                <span className={cn("shrink-0 rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary", desktopHoverHidden)}>共享</span>
+                <span className={cn("shrink-0 rounded bg-accent-primary/10 px-1 text-[9px] text-accent-primary", desktopHoverHidden)}>{t("auditI18n.shared")}</span>
               )}
             </span>
             {(showPath || updatedAt) && (
@@ -1300,11 +1300,11 @@ export default function MobileKnowledgeTreePanel({
               )}
               data-mobile-knowledge-tree-section-heading=""
             >
-              <span>当前空间</span>
+              <span>{t("auditI18n.currentWorkspace")}</span>
               {variant !== "mobile" && (
                 <span
                   className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
-                  aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}
+                  aria-label={t("auditI18n.notebookCount", { count: ownedNotebookCount })}
                   data-mobile-knowledge-tree-notebook-count=""
                 >
                   {ownedNotebookCount}
@@ -1319,7 +1319,7 @@ export default function MobileKnowledgeTreePanel({
         )}
         {rootShared.length > 0 && (
           <section className={cn("mt-2 border-t border-app-border pt-2", rootOwned.length === 0 && "mt-0 border-t-0 pt-0")} data-mobile-knowledge-tree-section="shared">
-            <div className={cn("px-3 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>共享给我</div>
+            <div className={cn("px-3 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>{t("auditI18n.sharedWithMe")}</div>
             {rootShared.map((node) => (
               variant === "desktop" && visibleDepth !== 1 ? renderExpandedBranch(node) : renderNode(node)
             ))}
@@ -1339,7 +1339,7 @@ export default function MobileKnowledgeTreePanel({
       data-knowledge-tree-compact-toolbar={compactToolbar ? "true" : "false"}
     >
       <div className={cn("px-2 pb-2", variant === "mobile" && "pt-2", controlsCollapsed && "hidden")}>
-        <div className={cn("grid grid-cols-2 bg-app-hover/70", variant === "mobile" ? "rounded-xl p-1" : "rounded-lg p-0.5")} role="tablist" aria-label="内容浏览方式">
+        <div className={cn("grid grid-cols-2 bg-app-hover/70", variant === "mobile" ? "rounded-xl p-1" : "rounded-lg p-0.5")} role="tablist" aria-label={t("auditI18n.browseMode")}>
           <button
             type="button"
             role="tab"
@@ -1351,7 +1351,7 @@ export default function MobileKnowledgeTreePanel({
               view === "recent" ? "bg-app-bg text-tx-primary shadow-sm" : "text-tx-tertiary",
             )}
           >
-            <Clock3 size={14} />最近
+            <Clock3 size={14} />{t("auditI18n.recent")}
           </button>
           <button
             type="button"
@@ -1364,7 +1364,7 @@ export default function MobileKnowledgeTreePanel({
               view === "browse" ? "bg-app-bg text-tx-primary shadow-sm" : "text-tx-tertiary",
             )}
           >
-            <TreePine size={14} />全部
+            <TreePine size={14} />{t("auditI18n.all")}
           </button>
         </div>
       </div>
@@ -1399,10 +1399,10 @@ export default function MobileKnowledgeTreePanel({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchScope === "content"
-                ? "搜索笔记标题与正文…"
-                : compactToolbar ? "搜索…" : "搜索目录与文档"}
-              aria-label={searchScope === "content" ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档"}
-              aria-description={searchScope === "content" ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文"}
+                ? t("auditI18n.searchContentPlaceholder")
+                : compactToolbar ? t("auditI18n.searchPlaceholder") : t("auditI18n.filterTreePlaceholder")}
+              aria-label={searchScope === "content" ? t("auditI18n.searchContentLabel") : t("auditI18n.filterTreeLabel")}
+              aria-description={searchScope === "content" ? t("auditI18n.searchContentLabel") : t("auditI18n.filterTreeDescription")}
               className="no-focus-ring min-w-0 flex-1 border-0 bg-transparent p-0 text-xs leading-5 text-tx-primary outline-none placeholder:text-tx-tertiary"
               data-mobile-knowledge-tree-search=""
               data-search-scope={searchScope}
@@ -1411,7 +1411,7 @@ export default function MobileKnowledgeTreePanel({
               !compactToolbar && (
               !query ? (
                 <kbd
-                  aria-label="快捷键 Ctrl+K"
+                  aria-label={t("auditI18n.searchShortcut")}
                   className="inline-flex h-5 shrink-0 items-center rounded border border-app-border bg-app-hover px-1.5 font-sans text-[9px] font-medium text-tx-tertiary shadow-sm"
                 >
                   Ctrl K
@@ -1424,7 +1424,7 @@ export default function MobileKnowledgeTreePanel({
                 type="button"
                 onClick={() => { setQuery(""); searchRef.current?.focus(); }}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-                aria-label="清空搜索"
+                aria-label={t("auditI18n.clearSearch")}
               >
                 <X size={14} />
               </button>
@@ -1455,8 +1455,8 @@ export default function MobileKnowledgeTreePanel({
                 type="button"
                 onClick={() => setMobileActionsOpen((current) => !current)}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
-                title="更多目录操作"
-                aria-label="更多目录操作"
+                title={t("auditI18n.moreTreeActions")}
+                aria-label={t("auditI18n.moreTreeActions")}
                 aria-haspopup="menu"
                 aria-expanded={mobileActionsOpen}
               >
@@ -1504,7 +1504,7 @@ export default function MobileKnowledgeTreePanel({
             onClick={() => void reload()}
             disabled={loading}
             className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
-            title="刷新内容"
+            title={t("auditI18n.refreshContent")}
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : undefined} />
           </button>
@@ -1516,7 +1516,7 @@ export default function MobileKnowledgeTreePanel({
         <KnowledgeTreeDropdownMenu
           open={mobileActionsOpen}
           anchor={mobileActionsButtonRef.current}
-          ariaLabel="快捷目录操作"
+          ariaLabel={t("auditI18n.quickTreeActions")}
           items={[
             ...(view === "browse"
               ? (Object.keys(SORT_LABELS) as MobileKnowledgeTreeSortMode[]).map((mode, index) => ({
@@ -1573,7 +1573,7 @@ export default function MobileKnowledgeTreePanel({
       {view === "browse" && !query && (!controlsCollapsed || currentFolder) && (
         <div className="flex min-h-10 items-center gap-1 border-y border-app-border/60 px-2 py-1.5" data-mobile-knowledge-tree-breadcrumb="">
           {currentFolder ? (
-            <button type="button" onClick={goBack} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover" aria-label="返回上一级">
+            <button type="button" onClick={goBack} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover" aria-label={t("auditI18n.goBack")}>
               <ArrowLeft size={17} />
             </button>
           ) : (
@@ -1615,9 +1615,9 @@ export default function MobileKnowledgeTreePanel({
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-app-hover text-tx-tertiary">
               <CircleAlert size={18} aria-hidden="true" />
             </span>
-            <p className="mt-2.5 text-sm font-medium text-tx-secondary">内容暂时未加载</p>
+            <p className="mt-2.5 text-sm font-medium text-tx-secondary">{t("auditI18n.contentUnavailable")}</p>
             <p className="mx-auto mt-1 max-w-[280px] text-xs leading-relaxed text-tx-tertiary">
-              连接可能还没准备好，不会影响你的笔记数据。
+              {t("auditI18n.connectionNotReady")}
             </p>
             <button
               type="button"
@@ -1625,10 +1625,10 @@ export default function MobileKnowledgeTreePanel({
               className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-accent-primary hover:bg-app-hover"
             >
               <RefreshCw size={13} aria-hidden="true" />
-              重新加载
+              {t("auditI18n.reload")}
             </button>
             <details className="mx-auto mt-2 max-w-[280px] text-left text-[10px] text-tx-tertiary">
-              <summary className="cursor-pointer select-none text-center hover:text-tx-secondary">查看错误详情</summary>
+              <summary className="cursor-pointer select-none text-center hover:text-tx-secondary">{t("auditI18n.showErrorDetails")}</summary>
               <p className="mt-1.5 break-words rounded-md bg-app-bg px-2 py-1.5 leading-relaxed">{error}</p>
             </details>
           </div>
@@ -1644,11 +1644,11 @@ export default function MobileKnowledgeTreePanel({
             <section data-mobile-knowledge-tree-view="recent">
               <div className="px-3 pb-1 pt-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">最近使用</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">{t("auditI18n.recentlyUsed")}</div>
                   <div
                     className="grid grid-cols-2 rounded-md bg-app-hover/70 p-0.5"
                     role="radiogroup"
-                    aria-label="最近列表排序方式"
+                    aria-label={t("auditI18n.recentSort")}
                     data-recent-mode-switch=""
                   >
                     {([
@@ -1689,8 +1689,8 @@ export default function MobileKnowledgeTreePanel({
 
         {sharedLoadError && (
           <div className="mx-2 mt-2 flex items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-600 dark:text-amber-400">
-            <span className="min-w-0 flex-1 truncate" title={sharedLoadError}>共享内容加载失败</span>
-            <button type="button" onClick={() => void reload()} className="shrink-0 underline underline-offset-2">重试</button>
+            <span className="min-w-0 flex-1 truncate" title={sharedLoadError}>{t("auditI18n.sharedLoadFailed")}</span>
+            <button type="button" onClick={() => void reload()} className="shrink-0 underline underline-offset-2">{t("auditI18n.retry")}</button>
           </div>
         )}
 

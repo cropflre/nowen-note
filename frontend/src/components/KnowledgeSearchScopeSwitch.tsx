@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 export type KnowledgeSearchScope = "tree" | "content";
@@ -6,8 +7,8 @@ export default function KnowledgeSearchScopeSwitch({
   scope,
   onChange,
   compact = false,
-  treeLabel = "目录",
-  contentLabel = "全文",
+  treeLabel,
+  contentLabel,
 }: {
   scope: KnowledgeSearchScope;
   onChange: (scope: KnowledgeSearchScope) => void;
@@ -15,18 +16,19 @@ export default function KnowledgeSearchScopeSwitch({
   treeLabel?: string;
   contentLabel?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role="group"
-      aria-label="搜索范围"
+      aria-label={t("auditI18n.searchScope")}
       className={cn(
         "inline-flex shrink-0 items-center bg-app-hover",
         compact ? "gap-0 rounded-md p-0.5" : "gap-1 rounded-xl p-1",
       )}
     >
       {([
-        ["tree", treeLabel, "仅筛选目录和文档名称"],
-        ["content", contentLabel, "搜索笔记标题与正文"],
+        ["tree", treeLabel ?? t("auditI18n.tree"), t("auditI18n.treeNames")],
+        ["content", contentLabel ?? t("auditI18n.fullText"), t("auditI18n.searchContentLabel")],
       ] as const).map(([value, label, title]) => (
         <button
           key={value}
