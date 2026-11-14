@@ -317,10 +317,10 @@ function getTurndown(): TurndownService {
    * 段落 / 标题的 TextAlign：
    *   Tiptap 的 TextAlign 扩展会在 <p> / <h1-3> 上渲染 style="text-align:center|right|justify"。
    *   Markdown 没有原生对齐语法；如果完全按默认规则 turndown 会把 style 丢掉。
-   *   为了让 RTE→MD→RTE 回路能无损保留对齐，这里把带对齐的段落/标题"用 HTML 包一层"
-   *   重新输出：
-   *     - 标题：<h2 style="text-align:center">foo</h2>  —— Tiptap 的 HTML parser 会直接识别
-   *     - 段落：<p style="text-align:center">foo</p>
+   *   为了让 RTE→MD→RTE 回路能无损保留对齐，这里把带对齐的段落/标题写成一行编辑器 HTML：
+   *     - 标题：<h2 style="text-align: center;">foo</h2>  —— Tiptap 的 HTML parser 会直接识别
+   *     - 段落：<p style="text-align: center;">foo <strong>bar</strong></p>
+   *   行内格式也必须是 HTML：HTML 块里的内容不按 Markdown 解析，包进去的 `**bar**` 会变成字面符号。
    *   MD 渲染器（我们自己的 @lezer 解析 + markdownToHtml）遇到块级 HTML 会原样输出，
    *   Tiptap generateJSON 再解析时能恢复 textAlign 属性。
    *
@@ -339,12 +339,8 @@ function getTurndown(): TurndownService {
       if (node.nodeName !== "P") return false;
       return !!alignOf(node as Element);
     },
-    replacement: (content, node) => {
-      const align = alignOf(node as Element);
-      const inner = content.replace(/^\n+|\n+$/g, "");
-      // 用块级 HTML 形式保留对齐；前后空行保证被 MD 解析器当作块级 HTML 而不是行内
-      return `\n\n<p style="text-align:${align}">${inner}</p>\n\n`;
-    },
+    // 前后空行保证被 MD 解析器当作块级 HTML 而不是行内
+    replacement: (_content, node) => `\n\n${oneLineHtml(node as Element)}\n\n`,
   });
 
   td.addRule("alignedHeading", {
@@ -352,12 +348,7 @@ function getTurndown(): TurndownService {
       if (!/^H[1-6]$/.test(node.nodeName)) return false;
       return !!alignOf(node as Element);
     },
-    replacement: (content, node) => {
-      const align = alignOf(node as Element);
-      const tag = node.nodeName.toLowerCase();
-      const inner = content.replace(/^\n+|\n+$/g, "");
-      return `\n\n<${tag} style="text-align:${align}">${inner}</${tag}>\n\n`;
-    },
+    replacement: (_content, node) => `\n\n${oneLineHtml(node as Element)}\n\n`,
   });
 
   /**
@@ -1695,6 +1686,7 @@ interface ScannedHtmlElement {
  *   - 引用块最后一段行尾 → 引用块
  *   - 表格最后一行行尾（渲染成该行多出来的只含令牌的单元格）→ 表格（表格是引用块的最后一个块时归引用块），并去掉这个单元格
  *   - 标题、其他段落 → 自身
+ *   - 顶层 HTML 块（对齐段落、带标题的代码块等）同一行末尾 → 该 HTML 块
  * 代码里形如标记的文字是代码内容，还原成 `^blk_…` 文字；找不到可挂的块时丢弃该 ID。
  */
 function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string {
@@ -1710,13 +1702,14 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
   };
   const root = open("", 0, 0, null);
   const stack = [root];
-  const tokens: Array<{ id: string; start: number; end: number; container: ScannedHtmlElement }> = [];
+  const tokens: Array<{ id: string; start: number; end: number; container: ScannedHtmlElement; prev: ScannedHtmlElement | null }> = [];
   for (const match of html.matchAll(/<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)(?:"[^"]*"|'[^']*'|[^"'>])*>|NOWENBLOCKIDTOKEN(\d+)END/g)) {
     const at = match.index ?? 0;
     const name = match[2]?.toLowerCase();
     if (match[3] !== undefined) {
       const id = ids[Number(match[3])];
-      if (id) tokens.push({ id, start: at, end: at + match[0].length, container: stack[stack.length - 1] });
+      const container = stack[stack.length - 1];
+      if (id) tokens.push({ id, start: at, end: at + match[0].length, container, prev: container.lastChild });
     } else if (name && match[1]) {
       const depth = stack.map((el) => el.name).lastIndexOf(name);
       if (depth > 0) {
@@ -1745,7 +1738,11 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
     let removeTo = token.end;
     let target: ScannedHtmlElement | null = null;
     const block = ancestors.find((el) => !INLINE_HTML_TAGS.has(el.name));
-    if (block?.name === "p") {
+    const prev = token.prev;
+    if (token.container === root && prev && prev.end >= 0 && !INLINE_HTML_TAGS.has(prev.name) && /^[ \t]*$/.test(html.slice(prev.end, token.start))) {
+      // 顶层 HTML 块（对齐段落、带标题的代码块等）同一行末尾的标记属于这个块：HTML 里没带 data-block-id 时（如后端补的标记）也不丢
+      target = prev;
+    } else if (block?.name === "p") {
       const parent = block.parent;
       const tokenOnly = block.end >= 0 && html.slice(block.openEnd, block.closeStart).trim() === html.slice(token.start, token.end);
       if (parent?.name === "li" && block.index === 0) {

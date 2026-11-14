@@ -50,6 +50,17 @@ describe("formatting kept in HTML", () => {
     expect(find(back, "text").find((node) => node.text === "strong")?.marks?.map((mark) => mark.type)).toEqual(["bold"]);
   });
 
+  it("keeps inline marks of aligned paragraphs and headings without IDs", () => {
+    const { md, back } = roundTrip(doc(
+      p([text("Body "), text("strong", ["bold"])], { textAlign: "center" }),
+      { type: "heading", attrs: { level: 2, textAlign: "right" }, content: [text("T "), text("it", ["italic"])] },
+    ));
+    // An HTML block's content is not Markdown: `**strong**` inside it would stay literal
+    expect(md).not.toMatch(/\*/);
+    expect(back.content!.map((node) => [node.type, node.attrs?.textAlign, plain(node)])).toEqual([["paragraph", "center", "Body strong"], ["heading", "right", "T it"]]);
+    expect(find(back, "text").filter((node) => node.marks?.length).map((node) => [node.text, node.marks!.map((mark) => mark.type)])).toEqual([["strong", ["bold"]], ["it", ["italic"]]]);
+  });
+
   it("keeps an aligned last paragraph's own ID and the quote's ID", () => {
     const { md, back } = roundTrip(doc({ type: "blockquote", attrs: { blockId: "blk_quote0001" }, content: [
       p("first", { blockId: "blk_qpara001" }), p("centered", { textAlign: "center", blockId: "blk_qpara002" }),
@@ -83,6 +94,12 @@ describe("markers the server writes after HTML blocks", () => {
       ["codeBlock", "blk_code00001", null, "t", "x"],
       ["codeBlock", "blk_code00002", null, "demo.js", "const a = 1;\n\nconst b = 2;"],
     ]);
+    expect(JSON.stringify(back)).not.toContain("^blk_");
+  });
+
+  it("reads a marker that ends an HTML block's line as that block's ID when the HTML carries none", () => {
+    const back = markdownToTiptapJSON('<p style="text-align: center;">Body</p> ^blk_center002\n\n<pre data-title="t"><code>x</code></pre> ^blk_code00003') as Json;
+    expect(back.content!.map((node) => [node.type, node.attrs?.blockId, plain(node)])).toEqual([["paragraph", "blk_center002", "Body"], ["codeBlock", "blk_code00003", "x"]]);
     expect(JSON.stringify(back)).not.toContain("^blk_");
   });
 });
