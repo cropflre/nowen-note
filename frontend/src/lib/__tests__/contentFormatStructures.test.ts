@@ -69,3 +69,20 @@ describe("formatting kept in HTML", () => {
     expect([code.attrs?.title, code.attrs?.language, code.attrs?.blockId, plain(code)]).toEqual(["demo.js", "js", "blk_code0001", "const a = 1;\n\nconst b = 2;"]);
   });
 });
+
+describe("markers the server writes after HTML blocks", () => {
+  it("reads them as the block's ID without leaving marker text", () => {
+    const back = markdownToTiptapJSON([
+      '<p style="text-align: center" data-block-id="blk_center001">Body</p> ^blk_center001',
+      '<pre data-title="t" data-block-id="blk_code00001"><code>x</code></pre> ^blk_code00001',
+      // Older content can hold a multi-line <pre>: its ID sits on the line after the closing tag
+      '<pre data-title="demo.js"><code class="language-js">const a = 1;\n\nconst b = 2;</code></pre>\n^blk_code00002',
+    ].join("\n\n")) as Json;
+    expect(back.content!.map((node) => [node.type, node.attrs?.blockId, node.attrs?.textAlign ?? null, node.attrs?.title ?? null, plain(node)])).toEqual([
+      ["paragraph", "blk_center001", "center", null, "Body"],
+      ["codeBlock", "blk_code00001", null, "t", "x"],
+      ["codeBlock", "blk_code00002", null, "demo.js", "const a = 1;\n\nconst b = 2;"],
+    ]);
+    expect(JSON.stringify(back)).not.toContain("^blk_");
+  });
+});

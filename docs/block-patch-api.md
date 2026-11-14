@@ -169,6 +169,8 @@ Attachment ownership is not changed by this operation. Existing attachment uploa
 
 Markdown Blocks use stable trailing `^blk_*` markers and a content hash. `replace`, `insert`, `delete` and `move` are supported, up to 100 ordered operations. The server parses ranges again, checks every expected hash and replays the complete result before persistence. Ambiguous IDs or boundaries inside fenced code, tables, lists, quotes, raw HTML or reference definitions fail closed; the client then uses the existing whole-document save path.
 
+A marker normally ends the Block's last line. When that line cannot carry one, it sits on its own line directly after the Block. This applies to fenced code blocks and to HTML blocks that span several lines, since the closing line of a multi-line HTML block still counts as inside the HTML. A GFM table's marker ends its last row, the same form the editor writes; GFM ignores the extra cell it forms. A table with only a header row carries no marker, since one would stop its delimiter row from being a delimiter row. Thematic breaks (`---`, `***`, `- - -`) are not Blocks and carry no marker either. Content without a marker falls into the next Block's range in a patch, and fails closed at the end of a document. A setext underline belongs to the heading above it, and that heading's marker stays on its text line. An HTML Block whose opening tag has `data-block-id` reuses that ID for its marker, so Markdown and rich text agree on it.
+
 ### Replace one top-level table atomically
 
 `replace` also accepts one existing top-level `table` as an atomic Block. The target and replacement must use the same table `blockId`; table creation, deletion, moving, nesting and conversion to another node type continue through whole-note save.
