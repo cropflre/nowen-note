@@ -5,6 +5,9 @@ function source(relativeUrl: string) {
   return readFileSync(new URL(relativeUrl, import.meta.url), "utf8");
 }
 
+// 界面文案已改走 i18n：源码断言翻译键，zh-CN 断言用户看到的中文
+const zhAudit = JSON.parse(source("../../i18n/locales/zh-CN.json")).auditI18n as Record<string, string>;
+
 describe("knowledge tree sidebar contract", () => {
   it("uses the unified tree as the only Sidebar hierarchy", () => {
     const sidebar = source("../../components/Sidebar.tsx");
@@ -31,8 +34,9 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain('data-nowen-knowledge-tree="embedded"');
     expect(panel).toContain("loadKnowledgeTreeOnEntry(load)");
     expect(mobilePanel).toContain("loadKnowledgeTreeOnEntry(load)");
-    expect(panel).toContain("内容暂时未加载");
-    expect(panel).toContain("重新加载");
+    expect(panel).toContain('{t("auditI18n.contentUnavailable")}');
+    expect(panel).toContain('{t("auditI18n.reload")}');
+    expect(zhAudit).toMatchObject({ contentUnavailable: "内容暂时未加载", reload: "重新加载" });
     expect(panel).toContain("return !descendantsOf(source.id, allChildren).has(target.id);");
     expect(panel).not.toContain("onRequestLegacy");
     expect(panel).not.toContain("使用旧树");
@@ -68,8 +72,9 @@ describe("knowledge tree sidebar contract", () => {
 
   it("keeps pinned and favorite note states visible beside the tree title", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
-    expect(panel).toContain('aria-label="已置顶"');
-    expect(panel).toContain('aria-label="已收藏"');
+    expect(panel).toContain('aria-label={t("auditI18n.pinned")}');
+    expect(panel).toContain('aria-label={t("auditI18n.favorited")}');
+    expect(zhAudit).toMatchObject({ pinned: "已置顶", favorited: "已收藏" });
     expect(panel).toContain("node.isPinned === 1");
     expect(panel).toContain("node.isFavorite === 1");
   });
@@ -90,8 +95,9 @@ describe("knowledge tree sidebar contract", () => {
     expect(runtime).not.toContain("ensureAllNotesHost");
     expect(panel).not.toContain("data-knowledge-tree-all-notes-host");
     expect(panel).toContain("{compactToolbar && compactActionButtons}");
-    expect(panel).toContain('title="新建根文件夹"');
-    expect(panel).toContain('aria-label="更多目录操作"');
+    expect(panel).toContain('title={t("auditI18n.newRootFolder")}');
+    expect(panel).toContain('aria-label={t("auditI18n.moreTreeActions")}');
+    expect(zhAudit).toMatchObject({ newRootFolder: "新建根文件夹", moreTreeActions: "更多目录操作" });
     expect(rail).toContain("{renderItem(ALL_NOTES_ITEM)}");
   });
 
@@ -131,8 +137,9 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain('className="flex min-w-0 flex-1 items-center gap-1"');
     expect(panel).toContain("{firstLevelNoteCount}");
     expect(panel).toContain('aria-label={`在“${node.title}”下新建文档`}');
-    expect(panel).toContain('title="更多"');
-    expect(panel).toContain('aria-label="已置顶"');
-    expect(panel).toContain('aria-label="已收藏"');
+    expect(panel).toContain('title={t("auditI18n.more")}');
+    expect(panel).toContain('aria-label={t("auditI18n.pinned")}');
+    expect(panel).toContain('aria-label={t("auditI18n.favorited")}');
+    expect(zhAudit.more).toBe("更多");
   });
 });
