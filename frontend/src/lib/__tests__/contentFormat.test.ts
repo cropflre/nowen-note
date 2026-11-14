@@ -677,6 +677,44 @@ describe("带 blockId 的 RTE ↔ MD 往返", () => {
     expect(tiptapJsonToMarkdown(solo)).toBe("> solo ^blk_quot02");
   });
 
+  it("引用块末块是列表、标题或代码块：末块自己的标记占着最后一行，引用块的 ID 不写出；往返后无可见标记、输出稳定", () => {
+    const text = (value: string): Outline[] => [{ type: "text", text: value }];
+    const cases: Array<{ last: JSONContent; md: string[]; lastOutline: Outline }> = [
+      {
+        last: { type: "bulletList", content: [listItem("blk_item01", [para("blk_para02", "item")])] },
+        md: ["> intro ^blk_para01", "> ", "> - item ^blk_item01"],
+        lastOutline: { type: "bulletList", content: [{ type: "listItem", blockId: "blk_item01", content: [{ type: "paragraph", content: text("item") }] }] },
+      },
+      {
+        last: { type: "heading", attrs: { level: 2, blockId: "blk_head01" }, content: [{ type: "text", text: "h" }] },
+        md: ["> intro ^blk_para01", "> ", "> ## h ^blk_head01"],
+        lastOutline: { type: "heading", blockId: "blk_head01", content: text("h") },
+      },
+      {
+        last: { type: "codeBlock", attrs: { language: "js", blockId: "blk_code01" }, content: [{ type: "text", text: "x()" }] },
+        md: ["> intro ^blk_para01", "> ", "> ```js", "> x()", "> ```", "> ^blk_code01"],
+        lastOutline: { type: "codeBlock", blockId: "blk_code01", content: text("x()") },
+      },
+    ];
+    for (const { last, md: expected, lastOutline } of cases) {
+      const doc: JSONContent = {
+        type: "doc",
+        content: [{ type: "blockquote", attrs: { blockId: "blk_quot01" }, content: [para("blk_para01", "intro"), last] }],
+      };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe(expected.join("\n"));
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      // 末块的 ID 归末块；引用块的 ID 不写出，转回后由编辑器重新分配
+      expect(outline(back)).toEqual({
+        type: "doc",
+        content: [{ type: "blockquote", content: [{ type: "paragraph", blockId: "blk_para01", content: text("intro") }, lastOutline] }],
+      });
+      expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    }
+  });
+
   it("MD→RTE：标题、段落、引用、代码块的 ID 各归原节点，块间空行不被吞，代码块后的正文不进代码", () => {
     const md = [
       "## Title ^blk_head01", "", "alpha ^blk_para01", "", "beta ^blk_para02", "", "> quoted ^blk_quot01", "",

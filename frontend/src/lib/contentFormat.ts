@@ -485,7 +485,12 @@ function getTurndown(): TurndownService {
         // 续行缩进到内容列（「- 」后 2 格，「1. 」后 3 格），否则嵌套列表和后续段落会脱离该项被拍平
         return `${marker} ${withId.replace(/\n(?=[^\n])/g, ordered ? "\n   " : "\n  ")}\n`;
       }
-      if (el.nodeName === "BLOCKQUOTE") return `\n\n> ${clean.replace(/\n/g, "\n> ")} ^${id}\n\n`;
+      if (el.nodeName === "BLOCKQUOTE") {
+        // 引用块的标记写在最后一行行尾。末块是标题、列表项或代码块时，它们自己的标记已占着这一行
+        // （末段的已在上面让出）：一行只能带一个标记，保留末块的，引用块的 ID 不写出，转回富文本后由编辑器重新分配
+        const lastLineHasMarker = /(?:^|\s)\^blk_[A-Za-z0-9_-]{6,}$/.test(clean);
+        return `\n\n> ${clean.replace(/\n/g, "\n> ")}${lastLineHasMarker ? "" : ` ^${id}`}\n\n`;
+      }
       if (el.nodeName === "PRE") {
         const code = el.querySelector("code");
         const source = (code?.textContent || el.textContent || "").replace(/\n$/, "");
