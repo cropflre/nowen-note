@@ -1562,7 +1562,7 @@ function AppearancePanel() {
               onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
             >
               {previewIcon ? (
-                <img src={previewIcon} alt="Site Icon" className="w-full h-full object-cover" />
+                <img src={previewIcon} alt={t("settings.siteIcon")} className="w-full h-full object-cover" />
               ) : (
                 <div className="flex flex-col items-center gap-1 text-zinc-400 dark:text-zinc-600">
                   <Camera size={20} />

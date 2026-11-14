@@ -253,7 +253,7 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
             srcDoc={iframeSrc}
             sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             className="flex-1 w-full border-0 bg-white"
-            title="HTML Preview"
+            title={t("editor.htmlPreview.switchToPreview")}
             onLoad={syncIframeOutline}
           />
         </div>

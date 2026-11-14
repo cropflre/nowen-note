@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "i18n:check": "node ../scripts/i18n-audit.mjs --guard && vitest run src/i18n/__tests__/releaseI18nCoverage.test.ts src/i18n/__tests__/sidebarAuditTranslations.test.ts src/components/__tests__/KnowledgeSearchScopeI18n.test.tsx src/components/__tests__/NoteTemplatePickerDialog.test.tsx src/components/__tests__/PluginPromptPicker.test.tsx",
     "test:encrypted-notes": "vitest run src/lib/encryptedNotes/__tests__",
     "build:encrypted-notes-benchmark": "vite build --config vite.crypto-benchmark.config.ts",
     "preview:encrypted-notes-benchmark": "vite preview --config vite.crypto-benchmark.config.ts --host 127.0.0.1 --port 5176 --strictPort",

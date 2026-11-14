@@ -672,9 +672,10 @@ const NodeBox = React.memo(function NodeBox({
   onToggleCollapse, isMobile, onContextMenu, nodeData,
   markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
   isDragTarget, dragPlacement, onResizeStart, isDragging,
-  onTouchDragStart, onTouchDragMove, onTouchDragEnd,
+  onTouchDragStart, onTouchDragMove, onTouchDragEnd, resizeLabel,
 }: {
   node: LayoutNode;
+  resizeLabel: string;
   isSelected: boolean;
   isEditing: boolean;
   editValue: string;
@@ -857,7 +858,7 @@ const NodeBox = React.memo(function NodeBox({
             <button
               type="button"
               data-mindmap-node-resize-handle="true"
-              aria-label="Resize node"
+              aria-label={resizeLabel}
               className="absolute right-1 top-1/2 h-5 w-2 -translate-y-1/2 cursor-ew-resize rounded-full border border-blue-400/70 bg-white/90 opacity-80 shadow-sm transition-opacity hover:opacity-100 dark:bg-zinc-900/90"
               onPointerDown={onResizeStart}
               onClick={(e) => e.stopPropagation()}
@@ -3290,6 +3291,7 @@ export default function MindMapCenter({
                 {((() => { const ids = selectedNodeIds.length > 0 ? selectedNodeIds : (selectedNodeId ? [selectedNodeId] : []); return ids.length > 0 ? [...layoutNodes.filter(n => !ids.includes(n.id)), ...layoutNodes.filter(n => ids.includes(n.id))] : layoutNodes; })()).map((n) => (
                   <NodeBox
                     key={n.id}
+                    resizeLabel={t("auditI18n.resizeNode")}
                     node={n}
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
                     isSearchMatch={searchResults.includes(n.id)}

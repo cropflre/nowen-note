@@ -161,6 +161,34 @@ describe("release i18n coverage", () => {
     expectPatchParity(zhCNExtensionCenterTranslations, enExtensionCenterTranslations, "extensionCenter");
     expectPatchParity(zhCNEditorActionTranslations, enEditorActionTranslations, "editorActions");
   });
+  it("rejects invalid values in the complete runtime resources", () => {
+    function invalidLeaves(value: unknown, path = ""): string[] {
+      if (typeof value === "string") return [];
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [path];
+      return Object.entries(value).flatMap(([key, child]) => invalidLeaves(child, path ? `${path}.${key}` : key));
+    }
+    expect(invalidLeaves(zh)).toEqual([]);
+    expect(invalidLeaves(en)).toEqual([]);
+  });
+
+  it("has no empty strings in the complete runtime resources", () => {
+    // These optional task actions deliberately suppress buttons; idle migration has no status message.
+    const intentionallyEmpty = new Set([
+      "migration.setup.status.idle",
+      "tasks.empty.no-dependencies.action",
+      "tasks.empty.no-projects.action",
+      "tasks.empty.no-reminders.action",
+      "tasks.empty.no-scheduled.action",
+      "tasks.empty.no-templates.action",
+    ]);
+    for (const [language, tree] of [["zh-CN", zh], ["en", en]] as const) {
+      expect(leafEntries(tree).filter(([path, value]) => !value.trim() && !intentionallyEmpty.has(path) && !(language === "en" && path === "noteList.calendarMonth")).map(([path]) => `${language}:${path}`)).toEqual([]);
+      // English calendar displays the month as a number after a slash and needs no suffix.
+      if (language === "en") expect(getPath(tree, "noteList.calendarMonth")).toBe("");
+      for (const path of intentionallyEmpty) expect(getPath(tree, path), `${language}:${path}`).toBe("");
+    }
+  });
+
   it("keeps the complete runtime translation trees in parity", () => {
     const zhEntries = leafEntries(zh);
     const enEntries = leafEntries(en);

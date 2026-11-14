@@ -7,6 +7,7 @@ vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { list: mocks.list,
 vi.mock("@/components/ui/confirm", () => ({ confirm: mocks.confirm }));
 vi.mock("@/components/PluginNoteTemplatePickerSection", () => ({ default: () => <div data-plugin-templates="" /> }));
 
+import i18n from "@/i18n";
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,7 +21,8 @@ describe("NoteTemplatePickerDialog", () => {
   let root: Root;
   let host: HTMLDivElement;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
     mocks.list.mockResolvedValue({ templates: [template] });
     mocks.remove.mockResolvedValue({ success: true });
@@ -33,6 +35,17 @@ describe("NoteTemplatePickerDialog", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.innerHTML = "";
+  });
+
+  it("updates an open dialog when the language changes without changing template data", async () => {
+    await act(async () => root.render(<NoteTemplatePickerDialog open mode="manage" onClose={vi.fn()} />));
+    expect(document.querySelector("h2")?.textContent).toBe("模板管理");
+    await act(async () => { await i18n.changeLanguage("en"); });
+    expect(document.querySelector("h2")?.textContent).toBe("Manage templates");
+    expect(document.body.textContent).toContain(template.name);
+    expect(document.body.textContent).toContain("Updated");
+    await act(async () => { await i18n.changeLanguage("zh-CN"); });
+    expect(document.querySelector("h2")?.textContent).toBe("模板管理");
   });
 
   it("loads templates for the selected shared folder and creates only the chosen template", async () => {

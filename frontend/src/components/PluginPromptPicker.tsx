@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 import { pluginApi } from "@/lib/pluginApi";
 import { listPluginPrompts, renderPluginPrompt, replacePluginPrompts, type RegisteredPluginPrompt } from "@/lib/pluginPromptRegistry";
 import { useApp } from "@/store/AppContext";
 function currentPlatform(): "web" | "desktop" { return typeof window !== "undefined" && "electronAPI" in window ? "desktop" : "web"; }
 export default function PluginPromptPicker({ onSelect, disabled }: { onSelect: (value: string) => void; disabled?: boolean }) {
+  const { t } = useTranslation();
   const { state } = useApp(); const [items, setItems] = useState<RegisteredPluginPrompt[]>([]); const [open, setOpen] = useState(false);
   const load = useCallback(async () => { try { replacePluginPrompts(await pluginApi.contributions()); setItems(listPluginPrompts(currentPlatform()).filter((item) => !item.context?.includes("selection"))); } catch { setItems([]); } }, []);
   useEffect(() => { void load(); }, [load]); const note = state.activeNote;
@@ -17,5 +19,5 @@ export default function PluginPromptPicker({ onSelect, disabled }: { onSelect: (
     if (context.length) value += "\n\n以下是 Host 按声明提供的最小上下文：\n" + context.join("\n\n"); onSelect(value); setOpen(false);
   };
   if (!items.length) return null;
-  return <div className="relative"><button type="button" disabled={disabled} onClick={() => setOpen((value) => !value)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-violet-500 hover:bg-violet-500/10 disabled:opacity-50"><Sparkles size={11}/>Prompt Pack</button>{open && <div className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-xl border border-app-border bg-app-surface p-1.5 shadow-xl">{items.map((item) => <button key={item.runtimeId} type="button" onClick={() => void select(item)} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-app-hover"><span className="block text-xs font-medium text-tx-primary">{item.name}</span><span className="mt-0.5 block text-[10px] text-tx-tertiary">{item.description || item.pluginId}</span></button>)}</div>}</div>;
+  return <div className="relative"><button type="button" disabled={disabled} onClick={() => setOpen((value) => !value)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-violet-500 hover:bg-violet-500/10 disabled:opacity-50"><Sparkles size={11}/>{t("auditI18n.promptPack")}</button>{open && <div className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-xl border border-app-border bg-app-surface p-1.5 shadow-xl">{items.map((item) => <button key={item.runtimeId} type="button" onClick={() => void select(item)} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-app-hover"><span className="block text-xs font-medium text-tx-primary">{item.name}</span><span className="mt-0.5 block text-[10px] text-tx-tertiary">{item.description || item.pluginId}</span></button>)}</div>}</div>;
 }
