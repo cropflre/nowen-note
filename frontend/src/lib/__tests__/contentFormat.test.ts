@@ -563,3 +563,116 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(text).not.toContain("style=");
   });
 });
+
+// 编辑器给每个 taskItem / listItem / paragraph 等块分配 blockId，MD 笔记保存后后端也会给每块补上 ^blk_ 标记，
+// 所以真实笔记的转换都走带 blockId 的路径。
+describe("带 blockId 的 RTE ↔ MD 往返", () => {
+  type Outline = { type?: string; checked?: boolean; blockId?: string; text?: string; content?: Outline[] };
+  const outline = (node: JSONContent): Outline => ({
+    type: node.type,
+    ...(node.type === "taskItem" ? { checked: Boolean(node.attrs?.checked) } : {}),
+    ...(node.attrs?.blockId ? { blockId: String(node.attrs.blockId) } : {}),
+    ...(node.text ? { text: node.text } : {}),
+    ...(node.content?.length ? { content: node.content.map(outline) } : {}),
+  });
+  const textOf = (node: JSONContent): string => [node.text ?? "", ...(node.content ?? []).map(textOf)].join("\n");
+  const para = (blockId: string | null, text?: string): JSONContent => ({
+    type: "paragraph",
+    ...(blockId ? { attrs: { blockId } } : {}),
+    ...(text ? { content: [{ type: "text", text }] } : {}),
+  });
+  const taskItem = (blockId: string, checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { blockId, checked }, content });
+  const listItem = (blockId: string, content: JSONContent[]): JSONContent => ({ type: "listItem", attrs: { blockId }, content });
+
+  // 列表项首段与列表项共用一行，一行只写一个标记：写列表项的 ID，首段自己的 ID 不写出，
+  // 转回富文本后首段没有 ID（编辑器会重新分配）。下面用 leadIds=false 构造往返后的预期。
+  it("嵌套任务列表与文末空任务项：任务项 ID 写在各自行尾，往返后嵌套、勾选与 ID 不变，正文不出现标记", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "taskList",
+        content: [
+          taskItem("blk_item01", false, [
+            para(leadIds ? "blk_para01" : null, "parent"),
+            { type: "taskList", content: [taskItem("blk_item02", true, [para(leadIds ? "blk_para02" : null, "child")])] },
+          ]),
+          taskItem("blk_item03", false, [para(leadIds ? "blk_para03" : null)]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- [ ] parent ^blk_item01\n\n  - [x] child ^blk_item02\n- [ ]  ^blk_item03");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("多段任务项：后续段落缩进并保留自己的 ID，列表后的段落不被并进任务项", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [
+        { type: "taskList", content: [taskItem("blk_item01", true, [para(leadIds ? "blk_para01" : null, "first"), para("blk_para02", "second")])] },
+        para("blk_para09", "after"),
+      ],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- [x] first ^blk_item01\n\n  second ^blk_para02\n\nafter ^blk_para09");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("普通列表项（无序、有序、嵌套、多段）同样把 ID 写在列表项所在行，往返后结构与 ID 不变", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [
+          listItem("blk_li0001", [
+            para(leadIds ? "blk_lp0001" : null, "one"),
+            { type: "orderedList", content: [listItem("blk_li0002", [para(leadIds ? "blk_lp0002" : null, "two"), para("blk_lp0003", "two-b")])] },
+          ]),
+          listItem("blk_li0004", [para(leadIds ? "blk_lp0004" : null, "three")]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- one ^blk_li0001\n  1. two ^blk_li0002\n\n     two-b ^blk_lp0003\n- three ^blk_li0004");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("MD→RTE：标题、段落、引用、代码块的 ID 各归原节点，块间空行不被吞，代码块后的正文不进代码", () => {
+    const md = [
+      "## Title ^blk_head01", "", "alpha ^blk_para01", "", "beta ^blk_para02", "", "> quoted ^blk_quot01", "",
+      "```ts", "const a = 1;", "```", "^blk_code01", "", "tail ^blk_para03",
+    ].join("\n");
+    const text = (value: string): Outline[] => [{ type: "text", text: value }];
+    expect(outline(markdownToTiptapJSON(md))).toEqual({
+      type: "doc",
+      content: [
+        { type: "heading", blockId: "blk_head01", content: text("Title") },
+        { type: "paragraph", blockId: "blk_para01", content: text("alpha") },
+        { type: "paragraph", blockId: "blk_para02", content: text("beta") },
+        { type: "blockquote", blockId: "blk_quot01", content: [{ type: "paragraph", content: text("quoted") }] },
+        { type: "codeBlock", blockId: "blk_code01", content: text("const a = 1;") },
+        { type: "paragraph", blockId: "blk_para03", content: text("tail") },
+      ],
+    });
+  });
+
+  it("MD→RTE：代码块里形如块标记的文字是代码内容，原样保留", () => {
+    const md = "```md\n- [ ] 示例 ^blk_sample01\n```\n^blk_code01";
+    expect(outline(markdownToTiptapJSON(md))).toEqual({
+      type: "doc",
+      content: [{ type: "codeBlock", blockId: "blk_code01", content: [{ type: "text", text: "- [ ] 示例 ^blk_sample01" }] }],
+    });
+  });
+});

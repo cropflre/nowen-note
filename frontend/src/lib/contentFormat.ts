@@ -435,17 +435,38 @@ function getTurndown(): TurndownService {
   // 标准 HTML 音频块在两种编辑器之间往返时保留媒体及元数据。
   td.keep(["audio"]);
 
+  // 列表项的首段：listItem 渲染为 <li><p>…</p>…</li>，taskItem 渲染为 <li><label>…</label><div><p>…</p>…</div></li>
+  const listItemOfLeadParagraph = (p: Element): Element | null => {
+    const parent = p.parentElement;
+    if (!parent || parent.firstElementChild !== p) return null;
+    if (parent.nodeName === "LI") return parent;
+    const item = parent.parentElement;
+    return parent.nodeName === "DIV" && item?.nodeName === "LI" && item.getAttribute("data-type") === "taskItem" ? item : null;
+  };
+  // 首段已在行尾写出 ID 的列表项（Turndown 先转换子节点，再转换列表项本身）
+  const listItemsWithLeadMarker = new WeakSet<Element>();
+
   // Persist universal block identity in Markdown using the compatible `^blk_xxx` suffix.
   td.addRule("nowenBlockId", {
     filter: (node) => {
       if (!(node instanceof Element)) return false;
-      if (!node.getAttribute("data-block-id")) return false;
-      return /^(H[1-6]|P|LI|BLOCKQUOTE|PRE)$/.test(node.nodeName);
+      if (node.getAttribute("data-block-id")) return /^(H[1-6]|P|LI|BLOCKQUOTE|PRE)$/.test(node.nodeName);
+      // 首段自己没有 ID（如 MD 转回的富文本）时，仍要替带 ID 的列表项写出标记
+      return node.nodeName === "P" && Boolean(listItemOfLeadParagraph(node)?.getAttribute("data-block-id"));
     },
     replacement: (content, node) => {
       const el = node as Element;
       const id = el.getAttribute("data-block-id") || "";
       const clean = content.replace(/^\n+|\n+$/g, "").trim();
+      const item = el.nodeName === "P" ? listItemOfLeadParagraph(el) : null;
+      if (item) {
+        // 首段与列表项共用一行，一行只能带一个标记：写列表项的 ID，首段自己的 ID 不写出，
+        // 转回富文本后由编辑器重新分配（后端的 Markdown 块模型也把这一行的标记当作列表项 ID）
+        const itemId = item.getAttribute("data-block-id");
+        if (!itemId) return content;
+        listItemsWithLeadMarker.add(item);
+        return `${clean} ^${itemId}`;
+      }
       if (!id) return content;
       if (/^H[1-6]$/.test(el.nodeName)) {
         const level = Number(el.nodeName.slice(1));
@@ -454,8 +475,13 @@ function getTurndown(): TurndownService {
       if (el.nodeName === "LI") {
         const task = el.getAttribute("data-type") === "taskItem";
         const checked = el.getAttribute("data-checked") === "true";
-        const marker = task ? `- [${checked ? "x" : " "}]` : (el.parentElement?.nodeName === "OL" ? "1." : "-");
-        return `\n${marker} ${clean} ^${id}\n`;
+        const ordered = el.parentElement?.nodeName === "OL";
+        const marker = task ? `- [${checked ? "x" : " "}]` : (ordered ? "1." : "-");
+        const body = content.replace(/^\n+|\n+$/g, "");
+        // 首段为空时 Turndown 把它当空白节点跳过，没有写出 ID：补在标记之后
+        const withId = listItemsWithLeadMarker.has(el) ? body : ` ^${id}${body ? `\n\n${body}` : ""}`;
+        // 续行缩进到内容列（「- 」后 2 格，「1. 」后 3 格），否则嵌套列表和后续段落会脱离该项被拍平
+        return `${marker} ${withId.replace(/\n(?=[^\n])/g, ordered ? "\n   " : "\n  ")}\n`;
       }
       if (el.nodeName === "BLOCKQUOTE") return `\n\n> ${clean.replace(/\n/g, "\n> ")} ^${id}\n\n`;
       if (el.nodeName === "PRE") {
@@ -466,7 +492,6 @@ function getTurndown(): TurndownService {
         const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
         return `\n\n${fence}${language}\n${source}\n${fence}\n^${id}\n\n`;
       }
-      if (el.parentElement?.nodeName === "LI") return content;
       return `\n\n${clean} ^${id}\n\n`;
     },
   });
@@ -1374,25 +1399,127 @@ interface MarkdownBlockIdPlaceholderResult {
 
 function extractMarkdownBlockIdPlaceholders(md: string): MarkdownBlockIdPlaceholderResult {
   const ids: string[] = [];
-  const text = md.replace(/(?:\s+|^)\^(blk_[A-Za-z0-9_-]{6,})\s*$/gm, (_match, id) => {
-    const index = ids.push(id) - 1;
-    return ` NOWENBLOCKIDTOKEN${index}END`;
+  // 只吃本行里的空白：用 \s 会跨行吞掉块之间的空行（相邻段落、列表后的段落被并成一段），
+  // 或把代码块后独占一行的标记接到结束围栏上（围栏失效，后文全被吞进代码块）
+  const text = md.replace(/^(.*?)([ \t]*)\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/gm, (match, before: string, gap: string, id: string) => {
+    if (before && !gap) return match;
+    const token = `NOWENBLOCKIDTOKEN${ids.push(id) - 1}END`;
+    // 独占一行的标记保留缩进，列表项里代码块的标记才不会跑出列表
+    return before ? `${before} ${token}` : `${gap}${token}`;
   });
   return { text, ids };
 }
 
+// 令牌落在这些行内标签里时，向外找它所在的块
+const INLINE_HTML_TAGS = new Set([
+  "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em", "font", "i", "ins", "kbd",
+  "label", "mark", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "sup", "time", "u", "var",
+]);
+const VOID_HTML_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+
+interface ScannedHtmlElement {
+  name: string;
+  start: number;
+  openEnd: number;
+  closeStart: number;
+  end: number;
+  parent: ScannedHtmlElement | null;
+  index: number;
+  childCount: number;
+  prev: ScannedHtmlElement | null;
+  lastChild: ScannedHtmlElement | null;
+}
+
+/**
+ * 把占位令牌换回所属块的 data-block-id。归属与 RTE→MD 写标记的约定、后端的 Markdown 块模型一致：
+ *   - 列表项首段行尾 → 列表项（taskItem / listItem）；列表项里的后续段落 → 该段落
+ *   - 代码块结束围栏后独占一行（渲染成只含令牌的段落）→ 代码块，并去掉这个段落；别处独占一行的孤立标记连段落一起去掉
+ *   - 引用块最后一段行尾 → 引用块
+ *   - 标题、其他段落 → 自身
+ * 代码里形如标记的文字是代码内容，还原成 `^blk_…` 文字；找不到可挂的块时丢弃该 ID。
+ */
 function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string {
-  let out = html;
-  ids.forEach((id, index) => {
-    const token = `NOWENBLOCKIDTOKEN${index}END`;
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`<([a-zA-Z0-9]+)([^>]*)>([\\s\\S]*?)${escaped}([\\s\\S]*?)<\\/\\1>`, "i");
-    out = out.replace(pattern, (_match, tag, attrs, before, after) => {
-      const safeId = escapeAttr(id);
-      return `<${tag}${attrs} data-block-id="${safeId}">${before}${after}</${tag}>`;
-    });
-  });
-  return out;
+  if (ids.length === 0) return html;
+  const open = (name: string, start: number, openEnd: number, parent: ScannedHtmlElement | null): ScannedHtmlElement => {
+    const el: ScannedHtmlElement = { name, start, openEnd, closeStart: -1, end: -1, parent, index: 0, childCount: 0, prev: null, lastChild: null };
+    if (parent) {
+      el.index = parent.childCount++;
+      el.prev = parent.lastChild;
+      parent.lastChild = el;
+    }
+    return el;
+  };
+  const root = open("", 0, 0, null);
+  const stack = [root];
+  const tokens: Array<{ id: string; start: number; end: number; container: ScannedHtmlElement }> = [];
+  for (const match of html.matchAll(/<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)(?:"[^"]*"|'[^']*'|[^"'>])*>|NOWENBLOCKIDTOKEN(\d+)END/g)) {
+    const at = match.index ?? 0;
+    const name = match[2]?.toLowerCase();
+    if (match[3] !== undefined) {
+      const id = ids[Number(match[3])];
+      if (id) tokens.push({ id, start: at, end: at + match[0].length, container: stack[stack.length - 1] });
+    } else if (name && match[1]) {
+      const depth = stack.map((el) => el.name).lastIndexOf(name);
+      if (depth > 0) {
+        for (const el of stack.splice(depth)) {
+          el.closeStart = at;
+          el.end = at + match[0].length;
+        }
+      }
+    } else if (name) {
+      const el = open(name, at, at + match[0].length, stack[stack.length - 1]);
+      if (!VOID_HTML_TAGS.has(name) && !match[0].endsWith("/>")) stack.push(el);
+    }
+  }
+
+  const edits: Array<{ from: number; to: number; insert: string }> = [];
+  const assigned = new Set<ScannedHtmlElement>();
+  for (const token of tokens) {
+    const ancestors: ScannedHtmlElement[] = [];
+    for (let el: ScannedHtmlElement | null = token.container; el && el !== root; el = el.parent) ancestors.push(el);
+    if (ancestors.some((el) => el.name === "pre" || el.name === "code")) {
+      edits.push({ from: token.start, to: token.end, insert: `^${token.id}` });
+      continue;
+    }
+    let removeFrom = token.start;
+    while (removeFrom > 0 && (html[removeFrom - 1] === " " || html[removeFrom - 1] === "\t")) removeFrom--;
+    let removeTo = token.end;
+    let target: ScannedHtmlElement | null = null;
+    const block = ancestors.find((el) => !INLINE_HTML_TAGS.has(el.name));
+    if (block?.name === "p") {
+      const parent = block.parent;
+      const tokenOnly = block.end >= 0 && html.slice(block.openEnd, block.closeStart).trim() === html.slice(token.start, token.end);
+      if (parent?.name === "li" && block.index === 0) {
+        target = parent;
+      } else if (tokenOnly) {
+        // 独占一行的标记只在代码块后有意义；别处的孤立标记（后端保存时也会删掉）不生成空段落
+        if (block.prev?.name === "pre") target = block.prev;
+        removeFrom = block.start;
+        removeTo = block.end;
+      } else if (parent?.name === "blockquote" && block.index === parent.childCount - 1) {
+        target = parent;
+      } else {
+        target = block;
+      }
+    } else if (block && /^(h[1-6]|li|blockquote)$/.test(block.name)) {
+      target = block;
+    }
+    if (target && !assigned.has(target) && !/\sdata-block-id\s*=/i.test(html.slice(target.start, target.openEnd))) {
+      assigned.add(target);
+      edits.push({ from: target.openEnd - 1, to: target.openEnd - 1, insert: ` data-block-id="${escapeAttr(token.id)}"` });
+    }
+    edits.push({ from: removeFrom, to: removeTo, insert: "" });
+  }
+  // 编辑互不重叠，按位置一次拼接（大笔记里有上万个标记，逐个切片会退化成平方复杂度）
+  let out = "";
+  let cursor = 0;
+  for (const edit of edits.sort((a, b) => a.from - b.from)) {
+    out += html.slice(cursor, edit.from) + edit.insert;
+    cursor = edit.to;
+  }
+  out += html.slice(cursor);
+  // 落在标签属性里、扫描不到的令牌（如脚注定义的内容）直接去掉
+  return out.replace(/[ \t]*NOWENBLOCKIDTOKEN(\d+)END/g, (match, index: string) => (Number(index) < ids.length ? "" : match));
 }
 
 export function markdownToHtml(md: string): string {
