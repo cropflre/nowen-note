@@ -1072,6 +1072,51 @@ describe("公式 RTE ↔ MD", () => {
     expect(back.content?.[0]?.content?.[0]?.content?.[0]?.content).toEqual([text("项 "), inlineMath("a|b")]);
     expect(back.content?.[1]?.content?.[0]?.content).toEqual([text("引 "), inlineMath("c^2")]);
   });
+
+  // 块级公式写在引用块 / 列表项里时，每个续行都带着容器前缀（`> `、缩进）。MD→RTE 整段抽取 `$$…$$` 时
+  // 要把这些前缀一起去掉，否则前缀混进公式源码（渲染出错），并随往返逐轮累积。
+  describe("引用块与列表里的块级公式", () => {
+    const quote = (...content: JSONContent[]): JSONContent => ({ type: "blockquote", content });
+    const item = (...content: JSONContent[]): JSONContent => ({ type: "listItem", content });
+    // 深度优先取出文档里所有块级公式的源码
+    const latexOf = (json: JSONContent): string[] => (json.type === "mathBlock" ? [String(json.attrs?.latex)] : (json.content ?? []).flatMap(latexOf));
+    const aligned = "a &= b \\\\\nc &= d";
+
+    it("引用块里的块级公式：续行的 `> ` 不混进公式源码，往返稳定", () => {
+      const { md, back } = roundTrip(doc(quote(para(text("定理")), blockMath("x^2"), blockMath(aligned))));
+      expect(md).toContain("> $$\n> x^2\n> $$");
+      expect(md).toContain("> $$\n> a &= b \\\\\n> c &= d\n> $$");
+      expect(back.content?.map((node) => node.type)).toEqual(["blockquote"]);
+      expect(latexOf(back)).toEqual(["x^2", aligned]);
+    });
+
+    it("嵌套引用块、列表项里的引用块里的块级公式也不受前缀影响", () => {
+      const { md, back } = roundTrip(
+        doc(quote(quote(blockMath("x"))), { type: "bulletList", content: [item(para(text("项")), quote(blockMath("p\nq")))] }),
+      );
+      expect(md).toContain("> > $$\n> > x\n> > $$");
+      expect(latexOf(back)).toEqual(["x", "p\nq"]);
+    });
+
+    it("无序 / 有序列表项里的多行块级公式：续行缩进不混进公式源码，往返后缩进不增长", () => {
+      const { back } = roundTrip(
+        doc(
+          { type: "bulletList", content: [item(para(text("项")), blockMath(aligned))] },
+          { type: "orderedList", content: [item(para(text("项")), blockMath("a\nb"))] },
+        ),
+      );
+      expect(latexOf(back)).toEqual([aligned, "a\nb"]);
+    });
+
+    it("手写 Markdown：引用块里的块级公式；顶层公式自带的缩进和以 > 开头的行属于公式源码，不能当前缀去掉", () => {
+      expect(latexOf(markdownToTiptapJSON("> $$\n> E=mc^2\n> $$"))).toEqual(["E=mc^2"]);
+      expect(latexOf(markdownToTiptapJSON(">$$\n>a\n>b\n>$$"))).toEqual(["a\nb"]);
+      // 引用块里公式内部的空行写成 `>`（没有后面的空格）
+      expect(latexOf(markdownToTiptapJSON("> $$\n> a\n>\n> b\n> $$"))).toEqual(["a\n\nb"]);
+      const own ="\\begin{aligned}\n  a &= b\n> c\n\\end{aligned}";
+      expect(latexOf(markdownToTiptapJSON(`$$\n${own}\n$$`))).toEqual([own]);
+    });
+  });
 });
 
 // Tiptap 的 Link 默认只放行 http / mailto 等协议。getTiptapExtensions() 没有补 note 协议时，

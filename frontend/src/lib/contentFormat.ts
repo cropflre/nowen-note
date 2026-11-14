@@ -1328,6 +1328,20 @@ function renderTable(src: string, node: SyntaxNode): string {
   return html;
 }
 
+// 块级公式可能写在引用块或列表项里，每个续行都带着容器前缀（`> `、缩进）。整段被抽成占位符时，这些前缀要一起去掉，
+// 否则会混进公式源码，渲染出错，并随往返逐轮累积。前缀以结束行 `$$` 前面的那一段为准（容器里每一行的前缀都相同）；
+// 结束 `$$` 前面是公式文字、无从判断时保持原样，所以顶层公式自带的缩进、以 `>` 开头的行不受影响。
+function stripMathContainerPrefix(body: string): string {
+  const lines = body.split("\n");
+  const prefix = lines[lines.length - 1];
+  if (lines.length < 2 || !prefix || /[^ \t>]/.test(prefix)) return body;
+  // `>` 后面的空格可以省略（引用块里的空行写成 `>`）
+  const bare = prefix.trimEnd();
+  return lines
+    .map((line, index) => (index === 0 ? line : line.startsWith(prefix) ? line.slice(prefix.length) : line.startsWith(bare) ? line.slice(bare.length) : line))
+    .join("\n");
+}
+
 /**
  * Markdown 字符串 → HTML 字符串
  *
@@ -1351,7 +1365,7 @@ function extractMathPlaceholders(md: string): {
   // 先抽块级 `$$...$$`（支持跨行；非贪婪；要求两侧都是 `$$`）
   // 注意：必须先于 inline，否则 `$$x$$` 会被 inline 规则错切。
   let text = md.replace(/\$\$([\s\S]+?)\$\$/g, (_m, body) => {
-    const idx = blocks.push(body.trim()) - 1;
+    const idx = blocks.push(stripMathContainerPrefix(body).trim()) - 1;
     return `\u0000MATHBLOCK${idx}\u0000`;
   });
 
