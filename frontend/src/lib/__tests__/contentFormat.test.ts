@@ -234,6 +234,10 @@ describe("markdownToHtml", () => {
     expect(html).toContain(`<p>${link("文档")}、${link("Ref")}、${link("REF")} 与 [未定义][missing]</p>`);
   });
 
+  it("反斜杠转义按字面字符渲染，反斜杠不进入富文本", () => {
+    expect(markdownToHtml("见 \\[备注\\] 与 \\*非强调\\* 和 C:\\\\temp")).toBe("<p>见 [备注] 与 *非强调* 和 C:\\temp</p>");
+  });
+
   it("围栏代码块带 language", () => {
     const md = "```js\nconst x = 1;\n```";
     const html = markdownToHtml(md);
@@ -398,6 +402,45 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     const once = tiptapJsonToMarkdown(markdownToTiptapJSON(md));
     expect(once).toBe(md);
     expect(tiptapJsonToMarkdown(markdownToTiptapJSON(once))).toBe(md);
+  });
+
+  it("RTE → MD → RTE：含 Markdown 特殊字符的文字往返不累积反斜杠", () => {
+    const text = "见 [备注] 与 *星号* 和 snake_case 及 C:\\temp";
+    const md = tiptapJsonToMarkdown({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(back.content?.[0]?.content?.map((n) => n.text).join("")).toBe(text);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON("- [ ] 把 [x] 改掉"));
+    const onceJson: JSONContent = markdownToTiptapJSON(once);
+    const task = onceJson.content?.[0]?.content?.[0];
+    expect(task?.attrs?.checked).toBe(false);
+    expect(task?.content?.[0]?.content?.map((n) => n.text).join("")).toBe("把 [x] 改掉");
+    expect(tiptapJsonToMarkdown(onceJson)).toBe(once);
+  });
+
+  it("RTE → MD → RTE：链接文字、链接地址与裸 URL 里的转义同样还原", () => {
+    const inlineOf = (json: JSONContent) =>
+      (json.content?.[0]?.content ?? []).map((n) => [n.text, n.marks?.[0]?.attrs?.href ?? null]);
+    const twice = (inline: JSONContent[]) => {
+      const once: JSONContent = markdownToTiptapJSON(
+        tiptapJsonToMarkdown({ type: "doc", content: [{ type: "paragraph", content: inline }] }),
+      );
+      const again: JSONContent = markdownToTiptapJSON(tiptapJsonToMarkdown(once));
+      expect(inlineOf(again)).toEqual(inlineOf(once));
+      return inlineOf(once);
+    };
+    const link = (text: string, href: string): JSONContent => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+
+    expect(twice([link("https://x.com/a_b", "https://x.com/a_b")])).toEqual([["https://x.com/a_b", "https://x.com/a_b"]]);
+    expect(twice([link("Foo", "https://en.wikipedia.org/wiki/Foo_(bar)")])).toEqual([
+      ["Foo", "https://en.wikipedia.org/wiki/Foo_(bar)"],
+    ]);
+    expect(twice([{ type: "text", text: "见 https://x.com/a_b 文档" }])).toEqual([
+      ["见 ", null],
+      ["https://x.com/a_b", "https://x.com/a_b"],
+      [" 文档", null],
+    ]);
   });
 
   it("Tiptap→MD：嵌套任务列表与任务项的后续段落保持缩进，不被拍平", () => {

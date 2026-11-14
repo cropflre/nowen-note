@@ -653,6 +653,14 @@ function escapeAttr(str: string): string {
 }
 
 /**
+ * 还原反斜杠转义（`\_` → `_`）。链接地址与 URL 节点的原文不会拆出 Escape 子节点，
+ * 而 Turndown 会转义正文与链接文字里的 `_`、`*` 等字符、链接地址里的括号。
+ */
+function unescapeMarkdown(str: string): string {
+  return str.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+}
+
+/**
  * 取某节点在原文里覆盖的文本
  */
 function sliceText(src: string, node: { from: number; to: number }): string {
@@ -749,7 +757,7 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
       // 链接文字本身是 URL 时会出现两个 URL 子节点，最后一个才是目标地址。
       const url = findLastChildText(src, node, "URL");
       const inner = renderLinkLabel(src, node);
-      if (url) return `<a href="${escapeAttr(url)}">${inner}</a>`;
+      if (url) return `<a href="${escapeAttr(unescapeMarkdown(url))}">${inner}</a>`;
       // `[a]()`：目标为空的行内链接，只保留文字
       if (childrenOf(node).some((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "(")) return inner;
       // 引用式 `[t][ref]` / `[t][]` / `[t]`：有定义才是链接，否则按 CommonMark 是普通文字，保留方括号
@@ -766,8 +774,10 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
     }
     case "Autolink":
     case "URL": {
-      // URL 节点：<…> 自动链接的地址，或 GFM 识别出的裸 URL / www. / 邮箱
-      const text = sliceText(src, node).replace(/^[<]|[>]$/g, "");
+      // URL 节点：<…> 自动链接的地址，或 GFM 识别出的裸 URL / www. / 邮箱。
+      // 裸 URL 里的 `\_` 等来自 Turndown 对正文的转义，需要还原；<…> 内按 CommonMark 不处理转义
+      const raw = sliceText(src, node).replace(/^[<]|[>]$/g, "");
+      const text = name === "URL" ? unescapeMarkdown(raw) : raw;
       let href = text;
       if (/^www\./i.test(text)) href = `http://${text}`;
       else if (!/^[a-z][a-z0-9+.-]*:/i.test(text) && text.includes("@")) href = `mailto:${text}`;
@@ -775,6 +785,9 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
     }
     case "HardBreak":
       return "<br>";
+    case "Escape":
+      // `\[`、`\*` 等反斜杠转义只输出被转义的字符（Turndown 输出 Markdown 时会转义这些字符）
+      return escapeHtml(sliceText(src, node).slice(1));
     case "HTMLTag":
     case "HTMLBlock":
       // 原样输出 HTML 片段（让 Tiptap 自己决定如何 parse）
@@ -832,7 +845,7 @@ function renderLinkLabel(src: string, node: SyntaxNode): string {
   let cursor = kids[open].to;
   for (const child of kids.slice(open + 1, close)) {
     if (child.from > cursor) html += escapeHtml(src.slice(cursor, child.from));
-    if (child.name === "URL") html += escapeHtml(sliceText(src, child));
+    if (child.name === "URL") html += escapeHtml(unescapeMarkdown(sliceText(src, child)));
     else if (!isMarkNode(child.name)) html += renderInlineNode(src, child);
     cursor = child.to;
   }
