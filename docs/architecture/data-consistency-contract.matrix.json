@@ -26,6 +26,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },
         { "file": "frontend/src/components/__tests__/KnowledgeTreeInlineRename.test.tsx", "case": "DCC-002: failed template rename preserves the typed name for retry and the created document" },
         { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
         { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
@@ -264,6 +265,8 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: journal restoration requires identity and keeps other accounts and workspace journals isolated" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: a password protected journal archive stays locked before and after deletion" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder editors list workspace templates and create complete independent notes in inherited targets" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: template use rejects readonly, unrelated, deleted and mismatched targets without writing notes" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder sharing does not grant template management or private personal templates and revocation takes effect immediately" },
@@ -352,6 +355,8 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: opening a trashed journal restores its identity and content without duplicate dates" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: restoring a journal under a deleted archive leaves unrelated siblings in trash" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
         { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
