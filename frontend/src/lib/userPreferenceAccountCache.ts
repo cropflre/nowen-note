@@ -51,6 +51,7 @@ export interface UserPreferences {
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
+  showTemplateManagement: boolean;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -92,6 +93,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,
   showNoteListDividers: false,
+  showTemplateManagement: true,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -205,6 +207,9 @@ export function normalizeUserPreferences(
     journalLockOnEntry: typeof raw.journalLockOnEntry === "boolean"
       ? raw.journalLockOnEntry
       : fallback.journalLockOnEntry,
+    showTemplateManagement: typeof raw.showTemplateManagement === "boolean"
+      ? raw.showTemplateManagement
+      : fallback.showTemplateManagement,
     showNoteListDividers: typeof raw.showNoteListDividers === "boolean"
       ? raw.showNoteListDividers
       : fallback.showNoteListDividers,

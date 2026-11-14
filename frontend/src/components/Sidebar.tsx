@@ -353,7 +353,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         </div>
       </section>
 
-      {!isMobileLocalMode() && (
+      {!isMobileLocalMode() && userPrefs.showTemplateManagement && (
         <div className="shrink-0 border-t border-app-border px-2 py-2">
           <button
             type="button"

@@ -272,6 +272,7 @@
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder sharing does not grant template management or private personal templates and revocation takes effect immediately" },
         { "file": "frontend/src/lib/__tests__/noteTemplatesApi.test.ts", "case": "rejects a delayed template response after switching accounts (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/registrationError.test.ts", "case": "DCC-006: a rejected registration preserves the server error and existing account tokens" },
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: template management visibility persists per account and rejects invalid or unauthenticated writes" },
         { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },

@@ -7,6 +7,7 @@ import Sidebar from "../Sidebar";
 const mocks = vi.hoisted(() => ({
   workspaceId: "personal",
   localMode: false,
+  showTemplateManagement: true,
   actions: { setNotebooks: vi.fn(), setTags: vi.fn(), setMobileSidebar: vi.fn() },
 }));
 
@@ -38,7 +39,7 @@ vi.mock("@/hooks/useMobileRailHidden", () => ({ useMobileRailHidden: () => [fals
 vi.mock("@/hooks/useMobileSidebarControlsCollapsed", () => ({ useMobileSidebarControlsCollapsed: () => [true, vi.fn()] }));
 vi.mock("@/hooks/useSidebarTextStyle", () => ({ useSidebarTextStyle: () => ["classic"] }));
 vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: {} }) }));
-vi.mock("@/hooks/useUserPreferences", () => ({ useUserPreferences: () => ({ prefs: { hiddenNavigationModules: [] } }) }));
+vi.mock("@/hooks/useUserPreferences", () => ({ useUserPreferences: () => ({ prefs: { hiddenNavigationModules: [], showTemplateManagement: mocks.showTemplateManagement } }) }));
 vi.mock("@/lib/knowledgeTreeScrollbarBridge", () => ({ refreshKnowledgeTreeScrollbars: vi.fn() }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isMobileLocalMode: () => mocks.localMode }));
 vi.mock("@/lib/api", () => ({
@@ -57,6 +58,7 @@ describe("sidebar template management", () => {
     localStorage.setItem("nowen-tags-expanded", "false");
     mocks.workspaceId = "personal";
     mocks.localMode = false;
+    mocks.showTemplateManagement = true;
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -79,6 +81,18 @@ describe("sidebar template management", () => {
     expect(dialog.getAttribute("data-can-create")).toBe("false");
     await act(async () => dialog.querySelector<HTMLButtonElement>("button")!.click());
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it.each(["desktop", "mobile"] as const)("hides and restores template management in the %s sidebar", async (variant) => {
+    await act(async () => root.render(<Sidebar variant={variant} />));
+    expect(host.textContent).toContain("sidebar.templateManagement");
+    mocks.showTemplateManagement = false;
+    await act(async () => root.render(<Sidebar variant={variant} />));
+    expect(host.textContent).not.toContain("sidebar.templateManagement");
+    expect(host.querySelector("[data-tree]")).not.toBeNull();
+    mocks.showTemplateManagement = true;
+    await act(async () => root.render(<Sidebar variant={variant} />));
+    expect(host.textContent).toContain("sidebar.templateManagement");
   });
 
   it("offers personal templates and keeps the server-only library out of native device mode", async () => {

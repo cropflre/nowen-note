@@ -1020,6 +1020,11 @@ function SwitchesPanel() {
       hint: t('settings.enableNoteTabsDesc'),
     },
     {
+      key: "showTemplateManagement" as const,
+      label: t('settings.showTemplateManagement'),
+      hint: t('settings.showTemplateManagementDesc'),
+    },
+    {
       key: "showNoteListDividers" as const,
       label: t('settings.showNoteListDividers'),
       hint: t('settings.showNoteListDividersDesc'),

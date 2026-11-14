@@ -330,3 +330,29 @@ test("syncs note-list divider preference per account", async () => {
   assert.equal(invalid.status, 400);
   assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
 });
+
+
+test("DCC-006: template management visibility persists per account and rejects invalid or unauthenticated writes", async () => {
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, true);
+  const hidden = await requestJson("PUT", { showTemplateManagement: false });
+  assert.equal(hidden.status, 200);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.showTemplateManagement, true);
+
+  const invalid = await requestJson("PUT", { showTemplateManagement: "yes" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+  const unauthorized = await app.request("/user-preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ showTemplateManagement: true }),
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+
+  await requestJson("PUT", { readingDensity: "compact" });
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+  const shown = await requestJson("PUT", { showTemplateManagement: true });
+  assert.equal(shown.status, 200);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, true);
+});

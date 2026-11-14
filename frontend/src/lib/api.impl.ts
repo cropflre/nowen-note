@@ -1475,6 +1475,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
     codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
@@ -1492,6 +1493,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
     codeBlockWordWrap?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
@@ -1507,6 +1509,7 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
     codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),

@@ -986,6 +986,8 @@
     "prefLockOnOpenHint": "When enabled, existing notes open read-only. A newly created note stays editable on its first opening, then requires unlocking when reopened. This lock applies only on this device and does not affect other users.",
     "enableNoteTabs": "Enable top note tabs",
     "enableNoteTabsDesc": "Open multiple notes and switch between them from the editor header. Disable to use the classic single-note mode.",
+    "showTemplateManagement": "Show template management",
+    "showTemplateManagementDesc": "Show template management in the sidebar. Turn it off to hide the entry and turn it back on at any time. This preference syncs with your account.",
     "showNoteListDividers": "Show note-list dividers",
     "showNoteListDividersDesc": "Draw a subtle divider between adjacent notes to improve scanning on mobile lists. Turn it off to keep the current card-style appearance. This preference syncs with your account.",
     "markdownDefaultViewMode": "Default Markdown View",
