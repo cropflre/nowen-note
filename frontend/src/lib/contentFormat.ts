@@ -507,7 +507,9 @@ export function tiptapJsonToMarkdown(jsonOrString: unknown): string {
     if (!json || typeof json !== "object") return "";
     const html = generateHTML(json as any, getTiptapExtensions());
     if (!html) return "";
-    return getTurndown().turndown(html).trim();
+    // Turndown 与 trim 会吃掉文末空任务项「- [ ] 」的尾随空格；GFM 要求任务标记后有空白，
+    // 否则转回富文本会变成内容为「[ ]」的普通列表项
+    return getTurndown().turndown(html).trim().replace(/(^|\n)([ \t>]*- \[[ x]\])$/, "$1$2 ");
   } catch (err) {
     console.warn("[contentFormat] tiptapJsonToMarkdown failed:", err);
     return "";

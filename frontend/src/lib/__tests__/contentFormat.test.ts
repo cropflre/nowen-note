@@ -402,6 +402,25 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(tiptapJsonToMarkdown(json)).toBe(once);
   });
 
+  it("Tiptap→MD：文末的空任务项保留标记后的空格，转回后仍是任务项", () => {
+    const para = (text?: string): JSONContent => ({ type: "paragraph", content: text ? [{ type: "text", text }] : undefined });
+    const item = (checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { checked }, content });
+
+    const flat = tiptapJsonToMarkdown({ type: "doc", content: [{ type: "taskList", content: [item(false, [para("a")]), item(true, [para()])] }] });
+    expect(flat).toBe("- [ ] a\n- [x] ");
+    const flatBack: JSONContent = markdownToTiptapJSON(flat);
+    expect(flatBack.content?.[0]?.type).toBe("taskList");
+    expect(flatBack.content?.[0]?.content?.map((node) => node.attrs?.checked)).toEqual([false, true]);
+
+    const nested = tiptapJsonToMarkdown({
+      type: "doc",
+      content: [{ type: "taskList", content: [item(false, [para("parent"), { type: "taskList", content: [item(false, [para()])] }])] }],
+    });
+    expect(nested).toBe("- [ ] parent\n\n  - [ ] ");
+    const nestedBack: JSONContent = markdownToTiptapJSON(nested);
+    expect(nestedBack.content?.[0]?.content?.[0]?.content?.[1]?.type).toBe("taskList");
+  });
+
   it("MD→Tiptap JSON：表格结构正确", () => {
     const md = "| A | B |\n|---|---|\n| 1 | 2 |";
     const json = markdownToTiptapJSON(md);
