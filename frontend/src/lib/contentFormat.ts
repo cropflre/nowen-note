@@ -106,6 +106,10 @@ export function getTiptapExtensions() {
       codeBlock: false,
       underline: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
+      // 内部笔记链接 `note:<id>`：Link 默认只放行 http / mailto 等协议，缺了它 generateHTML 会把 href 清成空串、
+      // generateJSON 也不把 note: 解析成链接，链接在 RTE↔MD 两个方向都退化成纯文字（nowenNoteLink 规则走不到）。
+      // 与 TiptapEditor 的 link.protocols 对齐，只补 note；javascript: 等其他协议仍然不放行。
+      link: { protocols: ["note"] },
     }),
     Image.extend({
       addAttributes() {

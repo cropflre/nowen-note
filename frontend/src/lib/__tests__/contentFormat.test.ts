@@ -10,7 +10,7 @@
  *   - RTE→MD→RTE 回路上关键结构（高亮颜色 / 段落对齐）不丢失
  */
 import { describe, expect, it } from "vitest";
-import { generateJSON, type JSONContent } from "@tiptap/core";
+import { generateHTML, generateJSON, type JSONContent } from "@tiptap/core";
 import {
   detectFormat,
   getTiptapExtensions,
@@ -1071,5 +1071,75 @@ describe("公式 RTE ↔ MD", () => {
     expect(md).toContain("> 引 $c^2$");
     expect(back.content?.[0]?.content?.[0]?.content?.[0]?.content).toEqual([text("项 "), inlineMath("a|b")]);
     expect(back.content?.[1]?.content?.[0]?.content).toEqual([text("引 "), inlineMath("c^2")]);
+  });
+});
+
+// Tiptap 的 Link 默认只放行 http / mailto 等协议。getTiptapExtensions() 没有补 note 协议时，
+// generateHTML 把 note: 链接的 href 清成空串，generateJSON 也不把 note: 解析成链接，内部链接在两个方向都退化成纯文字。
+describe("内部笔记链接 RTE ↔ MD", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
+  const para = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
+  const doc = (...content: JSONContent[]): JSONContent => ({ type: "doc", content });
+  // 与编辑器插入内部链接时写入的 mark 一致（TiptapEditor handleNoteLinkSelect）
+  const noteLink = (label: string, mode: "alias" | "auto", href = `note:${id}`): JSONContent =>
+    text(label, [{ type: "link", attrs: { href, target: "_blank", rel: `noopener noreferrer nofollow nowen-title-${mode}` } }]);
+  const roundTrip = (source: JSONContent) => {
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+  const hasLinkMark = (json: JSONContent) => JSON.stringify(json).includes('"type":"link"');
+
+  it("带别名的内部链接写成 [[note:…|别名]]，往返后仍是带别名的链接", () => {
+    const { md, back } = roundTrip(doc(para(text("见 "), noteLink("别名", "alias"))));
+    expect(md).toBe(`见 [[note:${id}|别名]]`);
+    const [, link] = back.content?.[0]?.content ?? [];
+    expect(link?.text).toBe("别名");
+    expect(link?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+    expect(link?.marks?.[0]?.attrs?.rel).toContain("nowen-title-alias");
+  });
+
+  it("自动标题的内部链接写成 [[note:…]]，块锚点保留，往返后仍是自动标题的链接", () => {
+    const { md, back } = roundTrip(doc(para(noteLink("目标笔记", "auto"), text("、"), noteLink("某一段", "alias", `note:${id}#blk:blk_abc12345`))));
+    expect(md).toBe(`[[note:${id}]]、[[note:${id}#blk:blk_abc12345|某一段]]`);
+    const [auto, , block] = back.content?.[0]?.content ?? [];
+    expect(auto?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+    expect(auto?.marks?.[0]?.attrs?.rel).toContain("nowen-title-auto");
+    expect(block?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}#blk:blk_abc12345` } });
+    expect(block?.text).toBe("某一段");
+  });
+
+  it("表格单元格里的内部链接：别名前的 | 不拆开单元格，往返后链接不丢", () => {
+    const cell = (type: string, ...content: JSONContent[]): JSONContent => ({ type, content: [para(...content)] });
+    const source = doc({
+      type: "table",
+      content: [
+        { type: "tableRow", content: [cell("tableHeader", text("笔记")), cell("tableHeader", text("说明"))] },
+        { type: "tableRow", content: [cell("tableCell", noteLink("别名", "alias")), cell("tableCell", text("x"))] },
+      ],
+    });
+    const { md, back } = roundTrip(source);
+    expect(md).toBe(`| 笔记 | 说明 |\n| --- | --- |\n| [[note:${id}|别名]] | x |`);
+    expect(back.content?.[0]?.content?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+  });
+
+  it("只放行 note 协议：javascript: 等其他协议仍然不是链接，note: 的前缀仿冒也不放行", () => {
+    const extensions = getTiptapExtensions();
+    // 放行：note: 解析成链接
+    expect(hasLinkMark(generateJSON(`<p><a href="note:${id}">x</a></p>`, extensions))).toBe(true);
+    // 拒绝：其他协议在 HTML → JSON 时只剩文字
+    for (const href of ["javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<script>alert(1)</script>", "vbscript:msgbox(1)", `notes:${id}`]) {
+      const json: JSONContent = generateJSON(`<p><a href="${href}">x</a></p>`, extensions);
+      expect(hasLinkMark(json), href).toBe(false);
+      expect(json.content?.[0]?.content).toEqual([text("x")]);
+    }
+    // MD → RTE 同样不放行
+    expect(hasLinkMark(markdownToTiptapJSON("[x](javascript:alert(1))"))).toBe(false);
+    // RTE → HTML：非法 href 被清空，不会带进 Markdown
+    const unsafe = doc(para(text("x", [{ type: "link", attrs: { href: "javascript:alert(1)" } }])));
+    expect(generateHTML(unsafe, extensions)).toContain('href=""');
+    expect(tiptapJsonToMarkdown(unsafe)).toBe("x");
   });
 });
