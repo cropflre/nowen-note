@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Workflow, GripVertical, ArrowUp, ArrowDown, Blocks } from "lucide-react";
+import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
@@ -64,7 +65,7 @@ import {
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "extensions" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -2029,6 +2030,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     ...(isAdmin ? [{ id: "workspaces" as const, label: t('settings.workspaces'), icon: Building2 }] : []),
+    // 扩展的管理员工具（来源、运行时策略、调试与恢复）；日常使用入口在扩展中心。
+    ...(isAdmin ? [{ id: "extensions" as const, label: t("extensionCenter.advanced.tab"), icon: Blocks }] : []),
     // 三端共用数据管理：先呈现备份/恢复/导入/导出目标，再按权限展示范围及高级操作。
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
     // 「同步」：Local-first 多设备同步（Sync V2）。产品层只呈现
@@ -2227,6 +2230,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "tokens" && <McpConnectionPanel />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
+                  {activeTab === "extensions" && isAdmin && <PluginManagementPanel />}
                   {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}
                   {activeTab === "data" && <DataManager />}
                   {activeTab === "sync" && <SyncSettingsTab />}
