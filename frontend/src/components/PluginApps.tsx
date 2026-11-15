@@ -123,8 +123,10 @@ export default function PluginApps({ pluginId, pageId, dashboard = false, manage
   const { enabled, centerEnabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
-  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} />;
-  if (studio) return <PersonalStudio key={studioId || "new"} appId={studioId} />;
+  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} dashboardEnabled={dashboardEnabled} />;
+  // Creating an app is a section of the Extension Center; editing an existing one keeps its full-width page.
+  if (studio && !studioId) return <ExtensionCenterLayout section="create" dashboardEnabled={dashboardEnabled}><PersonalStudio key="new" /></ExtensionCenterLayout>;
+  if (studio) return <PersonalStudio key={studioId} appId={studioId} />;
   if (dashboard) return <ExtensionCenterLayout section="dashboard" dashboardEnabled={dashboardEnabled}>
     <Suspense fallback={<p role="status" className="text-sm text-tx-tertiary">{t("pluginApps.loading")}</p>}><PluginDashboard /></Suspense>
   </ExtensionCenterLayout>;

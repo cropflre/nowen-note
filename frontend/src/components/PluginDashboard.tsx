@@ -12,11 +12,13 @@ import { toast } from "@/lib/toast";
 import {
   addCardError, addDashboardLayout, dashboardStorageKey, defaultDashboardPlacements, deleteDashboardLayout, layoutNameError,
   loadDashboardLayouts, moveDashboardWidget, parseDashboardLayouts, pushLayoutHistory, renameDashboardLayout, replaceActiveItems,
-  resolveDashboardCard, saveDashboardLayouts, DASHBOARD_LIMITS, type DashboardLayouts, type WidgetPlacement, type WidgetSize,
+  resolveDashboardCard, saveDashboardLayouts, takeQueuedDashboardCard, DASHBOARD_LIMITS, type DashboardLayouts, type WidgetPlacement, type WidgetSize,
 } from "@/lib/pluginDashboard";
+import type { StudioApp } from "@/lib/personalApps";
 import { cn } from "@/lib/utils";
 import { PluginAppFrame } from "./PluginApps";
 import { BuiltinCardBody } from "./dashboard/BuiltinCards";
+import { StudioAppCardBody } from "./dashboard/StudioAppCard";
 import { BuiltinCardIcon, builtinCardText } from "./dashboard/dashboardUi";
 import { pickerEntries, WidgetPicker, type PickerEntry } from "./dashboard/WidgetPicker";
 
@@ -33,6 +35,8 @@ export default function PluginDashboard() {
   const [editing, setEditing] = useState(false), [pickerOpen, setPickerOpen] = useState(false);
   const [dragging, setDragging] = useState<number | null>(null), [dropTarget, setDropTarget] = useState<number | null>(null);
   const [watchAttempt, setWatchAttempt] = useState(0), [scope, setScope] = useState(0), [refreshTick, setRefreshTick] = useState(0);
+  // Personal Studio apps of the signed-in account; `apps: null` means the list could not be loaded.
+  const [studio, setStudio] = useState<{ scope: number; apps: StudioApp[] | null } | null>(null);
   const [mobile, setMobile] = useState(() => matchMedia("(max-width: 767px)").matches);
   // Only widgets loaded for the current account/workspace may seed that scope's default layout.
   const widgetsLoaded = widgetsScope === scope;
@@ -96,6 +100,14 @@ export default function PluginDashboard() {
     window.addEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, changed); window.addEventListener("focus", focus);
     return () => { active = false; generation++; window.removeEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, changed); window.removeEventListener("focus", focus); };
   }, [scope]);
+  useEffect(() => {
+    let active = true;
+    void pluginApi.personalApps().then(
+      (apps) => { if (active) setStudio({ scope, apps }); },
+      () => { if (active) setStudio({ scope, apps: null }); },
+    );
+    return () => { active = false; };
+  }, [scope, refreshTick]);
   // Load once per storage key; widget refreshes must not overwrite an unsaved in-memory layout.
   useEffect(() => {
     if (!widgetsLoaded || layoutsKey === storageKey) return;
@@ -119,7 +131,10 @@ export default function PluginDashboard() {
   const ready = layoutsKey === storageKey && layouts !== null;
   const selected = ready ? layouts.layouts.find((layout) => layout.name === layouts.active) : undefined;
   const widgetMap = useMemo(() => new Map(widgets.map((widget) => [widget.runtimeId, widget])), [widgets]);
-  const entries = useMemo(() => pickerEntries(widgets, t), [widgets, t]);
+  // Another account's list is never used: until the current scope's list arrives, studio cards show loading.
+  const studioApps = studio?.scope === scope ? studio.apps : undefined;
+  const studioMap = useMemo(() => new Map((studioApps ?? []).map((app) => [app.id, app])), [studioApps]);
+  const entries = useMemo(() => pickerEntries(widgets, t, studioApps ?? []), [widgets, t, studioApps]);
   const persist = (next: DashboardLayouts) => { setLayouts(next); setUnsaved(!saveDashboardLayouts(storageKey, next)); };
   const commit = (next: DashboardLayouts) => { const previous = layoutsRef.current; if (previous) setHistory((items) => pushLayoutHistory(items, previous)); persist(next); };
   const updateItems = (items: WidgetPlacement[]) => { if (layoutsRef.current) commit(replaceActiveItems(layoutsRef.current, items)); };
@@ -173,6 +188,22 @@ export default function PluginDashboard() {
     updateItems([...selected.items, { id: entry.id, hidden: false, size: entry.defaultSize }]);
     setPickerOpen(false);
   };
+  // "Add to dashboard" from a personal app: inserted into the active layout with the picker's checks, undoable.
+  const updateItemsRef = useRef(updateItems); updateItemsRef.current = updateItems;
+  useEffect(() => {
+    if (!ready) return;
+    const id = takeQueuedDashboardCard(getCurrentWorkspace());
+    const current = layoutsRef.current;
+    const items = current?.layouts.find((layout) => layout.name === current.active)?.items;
+    if (!id || !current || !items) return;
+    const problem = addCardError(items, id);
+    if (problem === "DUPLICATE") toast.info(t("extensionCenter.workbench.studio.alreadyAdded"));
+    else if (problem === "LIMIT") toast.warning(t("extensionCenter.workbench.studio.layoutFull", { max: DASHBOARD_LIMITS.cards }));
+    else if (!problem) {
+      updateItemsRef.current([...items, { id, hidden: false, size: "small" }]);
+      toast.success(t("extensionCenter.workbench.studio.added", { layout: current.active }));
+    }
+  }, [ready, t]);
   const refreshAll = () => { refreshRef.current(); setWatchAttempt((value) => value + 1); setRefreshTick((value) => value + 1); };
   const visibleCount = selected?.items.filter((item) => !item.hidden).length ?? 0;
 
@@ -234,9 +265,14 @@ export default function PluginDashboard() {
         const resolution = resolveDashboardCard(item, widgetMap);
         // Do not flash "unavailable" while plugin widgets are still loading.
         if (resolution.type === "dormant" && resolution.reason === "PLUGIN_UNAVAILABLE" && !widgetsLoaded) return null;
+        const studioApp = resolution.type === "studio" ? studioMap.get(resolution.appId) : undefined;
+        // Deleted, or not this account's app: dormant like a missing plugin, with nothing of the app shown.
+        const studioMissing = resolution.type === "studio" && Boolean(studioApps) && !studioApp;
         const title = resolution.type === "builtin" ? builtinCardText(resolution.kind, t).title
-          : resolution.type === "plugin" ? resolution.widget.title : t("extensionCenter.workbench.dormantTitle");
-        const live = resolution.type !== "dormant";
+          : resolution.type === "plugin" ? resolution.widget.title
+          : resolution.type === "studio" && !studioMissing ? studioApp?.spec.name ?? t("extensionCenter.workbench.studio.title")
+          : t("extensionCenter.workbench.dormantTitle");
+        const live = resolution.type !== "dormant" && !studioMissing;
         return <article key={item.id} {...(live ? { "data-widget-id": item.id } : { "data-dormant-widget-id": item.id })}
           draggable={editing}
           onDragStart={(event) => { if (!editing) return; dragged.current = index; setDragging(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); }}
@@ -277,6 +313,8 @@ export default function PluginDashboard() {
           </div>}
           {!item.hidden && (resolution.type === "builtin"
             ? <BuiltinCardBody kind={resolution.kind} refreshKey={`${storageKey}:${refreshTick}`} onDataChanged={() => setRefreshTick((value) => value + 1)} />
+            : resolution.type === "studio" ? <StudioAppCardBody app={studioApp} onRetry={() => setRefreshTick((value) => value + 1)}
+              state={studioApps === undefined ? "loading" : studioApps === null ? "failed" : studioApp ? "ready" : "missing"} />
             : resolution.type === "plugin" ? (() => {
               const widget = resolution.widget;
               return <>{widget.error ? <p role="alert">{t("pluginApps.unavailable")}</p> : widget.type === "statistic" ? <p className="my-4 text-3xl font-semibold">{widget.preview?.total ?? 0}</p> : widget.type === "status" ? <p>{t("pluginApps.statusSummary", { open: widget.preview?.open || 0, done: widget.preview?.done || 0 })}</p> : widget.type === "list" ? <ul className="mb-3 space-y-2">{widget.preview?.items.map((row) => <li key={row.id} className="truncate">{row.title}</li>)}</ul> : null}

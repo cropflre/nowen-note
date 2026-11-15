@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   addCardError, addDashboardLayout, BUILTIN_WIDGETS, builtinWidgetKind, dashboardStorageKey, defaultDashboardPlacements, deleteDashboardLayout,
   layoutNameError, loadDashboardLayouts, moveDashboardWidget, parseDashboardLayouts, pushLayoutHistory, renameDashboardLayout, replaceActiveItems,
-  resolveDashboardCard, saveDashboardLayouts, type DashboardLayouts,
+  resolveDashboardCard, saveDashboardLayouts, queueDashboardCard, studioAppIdOf, studioWidgetId, takeQueuedDashboardCard, type DashboardLayouts,
 } from "../pluginDashboard";
 import { parsePluginAppPath } from "../pluginApps";
 import { inferBrowserServerBaseUrl } from "../serverUrl";
@@ -100,5 +100,33 @@ describe("dashboard layout operations", () => {
     expect(parseDashboardLayouts({ active: "x", layouts: [] })).toBeNull();
     expect(parseDashboardLayouts({ active: "Default", layouts: [{ name: "Default", items: [{ id: "nowen-builtin/quick-note", hidden: "no", size: "small" }] }] })).toBeNull();
     expect(parseDashboardLayouts("not json")).toBeNull();
+  });
+});
+
+describe("personal app cards", () => {
+  const appId = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  it("use the reserved built-in namespace, resolve without a plugin lookup and load without migration", () => {
+    const id = studioWidgetId(appId)!;
+    expect(id).toBe(`nowen-builtin/studio-${appId}`);
+    expect(studioAppIdOf(id)).toBe(appId);
+    expect(studioWidgetId("../escape")).toBeNull();
+    expect(studioAppIdOf("nowen-builtin/studio-not-a-uuid")).toBeNull();
+    expect(resolveDashboardCard({ id, hidden: false, size: "small" }, new Map())).toEqual({ type: "studio", appId });
+    expect(resolveDashboardCard({ id: "nowen-builtin/studio-x", hidden: false, size: "small" }, new Map())).toEqual({ type: "dormant", reason: "UNKNOWN_BUILTIN" });
+    expect(addCardError([], id)).toBeNull();
+    expect(addCardError([{ id, hidden: false, size: "small" }], id)).toBe("DUPLICATE");
+    expect(parseDashboardLayouts({ active: "Default", layouts: [{ name: "Default", items: [{ id, hidden: false, size: "small" }] }] })?.layouts[0].items[0].id).toBe(id);
+  });
+
+  it("are handed to the workbench once, and only within the same account and workspace", () => {
+    queueDashboardCard("personal", "nowen-builtin/studio-a");
+    expect(takeQueuedDashboardCard("personal")).toBe("nowen-builtin/studio-a");
+    expect(takeQueuedDashboardCard("personal")).toBeNull();
+    queueDashboardCard("personal", "nowen-builtin/studio-b");
+    expect(takeQueuedDashboardCard("ws-2")).toBeNull();
+    expect(takeQueuedDashboardCard("personal")).toBeNull();
+    queueDashboardCard("personal", "nowen-builtin/studio-c");
+    localStorage.setItem("nowen-token", `x.${btoa(JSON.stringify({ userId: "other" }))}.x`);
+    expect(takeQueuedDashboardCard("personal")).toBeNull();
   });
 });

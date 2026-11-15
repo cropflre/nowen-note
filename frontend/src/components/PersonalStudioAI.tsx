@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Clock3, RotateCcw, Send, Sparkles } from "lucide-react";
+import { Bot, Clock3, RotateCcw, Send, Settings, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { pluginApi } from "@/lib/pluginApi";
 import type { StudioApp, StudioSpec, StudioVersion } from "@/lib/personalApps";
@@ -40,30 +40,54 @@ const action = "rounded-lg border border-app-border px-3 py-2 text-sm hover:bg-a
 const primary = "inline-flex items-center justify-center gap-2 rounded-lg bg-accent-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50";
 function useLabels() { const { i18n } = useTranslation(); return i18n.language.startsWith("zh") ? copy.zh : copy.en; }
 
-export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; onAccept: (proposal: StudioSpec) => void }) {
+type AIStatus = "checking" | "available" | "unknown" | "STUDIO_AI_UNAVAILABLE" | "STUDIO_AI_NOT_CONFIGURED";
+
+export function PersonalStudioAI({ spec, onAccept, onPromptChange }: { spec: StudioSpec | null; onAccept: (proposal: StudioSpec) => void; onPromptChange?: (prompt: string) => void }) {
   const t = useLabels();
+  const { t: translate } = useTranslation();
   const [prompt, setPrompt] = useState("");
   const [turns, setTurns] = useState<Array<{ instruction: string; result: string }>>([]);
   const [proposal, setProposal] = useState<StudioSpec | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<AIStatus>("checking");
   const request = useRef<AbortController | null>(null);
+  const promptListener = useRef(onPromptChange); promptListener.current = onPromptChange;
+  const changePrompt = (value: string) => { setPrompt(value); setNotice(""); promptListener.current?.(value); };
   useEffect(() => {
     request.current?.abort();
     setProposal(null);
     return () => request.current?.abort();
   }, [spec]);
   useEffect(() => {
-    const cancel = () => { request.current?.abort(); setProposal(null); setTurns([]); setPrompt(""); };
+    // Ask whether a model is usable before offering a prompt that could only fail.
+    let check: AbortController | null = null;
+    const load = () => {
+      check?.abort();
+      const controller = new AbortController(); check = controller;
+      setStatus("checking");
+      void pluginApi.personalAppAIStatus(controller.signal)
+        .then(result => { if (!controller.signal.aborted) setStatus(result.available ? "available" : result.code ?? "STUDIO_AI_NOT_CONFIGURED"); })
+        // Unknown: keep the prompt; the preview request reports the real reason.
+        .catch(() => { if (!controller.signal.aborted) setStatus("unknown"); });
+    };
+    const cancel = () => { request.current?.abort(); setProposal(null); setTurns([]); setPrompt(""); setNotice(""); promptListener.current?.(""); load(); };
+    load();
     window.addEventListener("nowen:token-changed", cancel);
     window.addEventListener("nowen:workspace-changed", cancel);
-    return () => { request.current?.abort(); window.removeEventListener("nowen:token-changed", cancel); window.removeEventListener("nowen:workspace-changed", cancel); };
+    return () => { check?.abort(); request.current?.abort(); window.removeEventListener("nowen:token-changed", cancel); window.removeEventListener("nowen:workspace-changed", cancel); };
   }, []);
+  const cancelGeneration = () => {
+    if (!request.current) return;
+    request.current.abort();
+    setNotice(translate("extensionCenter.create.ai.cancelled"));
+  };
   const generate = async () => {
     if (!prompt.trim() || busy) return;
     request.current?.abort();
     const controller = new AbortController(); request.current = controller;
-    setBusy(true); setError(""); setProposal(null);
+    setBusy(true); setError(""); setNotice(""); setProposal(null);
     try {
       const result = await pluginApi.previewPersonalAppAI(prompt.trim(), spec || undefined, controller.signal);
       if (request.current === controller && !controller.signal.aborted) setProposal(result.spec);
@@ -79,29 +103,48 @@ export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; 
       if (request.current === controller) { setBusy(false); request.current = null; }
     }
   };
+  const unavailable = status === "STUDIO_AI_UNAVAILABLE" || status === "STUDIO_AI_NOT_CONFIGURED";
   return <section aria-label={t.ai} className="space-y-3 rounded-2xl border border-accent-primary/30 bg-app-surface p-4">
     <div className="flex items-center gap-2"><Sparkles size={18} className="text-accent-primary"/><h2 className="font-semibold">{spec ? t.modify : t.ai}</h2></div>
+    {unavailable ? <div role="note" className="space-y-2 text-sm text-tx-secondary">
+      <p>{translate(`extensionCenter.create.ai.${status === "STUDIO_AI_UNAVAILABLE" ? "disabled" : "unavailable"}${spec ? "Edit" : "New"}`)}</p>
+      <button type="button" className={action + " inline-flex items-center gap-1"} onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-settings"))}><Settings size={14}/>{translate("extensionCenter.create.ai.openSettings")}</button>
+    </div> : status !== "checking" && <>
     <p className="text-sm text-tx-secondary">{t.helper}</p>
     {turns.length > 0 && <ol className="space-y-2" aria-label={t.modify}>{turns.slice(-5).map((turn,index)=><li key={index} className="space-y-1 text-sm"><p className="ml-auto w-fit max-w-[90%] rounded-xl bg-app-hover px-3 py-2">{turn.instruction}</p><p className="mr-auto w-fit max-w-[90%] rounded-xl border border-app-border px-3 py-2"><Sparkles size={13} className="mr-2 inline text-accent-primary"/>{turn.result}</p></li>)}</ol>}
     <label className="block">
       <span className="sr-only">{t.ai}</span>
-      <textarea aria-label={t.ai} value={prompt} maxLength={1200} rows={3} className="w-full rounded-lg border border-app-border bg-app-surface p-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary/30" placeholder={spec ? t.improve : t.placeholder} onChange={e=>setPrompt(e.target.value)}/>
+      <textarea aria-label={t.ai} value={prompt} maxLength={1200} rows={3} className="w-full rounded-lg border border-app-border bg-app-surface p-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary/30" placeholder={spec ? t.improve : t.placeholder} onChange={e=>changePrompt(e.target.value)}/>
     </label>
-    <div className="flex items-center justify-between gap-2">
+    <p className="text-xs text-tx-tertiary">{translate("extensionCenter.create.ai.boundary")}</p>
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-xs text-tx-secondary">{t.external}</p>
-      <button type="button" disabled={busy || !prompt.trim()} className={primary} onClick={() => void generate()}><Send size={15}/>{busy?t.generating:t.generate}</button>
+      <div className="flex gap-2">
+        {busy && <button type="button" className={action} onClick={cancelGeneration}>{translate("extensionCenter.create.ai.cancel")}</button>}
+        <button type="button" disabled={busy || !prompt.trim()} className={primary} onClick={() => void generate()}><Send size={15}/>{busy?t.generating:t.generate}</button>
+      </div>
     </div>
+    {notice && <p role="status" className="text-xs text-tx-secondary">{notice}</p>}
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
     {proposal && <div className="space-y-3 rounded-xl border border-app-border p-3" role="region" aria-label={t.preview}>
       <div className="flex items-center gap-2"><Bot size={16}/><strong>{proposal.name}</strong></div>
       <p className="text-sm text-tx-secondary">{proposal.description}</p>
       <div className="flex flex-wrap gap-2">{proposal.fields.map(field=><span key={field.id} className="rounded-full border border-app-border px-2 py-1 text-xs">{field.label} · {field.type}</span>)}</div>
+      <dl className="grid gap-x-3 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+        <dt className="font-medium text-tx-primary">{translate("extensionCenter.create.ai.willCreate")}</dt>
+        <dd className="text-tx-secondary">{translate(`extensionCenter.create.ai.${spec ? "updateValue" : "createValue"}`, { layout: translate(`extensionCenter.create.layout.${proposal.layout}`), count: proposal.fields.length })}</dd>
+        <dt className="font-medium text-tx-primary">{translate("extensionCenter.create.ai.permissions")}</dt>
+        <dd className="text-tx-secondary">{translate("extensionCenter.create.ai.permissionsValue")}</dd>
+        <dt className="font-medium text-tx-primary">{translate("extensionCenter.create.ai.data")}</dt>
+        <dd className="text-tx-secondary">{translate("extensionCenter.create.ai.dataValue")}</dd>
+      </dl>
       <p className="text-xs text-tx-secondary">{t.saved}</p>
       <div className="flex justify-end gap-2">
         <button type="button" className={action} onClick={()=>setProposal(null)}>{t.discard}</button>
-        <button type="button" className={primary} onClick={()=>{setTurns(history=>[...history.slice(-4),{instruction:prompt.trim(),result:proposal.name}]);onAccept(proposal);setProposal(null);setPrompt("");}}>{t.accept}</button>
+        <button type="button" className={primary} onClick={()=>{setTurns(history=>[...history.slice(-4),{instruction:prompt.trim(),result:proposal.name}]);onAccept(proposal);setProposal(null);changePrompt("");}}>{t.accept}</button>
       </div>
     </div>}
+    </>}
   </section>;
 }
 

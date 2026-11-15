@@ -4,18 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   workspace: { current: "personal" },
-  push: vi.fn(), toastInfo: vi.fn(), confirm: vi.fn(), prompt: vi.fn(),
+  push: vi.fn(), toastInfo: vi.fn(), toastSuccess: vi.fn(), toastWarning: vi.fn(), confirm: vi.fn(), prompt: vi.fn(),
   actions: { setViewMode: vi.fn(), setMobileView: vi.fn(), refreshNotes: vi.fn(), refreshNotebooks: vi.fn() },
   state: { notebooks: [{ id: "nb-personal", name: "Inbox", workspaceId: null }, { id: "nb-second", name: "Second", workspaceId: null }, { id: "nb-team", name: "Team", workspaceId: "ws-1" }], selectedNotebookId: null as string | null },
   api: {
     getNotes: vi.fn(), createNote: vi.fn(), getTasks: vi.fn(), toggleTask: vi.fn(), getTaskStats: vi.fn(), getDiaryTimeline: vi.fn(),
   },
-  pluginApi: { features: vi.fn(), widgets: vi.fn(), widgetEvents: vi.fn() },
+  pluginApi: { features: vi.fn(), widgets: vi.fn(), widgetEvents: vi.fn(), personalApps: vi.fn() },
 }));
 vi.mock("@/lib/api", () => ({ api: mocks.api, getCurrentWorkspace: () => mocks.workspace.current }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: mocks.pluginApi, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT: "nowen:plugin-contributions-changed" }));
 vi.mock("@/lib/appPathNavigation", () => ({ pushAppPathState: mocks.push }));
-vi.mock("@/lib/toast", () => ({ toast: { info: mocks.toastInfo, success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("@/lib/toast", () => ({ toast: { info: mocks.toastInfo, success: mocks.toastSuccess, error: vi.fn(), warning: mocks.toastWarning } }));
 vi.mock("@/components/ui/confirm", () => ({ confirm: mocks.confirm, prompt: mocks.prompt }));
 vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: mocks.state }), useAppActions: () => mocks.actions }));
 vi.mock("@/lib/pluginUiRegistry", () => ({ currentUiPlatform: () => "web" }));
@@ -26,7 +26,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ i18n: { language: "en" }, t: (key: string, options?: Record<string, unknown>) => (options && "message" in options ? `${key}|${String(options.message)}` : key) }),
 }));
 import PluginDashboard from "../../PluginDashboard";
-import { dashboardStorageKey } from "@/lib/pluginDashboard";
+import { dashboardStorageKey, queueDashboardCard } from "@/lib/pluginDashboard";
 
 let root: Root, host: HTMLDivElement;
 const flush = async () => { for (let i = 0; i < 5; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); };
@@ -45,6 +45,7 @@ beforeEach(() => {
   mocks.pluginApi.features.mockResolvedValue({ applicationV3: { dashboardWidgets: false } });
   mocks.pluginApi.widgets.mockResolvedValue([]);
   mocks.pluginApi.widgetEvents.mockReturnValue(new Promise(() => undefined));
+  mocks.pluginApi.personalApps.mockResolvedValue([]);
   mocks.api.getNotes.mockResolvedValue([
     { id: "n-old", title: "Old", updatedAt: "2026-01-01 08:00:00" },
     { id: "n-new", title: "New", updatedAt: "2026-11-09 08:00:00" },
@@ -57,6 +58,16 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+const appId = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", studioCard = `nowen-builtin/studio-${appId}`;
+const studioApp = (items: Array<Record<string, string | boolean>>) => ({
+  id: appId, revision: 1, createdAt: "2026-11-14T00:00:00Z", updatedAt: "2026-11-14T00:00:00Z",
+  spec: { schemaVersion: 1, name: "Reading log", description: "Books I read", layout: "list",
+    fields: [{ id: "title", label: "Title", type: "text" }, { id: "finished", label: "Finished", type: "checkbox" }],
+    items: items.map((values, index) => ({ id: `item${index}`, values })) },
+});
+const storeLayout = (ids: string[]) => localStorage.setItem(dashboardStorageKey("personal", false),
+  JSON.stringify({ active: "Default", layouts: [{ name: "Default", items: ids.map((id) => ({ id, hidden: false, size: "small" })) }] }));
 
 describe("workbench", () => {
   it("shows built-in cards with real data, newest notes first, and no archived tasks", async () => {
@@ -145,6 +156,70 @@ describe("workbench", () => {
     expect(card("nowen-builtin/favorites")).not.toBeNull();
     expect(mocks.api.getNotes).toHaveBeenCalled();
     expect(localStorage.getItem(dashboardStorageKey("ws-1", false))).toBeNull();
+  });
+
+  it("shows a personal app card with that app's newest records and opens the app", async () => {
+    mocks.pluginApi.personalApps.mockResolvedValue([studioApp([{ title: "Dune", finished: true }, { title: "Emma", finished: false }, { title: "Ulysses", finished: false }, { title: "Beloved", finished: true }])]);
+    storeLayout([studioCard]);
+    await render();
+    const element = card(studioCard)!;
+    expect(element.textContent).toContain("Reading log");
+    expect(element.textContent).toContain("extensionCenter.workbench.studio.progress");
+    expect([...element.querySelectorAll("li")].map((item) => item.textContent)).toEqual(["Beloved", "Ulysses", "Emma"]);
+    await act(async () => button("extensionCenter.workbench.studio.open", element)!.click());
+    expect(mocks.push).toHaveBeenCalledWith(`/apps/personal/${appId}`);
+  });
+
+  it("keeps a deleted or foreign personal app as a dormant card that shows none of its content", async () => {
+    storeLayout([studioCard]);
+    await render();
+    expect(card(studioCard)).toBeNull();
+    const dormant = host.querySelector(`[data-dormant-widget-id="${studioCard}"]`)!;
+    expect(dormant.textContent).toContain("extensionCenter.workbench.studio.missing");
+    expect(dormant.textContent).not.toContain("Reading log");
+    expect(JSON.parse(localStorage.getItem(dashboardStorageKey("personal", false))!).layouts[0].items).toHaveLength(1);
+  });
+
+  it("adds a personal app handed over from its page to the active layout, undoably and only once", async () => {
+    mocks.pluginApi.personalApps.mockResolvedValue([studioApp([])]);
+    queueDashboardCard("personal", studioCard);
+    await render();
+    expect(card(studioCard)).not.toBeNull();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("extensionCenter.workbench.studio.added");
+    expect(JSON.parse(localStorage.getItem(dashboardStorageKey("personal", false))!).layouts[0].items.at(-1)).toEqual({ id: studioCard, hidden: false, size: "small" });
+    await act(async () => button("pluginApps.editLayout")!.click());
+    await act(async () => button("extensionCenter.workbench.undo")!.click());
+    expect(card(studioCard)).toBeNull();
+    await act(async () => button("pluginApps.finishLayout")!.click());
+
+    storeLayout([studioCard]);
+    await act(async () => root.unmount()); root = createRoot(host);
+    queueDashboardCard("personal", studioCard);
+    await render();
+    expect(mocks.toastInfo).toHaveBeenCalledWith("extensionCenter.workbench.studio.alreadyAdded");
+    expect(host.querySelectorAll(`[data-widget-id="${studioCard}"]`)).toHaveLength(1);
+  });
+
+  it("lists the account's personal apps in the card picker", async () => {
+    mocks.pluginApi.personalApps.mockResolvedValue([studioApp([])]);
+    await render();
+    await act(async () => button("pluginApps.editLayout")!.click());
+    await act(async () => button("pluginApps.addCard")!.click());
+    expect(document.body.textContent).toContain("extensionCenter.workbench.pickerGroup.studio");
+    await act(async () => button("Reading log", document.body)!.click());
+    expect(card(studioCard)).not.toBeNull();
+  });
+
+  it("never shows the previous account's personal apps after a sign-in change", async () => {
+    mocks.pluginApi.personalApps.mockResolvedValueOnce([studioApp([{ title: "Private record", finished: false }])]);
+    storeLayout([studioCard]);
+    await render();
+    expect(card(studioCard)!.textContent).toContain("Private record");
+    mocks.pluginApi.personalApps.mockReturnValue(new Promise(() => undefined));
+    await act(async () => { window.dispatchEvent(new Event("nowen:token-changed")); });
+    await flush();
+    expect(host.textContent).not.toContain("Private record");
+    expect(host.textContent).not.toContain("Reading log");
   });
 
   it("seeds a new workspace's default layout from that workspace's widgets only", async () => {

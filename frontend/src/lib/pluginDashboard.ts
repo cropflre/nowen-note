@@ -26,6 +26,32 @@ export function builtinWidgetKind(id: string): BuiltinWidgetKind | null {
   return BUILTIN_BY_ID.get(id)?.kind ?? null;
 }
 
+/**
+ * A Personal Studio app on the workbench is a host-rendered shortcut card in the built-in namespace,
+ * never an iframe; the card reads the app through the owner-only Studio API when it renders.
+ */
+const STUDIO_WIDGET = /^nowen-builtin\/studio-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/;
+export function studioWidgetId(appId: string): string | null {
+  const id = `${BUILTIN_WIDGET_NAMESPACE}/studio-${appId}`;
+  return STUDIO_WIDGET.test(id) ? id : null;
+}
+export function studioAppIdOf(id: string): string | null {
+  return STUDIO_WIDGET.exec(id)?.[1] ?? null;
+}
+
+// "Add to workbench" from an app page is handed to the workbench, which inserts it with the same checks as its
+// own picker once the current layout has loaded. Bound to server, account and workspace, so a switch drops it.
+let queuedCard: { scope: string; id: string } | null = null;
+const queueScope = (workspace: string) => `${getOfflineQueueStorageKey()}:${encodeURIComponent(workspace)}`;
+export function queueDashboardCard(workspace: string, id: string): void {
+  queuedCard = { scope: queueScope(workspace), id };
+}
+export function takeQueuedDashboardCard(workspace: string): string | null {
+  const card = queuedCard;
+  queuedCard = null;
+  return card && card.scope === queueScope(workspace) ? card.id : null;
+}
+
 const PLACEMENT_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)+\/[a-z][a-z0-9-]{0,63}$/;
 
 export function dashboardStorageKey(workspace: string, mobile: boolean): string {
@@ -136,12 +162,16 @@ export function pushLayoutHistory(history: readonly DashboardLayouts[], snapshot
 export type DashboardCardResolution<W> =
   | { type: "builtin"; kind: BuiltinWidgetKind }
   | { type: "plugin"; widget: W }
+  /** Personal Studio app; whether it still exists for this account is decided when the card loads it. */
+  | { type: "studio"; appId: string }
   /** Plugin card whose plugin is disabled, uninstalled, unpermitted, or a built-in from a newer version. */
   | { type: "dormant"; reason: "PLUGIN_UNAVAILABLE" | "UNKNOWN_BUILTIN" };
 
 export function resolveDashboardCard<W extends { runtimeId: string }>(placement: WidgetPlacement, pluginWidgets: ReadonlyMap<string, W>): DashboardCardResolution<W> {
   const kind = builtinWidgetKind(placement.id);
   if (kind) return { type: "builtin", kind };
+  const appId = studioAppIdOf(placement.id);
+  if (appId) return { type: "studio", appId };
   if (placement.id.startsWith(`${BUILTIN_WIDGET_NAMESPACE}/`)) return { type: "dormant", reason: "UNKNOWN_BUILTIN" };
   const widget = pluginWidgets.get(placement.id);
   return widget ? { type: "plugin", widget } : { type: "dormant", reason: "PLUGIN_UNAVAILABLE" };

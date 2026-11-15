@@ -41,6 +41,18 @@ async function start() {
       const content = String(messages.at(-1)?.content || "");
       return `Polished: ${content.slice(content.indexOf("\n\n") + 2)}`;
     };
+    // Create-app acceptance: the same stand-in drafts a Studio blueprint. The route, schema validation,
+    // rate limit and the rule that a model may never drop or retype a saved field stay real.
+    const { personalStudioAIDeps } = await import("../src/plugins/personalStudioAI.js");
+    personalStudioAIDeps.settings = () => ({ ai_provider: "openai", ai_api_url: "https://ai.fixture.invalid/v1", ai_api_key: "fixture", ai_model: "fixture" }) as unknown as ReturnType<typeof personalStudioAIDeps.settings>;
+    personalStudioAIDeps.complete = async (_settings, messages) => {
+      await new Promise((resolve) => setTimeout(resolve, Number(process.env.V3_BROWSER_AI_DELAY_MS || 1500)));
+      const { instruction, existingSchema } = JSON.parse(String(messages.at(-1)?.content || "{}")) as { instruction: string; existingSchema: { name: string; fields: Array<{ id: string; label: string; type: string }> } | null };
+      const fields = existingSchema?.fields ?? [{ id: "title", label: "Item", type: "text" }];
+      const owner = /owner|负责人/i.test(instruction) && !fields.some((field) => field.id === "owner") ? [{ id: "owner", label: "Owner", type: "text" }] : [];
+      const done = /done|status|完成/i.test(instruction) && !fields.some((field) => field.type === "checkbox") ? [{ id: "done", label: "Done", type: "checkbox" }] : [];
+      return JSON.stringify({ schemaVersion: 1, name: existingSchema?.name ?? "Project board", description: instruction.slice(0, 200), layout: "board", fields: [...fields, ...owner, ...done] });
+    };
   }
   // Serve the same production frontend and authentication routes, with a disposable DB only.
   process.env.NODE_ENV = "production";

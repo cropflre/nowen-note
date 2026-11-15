@@ -45,21 +45,26 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
     // A non-admin user can create a real persisted application without uploading executable code.
     await page.getByRole("button", { name: "Create your own app", exact: true }).click();
-    await page.getByRole("button", { name: "Checklist", exact: true }).click();
+    // Without a model the create page offers templates instead of an AI prompt (real ai-status route).
+    await expect(page.getByRole("note").filter({ hasText: "AI is not set up yet" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "AI App Builder", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Daily to-dos", exact: true }).click();
     await page.getByRole("button", { name: "Save app", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "我的待办清单", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My to-do list", exact: true })).toBeVisible();
     // The editor preview has the same heading; wait until the saved app runtime is ready.
     await expect(page.getByRole("button", { name: "Edit app", exact: true })).toBeVisible();
-    await page.getByLabel("事项", { exact: true }).fill("Studio smoke record");
+    await page.getByLabel("Item", { exact: true }).fill("Studio smoke record");
     await page.getByRole("button", { name: "Add record", exact: true }).click();
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
     await page.reload(); await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    // This host has no model configured; report AI as available so the editor offers the prompt.
+    await page.route("**/api/plugins/personal-apps/ai-status", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ available: true }) }));
     await page.getByRole("button", { name: "Edit app", exact: true }).click();
     // Mock only the upstream AI preview at the browser boundary; the actual
     // save, revision history and rollback still use the production backend.
     await page.route("**/api/plugins/personal-apps/ai-preview", async route => {
       const input = route.request().postDataJSON() as { spec: { name: string; fields: Array<{ id: string; label: string; type: string }>; [key: string]: unknown } };
-      expect(input.spec.name).toBe("我的待办清单");
+      expect(input.spec.name).toBe("My to-do list");
       const schema = { ...input.spec };
       delete schema.items;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
@@ -75,10 +80,10 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Edit app", exact: true }).click();
     await page.getByText("Version history", { exact: true }).click();
-    await expect(page.getByText("v2 · 我的待办清单", { exact: false })).toBeVisible();
+    await expect(page.getByText("v2 · My to-do list", { exact: false })).toBeVisible();
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "Restore version", exact: true }).first().click();
-    await expect(page.getByRole("textbox", { name: "App name", exact: true })).toHaveValue("我的待办清单");
+    await expect(page.getByRole("textbox", { name: "App name", exact: true })).toHaveValue("My to-do list");
     await page.getByRole("button", { name: "Back to my apps", exact: true }).click();
 
     await page.getByRole("button", { name: "My plugins", exact: true }).click();

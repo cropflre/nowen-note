@@ -4,16 +4,21 @@ import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { Search, X } from "lucide-react";
 import { dialogMotion, overlayMotion } from "@/lib/motion";
-import { addCardError, BUILTIN_WIDGETS, type WidgetPlacement, type WidgetSize } from "@/lib/pluginDashboard";
+import { addCardError, BUILTIN_WIDGETS, studioWidgetId, type WidgetPlacement, type WidgetSize } from "@/lib/pluginDashboard";
 import type { PluginDashboardWidget } from "@/lib/pluginApi";
+import type { StudioApp } from "@/lib/personalApps";
 import { cn } from "@/lib/utils";
 import { BuiltinCardIcon, builtinCardText } from "./dashboardUi";
 
-export interface PickerEntry { id: string; title: string; description: string; group: "builtin" | "plugin"; defaultSize: WidgetSize }
+export interface PickerEntry { id: string; title: string; description: string; group: "builtin" | "studio" | "plugin"; defaultSize: WidgetSize }
 
-export function pickerEntries(widgets: readonly PluginDashboardWidget[], t: (key: string, options?: Record<string, unknown>) => string): PickerEntry[] {
+export function pickerEntries(widgets: readonly PluginDashboardWidget[], t: (key: string, options?: Record<string, unknown>) => string, studioApps: readonly StudioApp[] = []): PickerEntry[] {
   return [
     ...BUILTIN_WIDGETS.map((widget) => ({ id: widget.id, ...builtinCardText(widget.kind, t), group: "builtin" as const, defaultSize: widget.defaultSize })),
+    ...studioApps.flatMap((app) => {
+      const id = studioWidgetId(app.id);
+      return id ? [{ id, title: app.spec.name, description: t("extensionCenter.workbench.studio.pickerDescription", { count: app.spec.items.length }), group: "studio" as const, defaultSize: "small" as const }] : [];
+    }),
     ...widgets.map((widget) => ({
       id: widget.runtimeId, title: widget.title, group: "plugin" as const, defaultSize: widget.defaultSize,
       description: `${t(`extensionCenter.workbench.widgetType.${widget.type}`)} · ${widget.pluginId}`,
@@ -38,7 +43,7 @@ export function WidgetPicker({ entries, items, onAdd, onClose }: {
     const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return entries.filter((entry) => tokens.every((token) => `${entry.title}\n${entry.description}`.toLowerCase().includes(token)));
   }, [entries, query]);
-  const groups = (["builtin", "plugin"] as const).map((group) => ({ group, entries: visible.filter((entry) => entry.group === group) })).filter((item) => item.entries.length);
+  const groups = (["builtin", "studio", "plugin"] as const).map((group) => ({ group, entries: visible.filter((entry) => entry.group === group) })).filter((item) => item.entries.length);
 
   return createPortal(<>
     <motion.div {...overlayMotion} className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />

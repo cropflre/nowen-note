@@ -225,6 +225,7 @@ async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
 }
 
 export const pluginApi = {
+  personalAppAIStatus: (signal?: AbortSignal) => request<{ available: boolean; code?: "STUDIO_AI_UNAVAILABLE" | "STUDIO_AI_NOT_CONFIGURED" }>("/plugins/personal-apps/ai-status", { signal }),
   previewPersonalAppAI: (instruction: string, spec?: StudioSpec, signal?: AbortSignal) => request<{ spec: StudioSpec }>("/plugins/personal-apps/ai-preview", { method: "POST", body: JSON.stringify({ instruction, ...(spec ? {spec}: {}) }), signal }),
   personalAppVersions: (id: string) => request<StudioVersion[]>(`/plugins/personal-apps/${encodeURIComponent(id)}/versions`),
   restorePersonalApp: (id: string, revision: number, expectedRevision: number) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}/restore`, { method: "POST", body: JSON.stringify({ revision, expectedRevision }) }),

@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, LayoutGrid, List, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, LayoutDashboard, LayoutGrid, List, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { pluginApi } from "@/lib/pluginApi";
+import { queueDashboardCard, studioWidgetId } from "@/lib/pluginDashboard";
 import { PersonalStudioAI, PersonalStudioVersionHistory } from "./PersonalStudioAI";
-import { addStudioField, addStudioItem, removeStudioField, updateStudioItem, newStudioId, newStudioSpec, type StudioApp, type StudioField, type StudioSpec, type StudioTemplate } from "@/lib/personalApps";
+import { CreateAppLanding } from "./extension-center/CreateAppLanding";
+import { addStudioField, addStudioItem, removeStudioField, updateStudioItem, newStudioId, type StudioApp, type StudioField, type StudioSpec } from "@/lib/personalApps";
 
 const UI = {
-  zh: { back: "返回我的应用", create: "创建自己的应用", template: "选择一个模板开始，无需编写代码", checklist: "待办清单", records: "个人资料库", tracker: "项目进度板", edit: "可视化编辑", name: "应用名称", description: "用途说明", layout: "展示方式", list: "列表", board: "卡片", fields: "记录字段", field: "新字段名称", text: "文本", checkbox: "勾选", addField: "添加字段", preview: "实时预览", save: "保存应用", saving: "正在保存…", saved: "保存成功", error: "操作失败，请核对数据后重试。若出现版本冲突，请刷新页面后检查最新内容。", addRecord: "添加记录", empty: "还没有记录，试着添加第一条", deleted: "删除应用", deleteConfirm: "确定删除这个应用及全部记录吗？删除后无法恢复。", editApp: "编辑应用", personal: "仅自己可见 · 保存在当前服务器，暂不参与 Sync V2 离线同步", count: "最多 8 个字段、100 条记录", noCode: "安全声明式应用：不会运行自定义 JavaScript，也不会自动访问 Nowen 笔记或任务", view: "打开应用", busy: "正在加载…", failed: "无法加载应用，请重新登录或重试", remove: "删除", close: "取消", required: "请填写应用名称与字段名称", limit: "字段已达上限", maxItems: "记录已达上限" },
-  en: { back: "Back to my apps", create: "Create your own app", template: "Choose a template—no coding needed", checklist: "Checklist", records: "Personal records", tracker: "Project tracker", edit: "Visual editor", name: "App name", description: "Description", layout: "Layout", list: "List", board: "Cards", fields: "Fields", field: "New field", text: "Text", checkbox: "Checkbox", addField: "Add field", preview: "Live preview", save: "Save app", saving: "Saving…", saved: "Saved", error: "Could not save. If another device changed this app, reload and review its latest version.", addRecord: "Add record", empty: "No records yet—add your first one", deleted: "Delete app", deleteConfirm: "Delete this app and all its records permanently?", editApp: "Edit app", personal: "Private to your account · Saved on this server; offline Sync V2 is not supported", count: "Up to 8 fields and 100 records", noCode: "Declarative app: no custom JavaScript or access to your Nowen notes/tasks", view: "Open app", busy: "Loading…", failed: "Unable to load the app. Sign in again or retry.", remove: "Remove", close: "Cancel", required: "Enter an app and field name", limit: "Field limit reached", maxItems: "Record limit reached" },
+  zh: { back: "返回我的应用", create: "创建自己的应用", template: "选择一个模板开始，无需编写代码", edit: "可视化编辑", name: "应用名称", description: "用途说明", layout: "展示方式", list: "列表", board: "卡片", fields: "记录字段", field: "新字段名称", text: "文本", checkbox: "勾选", addField: "添加字段", preview: "实时预览", save: "保存应用", saving: "正在保存…", saved: "保存成功", error: "操作失败，请核对数据后重试。若出现版本冲突，请刷新页面后检查最新内容。", addRecord: "添加记录", empty: "还没有记录，试着添加第一条", deleted: "删除应用", deleteConfirm: "确定删除这个应用及全部记录吗？删除后无法恢复。", editApp: "编辑应用", personal: "仅自己可见 · 保存在当前服务器，暂不参与 Sync V2 离线同步", count: "最多 8 个字段、100 条记录", noCode: "安全声明式应用：不会运行自定义 JavaScript，也不会自动访问 Nowen 笔记或任务", view: "打开应用", busy: "正在加载…", failed: "无法加载应用，请重新登录或重试", remove: "删除", close: "取消", required: "请填写应用名称与字段名称", limit: "字段已达上限", maxItems: "记录已达上限" },
+  en: { back: "Back to my apps", create: "Create your own app", template: "Choose a template—no coding needed", edit: "Visual editor", name: "App name", description: "Description", layout: "Layout", list: "List", board: "Cards", fields: "Fields", field: "New field", text: "Text", checkbox: "Checkbox", addField: "Add field", preview: "Live preview", save: "Save app", saving: "Saving…", saved: "Saved", error: "Could not save. If another device changed this app, reload and review its latest version.", addRecord: "Add record", empty: "No records yet—add your first one", deleted: "Delete app", deleteConfirm: "Delete this app and all its records permanently?", editApp: "Edit app", personal: "Private to your account · Saved on this server; offline Sync V2 is not supported", count: "Up to 8 fields and 100 records", noCode: "Declarative app: no custom JavaScript or access to your Nowen notes/tasks", view: "Open app", busy: "Loading…", failed: "Unable to load the app. Sign in again or retry.", remove: "Remove", close: "Cancel", required: "Enter an app and field name", limit: "Field limit reached", maxItems: "Record limit reached" },
 } as const;
 function useCopy() { const { i18n } = useTranslation(); return i18n.language.startsWith("zh") ? UI.zh : UI.en; }
 const inputClass = "w-full rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-tx-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/40";
@@ -79,16 +82,16 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     finally { setBusy(false); }
   };
   if (loading) return <div role="status" className="p-8">{t.busy}</div>;
-  if (!spec) return <section className="mx-auto max-w-4xl space-y-5 p-4 sm:p-8">
+  // A new app is created inside the Extension Center ("Create app"); an existing app that failed to load shows why.
+  if (!spec) return appId ? <section className="mx-auto max-w-4xl space-y-5 p-4 sm:p-8">
     <button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button>
-    <div><h1 className="text-2xl font-semibold">{t.create}</h1><p className="mt-2 text-sm text-tx-secondary">{t.template}</p></div>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
-    {!appId && <PersonalStudioAI spec={null} onAccept={next => { setSpec(next); setError(""); }} />}
-    {!appId && <div className="grid gap-3 sm:grid-cols-3">{(["checklist","records","tracker"] as StudioTemplate[]).map(template => <button type="button" key={template} aria-label={t[template]} className="min-h-32 rounded-2xl border border-app-border bg-app-surface p-5 text-left hover:border-accent-primary hover:bg-app-hover" onClick={() => { setSpec(newStudioSpec(template)); setError(""); }}>
-      <LayoutGrid size={24} className="mb-4 text-accent-primary"/><strong className="block">{t[template]}</strong><span className="mt-2 block text-xs text-tx-secondary">{newStudioSpec(template).description}</span>
-    </button>)}</div>}
-  </section>;
-  return <section className="mx-auto w-full max-w-6xl space-y-5 p-4 pb-14 sm:p-6">
+  </section> : <div className="space-y-5">
+    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    <CreateAppLanding onPick={next => { setSpec(next); setError(""); }} />
+  </div>;
+  // A new draft stays in the Extension Center frame, which already provides the page padding.
+  return <section className={appId ? "mx-auto w-full max-w-6xl space-y-5 p-4 pb-14 sm:p-6" : "space-y-5"}>
     <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex items-center gap-2"><span className="text-xs text-tx-secondary">{t.personal}</span><button className={primaryClass} disabled={busy} onClick={() => void save()}><Save size={16}/>{busy ? t.saving : t.save}</button></div></div>
     <div><h1 className="text-xl font-semibold">{t.edit}</h1><p className="mt-1 text-sm text-tx-secondary">{t.noCode}</p></div>
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
@@ -120,8 +123,9 @@ export function PersonalStudio({ appId }: { appId?: string }) {
   </section>;
 }
 
-export function PersonalStudioRuntime({ appId }: { appId: string }) {
+export function PersonalStudioRuntime({ appId, dashboardEnabled = false }: { appId: string; dashboardEnabled?: boolean }) {
   const t = useCopy();
+  const { t: translate } = useTranslation();
   const [app, setApp] = useState<StudioApp | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -147,9 +151,17 @@ export function PersonalStudioRuntime({ appId }: { appId: string }) {
     catch { setError(t.error); }
     finally { setBusy(false); }
   };
+  // The workbench inserts the card itself, with the same checks as its own "Add card" picker.
+  const addToDashboard = () => {
+    const id = app && studioWidgetId(app.id);
+    if (!id) return;
+    queueDashboardCard(getCurrentWorkspace(), id);
+    pushAppPathState("/apps/dashboard");
+  };
   if (!app) return <div role={error ? "alert" : "status"} className="p-8">{error || t.busy}</div>;
   return <section className="mx-auto w-full max-w-5xl space-y-5 p-4 pb-16 sm:p-8">
-    <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex flex-wrap gap-2">
+      {dashboardEnabled && <button className={actionClass} onClick={addToDashboard}><LayoutDashboard size={14} className="mr-1 inline"/>{translate("extensionCenter.workbench.studio.add")}</button>}
       <button className={actionClass} onClick={() => pushAppPathState("/apps/studio/" + app.id)}><Pencil size={14} className="mr-1 inline"/>{t.editApp}</button>
       <button className={actionClass} disabled={busy} onClick={() => void remove()}><Trash2 size={14} className="mr-1 inline"/>{t.deleted}</button>
     </div></div>

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema.js";
-import { previewPersonalAIApp } from "../plugins/personalStudioAI.js";
+import { personalAIUnavailableCode, previewPersonalAIApp } from "../plugins/personalStudioAI.js";
 import { listPersonalStudioVersions, restorePersonalStudioVersion } from "../plugins/personalStudioHistory.js";
 import { listPersonalStudioApps, getPersonalStudioApp, createPersonalStudioApp, updatePersonalStudioApp, deletePersonalStudioApp } from "../plugins/personalStudioApps.js";
 import { bodyLimit } from "hono/body-limit";
@@ -111,6 +111,15 @@ pluginsRouter.post("/personal-apps/ai-preview", bodyLimit({ maxSize: 64 * 1024 }
     }, 502);
     return errorResponse(c, error);
   }
+});
+// Lets the create page offer templates up front instead of an AI request that can only fail.
+// Registered before "/personal-apps/:appId"; reports only a bounded code, never the AI settings.
+pluginsRouter.get("/personal-apps/ai-status", c => {
+  try {
+    const code = personalAIUnavailableCode(studioActor(c));
+    c.header("Cache-Control", "no-store");
+    return c.json(code ? { available: false, code } : { available: true });
+  } catch (error) { return errorResponse(c, error); }
 });
 pluginsRouter.get("/personal-apps/:appId/versions", c => {
   try { c.header("Cache-Control", "no-store"); return c.json(listPersonalStudioVersions(getDb(), studioActor(c), c.req.param("appId"))); }
