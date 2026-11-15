@@ -38,8 +38,9 @@ test("creates apps from AI and from templates, saves them and adds them to the d
 
     // The create entry is a section of the Extension Center with the official template library.
     await page.goto(`${url}/apps/studio`);
-    const nav = page.getByRole("navigation", { name: "Extension Center navigation" });
-    await expect(nav.getByRole("button", { name: "Create app", exact: true })).toHaveAttribute("aria-current", "page");
+    // "Create" is the single action next to the three tabs, not a fourth tab.
+    await expect(page.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button")).toHaveText(["Discover", "Mine", "Dashboard"]);
+    await expect(page.getByRole("button", { name: "Create", exact: true })).toHaveAttribute("aria-current", "page");
     for (const title of ["Project progress", "Reading log", "Habit tracker", "Meeting notes", "Travel checklist", "Daily to-dos"]) {
       await expect(page.getByRole("button", { name: title, exact: true })).toBeVisible();
     }

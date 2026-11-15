@@ -45,6 +45,11 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
 
     await signIn(page, "v3_browser", "v3-browser-test-password");
     await openDiscover(page);
+    // Three tabs and one create action; registry and runtime vocabulary stays out of the cards.
+    const nav = page.getByRole("navigation", { name: "Extension Center navigation" });
+    await expect(nav.getByRole("button")).toHaveText(["Discover", "Mine", "Dashboard"]);
+    await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
+    await expect(page.locator('[data-extension-card="plugin:fixture.writer"]')).not.toContainText(/runtime|sandbox|declarative/i);
     // The official source cannot be reached from the in-process transport: it fails visibly without hiding the fixture source.
     await expect(page.getByRole("alert").filter({ hasText: "Nowen Official Registry" })).toBeVisible();
     await page.getByRole("searchbox", { name: "Search extensions" }).fill("markdown");
@@ -75,8 +80,36 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await writer.getByRole("button", { name: "Manage", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Fixture Writer" });
     await expect(drawer).toContainText("Granted");
+    await expect(drawer.getByText("fixture.writer", { exact: true })).toBeHidden();
+    await drawer.getByText("Technical details", { exact: true }).click();
+    await expect(drawer.getByText("fixture.writer", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(drawer).toHaveCount(0);
+
+    // "Mine" is one list. The legacy /apps/manage deep link still lands on it, and history works.
+    await nav.getByRole("button", { name: "Mine", exact: true }).click();
+    await expect(page).toHaveURL(/\/apps$/);
+    await expect(writer).toBeVisible();
+    await expect(page.locator('[data-extension-card="plugin:fixture.tampered"]')).toHaveCount(0);
+    await page.goto(`${url}/apps/manage`);
+    await expect(nav.getByRole("button", { name: "Mine", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(writer).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("extension-center-mine.png") });
+    // Administrator tooling moved to Settings; it is still reachable and no longer repeats the marketplace.
+    await page.getByRole("button", { name: "Administrator actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Advanced settings", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Advanced settings", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "市场", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "来源与开发者", exact: true }).click();
+    await expect(page.getByText("Registry 来源与国内镜像", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "更新与安全", exact: true }).click();
+    await expect(page.getByRole("button", { name: "检查更新", exact: true })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("extension-center-advanced-settings.png") });
+    await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
+    await page.goBack();
+    await expect(nav.getByRole("button", { name: "Mine", exact: true })).toHaveAttribute("aria-current", "page");
+    await page.goBack();
+    await expect(nav.getByRole("button", { name: "Discover", exact: true })).toHaveAttribute("aria-current", "page");
 
     // Deep-link refresh keeps the page and the server state; then the real dark theme preference and 390px.
     await page.reload();
@@ -121,8 +154,12 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
       const memberHeaders = { Authorization: `Bearer ${await login("v3_member", "v3-member-test-password")}` };
       expect((await member.request.post(`${url}/api/plugins/ecosystem/install`, { headers: memberHeaders, data: { sourceId: "fixture-registry", pluginId: "fixture.tampered" } })).status()).toBe(403);
       expect((await member.request.post(`${url}/api/plugins/fixture.writer/disable`, { headers: memberHeaders })).status()).toBe(403);
-      await member.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "My plugins", exact: true }).click();
-      await expect(member.getByText("Administrators handle installs, approvals and enabling.", { exact: false })).toBeVisible();
+      await member.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "Mine", exact: true }).click();
+      await expect(member.getByRole("button", { name: "Administrator actions", exact: true })).toHaveCount(0);
+      await member.getByRole("button", { name: "More actions · Fixture Writer", exact: true }).click();
+      await expect(member.getByRole("menuitem")).toHaveText(["Details and settings"]);
+      await member.keyboard.press("Escape");
+      await expect(member.getByText("Administrators handle installs, approvals and enabling", { exact: false })).toBeVisible();
       await expect(member.locator('input[type="file"][accept=".nowen-plugin"]')).toHaveCount(0);
     } finally { await memberContext.close(); }
     expect(await pluginStatus("fixture.writer")).toBe("enabled");
