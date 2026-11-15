@@ -58,6 +58,24 @@ describe("editor title tree location", () => {
     expect(mocks.reveal).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the title field named by its purpose; the tree hint only describes it", async () => {
+    const fields = <>
+      <div data-markdown-mobile-title=""><textarea placeholder="Note Title" defaultValue="Welcome" /></div>
+      <div data-mobile-editor-title=""><textarea aria-label="Existing name" defaultValue="Other" /></div>
+    </>;
+    await render(fields);
+    const [field, named] = Array.from(host.querySelectorAll("textarea"));
+    // A bare title attribute would replace the placeholder as the accessible name.
+    expect(field.getAttribute("aria-label")).toBe("Note Title");
+    expect(field.title).toBe("双击在目录中定位");
+    expect(named.getAttribute("aria-label")).toBe("Existing name");
+    mocks.state.activeNote = { id: "note-1", isTrashed: true };
+    await render(fields);
+    expect(field.hasAttribute("aria-label")).toBe(false);
+    expect(field.hasAttribute("title")).toBe(false);
+    expect(named.getAttribute("aria-label")).toBe("Existing name");
+  });
+
   it("waits for the lazy safe editor and follows active note changes", async () => {
     await render(null);
     await act(async () => {

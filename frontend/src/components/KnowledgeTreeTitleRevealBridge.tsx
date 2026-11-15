@@ -31,11 +31,15 @@ export default function KnowledgeTreeTitleRevealBridge({
   useEffect(() => {
     const root = rootRef.current;
     if (!root || !noteId || trashed) return;
-    const originalTitles = new Map<TitleField, string | null>();
+    const originals = new Map<TitleField, { title: string | null; label: string | null }>();
     const updateHints = () => {
       for (const field of titleFields(root)) {
-        if (originalTitles.has(field)) continue;
-        originalTitles.set(field, field.getAttribute("title"));
+        if (originals.has(field)) continue;
+        originals.set(field, { title: field.getAttribute("title"), label: field.getAttribute("aria-label") });
+        // The hint goes into `title`, which would otherwise become the field's accessible name ahead of its
+        // placeholder. Keep the name the field had before, so the hint is read as its description only.
+        const name = field.getAttribute("title") || field.placeholder;
+        if (name && !field.hasAttribute("aria-label") && !field.hasAttribute("aria-labelledby") && !field.labels?.length) field.setAttribute("aria-label", name);
         field.title = field.title ? `${field.title}\n${hint}` : hint;
       }
     };
@@ -49,9 +53,11 @@ export default function KnowledgeTreeTitleRevealBridge({
     return () => {
       observer.disconnect();
       root.removeEventListener("dblclick", reveal);
-      for (const [field, original] of originalTitles) {
-        if (original === null) field.removeAttribute("title");
-        else field.title = original;
+      for (const [field, original] of originals) {
+        if (original.title === null) field.removeAttribute("title");
+        else field.title = original.title;
+        if (original.label === null) field.removeAttribute("aria-label");
+        else field.setAttribute("aria-label", original.label);
       }
     };
   }, [hint, noteId, rootRef, trashed]);
