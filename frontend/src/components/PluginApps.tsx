@@ -1,19 +1,17 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Blocks, Pin, PinOff } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
 import { usePluginApps } from "@/hooks/usePluginApps";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
-import { loadPluginAppPins, savePluginAppPins } from "@/lib/pluginApps";
 import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
 // Loaded on demand: the navigation rail imports this module, the workbench is only needed on /apps/dashboard.
 const PluginDashboard = lazy(() => import("./PluginDashboard"));
-import PluginDataActions from "./PluginDataActions";
-import { PersonalStudio, PersonalStudioRuntime, PersonalStudioLibrary } from "./PersonalStudio";
+import { PersonalStudio, PersonalStudioRuntime } from "./PersonalStudio";
 import { ExtensionCenterLayout } from "./extension-center/ExtensionCenterLayout";
 import ExtensionDiscover from "./extension-center/ExtensionDiscover";
 import MyPlugins from "./extension-center/MyPlugins";
@@ -119,7 +117,7 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
   </div>;
 }
 
-export default function PluginApps({ pluginId, pageId, dashboard = false, manage = false, discover = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; manage?: boolean; discover?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
+export default function PluginApps({ pluginId, pageId, dashboard = false, discover = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; discover?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
   const { enabled, centerEnabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
@@ -135,15 +133,9 @@ export default function PluginApps({ pluginId, pageId, dashboard = false, manage
   if (discover) return <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>
     {centerEnabled ? <ExtensionDiscover dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} /> : unavailable}
   </ExtensionCenterLayout>;
-  if (manage) return <ExtensionCenterLayout section="plugins" dashboardEnabled={dashboardEnabled}>
-    {centerEnabled ? <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} /> : unavailable}
-  </ExtensionCenterLayout>;
-  return <ExtensionCenterLayout section="apps" dashboardEnabled={dashboardEnabled}>
-    <PersonalStudioLibrary />
-    <h2 className="my-4 text-sm font-semibold text-tx-secondary">{t("pluginApps.installedExtensions", "已安装的扩展应用")}</h2>
-    {!enabled || pages.length === 0 || pluginId ? <p>{t(pluginId ? "pluginApps.unavailable" : "pluginApps.empty")}</p> : <ul className="space-y-3">{pages.map(page => <li key={page.runtimeId} className="flex items-center justify-between gap-4 rounded-lg border border-app-border p-4">
-      <div className="min-w-0"><button aria-label={page.title} className="mb-2 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button><PluginDataActions pluginId={page.pluginId} /></div>
-      <button aria-label={t(pinned(page) ? "pluginApps.unpin" : "pluginApps.pin")} onClick={() => { const pins = loadPluginAppPins(); savePluginAppPins(pinned(page) ? pins.filter(id => id !== page.runtimeId) : [...pins, page.runtimeId]); }}>{pinned(page) ? <PinOff size={18} /> : <Pin size={18} />}</button>
-    </li>)}</ul>}
+  // "/apps" and the legacy "/apps/manage" both show the unified "Mine" list.
+  return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardEnabled}>
+    {pluginId && <p role="alert" className="mb-4 text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>}
+    {centerEnabled ? <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} pages={pages} pinned={pinned} /> : unavailable}
   </ExtensionCenterLayout>;
 }

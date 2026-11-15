@@ -137,7 +137,7 @@ export function PermissionList({ permissions, granted, highlight, t }: { permiss
       const risk = permissionRisk(permission);
       return <li key={permission} className={cn("flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm", highlight?.has(permission) && "bg-amber-500/10")}>
         <Chip tone={RISK_TONE[risk]}>{t(`extensionCenter.risk.${risk}`)}</Chip>
-        <span className="min-w-0 flex-1 text-tx-primary">{permissionLabel(permission, t)}<span className="ml-1.5 font-mono text-[10px] text-tx-tertiary">{permission}</span></span>
+        <span className="min-w-0 flex-1 text-tx-primary">{permissionLabel(permission, t)}</span>
         {granted && <span className={cn("shrink-0 text-[11px]", granted.has(permission) ? "text-emerald-600 dark:text-emerald-300" : "text-amber-600 dark:text-amber-300")}>
           {granted.has(permission) ? t("extensionCenter.detail.granted") : t("extensionCenter.detail.notGranted")}
         </span>}

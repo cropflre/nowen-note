@@ -1,27 +1,31 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Blocks, Compass, LayoutDashboard, PackageCheck, WandSparkles } from "lucide-react";
+import { Blocks, Compass, LayoutDashboard, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { cn } from "@/lib/utils";
 
-export type ExtensionCenterSection = "apps" | "discover" | "plugins" | "dashboard" | "create";
+export type ExtensionCenterSection = "discover" | "mine" | "dashboard" | "create";
 
 /** Shared header for the Extension Center pages; every entry is an in-app route, not a full reload. */
 export function ExtensionCenterLayout({ section, dashboardEnabled, children }: { section: ExtensionCenterSection; dashboardEnabled: boolean; children: React.ReactNode }) {
   const { t } = useTranslation();
   const items = [
-    { id: "apps", route: "/apps", label: t("extensionCenter.nav.myApps"), Icon: Blocks },
     { id: "discover", route: "/apps/discover", label: t("extensionCenter.nav.discover"), Icon: Compass },
-    { id: "plugins", route: "/apps/manage", label: t("extensionCenter.nav.myPlugins"), Icon: PackageCheck },
+    { id: "mine", route: "/apps", label: t("extensionCenter.nav.mine"), Icon: Blocks },
     ...(dashboardEnabled ? [{ id: "dashboard", route: "/apps/dashboard", label: t("extensionCenter.nav.dashboard"), Icon: LayoutDashboard }] : []),
-    { id: "create", route: "/apps/studio", label: t("extensionCenter.nav.create"), Icon: WandSparkles },
   ];
   return <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
     <div className="mx-auto w-full min-w-0 max-w-6xl px-4 pb-12 pt-4 sm:px-6">
       <header className="mb-5 min-w-0">
-        <h1 className="text-xl font-semibold text-tx-primary">{t("extensionCenter.title")}</h1>
-        <p className="mt-1 text-sm text-tx-secondary">{t("extensionCenter.subtitle")}</p>
-        <nav aria-label={t("extensionCenter.navLabel")} className="mt-4 flex min-w-0 gap-1 overflow-x-auto border-b border-app-border">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="min-w-0 truncate text-xl font-semibold text-tx-primary">{t("extensionCenter.title")}</h1>
+          <Button type="button" size="sm" variant={section === "create" ? "outline" : "default"} aria-current={section === "create" ? "page" : undefined}
+            className="min-h-11 shrink-0 md:min-h-9" onClick={() => pushAppPathState("/apps/studio")}>
+            <Plus size={15} className="mr-1" aria-hidden />{t("extensionCenter.nav.create")}
+          </Button>
+        </div>
+        <nav aria-label={t("extensionCenter.navLabel")} className="mt-3 flex min-w-0 gap-1 overflow-x-auto border-b border-app-border">
           {items.map(({ id, route, label, Icon }) => {
             const active = id === section;
             return <button key={id} type="button" aria-current={active ? "page" : undefined} onClick={() => pushAppPathState(route)}
