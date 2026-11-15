@@ -113,6 +113,7 @@ globalThis.__nowenPluginModule = {
 3. **校验结果**：
    - 必须是对象。
    - `text` 不超过 64 KB，且不能包含加密块（伪造的加密块会让笔记无法保存）。
+   - `text` 和 `message` 都不能含孤立的 UTF-16 代理项（保存时会被悄悄换成 U+FFFD）。
    - `message` 不超过 500 字。
    - 插件明确返回失败时，不写入任何内容。
 4. **预览**：`open-preview` 或 `requiresConfirmation` 时先预览，确认后才写入。

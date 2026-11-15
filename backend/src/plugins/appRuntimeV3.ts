@@ -76,12 +76,12 @@ export class AppRuntimeV3 {
     this.documents.set(ticket, { id: identity.instanceId, html: document, expiresAt: Date.now() + 30000 });
     return { ...identity, expiresAt, documentPath: `/plugin-ui-v3/${ticket}` };
   }
-  takeDocument(ticket: string): string {
+  takeDocument(ticket: string): { html: string; platform: AppPlatformV3 } {
     const document = this.documents.get(ticket); this.documents.delete(ticket);
     if (!document || document.expiresAt <= Date.now()) deny();
     const session = this.sessions.get(document.id); if (!session) deny();
     this.check(document.id, session.guard.session.nonce, session.actor);
-    return document.html;
+    return { html: document.html, platform: session.platform };
   }
   check(id: string, nonce: string, actor: AppActorV3): AppSessionV3 {
     const session = this.sessions.get(id);

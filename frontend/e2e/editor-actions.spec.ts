@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Request } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -72,6 +72,17 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
     await expect(markdown).toContainText("会议纪要");
     await expect.poll(() => saved(markdownNote.id), { timeout: 15000 }).toContain("## 会议纪要");
 
+    // Typing never queries the plugin API: actions come from contributions loaded once per change.
+    const pluginRequestsWhile = async (action: () => Promise<void>) => {
+      const seen: string[] = [];
+      const record = (request: Request) => { const { pathname } = new URL(request.url()); if (pathname.startsWith("/api/plugins")) seen.push(pathname); };
+      page.on("request", record);
+      try { await action(); await page.waitForTimeout(800); } finally { page.off("request", record); }
+      return seen;
+    };
+    await markdown.click(); await page.keyboard.press("ControlOrMeta+End");
+    expect(await pluginRequestsWhile(() => page.keyboard.type(" typing stays local", { delay: 15 }))).toEqual([]);
+
     const selectLine = async (text: string) => {
       await markdown.getByText(text, { exact: true }).click();
       await page.keyboard.press("Home"); await page.keyboard.press("Shift+End");
@@ -130,6 +141,8 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
     await page.getByRole("menuitem", { name: /转为大写/ }).click();
     await expect(rich).toContainText("RICH TARGET");
     await expect.poll(() => saved(richNote.id), { timeout: 15000 }).toContain("RICH TARGET");
+    await rich.locator("p").last().click(); await page.keyboard.press("End");
+    expect(await pluginRequestsWhile(() => page.keyboard.type(" typing stays local", { delay: 15 }))).toEqual([]);
     await page.screenshot({ path: test.info().outputPath("editor-actions-rich.png") });
 
     // Narrow screens: the toolbar menu stays inside the viewport.

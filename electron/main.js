@@ -37,6 +37,7 @@ const {
   isTrustedSetupWindowSender,
   assertMainWindowSender,
   setTrustedMainWindowId,
+  attachPluginFrameGuard,
 } = require("./security");
 const {
   getDefaultDataPath,
@@ -1423,6 +1424,9 @@ function createWindow() {
       console.warn("[main] blocked main window navigation to unsafe URL:", navigationUrl);
     }
   });
+
+  // 插件界面 iframe 不能自行跳转到别的地址（见 security.js）。
+  attachPluginFrameGuard(mainWindow.webContents, () => console.warn("[main] blocked plugin frame navigation"));
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     // SEC-ELECTRON-01-B1: 使用 URL parser 验证协议，只允许安全协议

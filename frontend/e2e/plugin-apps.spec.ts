@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
+import http from "node:http";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -133,6 +134,19 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     const reopened = page.frames().find(frame => frame.url().includes("/api/plugin-ui-v3/"))!;
     await reopened.evaluate(destination => { location.href = destination; }, `${url}/api/health?unexpected-frame-navigation=1`);
     await expect(page.locator('iframe[title="Hello Nowen App"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(iframe.getByLabel("Message", { exact: true })).toHaveValue("kept across app restarts");
+    // Navigating its own frame to another origin is refused by the host page's frame-src, so nothing leaves.
+    const leaks: string[] = [];
+    const sink = http.createServer((request, response) => { leaks.push(request.url ?? ""); response.end("ok"); });
+    await new Promise<void>(resolve => sink.listen(0, "127.0.0.1", resolve));
+    try {
+      const exfiltrating = page.frames().find(frame => frame.url().includes("/api/plugin-ui-v3/"))!;
+      await exfiltrating.evaluate(destination => { location.href = destination; }, `http://127.0.0.1:${(sink.address() as net.AddressInfo).port}/leak?message=kept-across-app-restarts`);
+      await expect(page.locator('iframe[title="Hello Nowen App"]')).toHaveCount(0);
+      await page.waitForTimeout(1000);
+      expect(leaks).toEqual([]);
+    } finally { await new Promise(resolve => sink.close(resolve)); }
     await page.getByRole("button", { name: "Reopen", exact: true }).click();
     await expect(iframe.getByLabel("Message", { exact: true })).toHaveValue("kept across app restarts");
     await iframe.getByRole("button", { name: "Back to notes", exact: true }).click();

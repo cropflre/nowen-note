@@ -88,6 +88,7 @@ test("creates apps from AI and from templates, saves them and adds them to the d
     // Template path: a localized draft that is only created on save and loads back after a reload.
     await page.goto(`${url}/apps/studio`);
     await page.getByRole("button", { name: "Reading log", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Field type", exact: true })).toHaveValue("text");
     await page.getByRole("button", { name: "Save app", exact: true }).click();
     await expect(page.getByRole("heading", { name: "My reading log", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit app", exact: true })).toBeVisible();

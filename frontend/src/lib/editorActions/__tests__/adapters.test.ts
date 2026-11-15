@@ -216,4 +216,29 @@ describe("encrypted regions are never sent or overwritten", () => {
     snapshot.release();
     expect(editor.getJSON().content?.[0]).toMatchObject({ type: "codeBlock", content: [{ text: "const # not a heading = 1;" }] });
   });
+
+  // A hostile plugin or model controls the result; it must stay inert in both editors.
+  const hostile = '<img src=x onerror="window.__pwned=1"><script>window.__pwned=2</script>**bold** [x](javascript:window.__pwned=3)';
+
+  it("markdown inserts hostile markup verbatim as source text", () => {
+    const harness = markdownHarness("Hello world");
+    harness.select("world");
+    expect(captured(harness).apply(hostile, "replace")).toBe("applied");
+    expect(harness.text()).toBe(`Hello ${hostile}`);
+    expect((window as Window & { __pwned?: number }).__pwned).toBeUndefined();
+  });
+
+  it("tiptap keeps the formatting of hostile markup but drops scripts, handlers and javascript: links", () => {
+    const editor = new Editor({ extensions: getTiptapExtensions(), content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Hello world" }] }] } });
+    cleanups.push(() => editor.destroy());
+    editor.commands.setTextSelection({ from: 7, to: 12 });
+    const snapshot = createTiptapEditorActionAdapter(editor, () => "note-1").capture();
+    if ("error" in snapshot) throw new Error(snapshot.error);
+    cleanups.push(() => snapshot.release());
+    expect(snapshot.apply(hostile, "replace")).toBe("applied");
+    const html = editor.getHTML();
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).not.toMatch(/onerror|<script|javascript:|__pwned/i);
+    expect((window as Window & { __pwned?: number }).__pwned).toBeUndefined();
+  });
 });

@@ -234,6 +234,27 @@ test("prompt actions use the host AI configuration and never run plugin code", a
   } finally { deps.settings = original.settings; deps.ai = original.ai; }
 });
 
+test("hostile results: oversized text and broken Unicode are refused; markup comes back as text for the editor to sanitize", async () => {
+  const original = { settings: deps.settings, ai: deps.ai };
+  const { EDITOR_ACTION_LIMITS } = await import("../src/plugins/manifest");
+  try {
+    deps.settings = () => ({ ai_provider: "openai", ai_api_url: "https://ai.example.test/v1", ai_api_key: "sk-test", ai_model: "fixture" });
+    const polish = () => run(AI, "polish", { noteId: "ea-note", editor: "tiptap", text: "原文" });
+    deps.ai = async () => "字".repeat(Math.ceil(EDITOR_ACTION_LIMITS.maxResultBytes / 3) + 1);
+    assert.equal((await polish()).json.code, "PLUGIN_EDITOR_ACTION_INVALID_RESULT");
+    for (const broken of ["ok \ud800 broken", "\udc00 starts low", "ends high \udbff"]) {
+      deps.ai = async () => broken;
+      assert.equal((await polish()).json.code, "PLUGIN_EDITOR_ACTION_INVALID_RESULT", JSON.stringify(broken));
+    }
+    deps.ai = async () => "emoji 😀 stays";
+    assert.equal((await polish()).json.text, "emoji 😀 stays");
+    const markup = '<img src=x onerror="alert(1)"><script>alert(1)</script>';
+    deps.ai = async () => markup;
+    const returned = await polish();
+    assert.deepEqual([returned.status, returned.json.text], [200, markup]);
+  } finally { deps.settings = original.settings; deps.ai = original.ai; }
+});
+
 test("disabled plugins stop serving editor actions", async () => {
   await service.disable(TOOLS);
   const result = await run(TOOLS, "wrap-quote", { noteId: "ea-note", editor: "markdown", text: "a" });

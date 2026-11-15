@@ -35,7 +35,17 @@ V3 的默认值不打开旧 V2.1 声明式 UI/布局编辑、Plugin Studio、文
 
 文档响应同时设置 `CSP sandbox allow-scripts`、`frame-ancestors 'self'`、`X-Frame-Options: SAMEORIGIN`、`no-store` 和 `no-referrer`。iframe 只有 `sandbox="allow-scripts"`，没有 `allow-same-origin`；CSP 禁止 fetch、子 frame、worker、对象和表单。宿主只在应用开关打开时给 `frame-src` 增加 self，不放宽宿主 script-src。插件不能读取宿主 DOM、localStorage、Token 或 Electron preload；Electron 主窗口显式关闭子 frame Node 集成。
 
-**边界：iframe 自身导航并不能由这些 CSP 完整禁止。** 页面出现第二次 load 时销毁 Bridge，但导航的首次请求可能已经发出；不能声称实现了任意恶意 UI 的全面网络隔离。iframe 也不提供 CPU/内存硬配额，不能承诺无限循环或崩溃的进程隔离。对不可信市场插件开放前，这两项仍是安全验收缺口。
+**边界（1.6.0 Phase 5 实测，见[发布检查报告](./extension-experience-v16-release-check.md)）：**
+- **iframe 自身导航**：iframe 自己的 CSP 禁止不了它导航自身，要靠宿主页面拦截。
+  - Web 端：后端返回的应用页面带 `frame-src 'self'` 加视频站点，Chromium 实测导航到外部地址的请求不会发出。
+  - 桌面端：页面来自 `file://`，meta CSP 放行任意 http/https；由 Electron 主进程拦截插件 frame 自己发起的导航（Electron 43 实测）。
+  - 不经后端、只用前端 meta CSP 部署时，自身导航仍可把数据带到外部。这类部署需要在反向代理上加同等的 `frame-src`。
+  - 页面出现第二次 load 时仍会销毁 Bridge。
+- **桌面会话的嵌入方**：桌面会话的文档额外允许被 `file:` 页面嵌入，并且不带 `X-Frame-Options`；Web 会话保持 `'self'` 加 `SAMEORIGIN`。
+- **CSP 管不到的通道**：WebRTC 等通道仍能连接外部，实测 STUN 包可以发出。因此不能声称实现了任意恶意 UI 的全面网络隔离。
+- **资源配额**：iframe 不提供 CPU/内存硬配额，不能承诺对无限循环或崩溃做进程隔离。
+
+对不可信市场插件开放前，WebRTC 通道和资源配额仍是安全验收缺口。
 
 ## Bridge 与授权
 

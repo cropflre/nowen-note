@@ -234,9 +234,10 @@ export function pluginAppDocumentResponse(c: any) {
   if (!getApplicationV3FeatureFlags().appPages || !/^[a-f0-9]{64}$/.test(c.req.param("ticket"))) return c.text("App document unavailable", 404);
   if (c.req.header("Sec-Fetch-Dest") !== "iframe") return c.text("Iframe required", 403);
   try {
-    const html = getPluginService().appRuntime.takeDocument(c.req.param("ticket"));
-    c.header("Content-Security-Policy", `sandbox allow-scripts; ${APP_DOCUMENT_V3_CSP}; frame-ancestors 'self'`);
-    c.header("X-Frame-Options", "SAMEORIGIN");
+    const { html, platform } = getPluginService().appRuntime.takeDocument(c.req.param("ticket"));
+    // The desktop shell loads its UI from file://, so only a desktop session's document may be framed there.
+    c.header("Content-Security-Policy", `sandbox allow-scripts; ${APP_DOCUMENT_V3_CSP}; frame-ancestors ${platform === "desktop" ? "'self' file:" : "'self'"}`);
+    if (platform !== "desktop") c.header("X-Frame-Options", "SAMEORIGIN");
     c.header("Referrer-Policy", "no-referrer"); c.header("Cache-Control", "no-store");
     return c.html(html);
   } catch { return c.text("App document unavailable", 404); }

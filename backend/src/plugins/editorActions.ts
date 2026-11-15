@@ -37,6 +37,8 @@ const requestSchema = z.object({
 const WRITING_SYSTEM_PROMPT = "你是一个专业的写作助手，帮助用户优化笔记内容。请直接输出结果，不要添加额外的解释或前缀。";
 // Opening fence of an encrypted block (fences may sit in quotes or list items).
 const ENCRYPTED_FENCE = /(?:^|\n)[ \t>]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(?:`{3,}|~{3,})[ \t]*nowen-encrypted/i;
+// A lone UTF-16 surrogate is not text; saving it would silently turn it into U+FFFD.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const MAX_RUNNING_PER_USER = 2;
 const running = new Map<string, number>();
 
@@ -62,13 +64,13 @@ function protectedNote(noteId: string, userId: string, write: boolean): { worksp
 function normalizeResult(action: PluginEditorActionContribution, raw: unknown): { text?: string; message?: string } {
   const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
   if (!value) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回的结果无效");
-  if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回的提示无效");
+  if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500 || LONE_SURROGATE.test(value.message))) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回的提示无效");
   const message = value.message ? { message: value.message as string } : {};
   if (action.resultMode === "none") return message;
   if (typeof value.text !== "string" || !value.text.trim()) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作没有返回文本");
   if (Buffer.byteLength(value.text, "utf8") > EDITOR_ACTION_LIMITS.maxResultBytes) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回的文本过长");
   // A forged encrypted fence would make the note unsavable, so it never reaches the editor.
-  if (ENCRYPTED_FENCE.test(value.text)) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回了不允许的内容");
+  if (ENCRYPTED_FENCE.test(value.text) || LONE_SURROGATE.test(value.text)) fail("PLUGIN_EDITOR_ACTION_INVALID_RESULT", "编辑器动作返回了不允许的内容");
   return { text: value.text, ...message };
 }
 
