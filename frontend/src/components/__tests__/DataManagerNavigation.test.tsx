@@ -94,7 +94,7 @@ describe("数据管理首页和迁移范围", () => {
   });
   it("Nowen 导入的预览与正式导入使用同一个所选工作区", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    await mount(); await click("导入与迁移"); await click("其他导入方式");
+    await mount(); await click("导入笔记"); await click("其他格式（Word、有道云、语雀、微信收藏等）");
     const method = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(zh.dataManager.importMethodNowenDesc))!;
     await act(async () => method.click());
     const scope = host.querySelector<HTMLSelectElement>('select[aria-label="选择数据范围"]')!;
@@ -107,7 +107,7 @@ describe("数据管理首页和迁移范围", () => {
     expect(mocks.import).toHaveBeenCalledWith(file, { workspaceId: "chosen-space" });
   });
   it("语雀使用所选空间，查看结果切换空间并直接打开移动端编辑页", async () => {
-    await mount(); await click("导入与迁移"); await click("其他导入方式");
+    await mount(); await click("导入笔记"); await click("其他格式（Word、有道云、语雀、微信收藏等）");
     const method = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(zh.yuqueFileImport.sourceDescription))!;
     await act(async () => method.click());
     const scope = host.querySelector<HTMLSelectElement>('select[aria-label="选择数据范围"]')!;
