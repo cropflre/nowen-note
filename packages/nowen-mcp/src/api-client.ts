@@ -260,6 +260,36 @@ export class NowenApiClient {
     return action === "status" ? this.request(base) : this.request(`${base}/${action}`, { method: "POST", body: {} });
   }
 
+  // ==================== AI 对话归档 ====================
+
+  aiArchiveCapabilities(): Promise<any> {
+    return this.request("/api/ai-memory/capabilities");
+  }
+
+  aiArchiveSources(): Promise<{ items: any[] }> {
+    return this.request("/api/ai-memory/sources");
+  }
+
+  aiArchiveSource(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/sources/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveConversations(query: { sourceId?: string; externalConversationId?: string; q?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+    return this.request("/api/ai-memory/conversations", { query });
+  }
+
+  aiArchiveConversation(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveMessages(id: string): Promise<{ items: any[] }> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}/messages`);
+  }
+
+  aiArchiveIngest(body: unknown): Promise<any> {
+    return this.request("/api/ai-memory/conversations/ingest", { method: "POST", body });
+  }
+
   /** Caller must enforce stdio-only access before accepting a user-authorized local path. */
   async uploadMigrationFile(id: string, params: { filePath: string; filename?: string; assetPath?: string; sha256?: string }): Promise<any> {
     await this.ensureAuth();

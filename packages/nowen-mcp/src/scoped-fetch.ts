@@ -634,6 +634,65 @@ async function handleMigrationRequest(request: Request, url: URL): Promise<Respo
   return originalFetch(request);
 }
 
+async function handleAIArchiveRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  const headers = requestAuthHeaders(request);
+  // A switched-off archive is not a scope problem: hand the server's answer back so the client sees why.
+  const switchedOff = async (response: Response) => (await readJsonResponse(response))?.code === "AI_MEMORY_DISABLED";
+  // An archive belongs to the notebook of its source; that notebook must be in this MCP's scope.
+  const checkSource = async (sourceId: unknown, operation: string): Promise<Response | null> => {
+    if (typeof sourceId !== "string" || !sourceId) throw new ScopeDeniedError("归档请求缺少来源");
+    const response = await originalFetch(`${baseUrl}/api/ai-memory/sources/${encodeURIComponent(sourceId)}`, { headers });
+    if (!response.ok) {
+      if (await switchedOff(response)) return response;
+      throw new ScopeDeniedError("归档来源不存在或未获授权");
+    }
+    policy.assertNotebookAllowed((await readJsonResponse(response))?.notebookId, operation);
+    return null;
+  };
+  if (pathname === "/api/ai-memory/capabilities" && method === "GET") return originalFetch(request);
+  if (pathname === "/api/ai-memory/sources" && method === "GET") {
+    const response = await originalFetch(request);
+    if (!response.ok) return response;
+    const body = await readJsonResponse(response);
+    return replaceJsonResponse(response, { ...body,
+      items: Array.isArray(body?.items) ? body.items.filter((source: any) => policy.isNotebookAllowed(source.notebookId)) : [] });
+  }
+  const source = /^\/api\/ai-memory\/sources\/([^/]+)$/.exec(pathname);
+  if (source && method === "GET") {
+    return await checkSource(decodeURIComponent(source[1]), "读取归档来源") ?? originalFetch(request);
+  }
+  if (pathname === "/api/ai-memory/conversations" && method === "GET") {
+    const sourceId = url.searchParams.get("sourceId");
+    if (sourceId) return await checkSource(sourceId, "列出对话归档") ?? originalFetch(request);
+    const sources = await originalFetch(`${baseUrl}/api/ai-memory/sources`, { headers });
+    if (!sources.ok) return sources;
+    const allowed = new Set(((await readJsonResponse(sources))?.items || [])
+      .filter((item: any) => policy.isNotebookAllowed(item.notebookId)).map((item: any) => item.id));
+    const response = await originalFetch(request);
+    if (!response.ok) return response;
+    const body = await readJsonResponse(response);
+    const all = Array.isArray(body?.items) ? body.items : [];
+    const items = all.filter((row: any) => allowed.has(row.sourceId));
+    return replaceJsonResponse(response, { ...body, items, total: items.length === all.length ? body.total : items.length });
+  }
+  const archive = /^\/api\/ai-memory\/conversations\/([^/]+)(\/messages)?$/.exec(pathname);
+  if (archive && archive[1] !== "ingest" && method === "GET") {
+    const response = await originalFetch(`${baseUrl}/api/ai-memory/conversations/${archive[1]}`, { headers });
+    if (!response.ok) {
+      if (await switchedOff(response)) return response;
+      throw new ScopeDeniedError("对话归档不存在或未获授权");
+    }
+    return await checkSource((await readJsonResponse(response))?.sourceId, "读取对话归档") ?? originalFetch(request);
+  }
+  if (pathname === "/api/ai-memory/conversations/ingest" && method === "POST") {
+    return await checkSource((await readJson(request)).sourceId, "保存对话归档") ?? originalFetch(request);
+  }
+  throw new ScopeDeniedError("MCP 只能读取归档和保存对话；来源授权、删除、恢复和导入请在 Nowen Note 中操作");
+}
+
 async function scopedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request = new Request(input, init);
   const url = new URL(request.url);
@@ -666,6 +725,9 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
     }
     if (url.pathname === "/api/migrations" || url.pathname.startsWith("/api/migrations/")) {
       return await handleMigrationRequest(request, url);
+    }
+    if (url.pathname === "/api/ai-memory" || url.pathname.startsWith("/api/ai-memory/")) {
+      return await handleAIArchiveRequest(request, url);
     }
     if (url.pathname === "/api/notebooks" || url.pathname.startsWith("/api/notebooks/")) {
       return await handleNotebookRequest(request, url);

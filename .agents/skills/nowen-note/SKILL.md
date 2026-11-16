@@ -58,6 +58,9 @@ description: 使用 Nowen Note MCP 或 CLI 搜索、读取、创建、更新和�
 | 知识库问答 | `nowen_ai_ask` |
 | AI 文本处理 | `nowen_ai_process` |
 | 知识库统计 | `nowen_knowledge_stats` |
+| AI 对话归档：可用来源 | `nowen_ai_archive_sources` |
+| AI 对话归档：保存当前对话（仅在用户要求时） | `nowen_ai_archive_save` |
+| AI 对话归档：列出、读取 | `nowen_ai_archive_list`、`nowen_ai_archive_read` |
 
 具体参数以客户端当前暴露的 MCP schema 为准，不要猜测不存在的参数。**目前 MCP 文档没有列出任务管理工具；任务操作应使用已安装 CLI 或其他明确授权的接口，不得杜撰 `nowen_task_*` 工具。**
 

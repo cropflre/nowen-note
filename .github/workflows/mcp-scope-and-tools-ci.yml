@@ -10,6 +10,9 @@ on:
       - "Dockerfile"
       - "backend/src/mcp.ts"
       - "backend/tests/mcp-embedded.test.ts"
+      - "backend/tests/mcp-ai-archive.test.ts"
+      - "backend/src/routes/ai-memory.ts"
+      - "backend/src/services/aiMemoryService.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
       - "frontend/src/components/settings/McpQuickConnect.tsx"
@@ -38,6 +41,9 @@ on:
       - "Dockerfile"
       - "backend/src/mcp.ts"
       - "backend/tests/mcp-embedded.test.ts"
+      - "backend/tests/mcp-ai-archive.test.ts"
+      - "backend/src/routes/ai-memory.ts"
+      - "backend/src/services/aiMemoryService.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
       - "frontend/src/components/settings/McpQuickConnect.tsx"
@@ -119,7 +125,7 @@ jobs:
           npm ci --prefix packages/nowen-mcp
           npm run build --prefix packages/nowen-mcp
       - name: Test embedded MCP identity and authorization
-        run: node --import tsx --test tests/mcp-embedded.test.ts
+        run: node --import tsx --test tests/mcp-embedded.test.ts tests/mcp-ai-archive.test.ts
         working-directory: backend
         env:
           NODE_ENV: test

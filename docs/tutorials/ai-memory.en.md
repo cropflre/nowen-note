@@ -14,6 +14,17 @@ Web captures are marked partial. Unloaded history and missing attachments are no
 
 Pause a conversation or source, revoke the source, or explicitly clear the current Nowen account's pending queue. Online capture rechecks source authorization. Offline capture can continue within seven days of explicit consent/verification; revocation on another device cannot be discovered immediately while offline. See [extension limits and permissions](../../packages/nowen-clipper/AI_CONVERSATION_CAPTURE.md).
 
+## Let an AI assistant save conversations (MCP)
+
+AI assistants connected to Nowen over MCP, such as Claude Code or Codex, can save the exact conversation they hold, with stable message IDs, without reading any web page.
+
+1. An administrator turns the archive on (see above).
+2. In **AI memory → Connections & sync → Create a source**, choose **AI assistant (MCP)**, pick a personal notebook and confirm the authorization. Assistants can only save into sources like this; they cannot create, enable or re-authorize sources themselves.
+3. Connect the assistant in **Settings → Connect AI Agents** with write access to that notebook. A read-only connection can only read archives.
+4. Ask the assistant to "save this conversation to Nowen". It calls `nowen_ai_archive_sources` to find the source and `nowen_ai_archive_save` to save it, creating a searchable note.
+
+Saving the same conversation again updates or appends by message ID and never duplicates it; when appending, include the last message saved before. Notes you have edited are not overwritten. One save holds up to 1,000 messages and 2 MiB; save larger conversations in parts. `nowen_ai_archive_list` and `nowen_ai_archive_read` list and read the archives the connection may access. Reading an archive sends its text to the model the assistant uses; archived text is treated as data, never as instructions.
+
 ## Import history
 
 Open **AI Memory → Connections & sync**, create a source with a personal notebook and explicit consent, and select a file. Review the preview, selected branch and missing-content warnings, then confirm import. Progress, cancellation, retry of unsaved items, reports and staging cleanup are available. Interrupted jobs require explicit retry after restart; cancellation retains completed items. Staging expires after 24 hours.

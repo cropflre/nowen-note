@@ -19,6 +19,7 @@ import { stringifyTimedResult } from "./result-time.js";
 import { registerP1Tools } from "./p1-tools.js";
 import { registerP2Tools } from "./p2-tools.js";
 import { registerMigrationTools } from "./migration-tools.js";
+import { registerAIArchiveTools } from "./ai-archive-tools.js";
 import { treeMutationRevision, treeMutationPreconditions, type TreeMutationNode } from "./tree-mutation.js";
 import {
   CONTENT_FORMAT_VALUES,
@@ -1307,6 +1308,7 @@ server.resource(
 registerP1Tools(server, api);
 registerP2Tools(server, api);
 registerMigrationTools(server, api, { allowLocalFiles });
+registerAIArchiveTools(server, api);
 return server;
 }
 

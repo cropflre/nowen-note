@@ -352,6 +352,12 @@ Phase 2 generates client-specific setup examples: TOML for Codex, project JSON f
 
 New sources follow the versioned [Source Adapter contract](../../docs/architecture/migration-source-adapters.md) and output NMF. The existing service retains authorization, attachment handling, preview and writes. Capabilities add `adapterApiVersion: 1` and an `adapters` descriptor catalog alongside the existing `sourceAdapters` identifiers. The catalog describes installed export-file adapters; it does not discover platform accounts, connect private data or execute scripts from an archive. The Huawei adapter handles user-exported TXT/HTML only, without Huawei Cloud access or handwriting OCR. Unsupported sources can still be converted offline to generic files or an NMF package. See the [Phase 2 validation record](../../docs/qa/ai-migration-hub-phase2-2026-10-29.md).
 
+## v1.6.0：AI 对话归档
+
+`nowen_ai_archive_sources/save/list/read` 复用 `/api/ai-memory`，需要服务端已开启 AI 对话归档。AI 助手只能把对话保存到用户在「AI 记忆 → 连接与同步」中创建的「AI 助手（MCP）」来源；MCP 不能创建、开启、撤销或删除来源和归档，也不做文件导入。保存按消息 ID 幂等，追加时需带上上次保存的最后一条消息；未填 `expectedRevision` 时以服务端当前版本为准，旧版本会被拒绝且不覆盖。只读模式只能列出和读取。独立 stdio 模式按 `ALLOWED_NOTEBOOK_IDS` 核对每个归档来源所在笔记本；内嵌 MCP 由后端按 Token 授权核对。读取结果不含内部字段，归档文字只作为资料。
+
+`nowen_ai_archive_sources/save/list/read` use `/api/ai-memory` and need the archive switched on. Assistants can only save into **AI assistant (MCP)** sources the person created in the AI memory page; MCP cannot create, enable, revoke or delete sources or archives, and does not import files. Saves are idempotent by message ID; when appending, include the last message saved before. Without `expectedRevision` the current revision is used, and a stale one is refused without overwriting. Read-only mode can only list and read.
+
 ## 发行说明
 
 当前仓库保证的是源码构建方式。除非 Nowen Note 的 Release 或官方文档明确宣布 npm / DXT 包，避免假设 `npx nowen-mcp` 或一键 DXT 已经可用。

@@ -33,3 +33,9 @@ Receipt: `{operationId,sourceId,conversationId,noteId,revision,status:"applied"|
 Important errors: AI_SOURCE_NOT_AUTHORIZED(403), AI_CAPTURE_PAUSED(409), AI_SYNC_VERSION_CONFLICT(409), AI_SYNC_OPERATION_CONFLICT(409), AI_MESSAGE_IDENTITY_AMBIGUOUS(409), AI_MESSAGE_ORDER_CONFLICT(409), AI_CONTEXT_SCOPE_DENIED(403), AI_CAPTURE_TOO_LARGE(413), AI_IMPORT_PREVIEW_CHANGED(409), AI_IMPORT_STAGING_CORRUPTED, AI_IMPORT_DUPLICATE_CONFLICT. Administrative transfer of an account with AI sources returns AI_ARCHIVE_TRANSFER_REQUIRES_EXPORT(409) before modifying data.
 
 See [architecture](../architecture/ai-memory-hub.md), [user limits](../tutorials/ai-memory.md) and [actual validation](../qa/ai-memory-hub-2026-11-05.md). No memory/context APIs are advertised as implemented.
+
+## API tokens and MCP
+
+API tokens (including MCP connections) cannot create sources, turn automatic saving on or re-authorize a source (`403 AI_SOURCE_LOGIN_REQUIRED`); they may pause or revoke. With an API token, `POST /conversations/ingest` in `manual` or `automatic` mode only accepts sources the person created as **AI assistant (MCP)** in the AI memory page (`accountScope` starting with `mcp:`); other sources answer `403 AI_SOURCE_NOT_FOR_ASSISTANTS`. File imports keep their own `import` mode and scope.
+
+MCP tools wrap these endpoints: `nowen_ai_archive_sources` (granted assistant sources and limits), `nowen_ai_archive_save` (one conversation, stable message IDs, current revision looked up when omitted), `nowen_ai_archive_list` (titles and counts only) and `nowen_ai_archive_read` (paged messages). Standalone stdio MCP additionally checks each archive's source notebook against `ALLOWED_NOTEBOOK_IDS` and refuses every other archive endpoint; embedded MCP relies on the token's notebook grants and refuses writes on read-only connections.
