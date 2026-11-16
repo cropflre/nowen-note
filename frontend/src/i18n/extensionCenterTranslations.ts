@@ -28,7 +28,7 @@ export const zhCNExtensionCenterTranslations = { extensionCenter: {
   },
   action: {
     open: "打开", openApp: "打开应用", install: "安装", reviewEnable: "审核权限并启用", manage: "管理",
-    needsAdmin: "需管理员安装", unavailable: "不可安装", disable: "停用", update: "更新", grantNew: "审核新增权限",
+    needsAdmin: "需管理员安装", unavailable: "不可安装", disable: "停用", update: "更新", grantNew: "审核新增权限", reload: "重新加载",
     uninstall: "卸载", uninstallRetain: "卸载并保留数据", uninstallDelete: "删除数据并卸载", close: "关闭", saveSettings: "保存设置",
   },
   reason: {
@@ -289,7 +289,7 @@ export const enExtensionCenterTranslations = { extensionCenter: {
   },
   action: {
     open: "Open", openApp: "Open app", install: "Install", reviewEnable: "Review and enable", manage: "Manage",
-    needsAdmin: "Admin required", unavailable: "Unavailable", disable: "Disable", update: "Update", grantNew: "Review new permissions",
+    needsAdmin: "Admin required", unavailable: "Unavailable", disable: "Disable", update: "Update", grantNew: "Review new permissions", reload: "Reload",
     uninstall: "Uninstall", uninstallRetain: "Uninstall and keep data", uninstallDelete: "Delete data and uninstall", close: "Close", saveSettings: "Save settings",
   },
   reason: {
