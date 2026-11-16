@@ -12,7 +12,7 @@ vi.mock("@/lib/noteDeepLink", () => ({ pushNoteAppPath: vi.fn() }));
 vi.mock("@/lib/reliableExportDownloadBridge", () => ({ scheduleObjectUrlRevocation: vi.fn() }));
 vi.mock("../ui/confirm", () => ({ confirm: mocks.confirm }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root, host: HTMLElement;
 const source = { id: "source", provider: "chatgpt", accountScope: "account", notebookId: "book", displayName: "My ChatGPT", captureEnabled: false, permissionState: "granted", lastSyncedAt: null };
 const job: AIImportJob = { id: "job", sourceId: "source", filename: "export.zip", status: "PREVIEW", previewDigest: "digest", expiresAt: "2026-11-06T00:00:00Z", warnings: ["Incomplete attachments"], counts: { total: 1, saved: 0, failed: 0, pending: 1, skipped: 0 }, items: [{ index: 0, title: "Project", messages: 2, completeness: "partial", expectedRevision: 0, status: "pending", preview: "<script>neverExecute()</script>" }] };

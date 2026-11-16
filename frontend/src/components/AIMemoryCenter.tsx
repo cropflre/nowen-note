@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { OPEN_AI_MEMORY } from "@/lib/aiMemory";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 const Hub = lazy(() => import("./AIMemoryHub"));
 function Dialog({ scope, tab, close }: { scope: string; tab: "archive" | "memories" | "connections"; close: () => void }) {
+  const { t } = useTranslation();
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -13,7 +15,7 @@ function Dialog({ scope, tab, close }: { scope: string; tab: "archive" | "memori
     return () => { unregister(); if (previous?.isConnected) previous.focus(); };
   }, []);
   return <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-0 sm:p-4" data-swipe-blocker="ai-memory">
-    <div ref={element} tabIndex={-1} role="dialog" aria-modal="true" aria-label="AI Memory Hub" className="flex h-[100dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-text-primary)] shadow-xl outline-none sm:h-[min(90dvh,900px)] sm:rounded-2xl sm:border sm:border-[var(--color-border)]" onKeyDown={event => {
+    <div ref={element} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("aiMemory.title")} className="flex h-[100dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-text-primary)] shadow-xl outline-none sm:h-[min(90dvh,900px)] sm:rounded-2xl sm:border sm:border-[var(--color-border)]" onKeyDown={event => {
       if (event.key === "Escape") { event.stopPropagation(); close(); }
       if (event.key !== "Tab") return;
       const focusable = [...(element.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled):not([type="hidden"]),select:not(:disabled),summary,a[href],[tabindex="0"]') || [])].filter(item => item.getClientRects().length > 0);
