@@ -567,6 +567,7 @@ function AppLayout() {
    */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"extensions" | undefined>(undefined);
   useEffect(() => {
     const onOpen = () => setCommandPaletteOpen(true);
     window.addEventListener("nowen:open-command-palette", onOpen);
@@ -574,7 +575,10 @@ function AppLayout() {
   }, []);
 
   useEffect(() => {
-    const onOpen = () => setSettingsOpen(true);
+    const onOpen = (event: Event) => {
+      setSettingsTab((event as CustomEvent<{ tab?: string } | null>).detail?.tab === "extensions" ? "extensions" : undefined);
+      setSettingsOpen(true);
+    };
     window.addEventListener("nowen:open-settings", onOpen);
     return () => window.removeEventListener("nowen:open-settings", onOpen);
   }, []);
@@ -929,7 +933,7 @@ function AppLayout() {
 
       {/* ===== 主内容区 ===== */}
       {state.viewMode === "plugin-apps" ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} manage={pluginAppRoute.manage} discover={pluginAppRoute.discover} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} discover={pluginAppRoute.discover} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
       ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
@@ -1059,7 +1063,7 @@ function AppLayout() {
       />
 
       <AnimatePresence>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && <SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
       </AnimatePresence>
 
       {/* 无 UI 的网络探活、离线队列重放与同步后数据刷新 */}

@@ -3,12 +3,16 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ExtensionListing } from "@/lib/extensionCatalog";
-import { Chip, ExtensionIcon, runtimeLabel, statusChips, trustBadge } from "./extensionCenterUi";
+import { Chip, ExtensionIcon, statusChips, trustBadge } from "./extensionCenterUi";
 
-export type CardAction = "open" | "install" | "review-enable" | "details";
+export type CardAction = "open" | "open-app" | "install" | "review-enable" | "details";
 
 /** Map the server-derived primary action onto the card button. Anything that needs explanation opens the details drawer. */
-export function cardActionFor(listing: ExtensionListing): { action: CardAction; labelKey: string; emphasis: boolean } {
+export function cardActionFor(listing: ExtensionListing, appPagesAvailable = false): { action: CardAction; labelKey: string; emphasis: boolean } {
+  // An enabled app is opened directly; everything else about it lives in the details drawer.
+  if (appPagesAvailable && listing.installState === "enabled" && listing.installed?.apiVersion === 3 && listing.installed.contributes?.appPages?.length) {
+    return { action: "open-app", labelKey: "extensionCenter.action.open", emphasis: true };
+  }
   switch (listing.primaryAction) {
     case "open": return { action: "open", labelKey: "extensionCenter.action.open", emphasis: false };
     case "install": return { action: "install", labelKey: "extensionCenter.action.install", emphasis: true };
@@ -19,12 +23,15 @@ export function cardActionFor(listing: ExtensionListing): { action: CardAction; 
   }
 }
 
-export function ExtensionCard({ listing, busy, onAction, compact = false }: {
-  listing: ExtensionListing; busy: boolean; compact?: boolean;
+export function ExtensionCard({ listing, busy, onAction, compact = false, appPagesAvailable = false, menu }: {
+  listing: ExtensionListing; busy: boolean; compact?: boolean; appPagesAvailable?: boolean;
+  /** Secondary actions ("···"); the card itself keeps a single primary action. */
+  menu?: React.ReactNode;
   onAction: (listing: ExtensionListing, action: CardAction) => void;
 }) {
   const { t } = useTranslation();
-  const primary = cardActionFor(listing);
+  const primary = cardActionFor(listing, appPagesAvailable);
+  const chips = statusChips(listing, t);
   const meta = [listing.publisher, t(`extensionCenter.category.${listing.category}`)].filter(Boolean).join(" · ");
   return <article data-extension-card={listing.key} className="flex min-w-0 flex-col rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm transition-interactive duration-fast ease-standard hover:border-accent-primary/40 hover:shadow-md">
     <div className="flex items-start gap-3">
@@ -38,17 +45,14 @@ export function ExtensionCard({ listing, busy, onAction, compact = false }: {
       <Chip tone={listing.kind === "builtin" || listing.official ? "info" : "muted"}>{trustBadge(listing, t)}</Chip>
     </div>
     <p className={compact ? "mt-2 line-clamp-2 text-sm text-tx-secondary" : "mt-3 line-clamp-2 min-h-[2.5rem] text-sm text-tx-secondary"}>{listing.description}</p>
-    <div className="mt-3 flex flex-wrap gap-1.5">
-      <Chip tone="muted">{runtimeLabel(listing, t)}</Chip>
-      {statusChips(listing, t).map((chip) => <Chip key={chip.key} tone={chip.tone}>{chip.label}</Chip>)}
-    </div>
+    {!!chips.length && <div className="mt-3 flex flex-wrap gap-1.5">
+      {chips.map((chip) => <Chip key={chip.key} tone={chip.tone}>{chip.label}</Chip>)}
+    </div>}
     <div className="mt-auto flex items-center justify-between gap-2 pt-4">
       <Button type="button" size="sm" variant={primary.emphasis ? "default" : "outline"} disabled={busy} onClick={() => onAction(listing, primary.action)} className="min-h-11 md:min-h-9">
         {busy && <Loader2 size={13} className="mr-1.5 animate-spin" />}{t(primary.labelKey)}
       </Button>
-      {primary.action !== "details" && <Button type="button" size="sm" variant="ghost" onClick={() => onAction(listing, "details")} aria-label={`${t("extensionCenter.action.details")} · ${listing.name}`} className="min-h-11 md:min-h-9">
-        {t("extensionCenter.action.details")}
-      </Button>}
+      {menu}
     </div>
   </article>;
 }

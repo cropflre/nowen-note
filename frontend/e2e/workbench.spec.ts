@@ -97,7 +97,7 @@ test("workbench cards use real data, persist layouts and keep dormant plugin car
     await expect(card(page, "nowenlab.hello-app/hello")).toHaveCount(0);
     const dormant = page.locator('[data-dormant-widget-id="nowenlab.hello-app/hello"]');
     await expect(dormant).toContainText("Card unavailable");
-    await expect(dormant.getByRole("button", { name: "Go to My plugins", exact: true })).toBeVisible();
+    await expect(dormant.getByRole("button", { name: "Go to Mine", exact: true })).toBeVisible();
     expect((await page.request.post(`${url}/api/plugins/nowenlab.hello-app/enable`, { headers })).ok()).toBe(true);
     await expect(card(page, "nowenlab.hello-app/hello")).toBeVisible();
     await expect(dormant).toHaveCount(0);

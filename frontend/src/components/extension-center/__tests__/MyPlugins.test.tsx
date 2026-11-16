@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getMe: vi.fn(), confirm: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn(), push: vi.fn(),
   api: {
     features: vi.fn(), list: vi.fn(), registrySources: vi.fn(), registryIndex: vi.fn(), getRuntimePolicy: vi.fn(),
-    grant: vi.fn(), enable: vi.fn(), disable: vi.fn(), uninstall: vi.fn(), settings: vi.fn(), executions: vi.fn(), install: vi.fn(),
+    grant: vi.fn(), enable: vi.fn(), disable: vi.fn(), uninstall: vi.fn(), settings: vi.fn(), executions: vi.fn(), install: vi.fn(), personalApps: vi.fn(),
   },
 }));
 vi.mock("@/lib/api", () => ({ api: { getMe: mocks.getMe } }));
@@ -16,7 +16,7 @@ vi.mock("@/lib/toast", () => ({ toast: { success: mocks.toastSuccess, error: moc
 vi.mock("@/lib/appPathNavigation", () => ({ pushAppPathState: mocks.push }));
 vi.mock("@/store/AppContext", () => ({ useAppActions: () => ({ setViewMode: vi.fn(), setMobileView: vi.fn() }) }));
 vi.mock("@/lib/pluginUiRegistry", () => ({ currentUiPlatform: () => "web" }));
-vi.mock("../../PluginManagementPanel", () => ({ default: () => <div data-legacy-manager /> }));
+vi.mock("@/lib/pluginApps", () => ({ loadPluginAppPins: () => [], savePluginAppPins: vi.fn() }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 import MyPlugins from "../MyPlugins";
 
@@ -39,6 +39,8 @@ beforeEach(() => {
   mocks.api.features.mockResolvedValue({ currentNowenVersion: "1.5.3", applicationV3: { appPages: true } });
   mocks.api.list.mockResolvedValue([pendingApp, pendingTheme]);
   mocks.api.registrySources.mockResolvedValue([]);
+  mocks.api.personalApps.mockResolvedValue([]);
+  mocks.api.uninstall.mockResolvedValue({ success: true });
   mocks.api.getRuntimePolicy.mockResolvedValue({ allowNodeRuntime: false });
   mocks.api.grant.mockResolvedValue({ success: true });
   mocks.api.enable.mockResolvedValue({ success: true });
@@ -51,7 +53,8 @@ const render = async () => { await act(async () => root.render(<MyPlugins dashbo
 describe("My plugins", () => {
   it("grants exactly the declared permissions after confirmation, then enables", async () => {
     await render();
-    expect(host.querySelector('[data-extension-card="plugin:nowenlab.hello-app"]')?.textContent).toContain("pluginApps.executionLabel");
+    // Technical runtime labels stay out of the card; they live in the details drawer.
+    expect(host.querySelector('[data-extension-card="plugin:nowenlab.hello-app"]')?.textContent).not.toContain("pluginApps.executionLabel");
     await act(async () => button("extensionCenter.action.reviewEnable", "plugin:nowenlab.hello-app")!.click());
     await flush();
     expect(mocks.confirm).toHaveBeenCalledTimes(1);
@@ -76,22 +79,53 @@ describe("My plugins", () => {
     expect(mocks.api.enable).not.toHaveBeenCalled();
   });
 
-  it("keeps package upload and advanced tools away from members", async () => {
+  it("keeps administrator tools and destructive actions away from members", async () => {
     mocks.getMe.mockResolvedValue({ role: "user" });
-    mocks.api.list.mockResolvedValue([]);
     await render();
     expect(host.querySelector('input[type="file"]')).toBeNull();
-    expect(button("extensionCenter.myPlugins.advanced")).toBeUndefined();
-    expect(host.textContent).toContain("extensionCenter.myPlugins.memberHint");
+    expect(host.querySelector('[aria-label="extensionCenter.mine.adminMenu"]')).toBeNull();
+    expect(host.textContent).toContain("extensionCenter.mine.memberHint");
     expect(mocks.api.getRuntimePolicy).not.toHaveBeenCalled();
+    await act(async () => (host.querySelector('[data-extension-card="plugin:nowenlab.hello-app"] [aria-haspopup="menu"]') as HTMLButtonElement).click());
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["extensionCenter.mine.detailsConfig"]);
   });
 
-  it("offers the legacy manager under Advanced for administrators", async () => {
+  it("sends administrators to Settings for advanced tools instead of nesting a second manager", async () => {
+    const opened = vi.fn();
+    window.addEventListener("nowen:open-settings", opened);
     await render();
     expect(host.querySelector('input[type="file"][accept=".nowen-plugin"]')).not.toBeNull();
-    await act(async () => button("extensionCenter.myPlugins.advanced")!.click());
+    await act(async () => (host.querySelector('[aria-label="extensionCenter.mine.adminMenu"]') as HTMLButtonElement).click());
+    await act(async () => button("extensionCenter.mine.advanced")!.click());
+    window.removeEventListener("nowen:open-settings", opened);
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ tab: "extensions" });
+  });
+
+  it("offers both uninstall choices for apps and never deletes data by default", async () => {
+    await render();
+    await act(async () => (host.querySelector('[data-extension-card="plugin:nowenlab.hello-app"] [aria-haspopup="menu"]') as HTMLButtonElement).click());
+    const items = [...host.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[];
+    expect(items.map((item) => item.textContent)).toEqual(["extensionCenter.mine.detailsConfig", "extensionCenter.action.uninstallRetain", "extensionCenter.action.uninstallDelete"]);
+    await act(async () => items[1].click());
     await flush();
-    expect(host.querySelector("[data-legacy-manager]")).not.toBeNull();
-    expect(host.querySelector('input[type="file"]')).toBeNull();
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(mocks.api.uninstall).toHaveBeenCalledWith("nowenlab.hello-app", false, true);
+  });
+
+  it("lists apps the user created next to installed extensions", async () => {
+    mocks.api.personalApps.mockResolvedValue([{ id: "01234567-89ab-cdef-0123-456789abcdef", revision: 1, spec: { name: "Trip plan", description: "", layout: "list", fields: [], items: [] } }]);
+    await render();
+    const card = host.querySelector('[data-studio-app="01234567-89ab-cdef-0123-456789abcdef"]')!;
+    expect(card.textContent).toContain("Trip plan");
+    await act(async () => (card.querySelector("button") as HTMLButtonElement).click());
+    expect(mocks.push).toHaveBeenCalledWith("/apps/personal/01234567-89ab-cdef-0123-456789abcdef");
+  });
+
+  it("points an empty list at Discover", async () => {
+    mocks.api.list.mockResolvedValue([]);
+    await render();
+    expect(host.textContent).toContain("extensionCenter.mine.empty");
+    await act(async () => button("extensionCenter.mine.browse")!.click());
+    expect(mocks.push).toHaveBeenCalledWith("/apps/discover");
   });
 });

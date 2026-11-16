@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Info, Loader2, RefreshCw, Search, WandSparkles, WifiOff } from "lucide-react";
+import { AlertTriangle, Info, Loader2, RefreshCw, Search, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCurrentUserRole } from "@/hooks/useCurrentUserRole";
-import { pushAppPathState } from "@/lib/appPathNavigation";
 import {
   EXTENSION_CATEGORIES, filterExtensionListings, pickFeaturedListings,
   type ExtensionCategory, type ExtensionListing,
@@ -62,6 +61,8 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
   const online = useOnline();
   const categoryLabel = useCallback((value: ExtensionCategory) => t(`extensionCenter.category.${value}`), [t]);
   const visible = useMemo(() => sortForDiscovery(filterExtensionListings(state.listings, { query, category }, categoryLabel)), [state.listings, query, category, categoryLabel]);
+  // Only categories that currently have something to show.
+  const categories = useMemo(() => EXTENSION_CATEGORIES.filter((value) => value === category || state.listings.some((listing) => listing.category === value)), [state.listings, category]);
   const featured = useMemo(() => (!query.trim() && category === "all" ? pickFeaturedListings(state.listings) : []), [state.listings, query, category]);
   // Re-derive from the latest server state so the drawer never shows a stale install status.
   const selected = selectedKey ? state.listings.find((listing) => listing.key === selectedKey) || null : null;
@@ -88,7 +89,7 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
     </section>
 
     <div role="group" aria-label={t("extensionCenter.discover.categories")} className="flex min-w-0 gap-1.5 overflow-x-auto pb-1">
-      {(["all", ...EXTENSION_CATEGORIES] as const).map((value) => <button key={value} type="button" aria-pressed={category === value} onClick={() => setCategory(value)} className={pill(category === value)}>
+      {(["all", ...categories] as const).map((value) => <button key={value} type="button" aria-pressed={category === value} onClick={() => setCategory(value)} className={pill(category === value)}>
         {t(`extensionCenter.category.${value}`)}
       </button>)}
     </div>
@@ -112,7 +113,7 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {featured.map(({ listing, reasonKey }) => <div key={listing.key} className="flex min-w-0 flex-col gap-1.5">
                 <p className="px-1 text-xs text-tx-tertiary">{t(reasonKey)}</p>
-                <ExtensionCard listing={listing} compact busy={runner.busyKey === listing.key} onAction={runner.run} />
+                <ExtensionCard listing={listing} compact appPagesAvailable={appPagesAvailable} busy={runner.busyKey === listing.key} onAction={runner.run} />
               </div>)}
             </div>
           </section>}
@@ -123,7 +124,7 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
               <span aria-live="polite" className="text-xs text-tx-tertiary">{t("extensionCenter.discover.results", { count: visible.length })}</span>
             </div>
             {visible.length
-              ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map((listing) => <ExtensionCard key={listing.key} listing={listing} busy={runner.busyKey === listing.key} onAction={runner.run} />)}</div>
+              ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map((listing) => <ExtensionCard key={listing.key} listing={listing} appPagesAvailable={appPagesAvailable} busy={runner.busyKey === listing.key} onAction={runner.run} />)}</div>
               : <div className="rounded-2xl border border-dashed border-app-border px-4 py-12 text-center">
                 <p className="text-sm font-medium text-tx-primary">{t("extensionCenter.discover.empty")}</p>
                 <p className="mt-1 text-sm text-tx-secondary">{t("extensionCenter.discover.emptyHint")}</p>
@@ -131,13 +132,6 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
               </div>}
           </section>
 
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-app-border bg-app-surface p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-tx-primary">{t("extensionCenter.discover.createTitle")}</p>
-              <p className="mt-0.5 text-sm text-tx-secondary">{t("extensionCenter.discover.createBody")}</p>
-            </div>
-            <Button size="sm" variant="outline" className="min-h-11 md:min-h-9" onClick={() => pushAppPathState("/apps/studio")}><WandSparkles size={14} className="mr-1.5" />{t("extensionCenter.discover.createAction")}</Button>
-          </section>
         </>}
 
     <AnimatePresence>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { overlayMotion, MOTION_SPRING } from "@/lib/motion";
 import { pluginApi, type InstalledPlugin, type PluginExecution } from "@/lib/pluginApi";
 import type { ExtensionListing } from "@/lib/extensionCatalog";
+import PluginDataActions from "@/components/PluginDataActions";
 import { toast } from "@/lib/toast";
 import { Chip, describeExtensionError, ExtensionIcon, PermissionList, runtimeLabel, statusChips, trustBadge, unavailableText } from "./extensionCenterUi";
 
@@ -142,10 +143,8 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
         <ExtensionIcon listing={listing} size="lg" />
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="truncate text-base font-semibold text-tx-primary">{listing.name}</h2>
-          {listing.kind === "plugin" && <p className="truncate font-mono text-[11px] text-tx-tertiary">{listing.id}</p>}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Chip tone={listing.kind === "builtin" || listing.official ? "info" : "muted"}>{trustBadge(listing, t)}</Chip>
-            <Chip tone="muted">{runtimeLabel(listing, t)}</Chip>
           </div>
         </div>
         <button ref={closeButton} type="button" onClick={onClose} aria-label={t("extensionCenter.action.close")} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary md:h-8 md:w-8">
@@ -175,8 +174,6 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
             {listing.latestVersion && <InfoRow label={t("extensionCenter.detail.latest")}>v{listing.latestVersion}</InfoRow>}
             {listing.publisher && <InfoRow label={t("extensionCenter.detail.publisher")}>{listing.publisher}</InfoRow>}
             <InfoRow label={t("extensionCenter.detail.sources")}>{listing.sources.length ? listing.sources.map((source) => source.sourceName).join(", ") : t("extensionCenter.badge.package")}</InfoRow>
-            <InfoRow label={t("extensionCenter.detail.runtime")}>{runtimeLabel(listing, t)}</InfoRow>
-            <InfoRow label={t("extensionCenter.detail.nowenRange")}>{listing.requiredNowen || t("extensionCenter.detail.unknown")}</InfoRow>
             <InfoRow label={t("extensionCenter.detail.uiPlatforms")}>{listing.uiPlatforms?.length ? listing.uiPlatforms.join(", ") : t("extensionCenter.detail.unknown")}</InfoRow>
             {listing.license && <InfoRow label={t("extensionCenter.detail.license")}>{listing.license}</InfoRow>}
             {listing.publishedAt && <InfoRow label={t("extensionCenter.detail.published")}>{new Date(listing.publishedAt).toLocaleDateString()}</InfoRow>}
@@ -184,6 +181,20 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
               <a href={listing.repository} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-primary hover:underline">{listing.repository.replace(/^https:\/\//, "")}<ExternalLink size={12} /></a>
             </InfoRow>}
           </dl>
+          <details className="rounded-lg border border-app-border px-3 py-2 text-sm">
+            <summary className="cursor-pointer text-tx-secondary">{t("extensionCenter.detail.technical")}</summary>
+            <dl className="mt-2 space-y-1.5">
+              <InfoRow label={t("extensionCenter.detail.pluginId")}><span className="font-mono text-xs">{listing.id}</span></InfoRow>
+              <InfoRow label={t("extensionCenter.detail.runtime")}>{runtimeLabel(listing, t)}</InfoRow>
+              <InfoRow label={t("extensionCenter.detail.nowenRange")}>{listing.requiredNowen || t("extensionCenter.detail.unknown")}</InfoRow>
+              {!!listing.permissions.length && <InfoRow label={t("extensionCenter.detail.permissionCodes")}><span className="font-mono text-xs">{listing.permissions.join(", ")}</span></InfoRow>}
+            </dl>
+          </details>
+        </Section>}
+
+        {plugin?.status === "enabled" && appPage && <Section title={t("extensionCenter.detail.data")}>
+          <p className="text-xs text-tx-tertiary">{t("extensionCenter.detail.dataHint")}</p>
+          <PluginDataActions pluginId={plugin.id} />
         </Section>}
 
         {plugin?.status === "enabled" && !!plugin.contributes?.settings?.length && <Section title={t("extensionCenter.detail.settings")}><PluginSettingsForm plugin={plugin} /></Section>}
