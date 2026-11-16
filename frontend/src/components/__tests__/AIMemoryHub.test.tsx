@@ -54,6 +54,25 @@ describe("AI memory archive and import workflow", () => {
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(mocks.createSource.mock.calls[0][0]).toMatchObject({ notebookId: "book", captureEnabled: false, permissionState: "granted" });
   });
+  it("creates an AI assistant source with its own consent, kept out of file imports", async () => {
+    mocks.sources.mockResolvedValue([source, { ...source, id: "assistant", accountScope: "mcp:claude", provider: "standard", displayName: "Claude Code" }]);
+    await render("connections");
+    expect([...host.querySelectorAll<HTMLOptionElement>('select[aria-label="aiMemory.chooseSource"] option')].map(option => option.value)).toEqual(["", "source"]);
+    expect(host.textContent).toContain("Claude Code · aiMemory.assistantSource");
+    expect(host.textContent).toContain("My ChatGPT · chatgpt");
+    const form = host.querySelector("details form")!;
+    const [kind, notebook] = form.querySelectorAll("select");
+    await change(notebook, "book");
+    await click(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+    // Switching to an assistant source asks for consent again, with wording about MCP.
+    await change(kind, "assistant");
+    expect(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+    expect(form.textContent).toContain("aiMemory.assistantConsent");
+    await click(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(mocks.createSource.mock.calls[0][0]).toMatchObject({ provider: "standard", notebookId: "book", displayName: "aiMemory.assistantSource", captureEnabled: false, permissionState: "granted" });
+    expect(mocks.createSource.mock.calls[0][0].accountScope).toMatch(/^mcp:/);
+  });
   it("ignores late import responses after an account switch", async () => {
     let resolve!: (value: AIImportJob) => void; mocks.previewImport.mockReturnValue(new Promise(value => { resolve = value; }));
     await render("connections"); await change(host.querySelector('select[aria-label="aiMemory.chooseSource"]')!, "source");
