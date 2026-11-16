@@ -4,6 +4,8 @@
 
 This MVP archives raw conversations. Long-term memories, confirmation, context insertion and memory-specific MCP tools are not available. ChatGPT/Doubao adapters have local fixture coverage; real websites, accounts and installed clients still require acceptance.
 
+**Off by default.** An administrator turns it on in **Settings → Switches → Enable AI conversation archive**; only then does the AI memory entry appear in the sidebar and do the API and browser-extension capture work. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you retry in the extension.
+
 ## Capture a conversation
 
 Log into your own Nowen HTTP instance in Web Clipper and select an existing personal notebook. Open a ChatGPT `/c/<id>` or Doubao `/chat/<id>` conversation, name the source, authorize a preview, inspect the text and warnings, then save. Optional automatic capture applies to this exact conversation. Other conversations require separate consent. Without stable message IDs, only an initial manual snapshot is supported.

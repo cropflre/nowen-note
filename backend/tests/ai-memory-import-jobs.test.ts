@@ -14,6 +14,8 @@ before(async () => {
   (await import("../src/lib/api-tokens")).initApiTokensTable(db);
   service = await import("../src/services/aiMemoryService"); jobs = await import("../src/lib/ai-memory-import-jobs");
   for (const user of [actor, other]) db.prepare("INSERT INTO users(id,username,passwordHash) VALUES (?,?,'fixture')").run(user.userId, user.userId);
+  // The archive is off by default; these tests exercise it switched on.
+  db.prepare("INSERT INTO system_settings(key,value) VALUES ('feature_ai_memory_enabled','true')").run();
 });
 function source() {
   // Remove only completed private staging fixtures to stay within the production per-user quota.
@@ -127,4 +129,18 @@ test("AI import upload errors and quota rejection never create visible archives"
   for (let index = 0; index < 3; index++) await preview(binding);
   await assert.rejects(preview(binding), { code: "AI_IMPORT_QUOTA" });
   assert.equal(service.listAIConversations(actor, { sourceId: binding.id }).total, 0);
+});
+test("switching the archive off stops a running import and a retry continues once it is switched on again", async () => {
+  const binding = source(), job = await preview(binding, data(3));
+  const set = (value: string) => db.prepare("UPDATE system_settings SET value=? WHERE key='feature_ai_memory_enabled'").run(value);
+  jobs.startAIImport(actor, job.id, job.previewDigest);
+  set("false");
+  try {
+    const stopped = await finish(job.id);
+    assert.equal(stopped.status, "INTERRUPTED");
+    assert.equal(service.listAIConversations(actor, { sourceId: binding.id }).total, 0);
+  } finally { set("true"); }
+  jobs.startAIImport(actor, job.id, job.previewDigest, true);
+  assert.equal((await finish(job.id)).status, "COMPLETED");
+  assert.equal(service.listAIConversations(actor, { sourceId: binding.id }).total, 3);
 });

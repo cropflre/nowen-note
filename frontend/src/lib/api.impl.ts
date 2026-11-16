@@ -1342,6 +1342,8 @@ export const api = {
     // 功能开关（字符串 "true"/"false"，未写过时 DEFAULTS 保证为 "true"）
     feature_personal_export_enabled?: string;
     feature_personal_import_enabled?: string;
+    // AI 对话归档的实例级开关；服务端未返回（旧版本）时视为关闭。
+    feature_ai_memory_enabled?: string;
   }> => {
     const res = await fetch(`${getBaseUrl()}/settings`, { cache: "no-store" });
     if (!res.ok)
@@ -2836,6 +2838,7 @@ export const api = {
       // 调试开关："true" / "false"。仅管理员可写，未写过时为 "false"。
       debug_files_query?: string;
       web_ui_enabled?: string;
+      feature_ai_memory_enabled?: string;
     }>("/settings"),
   updateSiteSettings: (data: {
     site_title?: string;
@@ -2854,6 +2857,8 @@ export const api = {
     // 同上：后端归一化为 "true"/"false"
     debug_files_query?: boolean | string;
     web_ui_enabled?: boolean | string;
+    // 仅管理员可写；必须是布尔值或 "true"/"false"
+    feature_ai_memory_enabled?: boolean | string;
   }) =>
     request<{
       site_title: string;
@@ -2872,6 +2877,7 @@ export const api = {
       feature_personal_import_enabled?: string;
       debug_files_query?: string;
       web_ui_enabled?: string;
+      feature_ai_memory_enabled?: string;
     }>("/settings", {
       method: "PUT",
       body: JSON.stringify(data),

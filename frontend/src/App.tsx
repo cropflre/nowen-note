@@ -1097,7 +1097,7 @@ function MobileTopBar() {
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
       <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
-      <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>
+      {siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
     </header>
   );
 }

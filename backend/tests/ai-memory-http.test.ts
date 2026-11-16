@@ -14,10 +14,11 @@ test("production HTTP archive authentication ignores forged identity and enforce
   await import("../src/runtime/knowledge-tree-migration-bootstrap");
   const schema = await import("../src/db/schema"), tokens = await import("../src/lib/api-tokens");
   const db = schema.getDb(); tokens.initApiTokensTable(db);
-  for (const user of ["archive-http-owner", "archive-http-other"]) {
+  for (const user of ["archive-http-owner", "archive-http-other", "archive-http-admin"]) {
     db.prepare("INSERT INTO users(id,username,passwordHash) VALUES (?,?,'fixture')").run(user, user);
     db.prepare("INSERT INTO user_sessions(id,userId,expiresAt) VALUES (?,?,?)").run(`${user}-session`, user, new Date(Date.now() + 3_600_000).toISOString());
   }
+  db.prepare("UPDATE users SET role='admin' WHERE id='archive-http-admin'").run();
   for (const notebook of ["archive-http-granted", "archive-http-other-notebook"]) db.prepare("INSERT INTO notebooks(id,userId,name) VALUES (?,'archive-http-owner',?)").run(notebook, notebook);
   const scoped = tokens.generateApiTokenRaw(), empty = tokens.generateApiTokenRaw(), readOnly = tokens.generateApiTokenRaw();
   for (const [id, raw, scopes, mode] of [
@@ -44,6 +45,21 @@ test("production HTTP archive authentication ignores forged identity and enforce
       assert.ok(Date.now() < deadline && child.exitCode === null, output.slice(-3000));
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    // Off by default: public settings say so, production routes answer 404, and only an administrator can switch it on.
+    const settingsUrl = `http://127.0.0.1:${port}/api/settings`;
+    const setEnabled = (bearer: string, value: unknown) => fetch(settingsUrl, { method: "PUT", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify({ feature_ai_memory_enabled: value }) });
+    const publicFlag = async () => (await (await fetch(settingsUrl)).json() as any).feature_ai_memory_enabled;
+    assert.equal(await publicFlag(), "false");
+    const disabled = await request("/capabilities", login("archive-http-owner"));
+    assert.equal(disabled.status, 404); assert.equal(disabled.body.code, "AI_MEMORY_DISABLED");
+    assert.equal((await request("/sources", scoped, { provider: "chatgpt", accountScope: "http-account", notebookId: "archive-http-granted", permissionState: "granted" })).body.code, "AI_MEMORY_DISABLED");
+    assert.equal((await request("/imports", login("archive-http-owner"))).body.code, "AI_MEMORY_DISABLED");
+    assert.equal((await setEnabled(login("archive-http-owner"), true)).status, 403);
+    assert.equal((await setEnabled(login("archive-http-admin"), "yes")).status, 400);
+    assert.equal(await publicFlag(), "false");
+    assert.equal((await setEnabled(login("archive-http-admin"), true)).status, 200);
+    assert.equal(await publicFlag(), "true");
+    assert.equal((await request("/capabilities", login("archive-http-owner"))).status, 200);
     assert.equal((await request("/sources", undefined, undefined, { "X-User-Id": "archive-http-owner" })).status, 401);
     assert.equal((await request("/sources", empty, undefined, { "X-Api-Scopes": "notes:read,notes:write", "X-User-Id": "archive-http-other" })).status, 403);
     const source = { provider: "chatgpt", accountScope: "http-account", notebookId: "archive-http-granted", permissionState: "granted", captureEnabled: true };
@@ -58,6 +74,12 @@ test("production HTTP archive authentication ignores forged identity and enforce
     assert.equal((await request(`/conversations/${saved.body.conversationId}/messages`, scoped)).body.items[0].text, "private archive HTTP fixture");
     assert.equal((await request(`/conversations/${saved.body.conversationId}`, login("archive-http-other"), undefined, { "X-User-Id": "archive-http-owner" })).status, 404);
     assert.equal((await request("/conversations/ingest", scoped, payload)).body.status, "duplicate");
+    // Switching it off again hides the archive without deleting it.
+    assert.equal((await setEnabled(login("archive-http-admin"), false)).status, 200);
+    assert.equal((await request(`/conversations/${saved.body.conversationId}/messages`, scoped)).body.code, "AI_MEMORY_DISABLED");
+    assert.equal((await request("/conversations/ingest", scoped, { ...payload, operationId: crypto.randomUUID() })).body.code, "AI_MEMORY_DISABLED");
+    assert.equal((await setEnabled(login("archive-http-admin"), true)).status, 200);
+    assert.equal((await request(`/conversations/${saved.body.conversationId}/messages`, scoped)).body.items[0].text, "private archive HTTP fixture");
     const revoke = await fetch(`${base}/sources/${created.body.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${login("archive-http-owner")}` } });
     assert.equal(revoke.status, 200);
     assert.equal((await request("/conversations/ingest", scoped, payload)).body.code, "AI_SOURCE_NOT_AUTHORIZED");

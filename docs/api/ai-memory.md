@@ -2,6 +2,8 @@
 
 Development API under `/api/ai-memory`. Uses existing Bearer JWT/PAT authentication, server-owned identity, notebook ACL and token resource grants. Personal notebooks only. PAT reads require `notes:read`, writes require `notes:write`; file import additionally requires `export:import` and rechecks the original token each background step.
 
+The API is off by default. While the instance setting `feature_ai_memory_enabled` is not `"true"`, every authenticated request returns `404 {"code":"AI_MEMORY_DISABLED"}` and nothing is read or written. Administrators change it with `PUT /api/settings {"feature_ai_memory_enabled": true|false}` (boolean or `"true"`/`"false"` only; others get 403/400); `GET /api/settings` exposes the current value to clients. Turning it off keeps stored archives, and a running import stops as `INTERRUPTED`.
+
 | Method/path | Contract |
 |---|---|
 | `GET /capabilities` | Limits, instance-local raw storage and fixture-tested/planned platform distinction |

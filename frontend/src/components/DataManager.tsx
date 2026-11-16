@@ -51,6 +51,7 @@ import DataTransferCenter from "./dataManagement/DataTransferCenter";
 import MigrationHub from "./MigrationHub";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { openAIMemory } from "@/lib/aiMemory";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 
 // Scope is selected only inside import/export workflows.
 type Scope = "personal" | "workspace";
@@ -259,6 +260,7 @@ export default function DataManager() {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
+  const { siteConfig } = useSiteSettings();
 
   // -----------------------------------------------------------------
   // 入口闸门：拉一次 me 判断是否为系统管理员 + 读取 per-user 功能开关
@@ -1177,7 +1179,7 @@ export default function DataManager() {
         </div>
       )}
 
-      {activeSubTab !== "export" && <button type="button" className="mb-4 min-h-10 rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-accent-primary)] hover:bg-[var(--color-hover)]" onClick={() => openAIMemory("connections")}>{t("aiMemory.importEntry")}</button>}
+      {siteConfig.aiMemoryEnabled && activeSubTab !== "export" && <button type="button" className="mb-4 min-h-10 rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-accent-primary)] hover:bg-[var(--color-hover)]" onClick={() => openAIMemory("connections")}>{t("aiMemory.importEntry")}</button>}
       {activeSubTab === "migration" && <MigrationHub
         key={`migration-${currentUser?.id}-${effectiveWorkspaceId}`}
         workspaceId={effectiveWorkspaceId}

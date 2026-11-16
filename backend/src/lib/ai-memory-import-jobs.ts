@@ -5,6 +5,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldEventLoop } from "node:timers/promises";
 import { AIImportError, AI_IMPORT_LIMITS, parseAIImport, type ImportedSnapshot } from "./ai-memory-import-parser";
+import { isAIMemoryEnabled } from "./ai-memory-feature";
 import { assertAIMemoryImportAccess, getAIMemorySource, ingestAIConversation, listAIConversations, type AIMemoryActor } from "../services/aiMemoryService";
 
 type Status = "PREVIEW" | "IMPORTING" | "COMPLETED" | "PARTIAL" | "FAILED" | "CANCELLED" | "INTERRUPTED";
@@ -115,6 +116,8 @@ async function run(actor: AIMemoryActor, id: string): Promise<void> {
       await yieldEventLoop();
       let job = owned(actor, id, true);
       if (job.status !== "IMPORTING") break;
+      // Turning the archive off stops a running import. Saved conversations stay; the rest can be retried later.
+      if (!isAIMemoryEnabled()) { job.status = "INTERRUPTED"; save(job); break; }
       if (job.items[index].status === "saved") continue;
       try {
         const serialized = fs.readFileSync(path.join(directory(id), `${index}.json`), "utf8");

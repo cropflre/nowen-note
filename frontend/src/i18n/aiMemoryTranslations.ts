@@ -1,5 +1,6 @@
 export const zhCNAIMemoryTranslations = { aiMemory: {
   exportConversation: "导出原始会话 JSON",
+  switchTitle: "开启 AI 对话归档", switchHint: "开启后，本服务器的用户可以用浏览器扩展保存 ChatGPT、豆包对话，并导入历史聊天记录；侧栏会出现「AI 记忆」入口。关闭后入口和接口停用，已保存的归档会保留。",
   title: "AI 记忆", archive: "对话归档", memories: "长期记忆", connections: "连接与同步", close: "关闭 AI 记忆",
   description: "将授权采集和导入的 AI 对话保存在自己的 Nowen Note。", scope: "当前仅管理个人笔记本中的归档。原始对话和来源配置保存在接收实例；笔记副本按现有笔记同步规则处理。",
   deviceOnly: "仅此设备模式尚不支持 AI 对话归档。请连接自己的 Nowen Note 服务端后使用。", planned: "长期记忆尚未开放。当前会话仅作为原始归档保存，不会自动成为用户事实或发送给其他 AI。",
@@ -13,6 +14,7 @@ export const zhCNAIMemoryTranslations = { aiMemory: {
 } };
 export const enAIMemoryTranslations = { aiMemory: {
   exportConversation: "Export raw conversation JSON",
+  switchTitle: "Enable AI conversation archive", switchHint: "Lets people on this server save ChatGPT and Doubao conversations with the browser extension and import chat history. An AI Memory entry appears in the sidebar. Turning it off disables the entry and its API; saved archives are kept.",
   title: "AI memory", archive: "Conversations", memories: "Long-term memory", connections: "Connections & sync", close: "Close AI memory",
   description: "Keep authorized AI conversation captures and imports in your own Nowen Note.", scope: "Archives currently use personal notebooks. Raw conversations and source settings remain on the receiving instance; note copies follow existing note sync rules.",
   deviceOnly: "AI conversation archives are unavailable in device-only mode. Connect to your Nowen Note server to continue.", planned: "Long-term memory is not available yet. Conversations remain raw archives and are not automatically treated as facts or shared with another AI.",

@@ -16,6 +16,8 @@ before(async () => {
   service = await import("../src/services/aiMemoryService");
   router = (await import("../src/routes/ai-memory")).default;
   for (const user of [actor, other]) db.prepare("INSERT INTO users(id,username,passwordHash) VALUES (?,?,'fixture')").run(user.userId, user.userId);
+  // The archive is off by default; these tests exercise it switched on.
+  db.prepare("INSERT INTO system_settings(key,value) VALUES ('feature_ai_memory_enabled','true')").run();
 });
 function source(extra = {}) {
   const notebookId = crypto.randomUUID();

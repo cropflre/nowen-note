@@ -25,6 +25,8 @@ export interface SiteConfig {
   /** settings / environment / inherit。 */
   filePublicOriginSource: string;
   editorFontFamily: string;
+  /** AI 对话归档是否已由管理员开启；默认关闭，旧版服务端没有这个开关时也视为关闭。 */
+  aiMemoryEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: SiteConfig = {
@@ -40,6 +42,7 @@ const DEFAULT_CONFIG: SiteConfig = {
   filePublicOrigin: "",
   filePublicOriginSource: "inherit",
   editorFontFamily: "",
+  aiMemoryEnabled: false,
 };
 
 const MOBILE_LOCAL_SITE_CONFIG_KEY = "nowen-mobile-local-site-config";
@@ -62,6 +65,8 @@ interface SiteSettingsContextValue {
   updatePublicWebOrigin: (origin: string) => Promise<void>;
   updateFilePublicOrigin: (origin: string) => Promise<void>;
   updateEditorFont: (fontId: string) => Promise<void>;
+  /** 管理员开启或关闭 AI 对话归档；服务端拒绝时抛错，界面保持原值。 */
+  updateAIMemoryEnabled: (enabled: boolean) => Promise<void>;
   isLoaded: boolean;
 }
 
@@ -71,6 +76,7 @@ const SiteSettingsContext = createContext<SiteSettingsContextValue>({
   updatePublicWebOrigin: async () => {},
   updateFilePublicOrigin: async () => {},
   updateEditorFont: async () => {},
+  updateAIMemoryEnabled: async () => {},
   isLoaded: false,
 });
 
@@ -149,6 +155,7 @@ function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteCon
     filePublicOrigin: data?.site_file_public_origin || "",
     filePublicOriginSource: data?.site_file_public_origin_source || "inherit",
     editorFontFamily: data?.editor_font_family || previous.editorFontFamily || "",
+    aiMemoryEnabled: data?.feature_ai_memory_enabled === true || data?.feature_ai_memory_enabled === "true",
   };
 }
 
@@ -320,8 +327,15 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     }
   }, [siteConfig]);
 
+  const updateAIMemoryEnabled = useCallback(async (enabled: boolean) => {
+    // 仅此设备模式没有服务端归档能力，开关保持关闭。
+    if (isMobileLocalMode()) return;
+    const data = await api.updateSiteSettings({ feature_ai_memory_enabled: enabled });
+    setSiteConfig((previous) => toSiteConfig(data, previous));
+  }, []);
+
   return (
-    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateFilePublicOrigin, updateEditorFont, isLoaded }}>
+    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateFilePublicOrigin, updateEditorFont, updateAIMemoryEnabled, isLoaded }}>
       {children}
     </SiteSettingsContext.Provider>
   );

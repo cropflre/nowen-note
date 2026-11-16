@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { ZodError } from "zod";
 import imports from "./ai-memory-imports.js";
+import { isAIMemoryEnabled } from "../lib/ai-memory-feature.js";
 import {
   AI_MEMORY_LIMITS, AIMemoryError, createAIMemorySource, deleteAIConversation, exportAIConversation, getAIConversation, getAIMemorySource,
   getAIConversationMessages, ingestAIConversation, listAIConversations, listAIMemorySources,
@@ -13,6 +14,8 @@ const app = new Hono();
 const actor = (c: any): AIMemoryActor => ({ userId: c.req.header("X-User-Id") || "", tokenId: c.req.header("X-Auth-Mode") === "api-token" ? c.req.header("X-Api-Token-Id") || "" : null });
 app.use("*", async (c, next) => {
   if (!actor(c).userId) return c.json({ code: "UNAUTHENTICATED", error: "请先登录" }, 401);
+  // Off by default. Existing archives are kept while the switch is off; nothing here reads or writes them.
+  if (!isAIMemoryEnabled()) return c.json({ code: "AI_MEMORY_DISABLED", error: "此服务器未开启 AI 对话归档，请联系管理员在「设置 → 功能开关」中开启" }, 404);
   if (c.req.path.endsWith("/imports/preview")) return next();
   return bodyLimit({ maxSize: AI_MEMORY_LIMITS.requestBytes, onError: (context) => context.json({ code: "AI_CAPTURE_TOO_LARGE", error: "单次请求不能超过 4MB" }, 413) })(c, next);
 });

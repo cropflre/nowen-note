@@ -802,6 +802,10 @@ function SwitchesPanel() {
   const { state } = useApp();
   const actions = useAppActions();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+  const { siteConfig, updateAIMemoryEnabled } = useSiteSettings();
+  // Shown checked right away like the other server switches here; reverted if the server refuses.
+  const [aiMemoryChecked, setAIMemoryChecked] = useState(siteConfig.aiMemoryEnabled);
+  useEffect(() => { setAIMemoryChecked(siteConfig.aiMemoryEnabled); }, [siteConfig.aiMemoryEnabled]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [webUiEnabled, setWebUiEnabled] = useState(false);
   const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(true);
@@ -975,6 +979,19 @@ function SwitchesPanel() {
       setWebUiEnabled(updated.web_ui_enabled !== "false");
     } catch {
       setWebUiEnabled(prev);
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleToggleAIMemory = async (enabled: boolean) => {
+    const previous = siteConfig.aiMemoryEnabled;
+    setAIMemoryChecked(enabled);
+    setSavingKey("aiMemory");
+    try {
+      await updateAIMemoryEnabled(enabled);
+    } catch {
+      setAIMemoryChecked(previous);
     } finally {
       setSavingKey(null);
     }
@@ -1367,6 +1384,27 @@ function SwitchesPanel() {
               </div>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
                 开启后服务器只保留 API；浏览器访问网页端会显示禁用提示。桌面客户端使用本地界面连接 API，不受影响。
+              </p>
+            </div>
+          </label>
+        )}
+
+        {isAdmin && !isMobileLocalMode() && (
+          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
+            <input
+              type="checkbox"
+              checked={aiMemoryChecked}
+              disabled={savingKey === "aiMemory"}
+              onChange={(e) => handleToggleAIMemory(e.target.checked)}
+              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
+                {t("aiMemory.switchTitle")}
+                {savingKey === "aiMemory" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
+              </div>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+                {t("aiMemory.switchHint")}
               </p>
             </div>
           </label>
