@@ -1,7 +1,9 @@
 # 1.6.0 扩展体验发布检查报告（Phase 5）
 
-- 检查对象：`release/v1.6.0`（63f6af1b9），以及在其上的 Phase 5 修复分支 `feat/extension-platform-phase5-v16`。
-- 检查日期：2026-11-15。
+- 检查对象：`release/v1.6.0` 最新提交 `532389bd4`（#926 扩展中心改版：发现 / 我的 / 工作台 + 创建，管理员高级能力移到「设置 › 扩展管理」），以及叠在它上面的 Phase 5 修复分支 `feat/extension-platform-phase5-v16`。
+  - 安全审计和后端回归最初在 `63f6af1b9` 上完成。#926 只改了前端，所以后端结果不受影响。
+  - 前端单测、E2E、包体、无障碍审计和截图都在移植到 `532389bd4` 之后重新运行。
+- 检查日期：2026-11-15，2026-11-16 移植到最新 release 后复测。
 - 范围：扩展中心、工作台、编辑器扩展动作、创建应用，以及它们依赖的 V3 应用运行时。
 
 本阶段**不发版**，也不修改发布配置。
@@ -17,7 +19,7 @@
 | Android / iOS | **需真实设备验收** | 代码与单测确认不显示入口、不发请求；没有真机运行 |
 | Docker / NAS | **需真实设备验收** | 未在容器或 NAS 上运行 |
 | 性能 | 通过 | 扩展代码不在主 App chunk 中；编辑器输入延迟开、关编辑器动作没有可测差异 |
-| 无障碍 | 扩展页面通过；**全站对比度未通过（P2）** | 修复 1 处缺失的控件名称；全站颜色令牌对比度不足，需要设计决策 |
+| 无障碍 | 扩展页面通过；**全站对比度未通过（P2）** | 修复 3 处缺失的控件名称；全站颜色令牌对比度不足，需要设计决策 |
 | 功能开关与旧版兼容 | 通过 | 开关默认值与回退行为均有测试；1.6.0 不能直接降级到 1.5.5（数据库版本保护），只能恢复备份 |
 | 文档 | 已提供 | [使用教程](./extension-center-user-guide.md)、[插件作者指南](./plugin-author-guide-v16.md)（含 SDK 示例）、[迁移与回滚](./extension-experience-v16-rollback.md) |
 
@@ -67,7 +69,9 @@
    - 修复：Electron 主进程通过 `will-frame-navigate` 拦截插件 frame 自己或其子 frame 发起的导航；宿主页面替换 frame 不受影响。
    - 验证：真实 Electron 43 中，不加拦截时外部接收端收到了 `/leak?secret=…`；加拦截后没有收到，frame 停留在原文档。
 3. **编辑器动作结果可含孤立的 UTF-16 代理项**，保存时会被悄悄改成 U+FFFD。现在由服务器拒绝。
-4. **创建应用编辑器里的字段类型下拉框没有无障碍名称**。已补上，并加了 E2E 断言。
+4. **几个控件没有无障碍名称**：
+   - 创建应用编辑器里的字段类型下拉框：已补上，并加了 E2E 断言；
+   - 「设置 › 扩展管理」插件行里只有图标的“重新加载”和“卸载”按钮：已补上，新增翻译键 `extensionCenter.action.reload`。
 
 ## 功能闭环（方案 §12.2）
 
@@ -104,16 +108,16 @@
 
 ## 性能
 
-**包体**（`npm run build`，与 Phase 0 基线 088e78469 对比；这段时间内其他 1.6.0 改动也在变化）：
+**包体**（`npm run build`，移植到 532389bd4 后测量，与 Phase 0 基线 088e78469 对比；这段时间内其他 1.6.0 改动，包括 #926，也在变化）：
 
 | 文件 | Phase 0 | 现在 | 说明 |
 | --- | --- | --- | --- |
 | 首屏 JS（`verify:bundle`） | 4 个请求 / 1.61 MiB / gzip 504.6 KiB | 1 个请求 / 14.5 KiB / gzip 5.4 KiB | 入口改为懒加载，属于其他 1.6.0 改动；预算通过 |
-| App | 1,226.79 kB（gzip 335.73） | 1,246.06 kB（gzip 341.43） | source map 归因：扩展平台代码 0 字节 |
-| TiptapEditorInitializationRuntime | 536.85 kB（gzip 164.82） | 546.75 kB（gzip 168.45） | 其中编辑器动作 16.5 KiB |
-| PluginApps | 47.45 kB | 100.87 kB（gzip 29.61） | 扩展中心与创建应用，懒加载 |
+| App | 1,226.79 kB（gzip 335.73） | 1,248.31 kB（gzip 342.09） | source map 归因：扩展平台代码 0 字节（在 63f6af1b9 上归因） |
+| TiptapEditorInitializationRuntime | 536.85 kB（gzip 164.82） | 546.72 kB（gzip 168.43） | 其中编辑器动作 16.5 KiB |
+| PluginApps | 47.45 kB | 100.72 kB（gzip 29.87） | 扩展中心与创建应用，懒加载 |
 | PluginDashboard | — | 34.06 kB（gzip 10.38） | 工作台，懒加载 |
-| PluginSettingsTab、CommandPalette | 38.29 / 40.96 kB | 37.99 / 40.69 kB | 基本不变 |
+| PluginSettingsTab、CommandPalette | 38.29 / 40.96 kB | 35.29 / 40.65 kB | #926 去掉了设置页里重复的插件市场 |
 
 按 source map 归因，扩展平台代码共约 169.5 KiB（压缩后）：
 
@@ -138,19 +142,19 @@
 
 ## 无障碍
 
-自写的 Playwright 审计（仓库里没有 axe，本阶段也不引入新依赖）覆盖以下范围：
+自写的 Playwright 审计（仓库里没有 axe，本阶段也不引入新依赖），在移植到 532389bd4 后的界面上重新运行，覆盖以下范围：
 
-- **页面状态**（10 个）：我的应用、发现、详情、我的插件、工作台（查看 / 编辑 / 添加卡片）、创建应用（入口 / 草稿）、编辑器动作菜单；
+- **页面状态**（12 个）：我的（`/apps` 和旧链接 `/apps/manage`）、我的卡片「···」菜单、发现、详情、设置 › 扩展管理、工作台（查看 / 编辑 / 添加卡片）、创建（入口 / 草稿）、编辑器动作菜单；
 - **主题**：深色、浅色；
 - **宽度**：1440（100%）、1152（≈125%）、960（≈150%）、390px。
 
 | 检查 | 结果 |
 | --- | --- |
-| 页面横向滚动 | 所有组合都没有。窄屏导航条和分类条是可横向滚动的容器 |
-| 控件无障碍名称 | 修复前：创建应用的字段类型下拉框缺失（已修复，E2E 断言）。现在只剩全站顶栏菜单按钮（`NoteList.tsx` 中的图标按钮），P2 |
+| 页面横向滚动 | 所有组合都没有。窄屏下的分类条、设置标签条是可横向滚动的容器 |
+| 控件无障碍名称 | 已修复 3 处：创建应用的字段类型下拉框（E2E 断言）；「设置 › 扩展管理」插件行里只有图标的“重新加载”和“卸载”按钮（2026-09/10 就有，#926 把这个页面挪进设置后审计才扫到）。剩下的都是全站共用控件（P2）：窄屏顶栏菜单按钮（`NoteList.tsx`）、设置弹窗的关闭按钮（`SettingsModal`）、Markdown 编辑区本身（CodeMirror 的 textbox） |
 | 键盘焦点 | 每页 Tab 18 次，所有停留点都有可见焦点环；菜单按 Escape 返回触发按钮（单测） |
 | 减少动态效果 | `prefers-reduced-motion` 下过渡和动画时长被压到约 1 µs（全局 CSS 规则加 `MotionConfig`） |
-| 文字对比度（近似计算） | **全站颜色令牌未达 WCAG AA（P2）**：白字配强调色按钮，深色 2.53:1、浅色 3.68:1；三级文字，深色 3.77:1、浅色 2.43:1。不是扩展页面独有的问题 |
+| 文字对比度（近似计算） | **全站颜色令牌未达 WCAG AA（P2）**：白字配强调色按钮，深色 2.53:1、浅色 3.68:1；三级文字，深色 3.77:1、浅色 2.43:1；设置弹窗标题处的产品名 2.57:1。不是扩展页面独有的问题 |
 | 屏幕阅读器实测 | 未做（VoiceOver、NVDA 需人工） |
 
 ## 功能开关与旧版兼容
@@ -184,7 +188,7 @@
 | D6 | 普通用户“申请安装” | 未变。故事 A 的普通用户路径依赖它 |
 | D7 | 现有 AI 写作助手按选区替换的覆盖风险 | 未变，建议独立修复，复用编辑器动作的锚点校验 |
 | **D8（新）** | V3 插件界面仍可经 WebRTC 外发数据；只用前端 meta CSP 部署时，还能经自身导航外发。插件界面能拿到的只有自己的存储、它自己界面里的输入和上下文，拿不到笔记、任务和凭据；资源检查器（能看到单个资源）默认关闭 | 1.6.0 维持“只运行管理员安装的插件”的信任模型，在文档中写明（已写）。部署指南要求经后端提供页面，或在反向代理上加同等 `frame-src`。向不可信市场开放前，必须解决这个通道，或把 V3 UI 限定为可信来源 |
-| P2 | 全站对比度令牌、顶栏菜单按钮名称、文案懒加载、工作台视口外延迟挂载、上限内构造 Markdown 约 1.4 秒卡顿 | 作为 1.6.x 体验优化 |
+| P2 | 全站对比度令牌；三个全站控件缺名称（窄屏顶栏菜单按钮、设置弹窗关闭按钮、Markdown 编辑区）；扩展文案懒加载；工作台视口外延迟挂载；上限内构造的 Markdown 约 1.4 秒卡顿 | 作为 1.6.x 体验优化 |
 
 ## 验证记录
 
@@ -196,14 +200,14 @@
 | 后端扩展安全专项 | 同上，逐个运行 27 个扩展测试文件 | 修复前 99 项中 98 项通过（1 项为 D1）；修复后 `application-v3-runtime`、`editor-actions` 新增断言全部通过 |
 | 后端 TypeScript | `cd backend && node node_modules/typescript/bin/tsc --noEmit` | 通过 |
 | Electron 单测 | `node --test electron/__tests__/*.test.js` | 88/88 通过（新增 2 项跳转拦截用例） |
-| 前端单测全量 | `cd frontend && TZ=Asia/Shanghai npx vitest run` | 788 个文件、4761 项全部通过（含本阶段新增的 `usePluginApps`、`useEditorActions` 钩子测试和 2 项恶意结果适配器测试） |
+| 前端单测全量 | `cd frontend && TZ=Asia/Shanghai npx vitest run` | 移植前 788 个文件、4761 项全部通过。移植到 532389bd4 后为 787 个文件、4758 项，只有 1 项失败：`MobileNavigationRail.test.ts` 按源码字面匹配 `<SettingsModal onClose=…/>`，而 #926 给它加了 `defaultTab`。“隐藏导航栏后仍能打开设置”的行为没有变，已单独提交 7bd73ae80 更新这条断言，重跑 5/5 通过。新增的 `usePluginApps`、`useEditorActions` 钩子测试和 2 项恶意结果适配器测试均通过 |
 | 前端 TypeScript | `cd frontend && npx tsc -p tsconfig.app.json --noEmit` | 通过 |
-| 前端 lint（改动文件） | `npx eslint <改动文件>` | 0 个错误；3 条警告是 `PersonalStudio.tsx` 原有的 hook 依赖警告 |
+| 前端 lint（改动文件） | `npx eslint <改动文件>` | 0 个错误；2 条警告是 `PersonalStudio.tsx` 原有的 hook 依赖警告 |
 | i18n | `npm run i18n:check` | 通过 |
 | SDK 合同 | `node scripts/generate-plugin-host-api.mjs --check`；SDK `tsc`；`generated-contract.test.mjs` | 全部通过 |
 | 数据一致性契约 | `node scripts/data-consistency-contract.mjs --verify` | 通过（12 条不变量 / 349 处测试引用） |
 | 生产构建与包体预算 | `npm run build && npm run verify:bundle` | 通过（首屏 1 个请求 / 14.5 KiB / gzip 5.4 KiB） |
-| 扩展 E2E（Chromium） | 打包 5 个示例插件后 `NOWEN_QA_NODE=<Electron> npx playwright test --config playwright.plugin-apps.config.ts` | 6/6 通过（1.2 分钟）：plugin-apps（新增外部跳转外传断言）、plugin-inspectors、extension-center、workbench、editor-actions（新增输入不请求插件接口的断言）、create-app（新增字段类型名称断言） |
+| 扩展 E2E（Chromium） | 打包 5 个示例插件后 `NOWEN_QA_NODE=<Electron> npx playwright test --config playwright.plugin-apps.config.ts` | 移植到 532389bd4 并加上扩展管理页的名称修复后，6/6 通过（1.2 分钟）：plugin-apps（新增外部跳转外传断言）、plugin-inspectors、extension-center、workbench、editor-actions（新增输入不请求插件接口的断言）、create-app（新增字段类型名称断言） |
 | 桌面端浏览器层（真实 Electron 43.8.4） | 最小外壳 + 一次性后端（脚本在会话临时目录，未提交） | 修复前插件文档被 `frame-ancestors` 拒绝；修复后可以加载。不加跳转拦截时外部接收端收到 `/leak?secret=…`，加拦截后没有收到；宿主替换 frame 正常；WebRTC 的 STUN 包两种情况下都能发出 |
 | Web 端 CSP 组合（Playwright Chromium） | 同一插件文档分别配“后端 header 加 meta”“只有 meta”“file:// 父页” | header 加 meta：外部导航被拦；只有 meta：外部导航和 WebRTC 都能外发；file:// 父页：修复前被 `frame-ancestors` 拒绝 |
 | 编辑器输入延迟 | 无头 Chromium，300 段笔记，每种编辑器每轮 210 次按键，跑两轮 | 开、关编辑器动作没有可测差异（见[性能](#性能)） |
