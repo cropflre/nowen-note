@@ -135,6 +135,7 @@ async function permission(tabId: number, rawUrl: string) {
     const local = await change((data) => structuredClone(data.grants[ctx.key]));
     if (!local?.automatic || local.source.permissionState !== "granted") return { allowed: false, accountMarker: local?.accountMarker || null };
     let denied = false;
+    let reason = "AI_SOURCE_NOT_AUTHORIZED：服务端来源已暂停、撤销或无法确认授权，已停止自动采集。";
     if (local.source.id) {
       try {
         const remote = await requestAIArchive<ArchiveSource>(ctx.config, `/sources/${encodeURIComponent(local.source.id)}`);
@@ -149,13 +150,15 @@ async function permission(tabId: number, rawUrl: string) {
         // bounded offline retry window; HTTP authorization failures never use that fallback.
         denied = (error instanceof NowenApiError && error.status >= 400 && error.status < 500)
           || Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
+        // The server can have the archive switched off; say so instead of blaming the source.
+        if (error instanceof NowenApiError && error.code === "AI_MEMORY_DISABLED") reason = "AI_MEMORY_DISABLED：此 Nowen 服务器未开启 AI 对话归档，已停止自动采集；管理员在「设置 → 功能开关」中开启后，可在此重试。";
       }
     } else denied = Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
     if (denied) {
       await change((data) => {
         for (const current of Object.values(data.grants)) if (current.scope === ctx.scope && current.source.accountScope === local.source.accountScope) {
           current.automatic = false;
-          current.error = "AI_SOURCE_NOT_AUTHORIZED：服务端来源已暂停、撤销或无法确认授权，已停止自动采集。";
+          current.error = reason;
         }
       });
       notify();

@@ -28,6 +28,8 @@ test("background consent, durable receipts, account switches and revoked-source 
   let invalidReceipt = false;
   let sourceOffline = false;
   let sourceForbidden = false;
+  let archiveDisabled = false;
+  const disabled = () => Response.json({ error: "此服务器未开启 AI 对话归档", code: "AI_MEMORY_DISABLED" }, { status: 404 });
   const sources = new Map<string, ArchiveSource>();
   const ingested: any[] = [];
   const revisions = new Map<string, number>();
@@ -35,6 +37,7 @@ test("background consent, durable receipts, account switches and revoked-source 
     const url = new URL(String(input));
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (url.pathname === "/api/me") return Response.json({ id: "user-a", username: "alice", role: "user" });
+    if (archiveDisabled && url.pathname.startsWith("/api/ai-memory/")) return disabled();
     if (url.pathname.endsWith("/sources") && init?.method === "POST") {
       const source: ArchiveSource = { ...body, id: `source-${sources.size + 1}` };
       sources.set(source.id, source);
@@ -113,6 +116,25 @@ test("background consent, durable receipts, account switches and revoked-source 
     sourceForbidden = true;
     assert.equal((await send("AI_CAPTURE_PERMISSION", { url: rawPreview.snapshot.sourceUrl }, content)).allowed, false);
     sourceForbidden = false;
+  });
+  await t.test("a server with the archive switched off stops capture with the real reason and keeps unsent content", async () => {
+    const enabled = await send("AI_PREVIEW");
+    await send("AI_SAVE", { previewId: enabled.previewId, notebookId: "notebook-a", sourceName: "My ChatGPT", automatic: true });
+    assert.equal((await send("AI_CAPTURE_PERMISSION", { url: rawPreview.snapshot.sourceUrl }, content)).allowed, true);
+    archiveDisabled = true;
+    assert.equal((await send("AI_CAPTURE_PERMISSION", { url: rawPreview.snapshot.sourceUrl }, content)).allowed, false);
+    const stopped = await send("AI_STATUS");
+    assert.match(stopped.grant.error, /^AI_MEMORY_DISABLED/);
+    const preview = await send("AI_PREVIEW");
+    const kept = await send("AI_SAVE", { previewId: preview.previewId, notebookId: "notebook-a", sourceName: "My ChatGPT", automatic: false });
+    assert.equal(kept.currentPending, 1);
+    assert.match(kept.grant.error, /未开启 AI 对话归档/);
+    assert.equal(data[AI_STORAGE_KEY].queue[0].payload.snapshot.messages[0].text, "hello");
+    // Once an administrator switches it back on, retrying sends what was kept.
+    archiveDisabled = false;
+    const resumed = await send("AI_MANAGE", { action: "retry" });
+    assert.equal(resumed.currentPending, 0);
+    assert.equal(data[AI_STORAGE_KEY].queue.length, 0);
   });
   await t.test("pause and revoke stop further capture; new alias creates a separate source", async () => {
     await send("AI_MANAGE", { action: "pause" });
