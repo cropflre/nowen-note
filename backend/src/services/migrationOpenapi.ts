@@ -64,6 +64,7 @@ const noteAndJobSchemas = {
     type: "object", required: ["id", "status", "source", "counts"], properties: {
       id: text(128), status: { type: "string", enum: ["CREATED", "UPLOADING", "SCANNING", "NORMALIZING", "PREVIEW_READY", "APPROVED", "IMPORTING", "VERIFYING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "PAUSED", "UNDONE"] },
       source: reference("MigrationSource"), name: text(200), workspaceId: { type: "string", nullable: true },
+      preparedBy: { type: "string", enum: ["user", "assistant"], description: "assistant when the job was created with an API token" },
       targetNotebookId: { type: "string", nullable: true }, rootNotebookId: { type: "string", nullable: true },
       counts: reference("MigrationCounts"), previewDigest: { type: "string", nullable: true },
       warnings: { type: "array", items: { type: "string" } }, error: { type: "string", nullable: true },
