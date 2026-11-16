@@ -2,7 +2,7 @@
 
 这些说明适配工作方式，不代表相应产品或版本已经验收。当前自动化覆盖真实 MCP SDK Client 的 stdio 与受保护 Streamable HTTP；WorkBuddy、Qoder/QoderWork、Claude Code、Codex、豆包工作的实际应用版本必须分别记录验证结果。
 
-从 Nowen **让 AI 帮我迁移** 的接入引导生成配置。迁移准备需要个人 API Token、read-write 模式；受限 Token 选择目标笔记本的写权限并包含后代。最小权限按实例能力提示配置；带标签、附件的数据还需要相应写权限。HTTP gateway bearer 与 Nowen API Token 是不同凭据，不向模型或来源文件泄露它们。
+从 Nowen **导入笔记 → 没有导出文件？让 AI 帮我搬家 → AI 助手还没有连接 Nowen？** 的接入引导生成配置。迁移准备需要个人 API Token、read-write 模式；受限 Token 选择目标笔记本的写权限并包含后代。最小权限按实例能力提示配置；带标签、附件的数据还需要相应写权限。HTTP gateway bearer 与 Nowen API Token 是不同凭据，不向模型或来源文件泄露它们。
 
 ## 生成配置与定位连接问题
 

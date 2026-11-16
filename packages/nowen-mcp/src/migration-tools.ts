@@ -118,7 +118,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
     try {
       requireMigrationToken(api);
       return response({ job: summary(await api.migrationAction(jobId, "status")),
-        requiresHumanApproval: true, nextStep: "在 Nowen Note → 设置 → 数据管理 → 导入与迁移中检查本次任务并确认安全撤销。" });
+        requiresHumanApproval: true, nextStep: "在 Nowen Note → 设置 → 数据管理 → 导入笔记 → 导入记录中打开本次任务并确认安全撤销。" });
     } catch (error) { return failure(error); }
   });
 }
