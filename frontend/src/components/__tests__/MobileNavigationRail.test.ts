@@ -61,6 +61,6 @@ describe("mobile navigation rail contract", () => {
     expect(sidebarSource).toContain('data-mobile-sidebar-settings=""');
     expect(sidebarSource).toContain('window.dispatchEvent(new CustomEvent("nowen:open-settings"))');
     expect(appSource).toContain('window.addEventListener("nowen:open-settings", onOpen)');
-    expect(appSource).toContain('<SettingsModal onClose={() => setSettingsOpen(false)} />');
+    expect(appSource).toContain('<SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />');
   });
 });
