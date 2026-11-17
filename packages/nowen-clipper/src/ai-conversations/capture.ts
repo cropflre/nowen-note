@@ -75,7 +75,7 @@ export function createCaptureController(options: CaptureRuntimeOptions) {
     const Observer = options.doc.defaultView?.MutationObserver;
     if (!Observer) return;
     observer = new Observer(schedule);
-    observer.observe(options.doc.documentElement, { childList: true, characterData: true, attributes: true, attributeFilter: ["data-is-streaming", "data-streaming", "data-message-id", "data-account-id"], subtree: true });
+    observer.observe(options.doc.documentElement, { childList: true, characterData: true, attributes: true, attributeFilter: ["data-is-streaming", "data-streaming", "data-message-id", "data-account-id", "data-talvt-turn-state", "data-response-body"], subtree: true });
     schedule();
   }
   return { refresh, stop() { stopped = true; disconnect(); } };

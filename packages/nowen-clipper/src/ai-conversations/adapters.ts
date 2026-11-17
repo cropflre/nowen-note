@@ -34,8 +34,21 @@ function accountMarker(doc: Document): string | null {
   return element && visible(element) ? element.getAttribute("data-account-id") : null;
 }
 
-function messageNodes(doc: Document, provider: AIProvider): Array<{ element: Element; role: "user" | "assistant" }> {
+type MessageNode = { element: Element; role: "user" | "assistant"; id?: string; streaming?: boolean };
+function messageNodes(doc: Document, provider: AIProvider): MessageNode[] {
   if (provider === "chatgpt") {
+    // Current ChatGPT layout: user bubbles and response bodies. The user message ID is on its message unit,
+    // the reply's on its body, and a turn whose state is not "complete" is still being written.
+    const current = Array.from(doc.querySelectorAll("[data-user-message-bubble], [data-response-body]")).filter(visible);
+    if (current.length) return current.map((element) => {
+      const user = element.hasAttribute("data-user-message-bubble");
+      const id = user
+        ? (element.closest("[data-chatgpt-search-message-ids]")?.getAttribute("data-chatgpt-search-message-ids") || "").split(/[\s,]+/).find(Boolean)
+        : element.getAttribute("data-response-body") || element.querySelector("[data-chatgpt-selection-message-id]")?.getAttribute("data-chatgpt-selection-message-id");
+      const state = element.closest("[data-talvt-turn-state]")?.getAttribute("data-talvt-turn-state");
+      return { element, role: user ? "user" : "assistant", id: id || undefined, streaming: !user && !!state && state !== "complete" };
+    });
+    // Earlier ChatGPT layout.
     return Array.from(doc.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]'))
       .filter(visible).map((element) => ({ element, role: element.getAttribute("data-message-author-role") as "user" | "assistant" }));
   }
@@ -58,11 +71,12 @@ export async function extractConversation(doc: Document, rawUrl: string): Promis
   let chars = 0;
   let unavailableAssets = false;
   const globallyStreaming = !!doc.querySelector('[data-testid="stop-button"], [data-testid="stop-generating-button"], button[aria-label="停止生成"], button[aria-label="Stop generating"]');
-  for (const { element, role } of nodes) {
+  for (const { element, role, id: knownId, streaming: turnStreaming } of nodes) {
     const clone = element.cloneNode(true) as Element;
     const originalDescendants = Array.from(element.querySelectorAll("*"));
     clone.querySelectorAll("*").forEach((node, index) => { if (!visible(originalDescendants[index])) node.remove(); });
-    clone.querySelectorAll('script, style, template, button, [hidden], [aria-hidden="true"], iframe, object').forEach((node) => node.remove());
+    // ChatGPT marks citation chips and similar controls inside replies as excluded from copying; so do we.
+    clone.querySelectorAll('script, style, template, button, [hidden], [aria-hidden="true"], iframe, object, [data-markdown-copy="exclude"]').forEach((node) => node.remove());
     if (clone.querySelector("img, video, audio, a[download]")) unavailableAssets = true;
     clone.querySelectorAll("img, video, audio").forEach((node) => node.replaceWith(doc.createTextNode("[附件未下载]")));
     const text = (clone.textContent || "").replace(/\r\n/g, "\n").trim();
@@ -70,9 +84,13 @@ export async function extractConversation(doc: Document, rawUrl: string): Promis
     chars += text.length;
     if (chars > 800_000) throw new Error("AI_MESSAGE_PARSE_FAILED：对话超过单次采集限制，请通过文件导入。");
     const hash = await textHash(clone.innerHTML);
-    let id = element.getAttribute("data-message-id") || element.closest("[data-message-id]")?.getAttribute("data-message-id") || "";
+    const streaming = !!turnStreaming || element.matches('[data-is-streaming="true"], [data-streaming="true"]')
+      || !!element.querySelector('[data-is-streaming="true"], [data-streaming="true"]')
+      || (globallyStreaming && role === "assistant" && element === nodes.at(-1)?.element);
+    let id = knownId || element.getAttribute("data-message-id") || element.closest("[data-message-id]")?.getAttribute("data-message-id") || "";
     if (!id) {
-      stableIds = false;
+      // A reply still being written is never saved, so its missing ID does not turn automatic saving off.
+      if (!streaming) stableIds = false;
       const key = `${role}:${hash}`;
       const count = (occurrences.get(key) || 0) + 1;
       occurrences.set(key, count);
@@ -80,9 +98,6 @@ export async function extractConversation(doc: Document, rawUrl: string): Promis
     }
     if (ids.has(id)) throw new Error("AI_MESSAGE_PARSE_FAILED：消息身份存在歧义，请使用选区剪藏。");
     ids.add(id);
-    const streaming = element.matches('[data-is-streaming="true"], [data-streaming="true"]')
-      || !!element.querySelector('[data-is-streaming="true"], [data-streaming="true"]')
-      || (globallyStreaming && role === "assistant" && element === nodes.at(-1)?.element);
     messages.push({ externalMessageId: id, localSequence: messages.length, role, blocks: [{ type: "markdown", text }], text, contentHash: hash, capturedHtml: clone.innerHTML, captureState: streaming ? "streaming" : "stable" });
   }
   if (!messages.length) throw new Error("AI_MESSAGE_PARSE_FAILED：未检测到可保存的文字消息。");

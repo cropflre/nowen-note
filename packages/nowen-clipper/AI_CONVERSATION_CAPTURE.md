@@ -45,7 +45,7 @@ Nowen 服务端默认开启 AI 对话归档，管理员可以在「设置 → �
 
 | 平台 | 实现范围 | 本地 Fixture | 真实网站 |
 | --- | --- | --- | --- |
-| ChatGPT | `/c/<id>` 可见消息、页面按钮一键保存、点过按钮的会话自动保存 | 已覆盖 | 待人工验收 |
+| ChatGPT | `/c/<id>` 可见消息（2026 年 11 月的新页面结构：`data-user-message-bubble`、`data-response-body`、`data-talvt-turn-state`；旧结构 `data-message-author-role` 仍支持）、页面按钮一键保存、点过按钮的会话自动保存；回复里 ChatGPT 标为不复制的引用标签不保存 | 已覆盖 | 页面按钮已出现，保存待人工验收 |
 | 豆包 | `/chat/<id>` 的已识别消息容器，稳定 ID 缺失时关闭自动保存 | 已覆盖 | 待人工验收 |
 | Claude / Gemini / DeepSeek | 普通网页或选区剪藏 | AI 专用适配器未实现 | 未宣称支持 |
 

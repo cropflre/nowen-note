@@ -8,7 +8,7 @@ import { createCaptureController } from "../src/ai-conversations/capture";
 import type { CapturePreview } from "../src/ai-conversations/types";
 
 async function fixture(name = "chatgpt") {
-  return new JSDOM(await readFile(new URL(`./fixtures/${name}.html`, import.meta.url), "utf8"), { url: name === "chatgpt" ? "https://chatgpt.com/c/fixture-c" : "https://www.doubao.com/chat/fixture-d" });
+  return new JSDOM(await readFile(new URL(`./fixtures/${name}.html`, import.meta.url), "utf8"), { url: name.startsWith("chatgpt") ? "https://chatgpt.com/c/fixture-c" : "https://www.doubao.com/chat/fixture-d" });
 }
 const pause = (ms = 25) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,6 +32,42 @@ test("ChatGPT fixture preserves Markdown code, tables and lists without hidden b
   assert.match(text, /\*\s+保留列表|-\s+保留列表/);
   assert.match(text, /\| 项目 \| 值 \|/);
   assert.doesNotMatch(JSON.stringify(result), /秘密|不能读取隐藏正文|Copy|capturedHtml/);
+  dom.window.close();
+});
+
+test("current ChatGPT layout: bubbles and reply bodies keep their IDs and Markdown, without copy-excluded chips or controls", async () => {
+  const dom = await fixture("chatgpt-current");
+  const result = await normalizePreview(await extractConversation(dom.window.document, dom.window.location.href));
+  const messages = result.snapshot.messages;
+  assert.deepEqual(messages.map((m) => m.role), ["user", "assistant", "user", "assistant"]);
+  assert.deepEqual(messages.slice(0, 3).map((m) => m.externalMessageId), ["u-0001", "a-0001", "u-0002"]);
+  assert.deepEqual(messages.map((m) => m.captureState), ["stable", "stable", "stable", "streaming"], "a turn that is not complete is still being written");
+  assert.equal(result.stableIds, true, "a reply still being written without an ID does not turn automatic saving off");
+  assert.equal(messages[0].text, "帮我整理今天的 AI 热点。");
+  assert.match(messages[1].text, /模型更新/);
+  assert.match(messages[1].text, /Qwen4-Max 发布。/);
+  assert.match(messages[1].text, /\| 优先级 \| 建议 \|/);
+  assert.match(messages[1].text, /```python\nprint\("ok"\)/);
+  assert.doesNotMatch(JSON.stringify(messages), /IT之家|编辑消息|复制回复|已思考|ChatGPT 说|你说/);
+  dom.window.close();
+});
+
+test("current ChatGPT layout: a reply is saved once its turn completes, even without other page changes", async () => {
+  const dom = await fixture("chatgpt-current");
+  const doc = dom.window.document;
+  const submitted: CapturePreview[] = [];
+  const controller = createCaptureController({ doc, url: () => dom.window.location.href, debounceMs: 5,
+    permission: async () => ({ allowed: true }), submit: async (result) => { submitted.push(result); }, fail: (error) => assert.fail(error) });
+  await controller.refresh();
+  await pause(80);
+  assert.deepEqual(submitted.at(-1)?.snapshot.messages.map((m) => m.externalMessageId), ["u-0001", "a-0001", "u-0002"]);
+  const count = submitted.length;
+  doc.querySelector('[data-turn-key="turn-2"]')!.setAttribute("data-talvt-turn-state", "complete");
+  doc.querySelector('[data-response-body=""]')!.setAttribute("data-response-body", "a-0002");
+  await pause(80);
+  assert.equal(submitted.length, count + 1);
+  assert.deepEqual(submitted.at(-1)?.snapshot.messages.map((m) => m.externalMessageId), ["u-0001", "a-0001", "u-0002", "a-0002"]);
+  controller.stop();
   dom.window.close();
 });
 
