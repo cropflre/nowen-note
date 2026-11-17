@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Blocks } from "lucide-react";
+import { Blocks, LayoutDashboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
 import { usePluginApps } from "@/hooks/usePluginApps";
@@ -25,7 +25,7 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   return <>
     {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(dashboardEnabled ? [{ runtimeId: "dashboard", title: t("pluginApps.dashboard"), route: "/apps/dashboard" }] : []), ...(enabled ? pages.filter(pinned) : [])].map(page => (
       <button key={page.runtimeId} data-mobile-drawer-rail-item="" type="button" title={page.title} aria-label={page.title} onClick={() => open(page.route)} className="flex w-10 min-h-10 flex-col items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover">
-        <Blocks size={17} />{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
+        {page.runtimeId === "dashboard" ? <LayoutDashboard size={17} /> : <Blocks size={17} />}{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
       </button>
     ))}
   </>;
