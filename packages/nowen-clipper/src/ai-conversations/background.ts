@@ -1,13 +1,12 @@
 import { createContentScriptBridge } from "../lib/content-script-bridge";
 import { buildNoteUrl, ensurePersonalNotebook, NowenApiError, ping, requestAIArchive } from "../lib/api";
 import { getConfig } from "../lib/storage";
-import { acknowledgeArchive, AI_STORAGE_KEY, archiveScope, emptyAIState, enqueueArchive, failPending, grantKey, RETRY_WINDOW_MS, type AIArchiveState, type PendingArchive } from "./queue";
-import type { ArchiveReceipt, ArchiveSource, CaptureGrant, CapturePreview } from "./types";
+import { acknowledgeArchive, AI_STORAGE_KEY, archiveScope, covers, emptyAIState, enqueueArchive, failPending, grantKey, NOTE_KEPT, RETRY_WINDOW_MS, type AIArchiveState } from "./queue";
+import type { ArchiveReceipt, ArchiveSource, CaptureGrant, CapturePreview, ConversationSnapshot, QuickStatus } from "./types";
 import { normalizePreview } from "./normalize";
 
 const bridge = createContentScriptBridge();
 const knownTabs = new Set<number>();
-const previews = new Map<string, { preview: CapturePreview; scope: string; tabId: number; expiresAt: number }>();
 let state: AIArchiveState | undefined;
 let writes = Promise.resolve();
 let flushing: Promise<void> | undefined;
@@ -33,19 +32,37 @@ function identify(raw: string | undefined) {
     return match ? { provider: chatgpt ? "chatgpt" : "doubao", id: match[1], url: `${url.origin}${url.pathname}` } : null;
   } catch { return null; }
 }
+const LOGIN_REQUIRED = "AI_LOGIN_REQUIRED：请先在 Nowen 扩展里登录服务器账号（桌面配对暂不支持保存对话）。";
 async function context(tabId: number) {
   const config = await getConfig();
-  if (!config.serverUrl || !config.token) throw new Error("AI_PLATFORM_UNSUPPORTED：AI 归档需要登录 Nowen 服务端；桌面配对专用通道尚不支持对话归档。");
+  if (!config.serverUrl || !config.token) throw new Error(LOGIN_REQUIRED);
   const scope = archiveScope(config);
   const tab = await chrome.tabs.get(tabId);
   const identity = identify(tab.url);
   if (!identity) throw new Error("AI_PLATFORM_UNSUPPORTED：当前地址尚不支持 AI 会话归档，请使用普通剪藏。");
   return { config, scope, identity, key: grantKey(scope, identity.provider, identity.id) };
 }
-function notify() {
-  for (const tabId of knownTabs) void chrome.tabs.sendMessage(tabId, { type: "AI_GRANT_CHANGED" }, { frameId: 0 }).catch(() => knownTabs.delete(tabId));
+/** AI_GRANT_CHANGED makes tabs re-check auto-saving; AI_STATUS_CHANGED only refreshes the page button. */
+function notify(type: "AI_GRANT_CHANGED" | "AI_STATUS_CHANGED" = "AI_GRANT_CHANGED") {
+  for (const tabId of knownTabs) void chrome.tabs.sendMessage(tabId, { type }, { frameId: 0 }).catch(() => knownTabs.delete(tabId));
 }
 function describe(error: unknown) { return (error instanceof Error ? error.message : "保存失败，请稍后重试").slice(0, 400); }
+/**
+ * The archive of this one conversation cannot take the page as it is now. Unlike source errors
+ * (revoked, paused, switched off) only this conversation pauses; the next click saves another copy.
+ */
+const DIVERGED = new Map([
+  ["AI_MESSAGE_ORDER_CONFLICT", "这段对话前面的内容变了（比如重新生成或编辑了消息），和已存的版本对不上，已暂停自动保存。再点「存到 Nowen」会另存一份当前版本，已存的那份不会被改动。"],
+  ["AI_SYNC_VERSION_CONFLICT", "这段对话的归档刚在别处更新过，已暂停自动保存。再点「存到 Nowen」会另存一份当前版本，已存的那份不会被改动。"],
+  ["AI_MESSAGE_IDENTITY_AMBIGUOUS", "这个页面的消息没有稳定编号，已存的那份没法接着更新，已暂停自动保存。再点「存到 Nowen」会另存一份当前版本。"],
+  ["AI_CONVERSATION_DELETED", "这段对话的归档已在 Nowen 里删除，已暂停自动保存。再点「存到 Nowen」会重新存一份。"],
+]);
+const PROVIDER_NAMES: Record<string, string> = { chatgpt: "ChatGPT", doubao: "豆包" };
+/** The snapshot as this conversation's archive knows it: the source's scope and, for a later copy, that copy's identity and title. */
+function archived(grant: CaptureGrant, snapshot: ConversationSnapshot): ConversationSnapshot {
+  return { ...snapshot, accountScope: grant.source.accountScope, externalConversationId: grant.externalConversationId,
+    title: grant.copy ? `${snapshot.title}（第 ${grant.copy} 份）` : snapshot.title };
+}
 
 async function flush(): Promise<void> {
   if (flushing) return flushing;
@@ -103,13 +120,19 @@ async function flush(): Promise<void> {
         if (archiveScope(await getConfig()) !== scope) return;
         const receipt = await requestAIArchive<ArchiveReceipt>(config, "/conversations/ingest", item.payload);
         await change((data) => acknowledgeArchive(data, item, receipt));
+        notify("AI_STATUS_CHANGED");
       } catch (error) {
+        const diverged = error instanceof NowenApiError ? DIVERGED.get(error.code || "") : undefined;
         await change((data) => {
           const current = data.queue.find((entry) => entry.id === item.id);
           const currentGrant = data.grants[item.grantKey];
           if (!current) return;
           failPending(current, error instanceof NowenApiError ? error.status : undefined, describe(error));
-          if (currentGrant) {
+          if (currentGrant && diverged) {
+            currentGrant.error = diverged;
+            currentGrant.automatic = false;
+            currentGrant.diverged = true;
+          } else if (currentGrant) {
             currentGrant.error = describe(error);
             if (current.blocked) {
               for (const other of Object.values(data.grants)) if (other.scope === item.scope && other.source.accountScope === currentGrant.source.accountScope) {
@@ -151,7 +174,7 @@ async function permission(tabId: number, rawUrl: string) {
         denied = (error instanceof NowenApiError && error.status >= 400 && error.status < 500)
           || Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
         // The server can have the archive switched off; say so instead of blaming the source.
-        if (error instanceof NowenApiError && error.code === "AI_MEMORY_DISABLED") reason = "AI_MEMORY_DISABLED：此 Nowen 服务器未开启 AI 对话归档，已停止自动采集；管理员在「设置 → 开关」中开启后，可在此重试。";
+        if (error instanceof NowenApiError && error.code === "AI_MEMORY_DISABLED") reason = "AI_MEMORY_DISABLED：此 Nowen 服务器未开启 AI 对话归档，已停止自动保存；管理员在「设置 → 开关」中开启后，再点「存到 Nowen」即可继续。";
       }
     } else denied = Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
     if (denied) {
@@ -171,83 +194,95 @@ async function permission(tabId: number, rawUrl: string) {
     });
   } catch { return { allowed: false }; }
 }
-async function preview(tabId: number) {
-  const ctx = await context(tabId);
-  const result = await bridge.request(tabId, { type: "AI_PREVIEW_CONTENT" }) as { ok: boolean; preview?: CapturePreview; error?: string };
-  if (!result?.ok || !result.preview) throw new Error(result?.error || "AI_MESSAGE_PARSE_FAILED：未获得可预览的对话。");
-  result.preview = await normalizePreview(result.preview);
-  if (result.preview.snapshot.externalConversationId !== ctx.identity.id || result.preview.snapshot.provider !== ctx.identity.provider) throw new Error("会话已切换，请重新预览。");
-  if ((await context(tabId)).scope !== ctx.scope) throw new Error("Nowen 账号已切换，请重新预览。");
-  const previewId = crypto.randomUUID();
-  for (const [id, entry] of previews) if (entry.expiresAt < Date.now()) previews.delete(id);
-  previews.set(previewId, { preview: result.preview, scope: ctx.scope, tabId, expiresAt: Date.now() + 5 * 60_000 });
-  knownTabs.add(tabId);
-  return { previewId, preview: result.preview };
-}
 const DEFAULT_ARCHIVE_NOTEBOOK = "AI 对话";
-async function save(message: { tabId: number; previewId: string; notebookId: string; sourceName: string; automatic: boolean }) {
-  const ctx = await context(message.tabId);
-  const cached = previews.get(message.previewId);
-  if (!cached || cached.tabId !== message.tabId || cached.scope !== ctx.scope || cached.expiresAt < Date.now()
-    || cached.preview.snapshot.externalConversationId !== ctx.identity.id) throw new Error("预览已失效或会话已切换，请重新授权预览。");
-  if (!message.sourceName?.trim()) throw new Error("请填写来源账户名称，用来区分不同 AI 账号。");
-  if (!message.notebookId) {
-    // No notebook chosen: keep this conversation (or this source) where it already goes, else use "AI 对话".
-    const bound = await change((data) => {
-      const own = data.grants[ctx.key];
-      if (own && own.source.permissionState === "granted") return own.source.notebookId;
-      return Object.values(data.grants).find((entry) => entry.scope === ctx.scope && entry.provider === ctx.identity.provider
-        && entry.source.displayName === message.sourceName.trim() && entry.source.permissionState === "granted")?.source.notebookId;
-    });
-    message = { ...message, notebookId: bound || (await ensurePersonalNotebook(ctx.config, DEFAULT_ARCHIVE_NOTEBOOK)).id };
+/**
+ * One click on 「存到 Nowen」 is the person's consent: save everything the page shows now into the
+ * personal 「AI 对话」 notebook and, when the page gives stable message IDs, keep saving new messages.
+ * The source is created on the first click and shared by later conversations of the same site.
+ */
+async function quickSave(tabId: number, captured?: CapturePreview) {
+  const config = await getConfig();
+  if (!config.serverUrl || !config.token) {
+    void chrome.runtime.openOptionsPage().catch(() => undefined);
+    throw new Error(LOGIN_REQUIRED.replace("。", "，已打开登录页。"));
   }
-  if (message.automatic && !cached.preview.stableIds) throw new Error("页面没有稳定消息 ID，无法安全开启自动保存。");
-  const stable = cached.preview.snapshot.messages.filter((entry) => entry.captureState !== "streaming");
-  if (!stable.length) throw new Error("AI 回复仍在生成，当前没有稳定消息可保存。");
+  const ctx = await context(tabId);
+  if (!captured) {
+    const result = await bridge.request(tabId, { type: "AI_PREVIEW_CONTENT" }) as { ok: boolean; preview?: CapturePreview; error?: string };
+    if (!result?.ok || !result.preview) throw new Error(result?.error || "AI_MESSAGE_PARSE_FAILED：没有读到这段对话。");
+    captured = result.preview;
+  }
+  const preview = await normalizePreview(captured);
+  if (preview.snapshot.externalConversationId !== ctx.identity.id || preview.snapshot.provider !== ctx.identity.provider) throw new Error("页面已切换到别的对话，请再点一次。");
+  const stable = preview.snapshot.messages.filter((entry) => entry.captureState !== "streaming");
+  if (!stable.length) throw new Error("AI 还在生成回复，等它写完再点一次。");
+  const automatic = preview.stableIds;
+  knownTabs.add(tabId);
+  const reusable = (data: AIArchiveState): ArchiveSource | undefined => {
+    const own = data.grants[ctx.key];
+    if (own?.source.permissionState === "granted") return own.source;
+    return Object.values(data.grants).find((entry) => entry.scope === ctx.scope && entry.provider === ctx.identity.provider
+      && entry.source.permissionState === "granted" && (!entry.accountMarker || entry.accountMarker === preview.accountMarker))?.source;
+  };
+  const known = await change((data) => !!reusable(data));
+  const notebookId = known ? "" : (await ensurePersonalNotebook(ctx.config, DEFAULT_ARCHIVE_NOTEBOOK)).id;
+  if ((await context(tabId)).key !== ctx.key) throw new Error("Nowen 账号或页面已切换，请再点一次。");
   await change((data) => {
     let grant: CaptureGrant | undefined = data.grants[ctx.key];
+    const items = data.queue.filter((entry) => entry.grantKey === ctx.key);
     if (grant?.source.permissionState === "revoked") {
-      if (data.queue.some((entry) => entry.grantKey === ctx.key)) throw new Error("此会话的旧来源仍有暂存内容，请先处理或明确清空暂存队列，再使用新的来源账户名称授权。");
-      if (grant.source.displayName === message.sourceName.trim()) throw new Error("原来源已撤销，请填写新的来源账户名称以创建独立授权。");
+      // Left by an older extension version, which could revoke a source here.
+      if (items.length) throw new Error("这段对话还有旧来源没发出的内容，请先在扩展弹窗里重试或清空暂存。");
       delete data.grants[ctx.key];
       grant = undefined;
     }
-    if (grant && (grant.source.notebookId !== message.notebookId || grant.source.displayName !== message.sourceName.trim())) throw new Error("此会话已绑定其他来源或笔记本，请先撤销原来源。归档不会自动迁移。");
-    if (grant?.accountMarker && grant.accountMarker !== cached.preview.accountMarker) throw new Error("网站账号标识已变化，请选择新的来源账户名称。");
+    if (grant?.accountMarker && preview.accountMarker && grant.accountMarker !== preview.accountMarker) throw new Error("网站登录的账号变了，这段对话没有保存。");
     if (!grant) {
-      const sameSource = Object.values(data.grants).find((entry) => entry.scope === ctx.scope && entry.provider === ctx.identity.provider
-        && entry.source.notebookId === message.notebookId && entry.source.displayName === message.sourceName.trim() && entry.source.permissionState === "granted"
-        && (!entry.accountMarker || entry.accountMarker === cached.preview.accountMarker));
-      const source: ArchiveSource = sameSource?.source || {
-        id: "", provider: cached.preview.snapshot.provider, accountScope: crypto.randomUUID(), notebookId: message.notebookId,
-        displayName: message.sourceName.trim().slice(0, 120), captureEnabled: message.automatic, permissionState: "granted",
-      };
+      const shared = reusable(data);
+      const source: ArchiveSource | undefined = shared ? structuredClone(shared) : notebookId ? {
+        id: "", provider: ctx.identity.provider as ArchiveSource["provider"], accountScope: crypto.randomUUID(), notebookId,
+        displayName: PROVIDER_NAMES[ctx.identity.provider], captureEnabled: automatic, permissionState: "granted",
+      } : undefined;
+      if (!source) throw new Error("保存位置刚有变化，请再点一次。");
       grant = { scope: ctx.scope, provider: source.provider, externalConversationId: ctx.identity.id, sourceUrl: ctx.identity.url,
-        source, accountMarker: cached.preview.accountMarker, automatic: message.automatic, revision: 0, authorizationCheckedAt: Date.now() };
+        source, accountMarker: preview.accountMarker, automatic, revision: 0, authorizationCheckedAt: Date.now() };
       data.grants[ctx.key] = grant;
     }
-    grant.automatic = message.automatic;
+    if (grant.diverged) {
+      // FIFO per conversation: once its first item was refused, nothing after it has been sent.
+      if (items[0]?.started && !items[0].blocked) throw new Error("上一次的内容还在发送，请过几秒再点。");
+      if (items.some((entry) => !covers(stable, entry.payload.snapshot.messages))) throw new Error("这段对话有没发出的旧内容和当前页面对不上，请先在扩展弹窗里重试或清空暂存。");
+      // Everything still waiting is on the page now and goes into the new copy; the old archive stays as it is.
+      data.queue = data.queue.filter((entry) => entry.grantKey !== ctx.key);
+      grant.copy = (grant.copy || 1) + 1;
+      grant.externalConversationId = `${ctx.identity.id}~${grant.copy}`;
+      grant.revision = 0;
+      grant.receipt = undefined;
+      grant.diverged = false;
+    } else {
+      // A click is also the person retrying: what waits for this conversation is sent again, in order.
+      for (const entry of items) if (entry.blocked) { entry.blocked = undefined; entry.nextAttemptAt = 0; entry.attempts = 0; entry.queuedAt = Date.now(); }
+    }
+    grant.automatic = automatic;
     grant.authorizationCheckedAt = Date.now();
     grant.error = undefined;
-    const snapshot = { ...cached.preview.snapshot, messages: stable, accountScope: grant.source.accountScope };
     enqueueArchive(data, {
       id: crypto.randomUUID(), grantKey: ctx.key, scope: ctx.scope, queuedAt: Date.now(), attempts: 0, nextAttemptAt: 0,
-      payload: { sourceId: grant.source.id, operationId: crypto.randomUUID(), expectedRevision: grant.revision, mode: "manual", snapshot },
+      payload: { sourceId: grant.source.id, operationId: crypto.randomUUID(), expectedRevision: grant.revision, mode: "manual", snapshot: archived(grant, { ...preview.snapshot, messages: stable }) },
     });
   });
-  previews.delete(message.previewId);
-  notify();
-  // Enabling an existing source is explicit; a failed PATCH leaves automatic entries blocked by the server.
   const grant = await change((data) => structuredClone(data.grants[ctx.key]));
   if (grant.source.id) {
+    // The click also turns the source back on if it was paused or revoked in Nowen.
     try {
-      const enableSource = message.automatic || grant.source.captureEnabled;
-      await requestAIArchive(ctx.config, `/sources/${encodeURIComponent(grant.source.id)}`, { permissionState: "granted", captureEnabled: enableSource }, "PATCH");
-      await change((data) => { for (const entry of Object.values(data.grants)) if (entry.scope === ctx.scope && entry.source.id === grant.source.id) entry.source.captureEnabled = enableSource; });
-    } catch { /* The manual save remains queued; automatic requests cannot bypass server pause. */ }
+      const captureEnabled = automatic || grant.source.captureEnabled;
+      await requestAIArchive(ctx.config, `/sources/${encodeURIComponent(grant.source.id)}`, { permissionState: "granted", captureEnabled }, "PATCH");
+      await change((data) => { for (const entry of Object.values(data.grants)) if (entry.scope === ctx.scope && entry.source.id === grant.source.id) entry.source.captureEnabled = captureEnabled; });
+    } catch { /* The manual save stays queued; automatic saves cannot bypass a paused source. */ }
   }
   await flush();
-  return status(message.tabId);
+  // Only now, after the source is on, may the page start saving new messages.
+  notify();
 }
 async function autosave(tabId: number, captured: CapturePreview) {
   const ctx = await context(tabId);
@@ -256,7 +291,7 @@ async function autosave(tabId: number, captured: CapturePreview) {
   await change((data) => {
     const grant = data.grants[ctx.key];
     if (!grant?.automatic || grant.source.permissionState !== "granted" || (grant.accountMarker && grant.accountMarker !== captured.accountMarker)) throw new Error("AI_SOURCE_NOT_AUTHORIZED：授权已暂停或网站账号已变化。");
-    const snapshot = { ...captured.snapshot, accountScope: grant.source.accountScope };
+    const snapshot = archived(grant, captured.snapshot);
     enqueueArchive(data, { id: crypto.randomUUID(), grantKey: ctx.key, scope: ctx.scope, queuedAt: Date.now(), attempts: 0, nextAttemptAt: 0,
       payload: { sourceId: grant.source.id, operationId: crypto.randomUUID(), expectedRevision: grant.revision, mode: "automatic", snapshot } });
   });
@@ -273,10 +308,31 @@ async function status(tabId: number) {
       noteUrl: grant?.receipt?.noteId ? buildNoteUrl(ctx.config, grant.receipt.noteId) : undefined };
   });
 }
+async function quickStatus(tabId: number): Promise<QuickStatus> {
+  const ctx = await context(tabId);
+  knownTabs.add(tabId);
+  return change((data) => {
+    const grant = data.grants[ctx.key];
+    if (!grant) return { state: "idle", automatic: false, canOpen: false };
+    const items = data.queue.filter((entry) => entry.grantKey === ctx.key);
+    const blocked = items.find((entry) => entry.blocked);
+    const base = { automatic: grant.automatic && grant.source.permissionState === "granted", canOpen: !!grant.receipt?.noteId };
+    if (blocked) return { ...base, state: "error", message: grant.error || blocked.blocked };
+    if (items.length) return { ...base, state: "saving", message: items.some((entry) => entry.attempts) ? "暂存在本机，连上 Nowen 后会自动发送。" : undefined };
+    if (grant.error && grant.error !== NOTE_KEPT) return { ...base, state: "error", message: grant.error };
+    return { ...base, state: grant.receipt ? "saved" : "idle", message: grant.error };
+  });
+}
+async function openNote(tabId: number) {
+  const ctx = await context(tabId);
+  const grant = await change((data) => structuredClone(data.grants[ctx.key]));
+  if (!grant?.receipt?.noteId) throw new Error("这段对话还没存好。");
+  await chrome.tabs.create({ url: buildNoteUrl(ctx.config, grant.receipt.noteId) });
+  return quickStatus(tabId);
+}
 async function manage(tabId: number, action: string) {
   const ctx = await context(tabId);
-  const source = await change((data) => {
-    const grant = data.grants[ctx.key];
+  await change((data) => {
     if (action === "clear") { data.queue = data.queue.filter((entry) => entry.scope !== ctx.scope); return; }
     if (action === "retry") {
       for (const item of data.queue) if (item.scope === ctx.scope && !item.blocked?.includes("CONFLICT") && !item.blocked?.includes("REVOKED") && data.grants[item.grantKey]?.source.permissionState === "granted") {
@@ -284,21 +340,11 @@ async function manage(tabId: number, action: string) {
       }
       return;
     }
-    if (!grant) return;
-    if (action === "pause") { grant.automatic = false; return; }
-    for (const other of Object.values(data.grants)) if (other.scope === ctx.scope && other.source.accountScope === grant.source.accountScope) {
-      other.automatic = false;
-      other.source.captureEnabled = false;
-      if (action === "revoke") other.source.permissionState = "revoked";
-    }
-    for (const item of data.queue) if (item.scope === ctx.scope && data.grants[item.grantKey]?.source.accountScope === grant.source.accountScope) item.blocked = "AI_SOURCE_NOT_AUTHORIZED：来源已暂停或撤销，内容仍保留。";
-    return structuredClone(grant.source);
+    // "pause": stop auto-saving this conversation only; the source and other conversations go on.
+    const grant = data.grants[ctx.key];
+    if (grant) grant.automatic = false;
   });
   notify();
-  if (source?.id) {
-    try { await requestAIArchive(ctx.config, `/sources/${encodeURIComponent(source.id)}`, { captureEnabled: false, ...(action === "revoke" ? { permissionState: "revoked" } : {}) }, "PATCH"); }
-    catch { return { ...await status(tabId), warning: "本机采集已停止，服务端授权更新失败；请在 Nowen「对话归档」页面检查来源状态。" }; }
-  }
   if (action === "retry") await flush();
   return status(tabId);
 }
@@ -313,11 +359,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (fromContent && message.type === "AI_CAPTURE_ERROR") task = context(sender.tab!.id!).then((ctx) => change((data) => {
     const grant = data.grants[ctx.key]; if (grant) { grant.automatic = false; grant.error = String(message.error || "采集已暂停").slice(0, 400); }
   }));
+  // The page button. The content script sends AI_QUICK_SAVE only after a real click, with what it read then.
+  if (fromContent && message.type === "AI_QUICK_SAVE" && message.preview) task = quickSave(sender.tab!.id!, message.preview).then(() => quickStatus(sender.tab!.id!));
+  if (fromContent && message.type === "AI_QUICK_STATUS") task = quickStatus(sender.tab!.id!);
+  if (fromContent && message.type === "AI_QUICK_STOP") task = manage(sender.tab!.id!, "pause").then(() => quickStatus(sender.tab!.id!));
+  if (fromContent && message.type === "AI_QUICK_OPEN") task = openNote(sender.tab!.id!);
   if (fromPopup) {
-    if (message.type === "AI_PREVIEW") task = preview(message.tabId);
-    if (message.type === "AI_SAVE") task = save(message);
+    if (message.type === "AI_QUICK_SAVE") task = quickSave(message.tabId).then(() => status(message.tabId));
     if (message.type === "AI_STATUS") task = status(message.tabId);
-    if (message.type === "AI_MANAGE" && ["pause", "pause-source", "revoke", "retry", "clear"].includes(message.action)) task = manage(message.tabId, message.action);
+    if (message.type === "AI_MANAGE" && ["pause", "retry", "clear"].includes(message.action)) task = manage(message.tabId, message.action);
   }
   if (!task) return;
   void task.then((result) => respond(message.type === "AI_CAPTURE_PERMISSION" ? result : { ok: true, ...result as object }))
@@ -325,7 +375,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return true;
 });
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.nowenClipperConfig) { previews.clear(); notify(); void flush(); }
+  if (changes.nowenClipperConfig) { notify(); void flush(); }
 });
 chrome.tabs.onRemoved.addListener((tabId) => knownTabs.delete(tabId));
 const RETRY_ALARM = "nowen-ai-archive-retry";

@@ -66,4 +66,15 @@ export interface CaptureGrant {
   receipt?: ArchiveReceipt;
   error?: string;
   authorizationCheckedAt?: number;
+  /** The saved archive no longer matches the page (edited, regenerated or deleted); the next click saves another copy. */
+  diverged?: boolean;
+  /** 2, 3, … once this page is saved as another copy; externalConversationId then names that copy. */
+  copy?: number;
+}
+/** What the page button shows. Deliberately minimal: no note link, source or server details reach the page. */
+export interface QuickStatus {
+  state: "idle" | "saving" | "saved" | "error";
+  automatic: boolean;
+  canOpen: boolean;
+  message?: string;
 }

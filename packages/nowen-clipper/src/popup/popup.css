@@ -14,8 +14,6 @@
 .ai-conversation-panel .hint,
 .ai-conversation-panel .section-heading p { color: var(--ai-muted); }
 .ai-conversation-panel .btn { margin: 8px 0; }
-.ai-preview-content { width: 100%; resize: vertical; min-height: 120px; white-space: pre-wrap; }
-.ai-capture-warnings { white-space: pre-wrap; }
 .ai-action-list { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 0; }
 .ai-conversation-panel summary { cursor: pointer; padding: 8px 0; }
 .ai-conversation-panel :is(button, input, textarea, summary, a):focus-visible { outline: 2px solid #557fe8; outline-offset: 3px; }

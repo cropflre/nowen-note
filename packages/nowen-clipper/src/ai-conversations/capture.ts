@@ -1,5 +1,6 @@
-import { extractConversation } from "./adapters";
-import type { CapturePreview } from "./types";
+import { detectConversation, extractConversation } from "./adapters";
+import { createSaveButton } from "./save-button";
+import type { CapturePreview, QuickStatus } from "./types";
 
 export interface AutoPermission {
   allowed: boolean;
@@ -90,10 +91,26 @@ export function installAICaptureRuntime(doc: Document, win: Window): () => void 
     },
     fail: (error) => { void chrome.runtime.sendMessage({ type: "AI_CAPTURE_ERROR", url: win.location.href, error }).catch(() => undefined); },
   });
+  const ask = async (type: string, payload: object = {}): Promise<QuickStatus> => {
+    const response = await chrome.runtime.sendMessage({ type, ...payload });
+    if (!response?.ok) throw new Error(response?.error || "扩展暂时无法处理，请刷新页面后重试。");
+    return response;
+  };
+  // Reading the conversation happens only here, inside the click on the button.
+  const button = createSaveButton(doc, {
+    save: async () => ask("AI_QUICK_SAVE", { preview: await extractConversation(doc, win.location.href) }),
+    status: () => ask("AI_QUICK_STATUS"),
+    stop: () => ask("AI_QUICK_STOP"),
+    open: () => ask("AI_QUICK_OPEN"),
+  });
+  const place = () => { if (detectConversation(win.location.href)) button.show(); else button.hide(); };
   let lastUrl = win.location.href;
   const poll = win.setInterval(() => {
-    if (lastUrl === win.location.href) return;
+    // Single-page apps switch conversations without reloading, and may also re-render the page around the button.
+    if (lastUrl === win.location.href) { place(); return; }
     lastUrl = win.location.href;
+    button.hide();
+    place();
     void controller.refresh().catch(() => undefined);
   }, 1000);
   const listener = (message: { type?: string }, sender: chrome.runtime.MessageSender, sendResponse: (value: unknown) => void) => {
@@ -103,11 +120,13 @@ export function installAICaptureRuntime(doc: Document, win: Window): () => void 
         .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "无法读取对话" }));
       return true;
     }
-    if (message?.type === "AI_GRANT_CHANGED") { void controller.refresh().catch(() => undefined); sendResponse({ ok: true }); }
+    if (message?.type === "AI_GRANT_CHANGED") { void controller.refresh().catch(() => undefined); void button.refresh(); sendResponse({ ok: true }); }
+    if (message?.type === "AI_STATUS_CHANGED") { void button.refresh(); sendResponse({ ok: true }); }
   };
   chrome.runtime.onMessage.addListener(listener);
-  const stop = () => { controller.stop(); win.clearInterval(poll); chrome.runtime.onMessage.removeListener(listener); };
+  const stop = () => { controller.stop(); button.hide(); win.clearInterval(poll); chrome.runtime.onMessage.removeListener(listener); };
   win.addEventListener("pagehide", stop, { once: true });
+  place();
   void controller.refresh().catch(() => undefined);
   return () => { stop(); win.removeEventListener("pagehide", stop); };
 }
