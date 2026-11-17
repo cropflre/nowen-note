@@ -31,7 +31,7 @@ import SettingsModal from "../SettingsModal";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-describe("功能开关里的 AI 对话归档", () => {
+describe("开关页里的 AI 对话归档", () => {
   let host: HTMLDivElement;
   let root: Root;
   beforeEach(() => {

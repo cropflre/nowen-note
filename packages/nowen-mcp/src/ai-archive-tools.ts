@@ -22,7 +22,7 @@ function response(value: unknown) {
 function failure(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const text = message.includes("AI_MEMORY_DISABLED")
-    ? "此 Nowen 服务器未开启 AI 对话归档。请管理员在 Nowen Note「设置 → 功能开关」中开启后再试。"
+    ? "此 Nowen 服务器未开启 AI 对话归档。请管理员在 Nowen Note「设置 → 开关」中开启后再试。"
     : `错误: ${message}`;
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
