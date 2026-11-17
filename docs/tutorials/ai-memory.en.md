@@ -4,7 +4,7 @@
 
 This MVP archives raw conversations. Long-term memories, confirmation, context insertion and memory-specific MCP tools are not available. ChatGPT/Doubao adapters have local fixture coverage; real websites, accounts and installed clients still require acceptance.
 
-**Off by default.** An administrator turns it on in **Settings → Switches → Enable AI conversation archive**; only then does the AI memory entry appear in the sidebar and do the API and browser-extension capture work. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you retry in the extension.
+**Off by default.** An administrator turns it on in **Settings → Switches → Enable AI conversation archive**; only then does the Chat archive entry appear in the sidebar and do the API and browser-extension capture work. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you retry in the extension.
 
 ## Capture a conversation
 
@@ -19,7 +19,7 @@ Pause a conversation or source, revoke the source, or explicitly clear the curre
 AI assistants connected to Nowen over MCP, such as Claude Code or Codex, can save the exact conversation they hold, with stable message IDs, without reading any web page.
 
 1. An administrator turns the archive on (see above).
-2. In **AI memory → Connections & sync → Create a source**, choose **AI assistant (MCP)**, pick a personal notebook and confirm the authorization. Assistants can only save into sources like this; they cannot create, enable or re-authorize sources themselves.
+2. In **Chat archive → Connections & sync → Create a source**, choose **AI assistant (MCP)**, pick a personal notebook and confirm the authorization. Assistants can only save into sources like this; they cannot create, enable or re-authorize sources themselves.
 3. Connect the assistant in **Settings → Connect AI Agents** with write access to that notebook. A read-only connection can only read archives.
 4. Ask the assistant to "save this conversation to Nowen". It calls `nowen_ai_archive_sources` to find the source and `nowen_ai_archive_save` to save it, creating a searchable note.
 
@@ -27,7 +27,7 @@ Saving the same conversation again updates or appends by message ID and never du
 
 ## Import history
 
-Open **AI Memory → Connections & sync**, create a source with a personal notebook and explicit consent, and select a file. Review the preview, selected branch and missing-content warnings, then confirm import. Progress, cancellation, retry of unsaved items, reports and staging cleanup are available. Interrupted jobs require explicit retry after restart; cancellation retains completed items. Staging expires after 24 hours.
+Open **Chat archive → Connections & sync**, create a source with a personal notebook and explicit consent, and select a file. Review the preview, selected branch and missing-content warnings, then confirm import. Progress, cancellation, retry of unsaved items, reports and staging cleanup are available. Interrupted jobs require explicit retry after restart; cancellation retains completed items. Staging expires after 24 hours.
 
 Supported inputs are ChatGPT ZIP exports containing `conversations.json` or numbered shards, standard JSON, Markdown/TXT, and native `nowen-ai-conversation` v1 JSON exports. ChatGPT imports follow `current_node` and report omitted branches. Attachments are not fetched and imported scripts are never executed. Markdown/TXT become one unknown-role message.
 

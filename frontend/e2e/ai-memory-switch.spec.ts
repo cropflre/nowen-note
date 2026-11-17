@@ -39,7 +39,7 @@ test("the AI conversation archive stays off until an administrator switches it o
     await page.locator("button[type=submit]").click();
     const settings = page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true });
     await expect(settings).toBeVisible({ timeout: 30000 });
-    const entry = page.getByRole("button", { name: "AI memory", exact: true });
+    const entry = page.getByRole("button", { name: "Chat archive", exact: true });
 
     // Off by default in the app: no sidebar entry; the administrator finds the switch in Settings → Switches.
     await expect(entry).toHaveCount(0);
@@ -56,13 +56,13 @@ test("the AI conversation archive stays off until an administrator switches it o
     await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
     await expect(entry.filter({ visible: true })).toBeVisible();
     await entry.filter({ visible: true }).click();
-    const dialog = page.getByRole("dialog", { name: "AI memory", exact: true });
+    const dialog = page.getByRole("dialog", { name: "AI conversation archive", exact: true });
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("No archived conversations.");
     expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(200);
     expect(await page.locator("body").innerText()).not.toContain("aiMemory.");
     await page.screenshot({ path: test.info().outputPath("archive-open.png") });
-    await dialog.getByRole("button", { name: "Close AI memory", exact: true }).click();
+    await dialog.getByRole("button", { name: "Close AI conversation archive", exact: true }).click();
 
     // Off again: the entry disappears and the API refuses, and the setting survives a reload.
     await settings.click();

@@ -3,7 +3,7 @@ import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 
 export const OPEN_AI_MEMORY = "nowen:open-ai-memory";
-export function openAIMemory(tab: "archive" | "memories" | "connections" = "archive"): void { window.dispatchEvent(new CustomEvent(OPEN_AI_MEMORY, { detail: { tab } })); }
+export function openAIMemory(tab: "archive" | "connections" = "archive"): void { window.dispatchEvent(new CustomEvent(OPEN_AI_MEMORY, { detail: { tab } })); }
 export interface AIMemorySource { id: string; provider: string; accountScope: string; displayName: string; notebookId: string;
   captureEnabled: boolean; permissionState: "granted" | "revoked"; lastSyncedAt: string | null }
 export interface AIConversation { id: string; sourceId: string; title: string; sourceUrl: string; noteId: string | null;

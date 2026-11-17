@@ -48,7 +48,7 @@ type Projection = { id: string; userId: string; notebookId: string; workspaceId:
 const digest = (value: unknown) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const now = () => new Date().toISOString();
 const sourceView = (row: Source) => ({ ...row, captureEnabled: Boolean(row.captureEnabled) });
-/** Sources a person created in the AI memory page for AI assistants (MCP); file imports use "import:". */
+/** Sources a person created in the AI conversation archive page for AI assistants (MCP); file imports use "import:". */
 export const AI_ASSISTANT_SOURCE_PREFIX = "mcp:";
 export function isAIAssistantSource(source: { accountScope: string }): boolean { return source.accountScope.startsWith(AI_ASSISTANT_SOURCE_PREFIX); }
 const query = (sql: string) => getDb().prepare(sql);
@@ -118,7 +118,7 @@ export function listAIMemorySources(actor: AIMemoryActor) {
 }
 export function createAIMemorySource(actor: AIMemoryActor, input: unknown) {
   // Deciding where conversations may be saved is the person's own consent. API tokens (MCP, scripts) cannot grant it to themselves.
-  if (actor.tokenId) throw new AIMemoryError("AI_SOURCE_LOGIN_REQUIRED", "来源须由本人在 Nowen Note 的 AI 记忆页面中授权，API Token 不能创建来源", 403);
+  if (actor.tokenId) throw new AIMemoryError("AI_SOURCE_LOGIN_REQUIRED", "来源须由本人在 Nowen Note 的「对话归档」页面中授权，API Token 不能创建来源", 403);
   const value = sourceSchema.parse(input);
   assertNotebook(actor, value.notebookId, true);
   return getDb().transaction(() => {
@@ -277,7 +277,7 @@ export function ingestAIConversation(actor: AIMemoryActor, input: unknown) {
   if (request.mode === "automatic" && !source.captureEnabled) throw new AIMemoryError("AI_CAPTURE_PAUSED", "此来源已暂停自动保存", 409);
   if (source.provider !== snapshot.provider || source.accountScope !== snapshot.accountScope) throw new AIMemoryError("AI_SOURCE_NOT_AUTHORIZED", "来源账号与当前授权不一致", 403);
   if (request.mode === "import") assertAIMemoryImportAccess(actor, source.id, true);
-  else if (actor.tokenId && !isAIAssistantSource(source)) throw new AIMemoryError("AI_SOURCE_NOT_FOR_ASSISTANTS", "这个来源没有授权 AI 助手保存对话；请在 AI 记忆 → 连接与同步中创建「AI 助手（MCP）」来源", 403);
+  else if (actor.tokenId && !isAIAssistantSource(source)) throw new AIMemoryError("AI_SOURCE_NOT_FOR_ASSISTANTS", "这个来源没有授权 AI 助手保存对话；请在「对话归档 → 连接与同步」中创建「AI 助手（MCP）」来源", 403);
   const entries = snapshot.messages.filter((message) => message.captureState !== "streaming").sort((a, b) => a.localSequence - b.localSequence);
   if (!entries.length) throw new AIMemoryError("AI_MESSAGE_PARSE_FAILED", "尚无稳定消息可保存");
   const seen = new Set<string>(), sequences = new Set<number>(), occurrences = new Map<string, number>();

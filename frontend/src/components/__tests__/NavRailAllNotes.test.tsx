@@ -97,7 +97,7 @@ describe("All Notes primary navigation", () => {
 });
 
 describe("AI conversation archive entry", () => {
-  const archive = () => host.querySelector('[aria-label="aiMemory.title"]');
+  const archive = () => host.querySelector('[aria-label="aiMemory.navLabel"]');
   it("stays hidden until an administrator switches the archive on", async () => {
     await render();
     expect(archive()).toBeNull();

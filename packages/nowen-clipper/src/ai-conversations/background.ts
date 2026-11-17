@@ -287,7 +287,7 @@ async function manage(tabId: number, action: string) {
   notify();
   if (source?.id) {
     try { await requestAIArchive(ctx.config, `/sources/${encodeURIComponent(source.id)}`, { captureEnabled: false, ...(action === "revoke" ? { permissionState: "revoked" } : {}) }, "PATCH"); }
-    catch { return { ...await status(tabId), warning: "本机采集已停止，服务端授权更新失败；请在 Nowen AI 记忆页面检查来源状态。" }; }
+    catch { return { ...await status(tabId), warning: "本机采集已停止，服务端授权更新失败；请在 Nowen「对话归档」页面检查来源状态。" }; }
   }
   if (action === "retry") await flush();
   return status(tabId);

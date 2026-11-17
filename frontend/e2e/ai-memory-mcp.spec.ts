@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 
 // The whole path: the person creates an "AI assistant (MCP)" source in the app, an assistant saves a
 // conversation through the real embedded MCP with a notebook-limited token, and the archive appears in the app.
-test("an AI assistant saves a conversation over MCP into a source the person created, and it shows in AI memory", async ({ page }) => {
+test("an AI assistant saves a conversation over MCP into a source the person created, and it shows in the archive", async ({ page }) => {
   const root = path.resolve(".."), directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-browser-"));
   const executable = process.env.NOWEN_QA_NODE || process.execPath;
   const port = await new Promise<number>(resolve => { const socket = net.createServer(); socket.listen(0, "127.0.0.1", () => { const value = (socket.address() as net.AddressInfo).port; socket.close(() => resolve(value)); }); });
@@ -37,8 +37,8 @@ test("an AI assistant saves a conversation over MCP into a source the person cre
     await page.getByPlaceholder("admin", { exact: true }).fill("v3_browser");
     await page.locator("input[type=password]").fill("v3-browser-test-password");
     await page.locator("button[type=submit]").click();
-    await page.getByRole("button", { name: "AI memory", exact: true }).filter({ visible: true }).click();
-    const dialog = page.getByRole("dialog", { name: "AI memory", exact: true });
+    await page.getByRole("button", { name: "Chat archive", exact: true }).filter({ visible: true }).click();
+    const dialog = page.getByRole("dialog", { name: "AI conversation archive", exact: true });
     await dialog.getByRole("button", { name: "Connections & sync", exact: true }).click();
     await dialog.getByText("Create a source", { exact: true }).click();
     await dialog.getByLabel("Source type").selectOption({ label: "AI assistant (MCP)" });

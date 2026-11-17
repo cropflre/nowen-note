@@ -19,7 +19,7 @@ const job: AIImportJob = { id: "job", sourceId: "source", filename: "export.zip"
 const button = (key: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.includes(`aiMemory.${key}`))!;
 const click = async (element: HTMLElement) => { await act(async () => element.click()); };
 const change = async (element: HTMLInputElement | HTMLSelectElement, value: string) => { await act(async () => { element.value = value; element.dispatchEvent(new Event("change", { bubbles: true })); }); };
-const render = async (tab: "archive" | "memories" | "connections" = "archive") => { await act(async () => root.render(<AIMemoryHub scope="server:user" initialTab={tab}/>)); };
+const render = async (tab: "archive" | "connections" = "archive") => { await act(async () => root.render(<AIMemoryHub scope="server:user" initialTab={tab}/>)); };
 beforeEach(() => {
   vi.clearAllMocks(); mocks.scope = "server:user"; mocks.local = false;
   mocks.sources.mockResolvedValue([source]); mocks.conversations.mockResolvedValue({ items: [], total: 0 }); mocks.imports.mockResolvedValue([]);
@@ -29,9 +29,10 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 describe("AI memory archive and import workflow", () => {
-  it("keeps raw archives distinct from planned long-term memory", async () => {
-    await render(); await click(button("memories"));
-    expect(host.textContent).toContain("aiMemory.planned"); expect(mocks.startImport).not.toHaveBeenCalled();
+  it("offers only what exists: the archive and its connections, no placeholder tab", async () => {
+    await render();
+    expect([...host.querySelectorAll("nav button")].map(item => item.textContent)).toEqual(["aiMemory.archive", "aiMemory.connections"]);
+    expect(mocks.startImport).not.toHaveBeenCalled();
   });
   it("requires explicit review after parsing and renders untrusted previews as text", async () => {
     await render("connections");

@@ -10,7 +10,7 @@ import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge"
 import { confirm } from "./ui/confirm";
 import type { Notebook } from "@/types";
 
-type Tab = "archive" | "memories" | "connections";
+type Tab = "archive" | "connections";
 const surface = "rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4";
 const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--color-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-primary)] disabled:cursor-not-allowed disabled:opacity-50";
 const input = "min-h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent-primary)]";
@@ -101,12 +101,12 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: 
       {onClose && <button type="button" onClick={onClose} aria-label={t("aiMemory.close")} className={`${button} shrink-0`}><X size={17}/></button>}
     </header>
     <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border)] p-2" aria-label={t("aiMemory.title")}>
-      {(["archive", "memories", "connections"] as const).map(value => <button type="button" key={value} aria-pressed={tab === value} onClick={() => setTab(value)} className={`${button} whitespace-nowrap ${tab === value ? "bg-[var(--color-hover)] text-[var(--color-accent-primary)]" : ""}`}>{t(`aiMemory.${value}`)}</button>)}
+      {(["archive", "connections"] as const).map(value => <button type="button" key={value} aria-pressed={tab === value} onClick={() => setTab(value)} className={`${button} whitespace-nowrap ${tab === value ? "bg-[var(--color-hover)] text-[var(--color-accent-primary)]" : ""}`}>{t(`aiMemory.${value}`)}</button>)}
     </nav>
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
       <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.scope")}</p>
       {error && <p role="alert" className="break-words rounded-lg border border-red-300 p-3 text-sm text-red-700 dark:border-red-900 dark:text-red-300">{error}</p>}
-      {localOnly ? <p className={surface}>{t("aiMemory.deviceOnly")}</p> : tab === "memories" ? <p className={`${surface} text-sm leading-6`}>{t("aiMemory.planned")}</p> : tab === "archive" ? <>
+      {localOnly ? <p className={surface}>{t("aiMemory.deviceOnly")}</p> : tab === "archive" ? <>
         <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setOffset(0); setSubmittedQuery(query); }}>
           <input className={`${input} min-w-0 flex-1 basis-40`} aria-label={t("aiMemory.search")} placeholder={t("aiMemory.search")} value={query} maxLength={200} onChange={event => setQuery(event.target.value)}/>
           <select className={`${input} sm:max-w-52`} aria-label={t("aiMemory.allSources")} value={filter} onChange={event => { setOffset(0); setFilter(event.target.value); }}><option value="">{t("aiMemory.allSources")}</option>{sources.map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}</select>

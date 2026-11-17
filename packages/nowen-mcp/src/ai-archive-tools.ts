@@ -50,7 +50,7 @@ const message = z.object({
 export function registerAIArchiveTools(server: McpServer, api: NowenApiClient): void {
   server.tool(
     "nowen_ai_archive_sources",
-    "列出用户在 Nowen Note 中授权给 AI 助手保存对话的归档来源（保存到哪个笔记本）及保存限额。来源只能由用户本人在「AI 记忆 → 连接与同步」中创建，MCP 不能创建或开启来源",
+    "列出用户在 Nowen Note 中授权给 AI 助手保存对话的归档来源（保存到哪个笔记本）及保存限额。来源只能由用户本人在「对话归档 → 连接与同步」中创建，MCP 不能创建或开启来源",
     {},
     async () => {
       try {
@@ -61,7 +61,7 @@ export function registerAIArchiveTools(server: McpServer, api: NowenApiClient): 
           sources: items,
           limits: { messagesPerSave: limits.messages, messageBytes: limits.text, saveBytes: limits.snapshotBytes,
             conversationMessages: limits.conversationMessages, conversationBytes: limits.conversationBytes },
-          ...(items.length ? {} : { nextStep: "请用户在 Nowen Note →「AI 记忆」→「连接与同步」→「创建来源」中选择「AI 助手（MCP）」并授权，再保存对话。" }),
+          ...(items.length ? {} : { nextStep: "请用户在 Nowen Note →「对话归档」→「连接与同步」→「创建来源」中选择「AI 助手（MCP）」并授权，再保存对话。" }),
         });
       } catch (error) { return failure(error); }
     },
@@ -82,7 +82,7 @@ export function registerAIArchiveTools(server: McpServer, api: NowenApiClient): 
     async (params) => {
       try {
         const source = await api.aiArchiveSource(params.sourceId);
-        if (!isAssistantSource(source)) throw new Error("这个来源没有授权 AI 助手保存对话；请用户在「AI 记忆 → 连接与同步」中创建「AI 助手（MCP）」来源");
+        if (!isAssistantSource(source)) throw new Error("这个来源没有授权 AI 助手保存对话；请用户在「对话归档 → 连接与同步」中创建「AI 助手（MCP）」来源");
         if (new Set(params.messages.map((item) => item.id)).size !== params.messages.length) throw new Error("消息 id 不能重复");
         let expectedRevision = params.expectedRevision;
         if (expectedRevision === undefined) {
