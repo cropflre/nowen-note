@@ -4,21 +4,27 @@
 
 This MVP archives raw conversations. Long-term memories, confirmation, context insertion and memory-specific MCP tools are not available. ChatGPT/Doubao adapters have local fixture coverage; real websites, accounts and installed clients still require acceptance.
 
-**Off by default.** An administrator turns it on in **Settings → Switches → Enable AI conversation archive**; only then does the Chat archive entry appear in the sidebar and do the API and browser-extension capture work. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you retry in the extension.
+**On by default.** The Chat archive entry is in the sidebar, and the API and the browser extension can save. On servers that do not want it, an administrator turns it off in **Settings → Switches → Enable AI conversation archive**. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you click the save button again after switching back on.
 
-## Capture a conversation
+## Save a conversation from the web page
 
-Log into your own Nowen HTTP instance in Web Clipper. The source name defaults to “我的 ChatGPT” or “我的 豆包”; without a chosen notebook the conversation goes to the personal “AI 对话” notebook, created when missing, and a conversation saved before keeps its notebook. Open a ChatGPT `/c/<id>` or Doubao `/chat/<id>` conversation, name the source, authorize a preview, inspect the text and warnings, then save. Optional automatic capture applies to this exact conversation. Other conversations require separate consent. Without stable message IDs, only an initial manual snapshot is supported.
+1. Install the Nowen browser extension and sign in to your own Nowen server in it. If you click save before signing in, the extension opens its sign-in page.
+2. Open a ChatGPT `/c/<id>` or Doubao `/chat/<id>` conversation. A save button labeled “存到 Nowen” (Save to Nowen) appears on the right side of the page.
+3. Click it once. The whole conversation visible on the page is saved to the personal “AI 对话” notebook (created when missing), the button changes to show that it is saved and saving automatically, and new messages in this conversation are saved from then on. The same button in the extension popup does the same.
 
-Web captures are marked partial. Unloaded history and missing attachments are not claimed as saved. Streaming replies remain transient. Local queuing is distinct from a matching durable server receipt and from another device receiving the data. Desktop pairing-only transport and mobile device-only mode are currently unsupported.
+The first save creates a source named after the site (such as “ChatGPT”), which the site's other conversations share. Only conversations whose button you clicked save by themselves; installing the extension or opening a page does not read any chat. Hover the button to open the note or stop automatic saving; clicking the button again turns it back on.
 
-Pause a conversation or source, revoke the source, or explicitly clear the current Nowen account's pending queue. Online capture rechecks source authorization. Offline capture can continue within seven days of explicit consent/verification; revocation on another device cannot be discovered immediately while offline. See [extension limits and permissions](../../packages/nowen-clipper/AI_CONVERSATION_CAPTURE.md).
+Streaming replies are archived only after they finish. The button shows saved only after a matching durable server receipt; local queuing is not a server backup and does not mean another device has the data. Web captures are marked partial, and unloaded history, images or attachments are not claimed as saved. Without stable message IDs a page cannot save automatically; click again when there are new messages.
+
+After you regenerate or edit an earlier message on the site, the conversation no longer matches the saved version: its automatic saving pauses (other conversations of the site go on) and the button explains why. Clicking the button again saves the current page as a new archive (its title ends in “第 2 份”, copy 2) and leaves the saved one unchanged. If you deleted a conversation's archive in Nowen, clicking again saves it anew as well.
+
+Pausing or revoking a source in **Chat archive → Connections & sync** stops its automatic saving; clicking the save button on a chat page again turns it back on. In the extension popup, the automatic saving section retries or clears the current Nowen account's pending queue. Online saving rechecks the source; while offline, a pause or revocation made elsewhere cannot be discovered immediately, and saving can continue within seven days of the last check. Desktop pairing-only transport and mobile device-only mode are currently unsupported. See [extension limits and permissions](../../packages/nowen-clipper/AI_CONVERSATION_CAPTURE.md).
 
 ## Let an AI assistant save conversations (MCP)
 
 AI assistants connected to Nowen over MCP, such as Claude Code or Codex, can save the exact conversation they hold, with stable message IDs, without reading any web page.
 
-1. An administrator turns the archive on (see above).
+1. Make sure an administrator has not turned the archive off (it is on by default; see above).
 2. In **Chat archive → Connections & sync → Create a source**, choose **AI assistant (MCP)**, pick a personal notebook (or leave it to use “AI conversations”) and confirm the authorization. Assistants can only save into sources like this; they cannot create, enable or re-authorize sources themselves.
 3. Connect the assistant in **Settings → Connect AI Agents** with write access to that notebook. A read-only connection can only read archives.
 4. Ask the assistant to "save this conversation to Nowen". It calls `nowen_ai_archive_sources` to find the source and `nowen_ai_archive_save` to save it, creating a searchable note.

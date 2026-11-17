@@ -4,7 +4,7 @@
 
 ## 本轮交付与顺序
 
-先实现 Phase 1–3 原始对话归档 MVP：ChatGPT 当前可见对话手动保存、ChatGPT/豆包明确授权后的增量保存、历史文件预览及批量导入。Phase 4 长期记忆、Phase 5 上下文交付、Phase 6 更多平台与正式验收依赖基础归档稳定；界面和文档必须把这些计划与实际能力分开。
+先实现 Phase 1–3 原始对话归档 MVP：ChatGPT/豆包当前可见对话一键保存（页面上的「存到 Nowen」按钮）、点过按钮的会话增量保存、历史文件预览及批量导入。实例开关 `feature_ai_memory_enabled` 默认开启，管理员可关闭。Phase 4 长期记忆、Phase 5 上下文交付、Phase 6 更多平台与正式验收依赖基础归档稳定；界面和文档必须把这些计划与实际能力分开。
 
 用户要解决的是对话分散、难以迁移和重复提供背景。首先可靠保存原始证据，长期记忆须另经用户确认。外部会话不会写入内置 `ai_chat_conversations`，也不会创建第二套笔记或认证系统。
 
@@ -18,7 +18,7 @@
 | 能力 | 已核查位置 | 复用与边界 |
 |---|---|---|
 | 扩展 | `packages/nowen-clipper/src/{background,content,popup,options}`、`lib/{api,storage,protocol,content-script-bridge,localChannel}.ts` | 保留普通网页剪藏、刷新登录、消息桥和笔记本选择；Adapter 仅解析 DOM，背景服务负责授权和上传 |
-| 扩展权限 | `packages/nowen-clipper/public/manifest.json` | 原有 `<all_urls>` 及 content script 是既有普通剪藏架构；AI 读取另设明确授权，不能把安装权限当作聊天采集同意。权限全面收窄需独立兼容验证 |
+| 扩展权限 | `packages/nowen-clipper/public/manifest.json` | 原有 `<all_urls>` 及 content script 是既有普通剪藏架构；聊天正文只在用户点击页面上的「存到 Nowen」按钮（扩展自建的封闭 Shadow DOM，只认真实点击）或扩展弹窗按钮时读取，或在点过按钮的会话里自动保存，不能把安装权限当作聊天采集同意。权限全面收窄需独立兼容验证 |
 | 认证 | `backend/src/index.ts`、`lib/api-tokens.ts`、`middleware/api-token-resource-scope.ts` | JWT/PAT 现有链路；服务端清除伪造内部身份头，校验 Token、用户、scope 和笔记本资源；新路由不得绕过 |
 | 笔记写入 | `services/{knowledgeTree,knowledgeCapabilities,migrationService}.ts`、笔记块/索引服务 | 通过既有知识树与正文协调服务生成可搜索 Markdown 投影；不能只 INSERT notes 并遗漏树、块或同步意图 |
 | 历史导入 | `services/{migrationSourceAdapter,migrationService,migrationUploads}.ts`、`routes/{migrations,migration-uploads}.ts` | 复用受限流式安全解包；外部对话来源/消息/任务状态属于独立领域，通过同一个归档接收服务落库，不复制笔记写入引擎 |
@@ -65,7 +65,7 @@ ingest 成功只在事务提交后返回 `{conversationId,noteId,revision,operat
 
 - DCC-001/003/011：扩展本地暂存与实例已保存分开；保留失败操作 ID，受限重试、可清空、有过期提示；不承诺浏览器关闭时一定上传。
 - DCC-002/005：消息、会话、操作收据与笔记投影写入必须事务化；笔记沿用既有 Outbox 触发器，提交失败不返回成功或推进版本。
-- DCC-004：expectedRevision、消息身份与修订、用户改过的投影均保守处理；旧快照不能覆盖较新内容。
+- DCC-004：expectedRevision、消息身份与修订、用户改过的投影均保守处理；旧快照不能覆盖较新内容。扩展遇到单个会话的顺序/版本冲突、消息身份不明或归档已删除时只暂停该会话；用户再次点击时，仅当等待发送的内容都已包含在当前页面中才移除这些等待项，并把当前页面另存为新副本（`externalConversationId` 加 `~n`，标题加「第 n 份」），已存归档不变。
 - DCC-006：来源/队列/任务绑定 Nowen 实例、用户、provider、accountScope；刷新凭据不改变归属。随机 accountScope 不能证明第三方账号身份，自动采集仅在可确认的授权会话/身份范围运行。
 - DCC-007：缺消息、加载失败和撤销权限不推断删除；显式删除遵守回收站与当前权限。
 - DCC-008：复用 ZIP 中央目录预检、路径/符号链接/ZIP64/条目数/压缩比/实际解压字节上限；不执行脚本、不抓取附件 URL、不读浏览器 Cookie。
@@ -76,7 +76,7 @@ ingest 成功只在事务提交后返回 `{conversationId,noteId,revision,operat
 
 后端：真实隔离 SQLite/API 覆盖身份伪造/跨用户/Token 缺权限/撤销、幂等重放与不同 payload 拒绝、追加/修订/旧版本拒绝、不完整快照保留旧消息、投影用户修改保护、事务失败回滚、旧库升级/重开、删除与重建。
 
-扩展：ChatGPT/豆包本地 DOM Fixture 覆盖未授权不读正文、手动预览、代码与角色、稳定 ID、流式去重、导航/账号/服务器切换、撤销释放观察器、断网保留、精确回执与重试。DOM 改版或身份不可靠必须明确降级；Fixture 通过不代表真实网站通过。
+扩展：ChatGPT/豆包本地 DOM Fixture 覆盖未点击不读正文、页面按钮只认真实点击、一键保存与来源复用、代码与角色、稳定 ID、流式去重、导航/账号/服务器切换、暂停/撤销后再点击重新开启、冲突只暂停单个会话并另存新副本、断网保留、精确回执与重试。DOM 改版或身份不可靠必须明确降级；Fixture 通过不代表真实网站通过。
 
 导入：覆盖 conversations.json 与编号分卷、current_node 分支选择/遗漏分支报告、重复导入、无效记录、缺附件、MD/TXT 标准边界、取消/重试/重启、ZIP 炸弹/路径穿越/大 JSON 与任务跨用户访问。
 
@@ -96,7 +96,7 @@ Phase 1–3 已形成可运行代码，具体协议见 [API 文档](../api/ai-me
 
 最终保守边界：
 
-- 自动授权限定精确会话；在线每次采集前查询 `GET /sources/:id`，断网不能即时获知异地撤销，最近授权/验证七天内允许有界暂存。
+- 自动保存限定点过按钮的精确会话；在线每次采集前查询 `GET /sources/:id`，断网不能即时获知异地暂停或撤销，最近点击/验证七天内允许有界暂存。在 Nowen 中暂停或撤销来源后，用户再次点击会重新开启该来源。
 - 增量归档累计最多 10,000 消息 / 16 MiB 正文及块；不清理原消息以满足限额。单批/导入限额独立且更低。
 - 消息顺序无法确认时返回冲突，不把新加载历史放到错误位置。补全更早的历史（快照包含已保存的最早消息）时插到最前，已保存消息的序号和内容不变；插在已保存消息中间、重排或没有衔接的快照仍被拒绝。活跃或已有 Yjs 历史的投影不自动重写，通过新副本重建。
 - 原始 JSON 通过单个读事务导出，原生 v1 导入保留块、角色、消息状态、时间和来源 URL；不同来源重绑定在预览中明确报告。超出单项导入限额的累计归档 JSON 不能直接整篇重新导入。
