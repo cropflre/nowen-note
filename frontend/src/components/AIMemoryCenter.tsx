@@ -2,10 +2,10 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
-import { OPEN_AI_MEMORY } from "@/lib/aiMemory";
+import { OPEN_AI_MEMORY, type AIMemoryImportFile } from "@/lib/aiMemory";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 const Hub = lazy(() => import("./AIMemoryHub"));
-function Dialog({ scope, tab, close }: { scope: string; tab: "archive" | "connections"; close: () => void }) {
+function Dialog({ scope, tab, importFile, close }: { scope: string; tab: "archive" | "connections"; importFile?: AIMemoryImportFile; close: () => void }) {
   const { t } = useTranslation();
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -23,17 +23,17 @@ function Dialog({ scope, tab, close }: { scope: string; tab: "archive" | "connec
       if (!first) { event.preventDefault(); return; }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === element.current)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === element.current)) { event.preventDefault(); first.focus(); }
-    }}><Suspense fallback={null}><Hub scope={scope} initialTab={tab} onClose={close}/></Suspense></div>
+    }}><Suspense fallback={null}><Hub scope={scope} initialTab={tab} importFile={importFile} onClose={close}/></Suspense></div>
   </div>;
 }
 export default function AIMemoryCenter() {
-  const [dialog, setDialog] = useState<{ scope: string; tab: "archive" | "connections" } | null>(null);
+  const [dialog, setDialog] = useState<{ scope: string; tab: "archive" | "connections"; importFile?: AIMemoryImportFile } | null>(null);
   useEffect(() => {
-    const open = (event: Event) => { const tab = (event as CustomEvent).detail?.tab; setDialog({ scope: getOfflineQueueStorageKey(), tab: ["archive", "connections"].includes(tab) ? tab : "archive" }); };
+    const open = (event: Event) => { const { tab, importFile } = (event as CustomEvent).detail || {}; setDialog({ scope: getOfflineQueueStorageKey(), tab: ["archive", "connections"].includes(tab) ? tab : "archive", ...(importFile?.file instanceof File ? { importFile } : {}) }); };
     const changed = () => setDialog(previous => previous?.scope === getOfflineQueueStorageKey() ? previous : null);
     const events = ["nowen:token-changed", "nowen:server-url-changed", "storage"];
     window.addEventListener(OPEN_AI_MEMORY, open); events.forEach(event => window.addEventListener(event, changed));
     return () => { window.removeEventListener(OPEN_AI_MEMORY, open); events.forEach(event => window.removeEventListener(event, changed)); };
   }, []);
-  return dialog ? createPortal(<Dialog key={`${dialog.scope}:${dialog.tab}`} scope={dialog.scope} tab={dialog.tab} close={() => setDialog(null)}/>, document.body) : null;
+  return dialog ? createPortal(<Dialog key={`${dialog.scope}:${dialog.tab}`} scope={dialog.scope} tab={dialog.tab} importFile={dialog.importFile} close={() => setDialog(null)}/>, document.body) : null;
 }

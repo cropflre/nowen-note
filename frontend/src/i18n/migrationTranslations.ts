@@ -36,6 +36,12 @@ export const zhCNMigrationTranslations = { migration: {
   unknownError: "操作失败，请重试。", accountChanged: "账号或服务器已切换，请重新打开迁移中心。", invalidResponse: "服务器返回了无效的迁移状态，请检查连接后刷新。",
   states: { CREATED: "待准备", UPLOADING: "正在上传", SCANNING: "正在安全检查", NORMALIZING: "正在整理文件", PREVIEW_READY: "等待你确认", APPROVED: "已确认，等待执行", IMPORTING: "正在导入", VERIFYING: "正在核对", PAUSED: "已暂停", COMPLETED: "已完成", PARTIAL: "部分完成", FAILED: "失败", CANCELLED: "已取消", UNDONE: "已撤销" },
   smart: {
+    chat: {
+      title: "这是 AI 聊天记录",
+      hint: "ChatGPT 等 AI 聊天记录适合导入到「AI 对话归档」：保留每段对话的原文、顺序和角色，并为每段对话生成一篇可搜索的笔记。",
+      off: "导入 AI 聊天记录需要先开启 AI 对话归档，管理员可以在「设置 → 功能开关」中开启。也可以先按普通笔记导入。",
+      toArchive: "导入到 AI 对话归档", asNotes: "仍按普通笔记导入",
+    },
     drop: "拖入笔记文件，或点击选择", dropHere: "松开即可开始导入", formats: "支持 ZIP、Markdown、HTML、TXT 等格式",
     chooseFiles: "选择要导入的笔记文件", chooseFolder: "选择整个文件夹",
     location: "导入到：{{place}}", locationNew: "新建的独立目录", locationUnder: "「{{name}}」下的新目录", changeLocation: "更改",
@@ -136,6 +142,12 @@ export const enMigrationTranslations = { migration: {
   unknownError: "The operation failed. Try again.", accountChanged: "Your account or server changed. Reopen the migration hub.", invalidResponse: "The server returned an invalid migration state. Check the connection and refresh.",
   states: { CREATED: "Awaiting files", UPLOADING: "Uploading", SCANNING: "Checking safety", NORMALIZING: "Preparing files", PREVIEW_READY: "Awaiting your confirmation", APPROVED: "Confirmed, queued", IMPORTING: "Importing", VERIFYING: "Verifying", PAUSED: "Paused", COMPLETED: "Completed", PARTIAL: "Partially completed", FAILED: "Failed", CANCELLED: "Cancelled", UNDONE: "Undone" },
   smart: {
+    chat: {
+      title: "This is an AI chat export",
+      hint: "AI chat exports such as ChatGPT's fit the AI conversation archive: it keeps each conversation's text, order and roles and creates a searchable note for each.",
+      off: "Importing AI chats needs the AI conversation archive, which an administrator can turn on in Settings → Switches. You can also import it as ordinary notes.",
+      toArchive: "Import into the AI conversation archive", asNotes: "Import as ordinary notes",
+    },
     drop: "Drop note files here, or click to choose", dropHere: "Release to start importing", formats: "ZIP, Markdown, HTML, TXT and more",
     chooseFiles: "Choose note files to import", chooseFolder: "Choose a whole folder",
     location: "Import into: {{place}}", locationNew: "a new folder of its own", locationUnder: "a new folder inside “{{name}}”", changeLocation: "Change",

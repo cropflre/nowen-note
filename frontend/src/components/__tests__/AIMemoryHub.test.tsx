@@ -89,6 +89,26 @@ describe("AI memory archive and import workflow", () => {
     expect(mocks.createSource.mock.calls[0][0]).toMatchObject({ provider: "standard", notebookId: "book", displayName: "aiMemory.assistantSource", captureEnabled: false, permissionState: "granted" });
     expect(mocks.createSource.mock.calls[0][0].accountScope).toMatch(/^mcp:/);
   });
+  it("previews a file handed over from Import notes with the only fitting import source", async () => {
+    mocks.sources.mockResolvedValue([source, { ...source, id: "import-source", accountScope: "import:chatgpt" }]);
+    const file = new File(["{}"], "export.zip");
+    await act(async () => root.render(<AIMemoryHub scope="server:user" initialTab="connections" importFile={{ file, provider: "chatgpt" }}/>));
+    await vi.waitFor(() => expect(mocks.previewImport).toHaveBeenCalledWith("import-source", file, expect.anything()));
+  });
+  it("keeps a handed-over file until a fitting source is created, then previews it", async () => {
+    const created = { ...source, id: "new-import", accountScope: "import:new" };
+    mocks.createSource.mockResolvedValue(created);
+    const file = new File(["{}"], "export.zip");
+    await act(async () => root.render(<AIMemoryHub scope="server:user" initialTab="connections" importFile={{ file, provider: "chatgpt" }}/>));
+    expect(host.textContent).toContain("aiMemory.pendingFile");
+    expect(mocks.previewImport).not.toHaveBeenCalled();
+    mocks.sources.mockResolvedValue([source, created]);
+    const form = host.querySelector("details form")!;
+    await click(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await vi.waitFor(() => expect(mocks.previewImport).toHaveBeenCalledWith("new-import", file, expect.anything()));
+    expect(host.textContent).not.toContain("aiMemory.pendingFile");
+  });
   it("ignores late import responses after an account switch", async () => {
     let resolve!: (value: AIImportJob) => void; mocks.previewImport.mockReturnValue(new Promise(value => { resolve = value; }));
     await render("connections"); await change(host.querySelector('select[aria-label="aiMemory.chooseSource"]')!, "source");

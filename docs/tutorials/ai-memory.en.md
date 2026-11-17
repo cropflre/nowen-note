@@ -27,7 +27,7 @@ Saving the same conversation again updates or appends by message ID and never du
 
 ## Import history
 
-Open **Chat archive → Connections & sync**, create a source with a personal notebook (or the default “AI conversations”) and explicit consent, and select a file. Review the preview, selected branch and missing-content warnings, then confirm import. Progress, cancellation, retry of unsaved items, reports and staging cleanup are available. Interrupted jobs require explicit retry after restart; cancellation retains completed items. Staging expires after 24 hours.
+Open **Chat archive → Connections & sync** (or drop a ChatGPT export into **Settings → Data management → Import notes**, which recognizes it and hands it over here), create a source with a personal notebook (or the default “AI conversations”) and explicit consent, and select a file. Review the preview, selected branch and missing-content warnings, then confirm import. Progress, cancellation, retry of unsaved items, reports and staging cleanup are available. Interrupted jobs require explicit retry after restart; cancellation retains completed items. Staging expires after 24 hours.
 
 Supported inputs are ChatGPT ZIP exports containing `conversations.json` or numbered shards, standard JSON, Markdown/TXT, and native `nowen-ai-conversation` v1 JSON exports. ChatGPT imports follow `current_node` and report omitted branches. Attachments are not fetched and imported scripts are never executed. Markdown/TXT become one unknown-role message.
 

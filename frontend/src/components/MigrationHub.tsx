@@ -5,6 +5,9 @@ import { api } from "@/lib/api";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { migrationApi, migrationIsActive, type MigrationJob } from "@/lib/migrations";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
+import { detectAIChatExport, type AIChatExport } from "@/lib/aiChatExport";
+import { openAIMemory } from "@/lib/aiMemory";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import {
   IMPORT_ACCEPT, filesFromInput, importErrorKind, importPhase, importRisks, packageImport, planImport, warningText,
   type ImportErrorKind, type ImportFile,
@@ -50,6 +53,9 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   const [busy, setBusy] = useState(false);
   const [preparing, setPreparing] = useState<Preparing | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // An AI chat export waiting for the person to choose where it goes.
+  const [chatExport, setChatExport] = useState<(AIChatExport & { files: ImportFile[] }) | null>(null);
+  const { siteConfig } = useSiteSettings();
   const [skipped, setSkipped] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
@@ -129,8 +135,12 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
     finally { busyRef.current = false; if (current()) setBusy(false); }
   };
 
-  const start = async (files: ImportFile[], resumeId: string | null = null) => {
+  const start = async (files: ImportFile[], resumeId: string | null = null, asNotes = false) => {
     if (!available || busyRef.current || !current()) return;
+    if (!resumeId && !asNotes) {
+      const chat = await detectAIChatExport(files);
+      if (chat) { if (current()) { setProblem(null); setChatExport({ ...chat, files }); } return; }
+    }
     const plan = planImport(files, t("migration.defaultName"));
     if (!plan.ok) {
       setProblem(plan.reason === "too-large" || plan.reason === "too-many" ? "size" : plan.reason === "unsupported" ? "unsupported-files" : "no-notes");
@@ -218,7 +228,17 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
     </div>
   </div>;
 
-  const startView = <>
+  const chatChoice = chatExport && <section className={card} aria-label={t("migration.smart.chat.title")}>
+    <h5 className="text-base font-semibold text-tx-primary">{t("migration.smart.chat.title")}</h5>
+    <p className="text-sm text-tx-secondary">{t(siteConfig.aiMemoryEnabled ? "migration.smart.chat.hint" : "migration.smart.chat.off")}</p>
+    <div className="flex flex-wrap gap-2">
+      {siteConfig.aiMemoryEnabled && <Button type="button" onClick={() => { const { file, provider } = chatExport; setChatExport(null); openAIMemory("connections", { file, provider }); }}>{t("migration.smart.chat.toArchive")}</Button>}
+      <Button type="button" variant="outline" disabled={!available || busy} onClick={() => { const { files } = chatExport; setChatExport(null); void start(files, null, true); }}>{t("migration.smart.chat.asNotes")}</Button>
+      <Button type="button" variant="ghost" onClick={() => setChatExport(null)}>{t("migration.smart.startOver")}</Button>
+    </div>
+  </section>;
+
+  const startView = chatChoice || <>
     {view === "assistant"
       ? <AssistantMove jobs={jobs} notebooks={notebooks} disabled={!available || busy} onBack={() => setView("files")}
         onOpenJob={(prepared) => { setView("files"); void run(() => migrationApi.get(prepared.id)); }} />

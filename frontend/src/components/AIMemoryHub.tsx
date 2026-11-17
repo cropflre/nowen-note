@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, Download, FileUp, Loader2, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, setCurrentWorkspace } from "@/lib/api";
-import { aiMemoryApi, type AIConversation, type AIConversationMessage, type AIImportJob, type AIMemorySource } from "@/lib/aiMemory";
+import { aiMemoryApi, type AIConversation, type AIConversationMessage, type AIImportJob, type AIMemoryImportFile, type AIMemorySource } from "@/lib/aiMemory";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { pushNoteAppPath } from "@/lib/noteDeepLink";
@@ -15,21 +15,22 @@ type Tab = "archive" | "connections";
 const surface = "rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4";
 const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--color-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-primary)] disabled:cursor-not-allowed disabled:opacity-50";
 const input = "min-h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent-primary)]";
+const importable = (source: AIMemorySource | undefined) => !!source && source.permissionState === "granted" && !source.accountScope.startsWith("mcp:");
 function downloadJson(filename: string, data: unknown): void {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
   const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); scheduleObjectUrlRevocation(url);
 }
 
-export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: { scope: string; onClose?: () => void; initialTab?: Tab }) {
+export default function AIMemoryHub({ scope, onClose, initialTab = "archive", importFile }: { scope: string; onClose?: () => void; initialTab?: Tab; importFile?: AIMemoryImportFile }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>(initialTab), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const [sources, setSources] = useState<AIMemorySource[]>([]), [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [conversations, setConversations] = useState<AIConversation[]>([]), [total, setTotal] = useState(0), [offset, setOffset] = useState(0);
   const [query, setQuery] = useState(""), [submittedQuery, setSubmittedQuery] = useState(""), [filter, setFilter] = useState(""), [deleted, setDeleted] = useState(false);
   const [selected, setSelected] = useState<string | null>(null), [messages, setMessages] = useState<AIConversationMessage[]>([]);
-  const [sourceId, setSourceId] = useState(""), [provider, setProvider] = useState("chatgpt"), [name, setName] = useState(""), [notebookId, setNotebookId] = useState(""), [consent, setConsent] = useState(false);
+  const [sourceId, setSourceId] = useState(""), [provider, setProvider] = useState<string>(importFile?.provider || "chatgpt"), [name, setName] = useState(""), [notebookId, setNotebookId] = useState(""), [consent, setConsent] = useState(false);
   const [jobs, setJobs] = useState<AIImportJob[]>([]), [job, setJob] = useState<AIImportJob | null>(null), [reviewed, setReviewed] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false), [pendingFile, setPendingFile] = useState<File | null>(importFile?.file || null);
   const upload = useRef<AbortController | null>(null), fileInput = useRef<HTMLInputElement>(null), mounted = useRef(true), activeOperation = useRef(false), archiveRequest = useRef(0);
   const localOnly = isMobileLocalMode();
   const current = useCallback(() => mounted.current && scope === getOfflineQueueStorageKey(), [scope]);
@@ -80,6 +81,23 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: 
     }, 1500);
     return () => clearInterval(timer);
   }, [job?.id, job?.status, current, refreshSources]);
+  const previewFile = useRef<(file: File, chosen: string) => void>(() => undefined);
+  previewFile.current = (file, chosen) => {
+    if (!chosen || activeOperation.current) return;
+    setJob(null); setReviewed(false); setUploading(true); upload.current = new AbortController();
+    void perform(async () => { try { receive(await aiMemoryApi.previewImport(chosen, file, upload.current!.signal)); } finally { if (current()) setUploading(false); upload.current = null; } });
+  };
+  // A file handed over from "Import notes": use the only fitting import source, then preview it once a
+  // source is chosen and nothing else (such as creating that source) is still running.
+  useEffect(() => {
+    if (!pendingFile || sourceId || !importFile) return;
+    const fitting = sources.filter(source => importable(source) && source.accountScope.startsWith("import:") && source.provider === importFile.provider);
+    if (fitting.length === 1) setSourceId(fitting[0].id);
+  }, [pendingFile, sourceId, sources, importFile]);
+  useEffect(() => {
+    if (!pendingFile || busy || !importable(sources.find(source => source.id === sourceId))) return;
+    setPendingFile(null); previewFile.current(pendingFile, sourceId);
+  }, [pendingFile, busy, sourceId, sources]);
   const chooseJob = (next: AIImportJob) => { setReviewed(false); setSourceId(next.sourceId); receive(next); };
   const sourceLabel = (value: string) => value === "assistant" ? t("aiMemory.assistantSource") : value === "standard" ? t("aiMemory.importedConversations") : value === "doubao" ? t("aiMemory.doubao") : "ChatGPT";
   // Without a chosen notebook, sources use the person's "AI conversations" notebook, created the first time.
@@ -150,9 +168,9 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: 
           <label className="block text-xs">{t("aiMemory.notebook")}<select className={`${input} mt-1`} value={notebookId} onChange={event => setNotebookId(event.target.value)}><option value="">{t("aiMemory.defaultNotebookOption", { name: t("aiMemory.defaultNotebook") })}</option>{notebooks.map(notebook => <option key={notebook.id} value={notebook.id}>{notebook.name}</option>)}</select></label>
           <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t(provider === "assistant" ? "aiMemory.assistantHint" : "aiMemory.accountHint")}</p><label className="flex items-start gap-2 text-xs leading-5"><input type="checkbox" className="mt-1" checked={consent} onChange={event => setConsent(event.target.checked)}/>{t(provider === "assistant" ? "aiMemory.assistantConsent" : "aiMemory.sourceConsent")}</label><button type="submit" className={button} disabled={busy || !consent}>{t("aiMemory.create")}</button>
         </form></details>
-        <section className={`${surface} space-y-3`}><h3 className="text-sm font-semibold">{t("aiMemory.import")}</h3><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importHint")}</p><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importLimits")}</p>
+        <section className={`${surface} space-y-3`}><h3 className="text-sm font-semibold">{t("aiMemory.import")}</h3><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importHint")}</p><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importLimits")}</p>{pendingFile && <p role="status" className="break-words rounded-lg border border-[var(--color-border)] p-3 text-sm">{t("aiMemory.pendingFile", { name: pendingFile.name })}</p>}
           <select className={input} aria-label={t("aiMemory.chooseSource")} value={sourceId} disabled={busy || uploading} onChange={event => { setSourceId(event.target.value); setJob(null); setReviewed(false); }}><option value="">{t("aiMemory.chooseSource")}</option>{sources.filter(source => source.permissionState === "granted" && !source.accountScope.startsWith("mcp:")).map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}</select>
-          <input type="file" ref={fileInput} className="hidden" accept=".zip,.json,.md,.markdown,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (!file || !sourceId || activeOperation.current) return; setJob(null); setReviewed(false); setUploading(true); upload.current = new AbortController(); void perform(async () => { try { receive(await aiMemoryApi.previewImport(sourceId, file, upload.current!.signal)); } finally { if (current()) setUploading(false); upload.current = null; } }); }}/>
+          <input type="file" ref={fileInput} className="hidden" accept=".zip,.json,.md,.markdown,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) previewFile.current(file, sourceId); }}/>
           <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={!sourceId || busy || uploading} onClick={() => fileInput.current?.click()}>{uploading ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none"/> : <FileUp size={15}/>} {t(uploading ? "aiMemory.uploading" : "aiMemory.chooseFile")}</button>{uploading && <button type="button" className={button} onClick={() => upload.current?.abort()}>{t("aiMemory.abort")}</button>}</div>
         </section>
         {job && <section className={`${surface} space-y-3`} aria-label={job.filename}><h3 className="break-words text-sm font-semibold">{job.filename} · {t(`aiMemory.states.${job.status}`)}</h3><p role="status" className="text-sm">{t("aiMemory.imported", job.counts)}</p>
