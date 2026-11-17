@@ -3,10 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import AIMemoryHub from "../AIMemoryHub";
 import type { AIImportJob } from "@/lib/aiMemory";
-const mocks = vi.hoisted(() => ({ sources: vi.fn(), conversations: vi.fn(), imports: vi.fn(), previewImport: vi.fn(), startImport: vi.fn(), importJob: vi.fn(), cancelImport: vi.fn(), retryImport: vi.fn(), discardImport: vi.fn(), createSource: vi.fn(), updateSource: vi.fn(), revokeSource: vi.fn(), messages: vi.fn(), deleteConversation: vi.fn(), restoreConversation: vi.fn(), rebuildNote: vi.fn(), confirm: vi.fn(), scope: "server:user", local: false }));
+const mocks = vi.hoisted(() => ({ createNotebook: vi.fn(), sources: vi.fn(), conversations: vi.fn(), imports: vi.fn(), previewImport: vi.fn(), startImport: vi.fn(), importJob: vi.fn(), cancelImport: vi.fn(), retryImport: vi.fn(), discardImport: vi.fn(), createSource: vi.fn(), updateSource: vi.fn(), revokeSource: vi.fn(), messages: vi.fn(), deleteConversation: vi.fn(), restoreConversation: vi.fn(), rebuildNote: vi.fn(), confirm: vi.fn(), scope: "server:user", local: false }));
 vi.mock("@/lib/aiMemory", () => ({ aiMemoryApi: mocks }));
 vi.mock("@/lib/offlineScope", () => ({ getOfflineQueueStorageKey: () => mocks.scope }));
-vi.mock("@/lib/api", () => ({ api: { getNotebooks: async () => [{ id: "book", name: "Personal", workspaceId: null }] }, setCurrentWorkspace: vi.fn() }));
+vi.mock("@/lib/api", () => ({ api: { getNotebooks: async () => [{ id: "book", name: "Personal", workspaceId: null }], createNotebook: (data: unknown) => mocks.createNotebook(data) }, setCurrentWorkspace: vi.fn() }));
+vi.mock("@/lib/workspaceRefreshBridge", () => ({ emitKnowledgeTreeRefresh: vi.fn() }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isMobileLocalMode: () => mocks.local }));
 vi.mock("@/lib/noteDeepLink", () => ({ pushNoteAppPath: vi.fn() }));
 vi.mock("@/lib/reliableExportDownloadBridge", () => ({ scheduleObjectUrlRevocation: vi.fn() }));
@@ -25,6 +26,7 @@ beforeEach(() => {
   mocks.sources.mockResolvedValue([source]); mocks.conversations.mockResolvedValue({ items: [], total: 0 }); mocks.imports.mockResolvedValue([]);
   mocks.previewImport.mockResolvedValue(job); mocks.startImport.mockResolvedValue({ ...job, status: "IMPORTING" }); mocks.importJob.mockResolvedValue(job);
   mocks.createSource.mockResolvedValue(source); mocks.confirm.mockResolvedValue(true);
+  mocks.createNotebook.mockImplementation(async (data: { name: string }) => ({ id: "ai-book", name: data.name, workspaceId: null, parentId: null }));
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
@@ -54,6 +56,19 @@ describe("AI memory archive and import workflow", () => {
     await click(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!); expect(button("create").disabled).toBe(false);
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(mocks.createSource.mock.calls[0][0]).toMatchObject({ notebookId: "book", captureEnabled: false, permissionState: "granted" });
+  });
+  it("uses the AI conversations notebook when no notebook is chosen, creating it only once", async () => {
+    await render("connections");
+    const form = host.querySelector("details form")!;
+    for (let time = 0; time < 2; time++) {
+      await click(form.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+      expect(button("create").disabled).toBe(false);
+      await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    }
+    expect(mocks.createNotebook).toHaveBeenCalledTimes(1);
+    expect(mocks.createNotebook).toHaveBeenCalledWith({ name: "aiMemory.defaultNotebook", workspaceId: null });
+    expect(mocks.createSource.mock.calls.map(call => call[0].notebookId)).toEqual(["ai-book", "ai-book"]);
+    expect(mocks.createSource.mock.calls[0][0]).toMatchObject({ provider: "chatgpt", displayName: "ChatGPT" });
   });
   it("creates an AI assistant source with its own consent, kept out of file imports", async () => {
     mocks.sources.mockResolvedValue([source, { ...source, id: "assistant", accountScope: "mcp:claude", provider: "standard", displayName: "Claude Code" }]);

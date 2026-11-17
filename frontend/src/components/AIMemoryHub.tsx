@@ -7,6 +7,7 @@ import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { pushNoteAppPath } from "@/lib/noteDeepLink";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { confirm } from "./ui/confirm";
 import type { Notebook } from "@/types";
 
@@ -80,6 +81,16 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: 
     return () => clearInterval(timer);
   }, [job?.id, job?.status, current, refreshSources]);
   const chooseJob = (next: AIImportJob) => { setReviewed(false); setSourceId(next.sourceId); receive(next); };
+  const sourceLabel = (value: string) => value === "assistant" ? t("aiMemory.assistantSource") : value === "standard" ? t("aiMemory.importedConversations") : value === "doubao" ? t("aiMemory.doubao") : "ChatGPT";
+  // Without a chosen notebook, sources use the person's "AI conversations" notebook, created the first time.
+  const defaultNotebook = async () => {
+    const name = t("aiMemory.defaultNotebook");
+    const existing = notebooks.find(item => item.name === name && !item.parentId && !item.workspaceId);
+    if (existing) return existing.id;
+    const created = await api.createNotebook({ name, workspaceId: null });
+    if (current()) { setNotebooks(previous => [...previous, created]); emitKnowledgeTreeRefresh("ai-archive-notebook-created"); }
+    return created.id;
+  };
   const completeness = (value: string) => t(`aiMemory.${["complete", "partial"].includes(value) ? value : "unknown"}`);
   const openNote = (id: string) => {
     if (!current()) return;
@@ -133,11 +144,11 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive" }: 
           <button type="button" className={button} disabled={busy} onClick={() => void perform(async () => { await aiMemoryApi.updateSource(source.id, source.permissionState === "revoked" ? { permissionState: "granted", captureEnabled: false } : { captureEnabled: !source.captureEnabled }); await refreshSources(); })}>{t(source.permissionState === "revoked" ? "aiMemory.reconnect" : source.captureEnabled ? "aiMemory.pause" : "aiMemory.enable")}</button>
           {source.permissionState === "granted" && <button type="button" className={button} disabled={busy} onClick={() => void perform(async () => { if (!await confirm({ title: t("aiMemory.revokeTitle"), description: t("aiMemory.revokeHint") }) || !current()) return; await aiMemoryApi.revokeSource(source.id); await refreshSources(); })}>{t("aiMemory.revoke")}</button>}
         </div></article>)}
-        <details className={surface}><summary className="cursor-pointer text-sm font-semibold">{t("aiMemory.createSource")}</summary><form className="mt-4 space-y-3" onSubmit={event => { event.preventDefault(); void perform(async () => { if (!consent || !notebookId) return; const assistant = provider === "assistant"; const next = await aiMemoryApi.createSource({ provider: assistant ? "standard" : provider, notebookId, displayName: name.trim() || (assistant ? t("aiMemory.assistantSource") : provider), accountScope: `${assistant ? "mcp" : "import"}:${crypto.randomUUID()}`, permissionState: "granted", captureEnabled: false }); if (!current()) return; setSourceId(next.id); setConsent(false); await refreshSources(); }); }}>
+        <details className={surface}><summary className="cursor-pointer text-sm font-semibold">{t("aiMemory.createSource")}</summary><form className="mt-4 space-y-3" onSubmit={event => { event.preventDefault(); void perform(async () => { if (!consent) return; const assistant = provider === "assistant"; const target = notebookId || await defaultNotebook(); if (!current()) return; const next = await aiMemoryApi.createSource({ provider: assistant ? "standard" : provider, notebookId: target, displayName: name.trim() || sourceLabel(provider), accountScope: `${assistant ? "mcp" : "import"}:${crypto.randomUUID()}`, permissionState: "granted", captureEnabled: false }); if (!current()) return; setSourceId(next.id); setConsent(false); await refreshSources(); }); }}>
           <label className="block text-xs">{t("aiMemory.provider")}<select className={`${input} mt-1`} value={provider} onChange={event => { setProvider(event.target.value); setConsent(false); }}><option value="chatgpt">ChatGPT</option><option value="doubao">豆包 / Doubao</option><option value="standard">JSON / Markdown / TXT</option><option value="assistant">{t("aiMemory.assistantSource")}</option></select></label>
           <label className="block text-xs">{t("aiMemory.displayName")}<input className={`${input} mt-1`} maxLength={200} value={name} onChange={event => setName(event.target.value)}/></label>
-          <label className="block text-xs">{t("aiMemory.notebook")}<select className={`${input} mt-1`} value={notebookId} onChange={event => setNotebookId(event.target.value)}><option value="">{t("aiMemory.chooseNotebook")}</option>{notebooks.map(notebook => <option key={notebook.id} value={notebook.id}>{notebook.name}</option>)}</select></label>
-          <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t(provider === "assistant" ? "aiMemory.assistantHint" : "aiMemory.accountHint")}</p><label className="flex items-start gap-2 text-xs leading-5"><input type="checkbox" className="mt-1" checked={consent} onChange={event => setConsent(event.target.checked)}/>{t(provider === "assistant" ? "aiMemory.assistantConsent" : "aiMemory.sourceConsent")}</label><button type="submit" className={button} disabled={busy || !consent || !notebookId}>{t("aiMemory.create")}</button>
+          <label className="block text-xs">{t("aiMemory.notebook")}<select className={`${input} mt-1`} value={notebookId} onChange={event => setNotebookId(event.target.value)}><option value="">{t("aiMemory.defaultNotebookOption", { name: t("aiMemory.defaultNotebook") })}</option>{notebooks.map(notebook => <option key={notebook.id} value={notebook.id}>{notebook.name}</option>)}</select></label>
+          <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t(provider === "assistant" ? "aiMemory.assistantHint" : "aiMemory.accountHint")}</p><label className="flex items-start gap-2 text-xs leading-5"><input type="checkbox" className="mt-1" checked={consent} onChange={event => setConsent(event.target.checked)}/>{t(provider === "assistant" ? "aiMemory.assistantConsent" : "aiMemory.sourceConsent")}</label><button type="submit" className={button} disabled={busy || !consent}>{t("aiMemory.create")}</button>
         </form></details>
         <section className={`${surface} space-y-3`}><h3 className="text-sm font-semibold">{t("aiMemory.import")}</h3><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importHint")}</p><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.importLimits")}</p>
           <select className={input} aria-label={t("aiMemory.chooseSource")} value={sourceId} disabled={busy || uploading} onChange={event => { setSourceId(event.target.value); setJob(null); setReviewed(false); }}><option value="">{t("aiMemory.chooseSource")}</option>{sources.filter(source => source.permissionState === "granted" && !source.accountScope.startsWith("mcp:")).map(source => <option key={source.id} value={source.id}>{source.displayName}</option>)}</select>

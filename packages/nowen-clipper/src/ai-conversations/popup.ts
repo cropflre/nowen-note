@@ -68,7 +68,7 @@ export function initAIConversationPanel(tab: chrome.tabs.Tab | undefined) {
     element("ai-capture-warnings").textContent = preview.warnings.join("\n");
     element<HTMLInputElement>("ai-autosave").disabled = !preview.stableIds;
     if (!preview.stableIds) element<HTMLInputElement>("ai-autosave").checked = false;
-    report("请检查完整预览、来源账户与下方个人笔记本，再确认保存。");
+    report("请检查完整预览和来源账户再保存；没选笔记本时会放进「AI 对话」。");
   }));
   element("ai-save").addEventListener("click", () => void act(async () => {
     if (element<HTMLSelectElement>("workspace").value !== "personal") throw new Error("AI 对话归档目前仅支持个人空间，请选择个人笔记本。");

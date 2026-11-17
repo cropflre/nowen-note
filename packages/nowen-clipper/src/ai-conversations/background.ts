@@ -1,5 +1,5 @@
 import { createContentScriptBridge } from "../lib/content-script-bridge";
-import { buildNoteUrl, NowenApiError, ping, requestAIArchive } from "../lib/api";
+import { buildNoteUrl, ensurePersonalNotebook, NowenApiError, ping, requestAIArchive } from "../lib/api";
 import { getConfig } from "../lib/storage";
 import { acknowledgeArchive, AI_STORAGE_KEY, archiveScope, emptyAIState, enqueueArchive, failPending, grantKey, RETRY_WINDOW_MS, type AIArchiveState, type PendingArchive } from "./queue";
 import type { ArchiveReceipt, ArchiveSource, CaptureGrant, CapturePreview } from "./types";
@@ -184,13 +184,23 @@ async function preview(tabId: number) {
   knownTabs.add(tabId);
   return { previewId, preview: result.preview };
 }
+const DEFAULT_ARCHIVE_NOTEBOOK = "AI 对话";
 async function save(message: { tabId: number; previewId: string; notebookId: string; sourceName: string; automatic: boolean }) {
   const ctx = await context(message.tabId);
   const cached = previews.get(message.previewId);
   if (!cached || cached.tabId !== message.tabId || cached.scope !== ctx.scope || cached.expiresAt < Date.now()
     || cached.preview.snapshot.externalConversationId !== ctx.identity.id) throw new Error("预览已失效或会话已切换，请重新授权预览。");
-  if (!message.notebookId) throw new Error("请选择已有的个人笔记本作为归档位置。");
   if (!message.sourceName?.trim()) throw new Error("请填写来源账户名称，用来区分不同 AI 账号。");
+  if (!message.notebookId) {
+    // No notebook chosen: keep this conversation (or this source) where it already goes, else use "AI 对话".
+    const bound = await change((data) => {
+      const own = data.grants[ctx.key];
+      if (own && own.source.permissionState === "granted") return own.source.notebookId;
+      return Object.values(data.grants).find((entry) => entry.scope === ctx.scope && entry.provider === ctx.identity.provider
+        && entry.source.displayName === message.sourceName.trim() && entry.source.permissionState === "granted")?.source.notebookId;
+    });
+    message = { ...message, notebookId: bound || (await ensurePersonalNotebook(ctx.config, DEFAULT_ARCHIVE_NOTEBOOK)).id };
+  }
   if (message.automatic && !cached.preview.stableIds) throw new Error("页面没有稳定消息 ID，无法安全开启自动保存。");
   const stable = cached.preview.snapshot.messages.filter((entry) => entry.captureState !== "streaming");
   if (!stable.length) throw new Error("AI 回复仍在生成，当前没有稳定消息可保存。");

@@ -32,11 +32,17 @@ test("background consent, durable receipts, account switches and revoked-source 
   const disabled = () => Response.json({ error: "此服务器未开启 AI 对话归档", code: "AI_MEMORY_DISABLED" }, { status: 404 });
   const sources = new Map<string, ArchiveSource>();
   const ingested: any[] = [];
+  const notebooks: Array<{ id: string; name: string; parentId: null; workspaceId: null }> = [{ id: "notebook-a", name: "Notebook A", parentId: null, workspaceId: null }];
   const revisions = new Map<string, number>();
   t.mock.method(globalThis, "fetch", async (input, init) => {
     const url = new URL(String(input));
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (url.pathname === "/api/me") return Response.json({ id: "user-a", username: "alice", role: "user" });
+    if (url.pathname === "/api/notebooks" && init?.method === "POST") {
+      const created = { id: `notebook-${notebooks.length + 1}`, name: body.name, parentId: null, workspaceId: null } as const;
+      notebooks.push(created); return Response.json(created);
+    }
+    if (url.pathname === "/api/notebooks") return Response.json(notebooks);
     if (archiveDisabled && url.pathname.startsWith("/api/ai-memory/")) return disabled();
     if (url.pathname.endsWith("/sources") && init?.method === "POST") {
       const source: ArchiveSource = { ...body, id: `source-${sources.size + 1}` };
@@ -158,5 +164,29 @@ test("background consent, durable receipts, account switches and revoked-source 
     assert.match(result.grant.error, /AI_SYNC_RECEIPT_INVALID/);
     assert.equal(data[AI_STORAGE_KEY].queue.length, 1);
     assert.equal(data[AI_STORAGE_KEY].queue[0].payload.snapshot.messages[0].text, "hello");
+  });
+  await t.test("without a chosen notebook, conversations go to one AI conversations notebook, created once, and a bound conversation stays put", async () => {
+    invalidReceipt = false;
+    const original = structuredClone(rawPreview.snapshot);
+    const saveConversation = async (id: string, sourceName: string) => {
+      rawPreview.snapshot.externalConversationId = id; rawPreview.snapshot.sourceUrl = `https://chatgpt.com/c/${id}`;
+      const preview = await send("AI_PREVIEW");
+      return send("AI_SAVE", { previewId: preview.previewId, notebookId: "", sourceName, automatic: false });
+    };
+    try {
+      for (const [id, name] of [["fixture-d", "Fresh account"], ["fixture-e", "Another account"]]) {
+        const saved = await saveConversation(id, name);
+        assert.equal(saved.ok, true, JSON.stringify(saved));
+        assert.equal(saved.grant.source.notebookId, "notebook-2");
+      }
+      assert.deepEqual(notebooks.map((notebook) => notebook.name), ["Notebook A", "AI 对话"]);
+      // A conversation already bound to a notebook keeps it, without creating another notebook.
+      rawPreview.snapshot.externalConversationId = original.externalConversationId; rawPreview.snapshot.sourceUrl = original.sourceUrl;
+      const bound = await send("AI_STATUS");
+      const again = await saveConversation(original.externalConversationId, bound.grant.source.displayName);
+      assert.equal(again.ok, true, JSON.stringify(again));
+      assert.equal(again.grant.source.notebookId, bound.grant.source.notebookId);
+      assert.equal(notebooks.length, 2);
+    } finally { Object.assign(rawPreview.snapshot, original); }
   });
 });

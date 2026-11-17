@@ -174,6 +174,14 @@ async function refreshAccessToken(cfg: NowenClipperConfig): Promise<string> {
   }
 }
 
+/** The personal top-level notebook with this name, created when it does not exist yet. */
+export async function ensurePersonalNotebook(cfg: NowenClipperConfig, name: string): Promise<NotebookSummary> {
+  const notebooks = await requestJson<NotebookSummary[]>(cfg, "/notebooks?workspaceId=personal");
+  const existing = notebooks.find((notebook) => notebook.name === name && !notebook.parentId && !notebook.workspaceId && !notebook.isDeleted);
+  if (existing) return existing;
+  return requestJson<NotebookSummary>(cfg, "/notebooks", { method: "POST", body: JSON.stringify({ name }) });
+}
+
 /** Archive requests reuse the existing authenticated transport; no Desktop pairing-token fallback. */
 export async function requestAIArchive<T>(cfg: NowenClipperConfig, path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
   return requestJson<T>(cfg, `/ai-memory${path}`, {
