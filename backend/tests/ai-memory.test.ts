@@ -153,12 +153,29 @@ test("manual inferred message identities reject automatic capture and ambiguous 
   assert.equal(service.getAIConversationMessages(actor, repeatedSave.conversationId).items.length, 2);
 });
 
-test("archive ordering rejects loaded historical prefixes, branch reorder and unanchored inserts", () => {
+test("DCC-004 earlier history loaded later is prepended in order without changing saved messages", () => {
+  const binding = source(), first = service.ingestAIConversation(actor, capture(binding, [message("msg-1", "First"), message("msg-2", "Second", 1)]));
+  const backfilled = service.ingestAIConversation(actor, capture(binding, [message("older-2", "Two before"), message("older-1", "One before", 1),
+    message("msg-1", "First", 2), message("msg-2", "Second", 3), message("msg-3", "Third", 4)], { expectedRevision: first.revision }));
+  assert.equal(backfilled.status, "applied"); assert.equal(backfilled.revision, first.revision + 1);
+  const texts = () => service.getAIConversationMessages(actor, first.conversationId).items.map(item => item.text);
+  assert.deepEqual(texts(), ["Two before", "One before", "First", "Second", "Third"]);
+  // Saved messages were not rewritten, and the note follows the full order.
+  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM external_ai_message_revisions WHERE messageId IN (SELECT id FROM external_ai_messages WHERE conversationId=?)").get(first.conversationId) as { count: number }).count, 0);
+  const content = (db.prepare("SELECT content FROM notes WHERE id=?").get(backfilled.noteId) as { content: string }).content;
+  assert.ok(content.indexOf("Two before") < content.indexOf("First") && content.indexOf("First") < content.indexOf("Third"));
+  // Loading even older history later again goes before the current earliest message.
+  service.ingestAIConversation(actor, capture(binding, [message("oldest", "Oldest"), message("older-2", "Two before", 1)], { expectedRevision: backfilled.revision }));
+  assert.deepEqual(texts(), ["Oldest", "Two before", "One before", "First", "Second", "Third"]);
+});
+
+test("archive ordering rejects reorder, inserts between saved messages and history that does not reach the earliest one", () => {
   const binding = source(), first = service.ingestAIConversation(actor, capture(binding, [message("msg-1", "First"), message("msg-2", "Second", 1)]));
   for (const entries of [
-    [message("older", "Previously unloaded"), message("msg-1", "First", 1), message("msg-2", "Second", 2)],
     [message("msg-2", "Second"), message("msg-1", "First", 1)],
-    [message("msg-1", "First"), message("inserted", "Between existing messages", 1)],
+    [message("msg-1", "First"), message("inserted", "After a message that is not the latest", 1)],
+    [message("msg-1", "First"), message("inserted", "Between existing messages", 1), message("msg-2", "Second", 2)],
+    [message("older", "Before a message that is not the earliest"), message("msg-2", "Second", 1)],
     [message("no-anchor", "Unknown position")],
   ]) assert.throws(() => service.ingestAIConversation(actor, capture(binding, entries, { expectedRevision: first.revision })), code("AI_MESSAGE_ORDER_CONFLICT"));
   assert.deepEqual(service.getAIConversationMessages(actor, first.conversationId).items.map(item => item.text), ["First", "Second"]);

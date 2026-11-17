@@ -69,7 +69,7 @@ export function registerAIArchiveTools(server: McpServer, api: NowenApiClient): 
 
   server.tool(
     "nowen_ai_archive_save",
-    "在用户要求时，把当前 AI 对话的原文保存到用户授权的归档来源，并生成一篇可搜索的笔记。同一对话再次保存会按消息 id 更新或追加，不会重复；追加新消息时要带上上次保存的最后一条消息。用户改过的笔记不会被覆盖",
+    "在用户要求时，把当前 AI 对话的原文保存到用户授权的归档来源，并生成一篇可搜索的笔记。同一对话再次保存会按消息 id 更新或追加，不会重复；追加新消息时要带上上次保存的最后一条消息，补全更早的消息时要带上已保存的第一条消息。用户改过的笔记不会被覆盖",
     {
       sourceId: id.describe("nowen_ai_archive_sources 返回的来源 id"),
       conversationId: id.describe("这段对话的稳定标识，例如会话 id；同一对话每次保存都要相同"),

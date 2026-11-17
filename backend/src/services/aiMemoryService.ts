@@ -310,20 +310,28 @@ export function ingestAIConversation(actor: AIMemoryActor, input: unknown) {
     if (row?.deletedAt) throw new AIMemoryError("AI_CONVERSATION_DELETED", "归档已删除，请先恢复或创建新的来源", 409);
     if (row) assertArchiveRead(actor, row);
     const unchanged = row?.lastSnapshotHash === snapshotHash;
+    let earlier = 0;
     if (row && !unchanged && request.expectedRevision !== row.revision) throw new AIMemoryError("AI_SYNC_VERSION_CONFLICT", "归档已更新，请检查最新版本后重试", 409, row.revision);
     if (!row && request.expectedRevision && request.expectedRevision !== 0) throw new AIMemoryError("AI_SYNC_VERSION_CONFLICT", "归档版本不匹配", 409, 0);
     if (row && !unchanged) {
       const oldEntries = messages(row.id);
       if (normalized.some((entry) => entry.identityState === "inferred") || oldEntries.some((entry) => entry.identityState === "inferred")) throw new AIMemoryError("AI_MESSAGE_IDENTITY_AMBIGUOUS", "此归档缺少稳定消息标识，无法安全更新；请保存为新的会话", 409);
+      // New messages may only come before the earliest saved message (earlier history loaded later)
+      // or after the latest one. Anything else could be a branch or a reorder, so it is refused.
       const positions = new Map(oldEntries.map((entry, index) => [entry.externalMessageId, index]));
-      let lastPosition = -1, sawNew = false;
-      for (const entry of normalized) {
-        const position = positions.get(entry.externalMessageId);
-        if (position === undefined) { sawNew = true; continue; }
-        if (sawNew || position <= lastPosition) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "检测到历史补载或对话分支变化，请检查归档并另存新的会话", 409);
-        lastPosition = position;
+      const known = normalized.map((entry) => positions.get(entry.externalMessageId));
+      const first = known.findIndex((position) => position !== undefined);
+      if (first === -1) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "新消息缺少衔接标识，无法确认顺序；请加载更多历史消息后重试", 409);
+      let last = first, lastPosition = -1;
+      for (let index = first; index < known.length; index++) {
+        const position = known[index];
+        if (position === undefined) continue;
+        if (position <= lastPosition || index > last + 1) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "检测到消息插入、重排或对话分支变化，请检查归档并另存新的会话", 409);
+        last = index; lastPosition = position;
       }
-      if (sawNew && lastPosition !== oldEntries.length - 1) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "新消息缺少末尾衔接标识，无法确认顺序；请加载更多历史消息后重试", 409);
+      if (first > 0 && known[first] !== 0) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "补全的历史消息没有衔接到已保存的最早消息；请加载到对话开头后重试", 409);
+      if (last < known.length - 1 && lastPosition !== oldEntries.length - 1) throw new AIMemoryError("AI_MESSAGE_ORDER_CONFLICT", "新消息缺少末尾衔接标识，无法确认顺序；请加载更多历史消息后重试", 409);
+      earlier = first;
     }
     if (!row) {
       const conversationId = crypto.randomUUID();
@@ -334,7 +342,9 @@ export function ingestAIConversation(actor: AIMemoryActor, input: unknown) {
     if (!unchanged) {
       const existing = new Map(messages(row.id).map((entry) => [entry.externalMessageId, entry]));
       let nextSequence = Math.max(-1, ...Array.from(existing.values(), (entry) => entry.sequence)) + 1;
-      for (const entry of normalized) {
+      // Earlier history goes before the earliest saved message; saved messages keep their sequence.
+      const earliest = existing.size ? Math.min(...Array.from(existing.values(), (entry) => entry.sequence)) : 0;
+      for (const [index, entry] of normalized.entries()) {
         const current = existing.get(entry.externalMessageId);
         if (current && current.contentHash === entry.contentHash && current.captureState === entry.captureState) continue;
         if (current) {
@@ -344,7 +354,7 @@ export function ingestAIConversation(actor: AIMemoryActor, input: unknown) {
             .run(entry.role, JSON.stringify(entry.blocks), entry.text, entry.contentHash, entry.captureState, entry.updatedAt || timestamp, current.id);
         } else {
           query("INSERT INTO external_ai_messages(id,userId,conversationId,externalMessageId,identityState,sequence,role,blocksJson,contentText,contentHash,captureState,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
-            .run(crypto.randomUUID(), actor.userId, row.id, entry.externalMessageId, entry.identityState, nextSequence++, entry.role, JSON.stringify(entry.blocks), entry.text, entry.contentHash, entry.captureState, entry.createdAt || timestamp, entry.updatedAt || timestamp);
+            .run(crypto.randomUUID(), actor.userId, row.id, entry.externalMessageId, entry.identityState, index < earlier ? earliest - earlier + index : nextSequence++, entry.role, JSON.stringify(entry.blocks), entry.text, entry.contentHash, entry.captureState, entry.createdAt || timestamp, entry.updatedAt || timestamp);
         }
       }
       // Missing messages are not deletion instructions, even in a claimed complete snapshot.

@@ -23,7 +23,7 @@ AI assistants connected to Nowen over MCP, such as Claude Code or Codex, can sav
 3. Connect the assistant in **Settings → Connect AI Agents** with write access to that notebook. A read-only connection can only read archives.
 4. Ask the assistant to "save this conversation to Nowen". It calls `nowen_ai_archive_sources` to find the source and `nowen_ai_archive_save` to save it, creating a searchable note.
 
-Saving the same conversation again updates or appends by message ID and never duplicates it; when appending, include the last message saved before. Notes you have edited are not overwritten. One save holds up to 1,000 messages and 2 MiB; save larger conversations in parts. `nowen_ai_archive_list` and `nowen_ai_archive_read` list and read the archives the connection may access. Reading an archive sends its text to the model the assistant uses; archived text is treated as data, never as instructions.
+Saving the same conversation again updates or appends by message ID and never duplicates it; when appending, include the last message saved before; when adding earlier history, include the first saved message and the earlier ones go in front. New messages between saved ones cannot be placed and are refused. Notes you have edited are not overwritten. One save holds up to 1,000 messages and 2 MiB; save larger conversations in parts. `nowen_ai_archive_list` and `nowen_ai_archive_read` list and read the archives the connection may access. Reading an archive sends its text to the model the assistant uses; archived text is treated as data, never as instructions.
 
 ## Import history
 
