@@ -32,7 +32,7 @@ describe("AI 对话归档的实例开关", () => {
   });
   afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
-  it("defaults to off, including servers that do not know the switch", async () => {
+  it("is off until the server reports it on, including servers that do not know the switch", async () => {
     vi.spyOn(api, "getSiteSettingsPublic").mockResolvedValue({ site_title: "nowen-note", site_favicon: "", editor_font_family: "" });
     await act(async () => root.render(<SiteSettingsProvider><Status /></SiteSettingsProvider>));
     await waitFor(() => expect(flag()).toBe("false"));

@@ -44,7 +44,7 @@ describe("开关页里的 AI 对话归档", () => {
   const checkbox = () => Array.from(document.querySelectorAll("label"))
     .find((label) => label.textContent?.includes("aiMemory.switchTitle"))?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
 
-  it("is off by default and an administrator can switch it on", async () => {
+  it("shows off when the server does not report it on, and an administrator can switch it on", async () => {
     vi.spyOn(api, "getMe").mockResolvedValue({ id: "admin", username: "admin", role: "admin" } as never);
     await act(async () => root.render(<SettingsModal defaultTab="switches" onClose={vi.fn()} />));
     expect(checkbox()).not.toBeNull();

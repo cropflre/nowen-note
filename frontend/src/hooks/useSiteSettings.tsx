@@ -25,7 +25,7 @@ export interface SiteConfig {
   /** settings / environment / inherit。 */
   filePublicOriginSource: string;
   editorFontFamily: string;
-  /** AI 对话归档是否已由管理员开启；默认关闭，旧版服务端没有这个开关时也视为关闭。 */
+  /** 服务端是否开启 AI 对话归档（服务端默认开启，管理员可关闭）；在读到设置前，以及旧版服务端没有这个开关时，视为关闭。 */
   aiMemoryEnabled: boolean;
 }
 

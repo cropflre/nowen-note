@@ -77,6 +77,7 @@ test("AI conversation archive over embedded MCP", async (t) => {
     const save = (args: Record<string, unknown> = {}, bearer = tokens.a) => tool(bearer, "nowen_ai_archive_save", { sourceId: assistant.id, conversationId: "session-1", title: "Release plan", messages: conversation(2), ...args });
 
     await t.test("the tools explain a server with the archive switched off", async () => {
+      setArchive(false);
       const off = await tool(tokens.a, "nowen_ai_archive_sources");
       assert.equal(off.isError, true); assert.match(off.text, /未开启 AI 对话归档/);
       assert.equal((await save()).isError, true);

@@ -46,7 +46,7 @@ export interface SiteSettings {
   debug_files_query: string;
   /** 是否允许服务端直接提供 Web UI 页面。 */
   web_ui_enabled: string;
-  /** AI 对话归档的实例级开关，默认关闭；仅管理员可写。 */
+  /** AI 对话归档的实例级开关，默认开启；仅管理员可写。 */
   feature_ai_memory_enabled: string;
 }
 
@@ -67,7 +67,7 @@ const DEFAULTS: SiteSettings = {
   feature_personal_import_enabled: "true",
   debug_files_query: "false",
   web_ui_enabled: "true",
-  feature_ai_memory_enabled: "false",
+  feature_ai_memory_enabled: "true",
 };
 
 try {

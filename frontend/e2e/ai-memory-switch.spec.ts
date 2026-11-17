@@ -6,8 +6,8 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-// The AI conversation archive ships switched off: no entry, no API, until an administrator turns it on.
-test("the AI conversation archive stays off until an administrator switches it on, and switching it off hides it again", async ({ page }) => {
+// The AI conversation archive ships switched on; an administrator can turn it off (no entry, no API) and back on.
+test("the AI conversation archive is on by default, an administrator can switch it off, and switching it back on restores it", async ({ page }) => {
   const root = path.resolve(".."), directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-browser-"));
   const executable = process.env.NOWEN_QA_NODE || process.execPath;
   const port = await new Promise<number>(resolve => { const socket = net.createServer(); socket.listen(0, "127.0.0.1", () => { const value = (socket.address() as net.AddressInfo).port; socket.close(() => resolve(value)); }); });
@@ -25,11 +25,9 @@ test("the AI conversation archive stays off until an administrator switches it o
     const headers = { Authorization: `Bearer ${token}` };
     expect((await page.request.post(`${url}/api/onboarding/welcome`, { headers })).ok()).toBe(true);
 
-    // Off by default on the server: public settings say so and the archive API refuses.
-    expect((await (await page.request.get(`${url}/api/settings`)).json()).feature_ai_memory_enabled).toBe("false");
-    const refused = await page.request.get(`${url}/api/ai-memory/capabilities`, { headers });
-    expect(refused.status()).toBe(404);
-    expect((await refused.json()).code).toBe("AI_MEMORY_DISABLED");
+    // On by default on the server: public settings say so and the archive API answers.
+    expect((await (await page.request.get(`${url}/api/settings`)).json()).feature_ai_memory_enabled).toBe("true");
+    expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(200);
 
     await page.goto(url);
     await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
@@ -41,40 +39,47 @@ test("the AI conversation archive stays off until an administrator switches it o
     await expect(settings).toBeVisible({ timeout: 30000 });
     const entry = page.getByRole("button", { name: "Chat archive", exact: true });
 
-    // Off by default in the app: no sidebar entry; the administrator finds the switch in Settings → Switches.
-    await expect(entry).toHaveCount(0);
-    await settings.click();
-    await page.getByRole("button", { name: "Switches", exact: true }).filter({ visible: true }).click();
-    const toggle = page.getByRole("checkbox", { name: /Enable AI conversation archive/ });
-    await expect(toggle).not.toBeChecked();
-    await page.screenshot({ path: test.info().outputPath("switch-off.png") });
-
-    // On: the entry appears without reloading and the archive opens against the real API.
-    const serverFlag = () => page.request.get(`${url}/api/settings`).then(response => response.json()).then(body => body.feature_ai_memory_enabled);
-    await toggle.check();
-    await expect.poll(serverFlag).toBe("true");
-    await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
+    // On by default in the app: the sidebar entry opens the archive, which says how to save a conversation.
     await expect(entry.filter({ visible: true })).toBeVisible();
     await entry.filter({ visible: true }).click();
     const dialog = page.getByRole("dialog", { name: "AI conversation archive", exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("No archived conversations.");
-    expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(200);
+    await expect(dialog).toContainText("No saved conversations yet.");
+    await expect(dialog).toContainText("Save to Nowen");
     expect(await page.locator("body").innerText()).not.toContain("aiMemory.");
     await page.screenshot({ path: test.info().outputPath("archive-open.png") });
     await dialog.getByRole("button", { name: "Close AI conversation archive", exact: true }).click();
 
-    // Off again: the entry disappears and the API refuses, and the setting survives a reload.
-    await settings.click();
-    await page.getByRole("button", { name: "Switches", exact: true }).filter({ visible: true }).click();
+    // Off: the administrator finds the switch in Settings → Switches; the entry disappears without reloading,
+    // the API refuses, and the setting survives a reload.
+    const serverFlag = () => page.request.get(`${url}/api/settings`).then(response => response.json()).then(body => body.feature_ai_memory_enabled);
+    const openSwitches = async () => {
+      await settings.click();
+      await page.getByRole("button", { name: "Switches", exact: true }).filter({ visible: true }).click();
+    };
+    const toggle = page.getByRole("checkbox", { name: /Enable AI conversation archive/ });
+    await openSwitches();
+    await expect(toggle).toBeChecked();
     await toggle.uncheck();
     await expect.poll(serverFlag).toBe("false");
+    await page.screenshot({ path: test.info().outputPath("switch-off.png") });
     await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
     await expect(entry).toHaveCount(0);
-    expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(404);
+    const refused = await page.request.get(`${url}/api/ai-memory/capabilities`, { headers });
+    expect(refused.status()).toBe(404);
+    expect((await refused.json()).code).toBe("AI_MEMORY_DISABLED");
     await page.reload();
     await expect(settings).toBeVisible({ timeout: 30000 });
     await expect(entry).toHaveCount(0);
+
+    // On again: the entry comes back without reloading and the API answers.
+    await openSwitches();
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    await expect.poll(serverFlag).toBe("true");
+    await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
+    await expect(entry.filter({ visible: true })).toBeVisible();
+    expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(200);
   } finally {
     if (server.exitCode === null) { const exited = new Promise<void>(resolve => server.once("exit", () => resolve())); server.kill(); await exited; }
     fs.rmSync(directory, { recursive: true, force: true });

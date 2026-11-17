@@ -394,8 +394,8 @@ app.get("/api/settings", (c) => {
     editor_font_family: "",
     debug_files_query: "false",
     web_ui_enabled: "true",
-    // 客户端据此决定是否显示 AI 对话归档入口；默认关闭。
-    feature_ai_memory_enabled: "false",
+    // 客户端据此决定是否显示 AI 对话归档入口；默认开启，管理员关闭后才隐藏。
+    feature_ai_memory_enabled: "true",
   };
   for (const row of rows) {
     result[row.key] = row.value;

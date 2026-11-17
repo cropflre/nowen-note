@@ -108,7 +108,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   const { state } = useApp();
   const actions = useAppActions();
   const { prefs: userPrefs } = useUserPreferences();
-  // 管理员开启 AI 对话归档后才显示入口；默认关闭。
+  // 服务端开启 AI 对话归档时才显示入口（默认开启，管理员可在「设置 → 开关」中关闭）。
   const { siteConfig } = useSiteSettings();
   const [railMode] = useRailMode();
   const [sidebarTextStyle] = useSidebarTextStyle();

@@ -45,18 +45,23 @@ test("production HTTP archive authentication ignores forged identity and enforce
       assert.ok(Date.now() < deadline && child.exitCode === null, output.slice(-3000));
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    // Off by default: public settings say so, production routes answer 404, and only an administrator can switch it on.
+    // On by default: public settings say so and the routes answer. Only an administrator can switch it off,
+    // and then production routes answer 404 until it is switched back on.
     const settingsUrl = `http://127.0.0.1:${port}/api/settings`;
     const setEnabled = (bearer: string, value: unknown) => fetch(settingsUrl, { method: "PUT", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify({ feature_ai_memory_enabled: value }) });
     const publicFlag = async () => (await (await fetch(settingsUrl)).json() as any).feature_ai_memory_enabled;
+    assert.equal(await publicFlag(), "true");
+    assert.equal((await request("/capabilities", login("archive-http-owner"))).status, 200);
+    assert.equal((await setEnabled(login("archive-http-owner"), false)).status, 403);
+    assert.equal((await setEnabled(login("archive-http-admin"), "no")).status, 400);
+    assert.equal(await publicFlag(), "true");
+    assert.equal((await setEnabled(login("archive-http-admin"), false)).status, 200);
     assert.equal(await publicFlag(), "false");
     const disabled = await request("/capabilities", login("archive-http-owner"));
     assert.equal(disabled.status, 404); assert.equal(disabled.body.code, "AI_MEMORY_DISABLED");
     assert.equal((await request("/sources", scoped, { provider: "chatgpt", accountScope: "http-account", notebookId: "archive-http-granted", permissionState: "granted" })).body.code, "AI_MEMORY_DISABLED");
     assert.equal((await request("/imports", login("archive-http-owner"))).body.code, "AI_MEMORY_DISABLED");
     assert.equal((await setEnabled(login("archive-http-owner"), true)).status, 403);
-    assert.equal((await setEnabled(login("archive-http-admin"), "yes")).status, 400);
-    assert.equal(await publicFlag(), "false");
     assert.equal((await setEnabled(login("archive-http-admin"), true)).status, 200);
     assert.equal(await publicFlag(), "true");
     assert.equal((await request("/capabilities", login("archive-http-owner"))).status, 200);
