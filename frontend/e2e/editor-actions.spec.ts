@@ -26,7 +26,11 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
     await expect.poll(() => fetch(`${url}/api/health`).then(response => response.ok).catch(() => false), { timeout: 30000, message: "Disposable backend starts" }).toBe(true);
     const token = (await (await page.request.post(`${url}/api/auth/login`, { data: { username: "v3_browser", password: "v3-browser-test-password" } })).json()).token as string;
     const headers = { Authorization: `Bearer ${token}` };
-    for (const [folder, id] of [["text-tools", "community-sample.text-tools"], ["ai-text-assistant", "nowenlab.ai-text-assistant"]]) {
+    for (const [folder, id] of [
+      ["text-tools", "community-sample.text-tools"],
+      ["ai-text-assistant", "nowenlab.ai-text-assistant"],
+      ["clipper-deep-reading", "community-sample.clipper-deep-reading"],
+    ]) {
       const artifact = path.join(root, `examples/plugins/${folder}/dist/${id}-1.0.0.nowen-plugin`);
       expect(fs.existsSync(artifact), `Pack ${folder} with the existing CLI before running this test`).toBe(true);
       const installed = await page.request.post(`${url}/api/plugins/install`, { headers, multipart: { file: { name: path.basename(artifact), mimeType: "application/zip", buffer: fs.readFileSync(artifact) } } });
@@ -91,6 +95,20 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
       await page.locator('[data-editor-actions-placement="editor.selection"]').filter({ visible: true }).click();
       await page.getByRole("menuitem", { name: label }).click();
     };
+    const preview = page.getByRole("dialog");
+    await selectLine("Opening line");
+    await runFromSelection(/生成摘录卡/);
+    await expect(preview.getByRole("heading", { name: "Preview: 生成摘录卡" })).toBeVisible();
+    await expect(preview.getByRole("button", { name: "Replace selection", exact: true })).toHaveCount(0);
+    await preview.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(preview).toHaveCount(0);
+    expect(await saved(markdownNote.id)).not.toContain("**摘录**");
+    await selectLine("Opening line");
+    await runFromSelection(/生成摘录卡/);
+    await preview.getByRole("button", { name: "Insert into note", exact: true }).click();
+    await expect.poll(() => saved(markdownNote.id), { timeout: 15000 }).toContain("Opening line\n\n**摘录**\n\n> Opening line");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => saved(markdownNote.id), { timeout: 15000 }).not.toContain("**摘录**");
     // Direct replacement of the selection.
     await selectLine("select me please");
     await runFromSelection(/用引号包围/);
@@ -98,7 +116,6 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
     // Confirmation first: nothing is written until the preview is accepted.
     await selectLine("second target");
     await runFromSelection(/行转列表/);
-    const preview = page.getByRole("dialog");
     await expect(preview.getByRole("heading", { name: "Preview: 行转列表" })).toBeVisible();
     expect(await saved(markdownNote.id)).not.toContain("- second target");
     await preview.getByRole("button", { name: "Replace selection", exact: true }).click();
@@ -141,6 +158,17 @@ test("editor actions run in both editors, save, undo and refuse stale results", 
     await page.getByRole("menuitem", { name: /转为大写/ }).click();
     await expect(rich).toContainText("RICH TARGET");
     await expect.poll(() => saved(richNote.id), { timeout: 15000 }).toContain("RICH TARGET");
+    await rich.getByText("RICH TARGET", { exact: true }).click();
+    await page.keyboard.press("End"); await page.keyboard.press("Shift+Home");
+    await runFromSelection(/生成摘录卡/);
+    await expect(preview.getByRole("heading", { name: "Preview: 生成摘录卡" })).toBeVisible();
+    await preview.getByRole("button", { name: "Insert into note", exact: true }).click();
+    await expect(rich.locator("blockquote")).toHaveText("RICH TARGET");
+    await expect(rich.locator("p").first()).toHaveText("RICH TARGET");
+    await expect.poll(() => saved(richNote.id), { timeout: 15000 }).toContain("我的理解");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich.locator("blockquote")).toHaveCount(0);
+    await expect.poll(() => saved(richNote.id), { timeout: 15000 }).not.toContain("我的理解");
     await rich.locator("p").last().click(); await page.keyboard.press("End");
     expect(await pluginRequestsWhile(() => page.keyboard.type(" typing stays local", { delay: 15 }))).toEqual([]);
     await page.screenshot({ path: test.info().outputPath("editor-actions-rich.png") });

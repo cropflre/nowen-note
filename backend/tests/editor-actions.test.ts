@@ -17,6 +17,7 @@ process.env.NOWEN_EDITOR_ACTIONS = "1";
 
 const OWNER = "ea-owner", VIEWER = "ea-viewer", OUTSIDER = "ea-outsider";
 const TOOLS = "community-sample.text-tools", AI = "nowenlab.ai-text-assistant", PROBE = "probe-sample.editor-probe";
+const CLIPPER = "community-sample.clipper-deep-reading";
 const SECRET = "SELECTION-SECRET-7f3a";
 const example = (name: string) => JSON.parse(fs.readFileSync(path.join(root, "examples/plugins", name, "manifest.json"), "utf8"));
 
@@ -88,6 +89,7 @@ test.before(async () => {
   note.run("ea-trashed", OWNER, "ea-book", null, "Trashed", "body", "body", "markdown", 0, 1);
   await install(example("text-tools"), fs.readFileSync(path.join(root, "examples/plugins/text-tools/index.js"), "utf8"));
   await install(example("ai-text-assistant"), fs.readFileSync(path.join(root, "examples/plugins/ai-text-assistant/index.js"), "utf8"));
+  await install(example("clipper-deep-reading"), fs.readFileSync(path.join(root, "examples/plugins/clipper-deep-reading/index.js"), "utf8"));
   await install(probeManifest, probeSource);
   await install(grantManifest, probeSource);
   app = new Hono();
@@ -95,7 +97,7 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  for (const id of [TOOLS, AI, PROBE, "probe-sample.needs-grant"]) await service.executions.shutdown(id).catch(() => undefined);
+  for (const id of [TOOLS, AI, CLIPPER, PROBE, "probe-sample.needs-grant"]) await service.executions.shutdown(id).catch(() => undefined);
   closeDb();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -152,6 +154,29 @@ test("contributions list editor actions only behind the gate and with every gran
     const denied = await run(TOOLS, "wrap-quote", { noteId: "ea-note", editor: "markdown", text: "hi" });
     assert.deepEqual([denied.status, denied.json.code], [403, "PLUGIN_EDITOR_ACTIONS_DISABLED"]);
   } finally { process.env.NOWEN_EDITOR_ACTIONS = "1"; }
+});
+
+test("excerpt card preserves links and code, attributes a selected clipper footer and never writes on the server", async () => {
+  const selection = [
+    "第一段带有 [正文链接](https://example.test/in-text)。", "", "", "第二段", "",
+    "```text", "保留代码", "", "", "来源：这里是代码", "```", "",
+    "📎 来源：示例站 · [原文](https://example.test/source)",
+  ].join("\r\n");
+  const result = await run(CLIPPER, "excerpt-card", { noteId: "ea-note", editor: "markdown", text: selection });
+  assert.equal(result.status, 200, JSON.stringify(result.json));
+  assert.equal(result.json.text, [
+    "**摘录**", "", "> 第一段带有 [正文链接](https://example.test/in-text)。", ">", "> 第二段", ">",
+    "> ```text", "> 保留代码", ">", ">", "> 来源：这里是代码", "> ```", "",
+    "**出处**：示例站 · [原文](https://example.test/source)", "", "**我的理解**：", "",
+  ].join("\n"));
+  const noFooter = await run(CLIPPER, "excerpt-card", { noteId: "ea-note", editor: "tiptap", text: "[资料](https://example.test/reference)" });
+  assert.equal(noFooter.status, 200, JSON.stringify(noFooter.json));
+  assert.match(noFooter.json.text, /\*\*出处\*\*：待补充/);
+  const absent = await run(CLIPPER, "excerpt-card", { noteId: "ea-note", editor: "markdown", text: "   " });
+  assert.deepEqual([absent.status, absent.json.code], [400, "PLUGIN_EDITOR_ACTION_UNSUPPORTED"]);
+  const locked = await run(CLIPPER, "excerpt-card", { noteId: "ea-locked", editor: "tiptap", text: "locked" });
+  assert.deepEqual([locked.status, locked.json.code], [403, "PLUGIN_EDITOR_NOTE_PROTECTED"]);
+  assert.deepEqual(db.prepare("SELECT content FROM notes WHERE id IN ('ea-note', 'ea-locked')").all(), [{ content: "body" }, { content: "body" }]);
 });
 
 test("command actions run in the sandbox with only the submitted selection", async () => {

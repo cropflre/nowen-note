@@ -1,0 +1,47 @@
+{
+  "id": "community-sample.clipper-deep-reading",
+  "name": "剪藏精读",
+  "description": "把选中的资料整理为带出处和个人备注的摘录卡。",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "publisher": "community-sample",
+  "engines": { "nowen": ">=1.5.3 <2.0.0" },
+  "categories": ["editor"],
+  "keywords": ["剪藏", "精读", "摘录", "excerpt"],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "sandbox-js",
+  "main": "index.js",
+  "permissions": [],
+  "actions": [
+    {
+      "id": "excerpt-card",
+      "name": "生成摘录卡",
+      "input": { "text": { "type": "string", "required": true } }
+    }
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "community-sample.clipper-deep-reading.excerpt-card",
+        "title": "生成摘录卡",
+        "action": "excerpt-card"
+      }
+    ],
+    "editorActions": [
+      {
+        "id": "excerpt-card",
+        "command": "community-sample.clipper-deep-reading.excerpt-card",
+        "label": "生成摘录卡",
+        "description": "预览摘录、出处和个人备注，确认后插入笔记",
+        "icon": "quote",
+        "keywords": ["剪藏", "精读", "摘录", "excerpt"],
+        "placements": ["editor.selection", "editor.toolbar.actions"],
+        "appliesTo": ["tiptap", "markdown"],
+        "selectionMode": "text",
+        "resultMode": "insert",
+        "requiresConfirmation": true
+      }
+    ]
+  }
+}
