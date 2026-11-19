@@ -459,7 +459,9 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: pushing a deleted subtree parent-first, and renaming a folder under the hidden root container, are accepted with every link kept" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: server push mode refuses an unresolved parent and never touches a notebook that belongs to another user" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a same-name tag seeded on the Windows install is merged into the server's tag and keeps every note association" },
-        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" }
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "transferring a user with nested, trashed and workspace notebooks moves the content and its tree" },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" }
       ]
     },
     {
@@ -502,7 +504,8 @@
         {
           "file": "backend/tests/asset-organization.test.ts",
           "case": "migration is idempotent, relation constraints reject cross-scope rows and snapshots retain metadata"
-        }
+        },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" }
       ]
     },
     {
