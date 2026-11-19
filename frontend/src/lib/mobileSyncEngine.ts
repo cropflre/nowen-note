@@ -1319,10 +1319,14 @@ export class MobileSyncEngine {
     if(entry.entityType==="diary"){
       if(deleting){await db.run("DELETE FROM diaries WHERE scopeKey=? AND id=?",[key,entry.entityId]);return;}
       const jsonArray=(value:unknown)=>typeof value==="string"?value:JSON.stringify(Array.isArray(value)?value:[]);
-      await db.run(`INSERT INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,createdAt)
-        VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-        contentText=excluded.contentText,mood=excluded.mood,images=excluded.images,media=excluded.media`,[
-        entry.entityId,key,ws,p.userId||this.options.userId,p.contentText||"",p.mood||"",jsonArray(p.images),jsonArray(p.media),p.createdAt||now(),
+      // 旧服务端快照没有 attachments 字段：保留本机已有的说说附件。
+      const hasAttachments=Object.prototype.hasOwnProperty.call(p,"attachments");
+      await db.run(`INSERT INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,attachments,createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+        contentText=excluded.contentText,mood=excluded.mood,images=excluded.images,media=excluded.media,
+        attachments=CASE WHEN ?=1 THEN excluded.attachments ELSE diaries.attachments END`,[
+        entry.entityId,key,ws,p.userId||this.options.userId,p.contentText||"",p.mood||"",jsonArray(p.images),jsonArray(p.media),jsonArray(p.attachments),p.createdAt||now(),
+        hasAttachments?1:0,
       ]);return;
     }
     if(entry.entityType==="mindmap"){

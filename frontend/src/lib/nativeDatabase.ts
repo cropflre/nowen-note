@@ -668,6 +668,18 @@ async function upgradeSchemaV2ToV3(raw: SQLiteDBConnection): Promise<void> {
   await raw.execute("CREATE INDEX IF NOT EXISTS idx_native_notes_color_mark ON notes(scopeKey, colorMark)", false);
 }
 
+/**
+ * 说说文件附件（Issue #928）。纯增量列且带默认值，所以不提升 user_version：
+ * 每次打开幂等补列，回退到旧版 App 时数据库仍能打开，旧版写入也不会碰这一列。
+ */
+async function ensureDiaryAttachmentsColumn(raw: SQLiteDBConnection): Promise<void> {
+  const rows = await raw.query("PRAGMA table_info(diaries)");
+  const columns = new Set((rows.values || []).map((row) => String(row.name || "")));
+  if (columns.size > 0 && !columns.has("attachments")) {
+    await raw.execute("ALTER TABLE diaries ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", false);
+  }
+}
+
 async function upgradeTaskRecurrence(raw: SQLiteDBConnection): Promise<void> {
   const rows = await raw.query("PRAGMA table_info(tasks)");
   const columns = new Set((rows.values || []).map(row => String(row.name)));
@@ -762,6 +774,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           await upgradeTaskRecurrence(this.raw);
           await executeSchemaStatements(this.raw, NATIVE_TASK_DELETION_STATEMENTS);
           for (const statement of NATIVE_ENCRYPTED_NOTE_GUARDS) await this.raw.execute(statement, false);
+          await ensureDiaryAttachmentsColumn(this.raw);
           await this.raw.run(
             `INSERT INTO native_runtime_meta (key, value, updatedAt)
              VALUES ('accountHash', ?, datetime('now'))`,
@@ -825,6 +838,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           }
         }
         if (version < 12) await upgradeSignedTreeOrdering(this.raw);
+        await ensureDiaryAttachmentsColumn(this.raw);
         await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
       });
     });

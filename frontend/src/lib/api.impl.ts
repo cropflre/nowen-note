@@ -6,7 +6,7 @@ import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination"
 import type { EncryptionConversionPreflight } from "./encryptedNotes/conversionPreflight";
 import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
@@ -3165,7 +3165,7 @@ export const api = {
   //   - <uuid>            → 指定工作区（要求成员身份 + diaries 功能开关未关闭）
   // 在工作区中：发布权限按"是否成员 + 功能开关"，删除权限按 canManageResource
   //   （创建者本人 / admin / owner）。
-  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string }) => {
+  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; attachments?: DiaryAttachmentItem[]; createdAt?: string }) => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Diary>(`/diary${qs}`, { method: "POST", body: JSON.stringify(data) });
@@ -3198,7 +3198,7 @@ export const api = {
    */
   updateDiary: (
     id: string,
-    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string },
+    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; attachments?: DiaryAttachmentItem[]; createdAt?: string },
   ) =>
     request<Diary>(`/diary/${id}`, {
       method: "PUT",
@@ -3411,13 +3411,16 @@ export const api = {
   // 说说图片：上传 / 删除悬空 / 拼 URL。
   // 上传时机：用户选好图就立即上传（不是发布时再传），体验上能即时看到缩略图、
   // 失败也能立即提示。返回的 id 在用户点"发布"时一并提交给 postDiary({ images })。
+  // kind: "file" 上传任意文件附件（Issue #928），发布时走 postDiary({ attachments })。
   diaryImages: {
     upload: async (
       file: File,
-    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename?: string; type: "image" | "video" }> => {
+      options: { kind?: "file" } = {},
+    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename?: string; type: "image" | "video" | "file" }> => {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
+      if (options.kind === "file") form.append("kind", "file");
       // Y2: 上传时即记录目标工作区，发布时再 attach 一致。
       const ws = getCurrentWorkspace();
       const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
@@ -3428,7 +3431,10 @@ export const api = {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `图片上传失败: ${res.status}`);
+        throw Object.assign(
+          new Error(err.error || `${options.kind === "file" ? "附件" : "图片"}上传失败: ${res.status}`),
+          { status: res.status },
+        );
       }
       return res.json();
     },
