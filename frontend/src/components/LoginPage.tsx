@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, BookOpen, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
+import { AlertCircle, BookOpen, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, ShieldAlert, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   clearServerUrl,
@@ -11,7 +11,7 @@ import {
   testServerConnection,
   type ServerProbeResult,
 } from "@/lib/api";
-import { buildServerUrl, getResolvedApiBaseUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { buildServerUrl, getResolvedApiBaseUrl, isUnencryptedRemoteServerUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
@@ -45,6 +45,8 @@ interface LoginPageProps {
 
 type Mode = "login" | "register";
 type LoginStep = "password" | "twoFactor";
+
+const HTTPS_GUIDE_URL = "https://github.com/cropflre/nowen-note/blob/main/docs/https-deployment.md";
 
 function isMobileNativeClientRuntime(): boolean {
   try {
@@ -107,6 +109,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
   const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
   const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
+  // 明文 HTTP 连到其他设备时，密码、登录令牌和笔记正文都可能被网络中的其他人截获。
+  const insecureConnectionNotice = !isTwoFactorStep
+    && isUnencryptedRemoteServerUrl(isClientMode ? buildServerUrl(serverParts) : window.location.href)
+    ? (
+      <div data-insecure-connection-notice className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+        <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        <p className="min-w-0">
+          {t("auth.insecureConnection")}{" "}
+          <a href={HTTPS_GUIDE_URL} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-2">
+            {t("auth.insecureConnectionGuide")}
+          </a>
+        </p>
+      </div>
+    )
+    : null;
 
   useEffect(() => {
     if (!isClientMode || !isDesktopClient) return;
@@ -812,6 +829,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </div>
           )}
 
+          {!isClientMode && insecureConnectionNotice && <div className="mb-4">{insecureConnectionNotice}</div>}
+
           <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
             {isTwoFactorStep ? (
               <>
@@ -894,6 +913,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                       {serverNotice}
                     </p>
                   )}
+                  {insecureConnectionNotice}
                 </motion.div>
               )}
             </AnimatePresence>

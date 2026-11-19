@@ -307,6 +307,8 @@
     "continueLocal": "Continue on this device only",
     "localModeNote": "Data stays on this device. Sign in and enable sync to sync your notes automatically with your server.",
     "clientNote": "Make sure the server is running and reachable. Select HTTP or HTTPS to match its configuration",
+    "insecureConnection": "This connection is not encrypted (HTTP). Your password, sign-in credentials, and notes travel in plain text and can be intercepted by others on the same network or along the way. Set up HTTPS on the server and use an https:// address.",
+    "insecureConnectionGuide": "HTTPS setup guide",
     "ugreenAccess": {
       "title": "UGREEN authentication required",
       "description": "The UGREEN gateway blocked the native login request. Sign in with UGREEN first, then use nowen-note in the web workspace.",

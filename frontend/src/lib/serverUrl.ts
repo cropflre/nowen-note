@@ -83,6 +83,22 @@ export function isLoopbackServerHostname(hostname: string): boolean {
   return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
 }
 
+/**
+ * 目标是明文 HTTP 且不在本机时返回 true：密码、登录令牌和笔记正文都会以明文经过网络。
+ * 本机回环地址（含 *.localhost）的流量不离开设备，不算在内。
+ */
+export function isUnencryptedRemoteServerUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "http:") return false;
+    const host = removeIpv6Brackets(hostname).toLowerCase();
+    return !isLoopbackServerHostname(host) && !host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
 /** 判断显式主机名是否属于本机或局域网；公共域名/IP 不应触发 mDNS 发现。 */
 export function isLanServerHostname(hostname: string): boolean {
   const normalized = removeIpv6Brackets(hostname).trim().replace(/\.$/, "").toLowerCase();

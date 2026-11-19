@@ -307,6 +307,8 @@
     "continueLocal": "继续使用仅此设备",
     "localModeNote": "数据保存在这台设备。登录并开启同步后，笔记会自动同步到你的服务器。",
     "clientNote": "请确保服务器已启动且网络可达，所选 HTTP / HTTPS 协议应与服务器配置一致",
+    "insecureConnection": "当前连接未加密（HTTP），密码、登录凭证和笔记内容都以明文传输，可能被同一网络或传输途中的他人截获。建议为服务器配置 HTTPS，改用 https:// 地址访问。",
+    "insecureConnectionGuide": "查看 HTTPS 配置说明",
     "ugreenAccess": {
       "title": "此地址需要绿联认证",
       "description": "绿联网关拦截了原生登录请求。请先通过绿联登录，再在 Web 工作台中使用 nowen-note。",
