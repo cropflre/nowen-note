@@ -30,7 +30,7 @@ export function ExtensionCenterLayout({ section, dashboardEnabled, children }: {
             const active = id === section;
             return <button key={id} type="button" aria-current={active ? "page" : undefined} onClick={() => pushAppPathState(route)}
               className={cn(
-                "-mb-px inline-flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition-interactive duration-fast ease-standard md:min-h-10",
+                "inline-flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition-interactive duration-fast ease-standard md:min-h-10",
                 active ? "border-accent-primary font-medium text-accent-primary" : "border-transparent text-tx-secondary hover:text-tx-primary",
               )}>
               <Icon size={15} aria-hidden />{label}

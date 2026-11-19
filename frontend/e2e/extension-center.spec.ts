@@ -94,6 +94,7 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await page.goto(`${url}/apps/manage`);
     await expect(nav.getByRole("button", { name: "Mine", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(writer).toBeVisible();
+    expect(await nav.evaluate(element => element.scrollHeight - element.clientHeight)).toBe(0);
     await page.screenshot({ path: test.info().outputPath("extension-center-mine.png") });
     // Administrator tooling moved to Settings; it is still reachable and no longer repeats the marketplace.
     await page.getByRole("button", { name: "Administrator actions", exact: true }).click();
@@ -124,6 +125,7 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await page.screenshot({ path: test.info().outputPath("extension-center-dark.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await nav.evaluate(element => element.scrollHeight - element.clientHeight)).toBe(0);
     await page.screenshot({ path: test.info().outputPath("extension-center-narrow-list.png") });
     await writer.getByRole("button", { name: "Manage", exact: true }).click();
     const narrowDrawer = page.getByRole("dialog", { name: "Fixture Writer" });
