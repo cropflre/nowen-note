@@ -2,6 +2,13 @@ export const zhCNExtensionCenterTranslations = { extensionCenter: {
   title: "扩展中心",
   navLabel: "扩展中心导航",
   nav: { discover: "发现", mine: "我的", dashboard: "工作台", create: "创建" },
+  upload: {
+    button: "上传插件包",
+    hint: "也可将 .nowen-plugin 文件拖到当前页面。",
+    drop: "松开鼠标，上传插件包",
+    singlePackage: "请选择一个 .nowen-plugin 文件。",
+    accountChanged: "账号或服务器已切换，请重新选择插件包。",
+  },
   discover: {
     heading: "发现你需要的功能",
     description: "为笔记添加工具，让工作更轻松。",
@@ -121,7 +128,6 @@ export const zhCNExtensionCenterTranslations = { extensionCenter: {
     description: "你安装的扩展和创建的应用都在这里。",
     advanced: "高级设置",
     adminMenu: "管理员操作",
-    installPackage: "安装本地扩展包",
     empty: "你还没有添加扩展。找到需要的功能，一键安装就能使用。",
     browse: "发现扩展",
     memberHint: "你可以打开已启用的扩展并调整自己的设置；安装、授权和启用由管理员负责，如有需要请联系管理员。",
@@ -136,7 +142,7 @@ export const zhCNExtensionCenterTranslations = { extensionCenter: {
   advanced: {
     tab: "扩展管理",
     title: "高级设置",
-    description: "扩展来源与公钥、运行时策略、更新与回滚、开发者模式、调试与执行日志、本地安装包。浏览和安装扩展请前往扩展中心的“发现”。",
+    description: "扩展来源与公钥、运行时策略、更新与回滚、开发者模式、调试与执行日志、本地安装包。浏览、安装扩展和上传安装包也可前往扩展中心。",
   },
   workbench: {
     title: "我的工作台",
@@ -263,6 +269,13 @@ export const enExtensionCenterTranslations = { extensionCenter: {
   title: "Extension Center",
   navLabel: "Extension Center navigation",
   nav: { discover: "Discover", mine: "Mine", dashboard: "Dashboard", create: "Create" },
+  upload: {
+    button: "Upload plugin package",
+    hint: "You can also drag a .nowen-plugin file onto this page.",
+    drop: "Release to upload the plugin package",
+    singlePackage: "Choose one .nowen-plugin file.",
+    accountChanged: "Your account or server changed. Select the plugin package again.",
+  },
   discover: {
     heading: "Find what you need",
     description: "Add tools to your notes and make work easier.",
@@ -382,7 +395,6 @@ export const enExtensionCenterTranslations = { extensionCenter: {
     description: "Extensions you installed and apps you created, in one place.",
     advanced: "Advanced settings",
     adminMenu: "Administrator actions",
-    installPackage: "Install from file",
     empty: "You have not added any extensions yet. Find what you need and install it in one step.",
     browse: "Discover extensions",
     memberHint: "You can open enabled extensions and adjust your own settings. Administrators handle installs, approvals and enabling; contact yours if you need one.",
@@ -397,7 +409,7 @@ export const enExtensionCenterTranslations = { extensionCenter: {
   advanced: {
     tab: "Extensions",
     title: "Advanced settings",
-    description: "Extension sources and keys, runtime policy, updates and rollback, developer mode, debugging and run logs, local packages. Browse and install extensions under Discover in the Extension Center.",
+    description: "Extension sources and keys, runtime policy, updates and rollback, developer mode, debugging and run logs, and local packages. Browse extensions, install them, or upload a package in the Extension Center.",
   },
   workbench: {
     title: "My dashboard",

@@ -130,12 +130,13 @@ export default function PluginApps({ pluginId, pageId, dashboard = false, discov
   </ExtensionCenterLayout>;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
   const unavailable = <p className="text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>;
-  if (discover) return <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>
-    {centerEnabled ? <ExtensionDiscover dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} /> : unavailable}
-  </ExtensionCenterLayout>;
+  if (discover) return centerEnabled
+    ? <ExtensionDiscover dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} />
+    : <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>{unavailable}</ExtensionCenterLayout>;
   // "/apps" and the legacy "/apps/manage" both show the unified "Mine" list.
-  return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardEnabled}>
+  if (!centerEnabled) return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardEnabled}>
     {pluginId && <p role="alert" className="mb-4 text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>}
-    {centerEnabled ? <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} pages={pages} pinned={pinned} /> : unavailable}
+    {unavailable}
   </ExtensionCenterLayout>;
+  return <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} pages={pages} pinned={pinned} unavailableApp={!!pluginId} />;
 }

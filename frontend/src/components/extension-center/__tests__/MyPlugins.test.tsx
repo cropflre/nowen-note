@@ -49,6 +49,13 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 const render = async () => { await act(async () => root.render(<MyPlugins dashboardAvailable appPagesAvailable />)); await flush(); };
+const drop = async (...files: File[]) => {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files } });
+  await act(async () => host.querySelector("h1")!.dispatchEvent(event));
+  await flush();
+  return event.defaultPrevented;
+};
 
 describe("My plugins", () => {
   it("grants exactly the declared permissions after confirmation, then enables", async () => {
@@ -83,6 +90,7 @@ describe("My plugins", () => {
     mocks.getMe.mockResolvedValue({ role: "user" });
     await render();
     expect(host.querySelector('input[type="file"]')).toBeNull();
+    expect(button("extensionCenter.upload.button")).toBeUndefined();
     expect(host.querySelector('[aria-label="extensionCenter.mine.adminMenu"]')).toBeNull();
     expect(host.textContent).toContain("extensionCenter.mine.memberHint");
     expect(mocks.api.getRuntimePolicy).not.toHaveBeenCalled();
@@ -90,11 +98,22 @@ describe("My plugins", () => {
     expect([...host.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["extensionCenter.mine.detailsConfig"]);
   });
 
+  it("handles wrong extensions and multiple dropped packages without opening a confirmation", async () => {
+    await render();
+    expect(await drop(new File([], "notes.txt"))).toBe(true);
+    expect(await drop(new File([], "one.nowen-plugin"), new File([], "two.nowen-plugin"))).toBe(true);
+    expect(mocks.toastError).toHaveBeenCalledTimes(2);
+    expect(mocks.toastError).toHaveBeenLastCalledWith("extensionCenter.upload.singlePackage");
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(mocks.api.install).not.toHaveBeenCalled();
+  });
+
   it("sends administrators to Settings for advanced tools instead of nesting a second manager", async () => {
     const opened = vi.fn();
     window.addEventListener("nowen:open-settings", opened);
     await render();
     expect(host.querySelector('input[type="file"][accept=".nowen-plugin"]')).not.toBeNull();
+    expect(button("extensionCenter.upload.button")).toBeDefined();
     await act(async () => (host.querySelector('[aria-label="extensionCenter.mine.adminMenu"]') as HTMLButtonElement).click());
     await act(async () => button("extensionCenter.mine.advanced")!.click());
     window.removeEventListener("nowen:open-settings", opened);

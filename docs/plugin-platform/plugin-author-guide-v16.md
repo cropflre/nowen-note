@@ -34,7 +34,7 @@ npx nowen-plugin pack          # 生成 dist/<id>-<version>.nowen-plugin
 
 装到测试服务器上验证：
 
-1. 管理员在扩展中心「我的」中点「管理员操作 → 安装本地扩展包」，上传 `.nowen-plugin`。
+1. 管理员在扩展中心顶部点「上传插件包」，或把单个 `.nowen-plugin` 文件拖进页面，然后确认安装。
 2. 在「审核并启用」中确认权限，然后启用。
 3. 编辑器动作还需要服务器设置 `NOWEN_EDITOR_ACTIONS=1`。
 

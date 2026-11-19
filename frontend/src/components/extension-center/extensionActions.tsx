@@ -2,8 +2,10 @@ import React from "react";
 import type { TFunction } from "i18next";
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { confirm } from "@/components/ui/confirm";
+import { getBaseUrl } from "@/lib/api";
 import { pluginApi } from "@/lib/pluginApi";
 import { sortPermissionsByRisk, type ExtensionListing } from "@/lib/extensionCatalog";
+import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { toast } from "@/lib/toast";
 import { describeExtensionError, PermissionList } from "./extensionCenterUi";
 
@@ -165,6 +167,13 @@ interface PackageManifestPreview { id?: string; name?: string; version?: string;
 
 /** Administrator package upload: preview the bundled manifest, then let the server validate and quarantine it. */
 export async function installPackageFile(file: File, t: TFunction): Promise<boolean> {
+  const server = getBaseUrl();
+  const accountScope = getOfflineQueueStorageKey();
+  const checkTarget = () => {
+    if (server !== getBaseUrl() || accountScope !== getOfflineQueueStorageKey()) {
+      throw new Error(t("extensionCenter.upload.accountChanged"));
+    }
+  };
   let manifest: PackageManifestPreview;
   try {
     const { default: JSZip } = await import("jszip");
@@ -175,6 +184,7 @@ export async function installPackageFile(file: File, t: TFunction): Promise<bool
     toast.error(t("extensionCenter.error.packageInvalid", { message: error instanceof Error ? error.message : String(error) }));
     return false;
   }
+  checkTarget();
   const name = manifest.name || manifest.id || file.name;
   const accepted = await confirm({
     title: t("extensionCenter.confirm.installTitle", { name }),
@@ -184,11 +194,13 @@ export async function installPackageFile(file: File, t: TFunction): Promise<bool
     cancelText: t("extensionCenter.confirm.cancel"),
   });
   if (!accepted) return false;
+  checkTarget();
   try {
     await pluginApi.install(file, false);
   } catch (error) {
     const coded = error as { code?: string; confirmNodeRuntimeAllowed?: boolean };
     if (coded.code !== "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" || !coded.confirmNodeRuntimeAllowed) throw error;
+    checkTarget();
     const confirmed = await confirm({
       title: t("extensionCenter.confirm.installTitle", { name }),
       description: t("extensionCenter.confirm.nodeWarning"),
@@ -197,6 +209,7 @@ export async function installPackageFile(file: File, t: TFunction): Promise<bool
       danger: true,
     });
     if (!confirmed) return false;
+    checkTarget();
     await pluginApi.install(file, true);
   }
   toast.success(t("extensionCenter.toast.installed", { name }));

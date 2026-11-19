@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 
 // Extension Center acceptance through production routes. The disposable backend serves a
 // signed Registry in-process (only the byte transport is replaced) and seeds one member.
-test("Extension Center installs signed Registry plugins for admins and refuses members", async ({ page, browser }) => {
+test("Extension Center installs Registry and local plugin packages for admins and refuses members", async ({ page, browser }) => {
   const root = path.resolve(".."), directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-browser-"));
   const executable = process.env.NOWEN_QA_NODE || process.execPath;
   const port = await new Promise<number>(resolve => { const socket = net.createServer(); socket.listen(0, "127.0.0.1", () => { const value = (socket.address() as net.AddressInfo).port; socket.close(() => resolve(value)); }); });
@@ -42,13 +42,32 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     const login = async (username: string, password: string) => (await (await page.request.post(`${url}/api/auth/login`, { data: { username, password } })).json()).token as string;
     const adminHeaders = { Authorization: `Bearer ${await login("v3_browser", "v3-browser-test-password")}` };
     const pluginStatus = async (id: string) => (await page.request.get(`${url}/api/plugins/${id}`, { headers: adminHeaders })).json().then(body => body.status as string | undefined);
+    const localPluginId = "nowenlab.hello-app";
+    const artifact = path.join(root, "examples/plugins/hello-nowen-app/dist", `${localPluginId}-0.1.0.nowen-plugin`);
+    const packageFile = { name: path.basename(artifact), mimeType: "application/zip", buffer: fs.readFileSync(artifact) };
+    const packageTransfer = (target: Page) => target.evaluateHandle(({ bytes, name, mimeType }) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(bytes)], name, { type: mimeType }));
+      return transfer;
+    }, { bytes: [...packageFile.buffer], name: packageFile.name, mimeType: packageFile.mimeType });
 
     await signIn(page, "v3_browser", "v3-browser-test-password");
     await openDiscover(page);
-    // Three tabs and one create action; registry and runtime vocabulary stays out of the cards.
+    // The default navigation and creation action are still visible alongside local package upload.
     const nav = page.getByRole("navigation", { name: "Extension Center navigation" });
     await expect(nav.getByRole("button")).toHaveText(["Discover", "Mine", "Dashboard"]);
     await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
+    const upload = page.getByRole("button", { name: "Upload plugin package", exact: true });
+    await expect(upload).toBeVisible();
+    const [chooser] = await Promise.all([page.waitForEvent("filechooser"), upload.press("Enter")]);
+    expect(chooser.isMultiple()).toBe(false);
+    await chooser.setFiles(artifact);
+    const packageDialog = (target: Page) => target.getByRole("dialog").filter({ has: target.getByRole("heading", { name: "Install “Hello Nowen App”?", exact: true }) });
+    await expect(packageDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(packageDialog(page)).toHaveCount(0);
+    expect((await page.request.get(`${url}/api/plugins/${localPluginId}`, { headers: adminHeaders })).status()).toBe(404);
+
     await expect(page.locator('[data-extension-card="plugin:fixture.writer"]')).not.toContainText(/runtime|sandbox|declarative/i);
     // The official source cannot be reached from the in-process transport: it fails visibly without hiding the fixture source.
     await expect(page.getByRole("alert").filter({ hasText: "Nowen Official Registry" })).toBeVisible();
@@ -90,6 +109,20 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await nav.getByRole("button", { name: "Mine", exact: true }).click();
     await expect(page).toHaveURL(/\/apps$/);
     await expect(writer).toBeVisible();
+    await expect(upload).toBeVisible();
+    const dataTransfer = await packageTransfer(page);
+    try {
+      await nav.dispatchEvent("dragenter", { dataTransfer });
+      await nav.dispatchEvent("dragover", { dataTransfer });
+      await expect(page.getByText("Release to upload the plugin package", { exact: true })).toBeVisible();
+      await nav.dispatchEvent("drop", { dataTransfer });
+    } finally { await dataTransfer.dispose(); }
+    await expect(packageDialog(page)).toBeVisible();
+    expect((await page.request.get(`${url}/api/plugins/${localPluginId}`, { headers: adminHeaders })).status()).toBe(404);
+    await packageDialog(page).getByRole("button", { name: "Continue install", exact: true }).click();
+    await expect(page.getByText("Installed “Hello Nowen App”. Approve its permissions to enable it.", { exact: true })).toBeVisible();
+    await expect(page.locator(`[data-extension-card="plugin:${localPluginId}"]`).getByRole("button", { name: "Review and enable", exact: true })).toBeVisible();
+    expect(await pluginStatus(localPluginId)).toBe("quarantined");
     await expect(page.locator('[data-extension-card="plugin:fixture.tampered"]')).toHaveCount(0);
     await page.goto(`${url}/apps/manage`);
     await expect(nav.getByRole("button", { name: "Mine", exact: true })).toHaveAttribute("aria-current", "page");
@@ -124,6 +157,7 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await expect(page.getByText("No tags", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath("extension-center-dark.png") });
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(upload).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await nav.evaluate(element => element.scrollHeight - element.clientHeight)).toBe(0);
     await page.screenshot({ path: test.info().outputPath("extension-center-narrow-list.png") });
@@ -138,6 +172,7 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.reload();
     await expect(page.getByRole("heading", { name: "扩展中心", level: 1 })).toBeVisible();
+    await expect(page.getByRole("button", { name: "上传插件包", exact: true })).toBeVisible();
     await expect(writer).toContainText("已启用");
     await expect(page.getByText("暂无标签", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath("extension-center-zh.png") });
@@ -149,14 +184,26 @@ test("Extension Center installs signed Registry plugins for admins and refuses m
     try {
       await signIn(member, "v3_member", "v3-member-test-password");
       await openDiscover(member);
+      const memberUpload = member.getByRole("button", { name: "Upload plugin package", exact: true });
+      await expect(memberUpload).toHaveCount(0);
       const memberTampered = member.locator('[data-extension-card="plugin:fixture.tampered"]');
       await memberTampered.getByRole("button", { name: "Admin required", exact: true }).click();
       await expect(member.getByRole("dialog", { name: "Tampered Package" })).toContainText("Only server administrators can install");
       await member.keyboard.press("Escape");
       const memberHeaders = { Authorization: `Bearer ${await login("v3_member", "v3-member-test-password")}` };
       expect((await member.request.post(`${url}/api/plugins/ecosystem/install`, { headers: memberHeaders, data: { sourceId: "fixture-registry", pluginId: "fixture.tampered" } })).status()).toBe(403);
+      expect((await member.request.post(`${url}/api/plugins/install`, { headers: memberHeaders, multipart: { file: packageFile } })).status()).toBe(403);
       expect((await member.request.post(`${url}/api/plugins/fixture.writer/disable`, { headers: memberHeaders })).status()).toBe(403);
-      await member.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "Mine", exact: true }).click();
+      const memberNav = member.getByRole("navigation", { name: "Extension Center navigation" });
+      await memberNav.getByRole("button", { name: "Mine", exact: true }).click();
+      await expect(memberUpload).toHaveCount(0);
+      const memberTransfer = await packageTransfer(member);
+      try {
+        await memberNav.dispatchEvent("dragenter", { dataTransfer: memberTransfer });
+        await expect(member.getByText("Release to upload the plugin package", { exact: true })).toHaveCount(0);
+        await memberNav.dispatchEvent("drop", { dataTransfer: memberTransfer });
+      } finally { await memberTransfer.dispose(); }
+      await expect(packageDialog(member)).toHaveCount(0);
       await expect(member.getByRole("button", { name: "Administrator actions", exact: true })).toHaveCount(0);
       await member.getByRole("button", { name: "More actions · Fixture Writer", exact: true }).click();
       await expect(member.getByRole("menuitem")).toHaveText(["Details and settings"]);

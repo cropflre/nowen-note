@@ -11,6 +11,7 @@ import { pluginApi, type PluginAppPage } from "@/lib/pluginApi";
 import { loadPluginAppPins, savePluginAppPins } from "@/lib/pluginApps";
 import { cn } from "@/lib/utils";
 import { ExtensionCard } from "./ExtensionCard";
+import { ExtensionCenterLayout } from "./ExtensionCenterLayout";
 import { ExtensionDetailDrawer, type DrawerAction } from "./ExtensionDetailDrawer";
 import { CardSkeletons, Notice } from "./ExtensionDiscover";
 import { Chip } from "./extensionCenterUi";
@@ -50,16 +51,15 @@ function CardMenu({ label, items, placement = "above" }: { label: string; items:
  * "Mine": everything the user can open or manage in one list — apps they created and installed
  * extensions. Administrator tooling (sources, runtime policy, debugging) lives in Settings.
  */
-export default function MyPlugins({ dashboardAvailable, appPagesAvailable, pages = [], pinned = () => false }: {
+export default function MyPlugins({ dashboardAvailable, appPagesAvailable, pages = [], pinned = () => false, unavailableApp }: {
   dashboardAvailable: boolean; appPagesAvailable: boolean;
-  pages?: PluginAppPage[]; pinned?: (page: PluginAppPage) => boolean;
+  pages?: PluginAppPage[]; pinned?: (page: PluginAppPage) => boolean; unavailableApp?: boolean;
 }) {
   const { t } = useTranslation();
   const { role, retry } = useCurrentUserRole();
   const isAdmin = role.status === "ready" && role.isAdmin;
   const { state, reload } = useExtensionCatalog({ enabled: role.status === "ready", isAdmin, dashboardAvailable });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const runner = useExtensionActionRunner(useCallback((listing: ExtensionListing) => setSelectedKey(listing.key), []));
   // undefined: loading, null: failed. Apps are private to the signed-in account.
   const [studioApps, setStudioApps] = useState<StudioApp[] | null | undefined>(undefined);
@@ -82,7 +82,9 @@ export default function MyPlugins({ dashboardAvailable, appPagesAvailable, pages
   useEffect(() => { if (selectedKey && state.status === "ready" && !selected) setSelectedKey(null); }, [selected, selectedKey, state.status]);
 
   if (role.status === "failed") {
-    return <Notice tone="danger" icon={AlertTriangle} action={<Button size="sm" variant="outline" onClick={retry}>{t("extensionCenter.discover.retry")}</Button>}>{t("extensionCenter.error.identity")}</Notice>;
+    return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardAvailable}>
+      <Notice tone="danger" icon={AlertTriangle} action={<Button size="sm" variant="outline" onClick={retry}>{t("extensionCenter.discover.retry")}</Button>}>{t("extensionCenter.error.identity")}</Notice>
+    </ExtensionCenterLayout>;
   }
   const loading = role.status === "loading" || state.status === "loading" || state.status === "idle" || studioApps === undefined;
 
@@ -108,20 +110,13 @@ export default function MyPlugins({ dashboardAvailable, appPagesAvailable, pages
   const moreLabel = (name: string) => t("extensionCenter.mine.more", { name });
   const empty = !loading && state.status === "ready" && !installed.length && studioApps !== null && !studioApps?.length;
 
-  return <div className="space-y-4">
+  const content = <div className="space-y-4">
+    {unavailableApp && <p role="alert" className="text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="min-w-0 text-sm text-tx-secondary">{t("extensionCenter.mine.description")}</p>
-      {isAdmin && <>
-        <input ref={fileInput} type="file" accept=".nowen-plugin" className="hidden" onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = "";
-          if (file) void runner.installPackage(file);
-        }} />
-        <CardMenu label={t("extensionCenter.mine.adminMenu")} placement="below" items={[
-          { key: "package", label: t("extensionCenter.mine.installPackage"), onSelect: () => fileInput.current?.click() },
-          { key: "advanced", label: t("extensionCenter.mine.advanced"), onSelect: () => window.dispatchEvent(new CustomEvent("nowen:open-settings", { detail: { tab: "extensions" } })) },
-        ]} />
-      </>}
+      {isAdmin && <CardMenu label={t("extensionCenter.mine.adminMenu")} placement="below" items={[
+        { key: "advanced", label: t("extensionCenter.mine.advanced"), onSelect: () => window.dispatchEvent(new CustomEvent("nowen:open-settings", { detail: { tab: "extensions" } })) },
+      ]} />}
     </div>
     {role.status === "ready" && !isAdmin && <Notice tone="info" icon={Info}>{t("extensionCenter.mine.memberHint")}</Notice>}
     {state.status === "error" && <Notice tone="danger" icon={AlertTriangle} action={<Button size="sm" variant="outline" onClick={reload}>{t("extensionCenter.discover.retry")}</Button>}>{t("extensionCenter.mine.failed", { message: state.error })}</Notice>}
@@ -154,4 +149,8 @@ export default function MyPlugins({ dashboardAvailable, appPagesAvailable, pages
         busy={runner.busyKey === selected.key} onClose={() => setSelectedKey(null)} onAction={runner.run} />}
     </AnimatePresence>
   </div>;
+  return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardAvailable}
+    packageUpload={isAdmin ? { busy: runner.busyKey !== null, install: runner.installPackage } : undefined}>
+    {content}
+  </ExtensionCenterLayout>;
 }

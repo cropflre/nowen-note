@@ -10,6 +10,7 @@ import {
 } from "@/lib/extensionCatalog";
 import { cn } from "@/lib/utils";
 import { ExtensionCard } from "./ExtensionCard";
+import { ExtensionCenterLayout } from "./ExtensionCenterLayout";
 import { ExtensionDetailDrawer } from "./ExtensionDetailDrawer";
 import { useExtensionActionRunner } from "./useExtensionActionRunner";
 import { useExtensionCatalog } from "./useExtensionCatalog";
@@ -69,7 +70,9 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
   useEffect(() => { if (selectedKey && state.status === "ready" && !selected) setSelectedKey(null); }, [selected, selectedKey, state.status]);
 
   if (role.status === "failed") {
-    return <Notice tone="danger" icon={AlertTriangle} action={<Button size="sm" variant="outline" onClick={retry}>{t("extensionCenter.discover.retry")}</Button>}>{t("extensionCenter.error.identity")}</Notice>;
+    return <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardAvailable}>
+      <Notice tone="danger" icon={AlertTriangle} action={<Button size="sm" variant="outline" onClick={retry}>{t("extensionCenter.discover.retry")}</Button>}>{t("extensionCenter.error.identity")}</Notice>
+    </ExtensionCenterLayout>;
   }
   const loading = role.status === "loading" || state.status === "loading" || state.status === "idle";
   const pill = (active: boolean) => cn(
@@ -77,7 +80,7 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
     active ? "border-accent-primary bg-accent-primary/10 font-medium text-accent-primary" : "border-app-border text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
   );
 
-  return <div className="space-y-5">
+  const content = <div className="space-y-5">
     <section aria-labelledby="extension-discover-heading" className="rounded-2xl border border-app-border bg-gradient-to-br from-accent-primary/10 via-app-surface to-app-surface p-5 sm:p-6">
       <h2 id="extension-discover-heading" className="text-lg font-semibold text-tx-primary">{t("extensionCenter.discover.heading")}</h2>
       <p className="mt-1 max-w-2xl text-sm text-tx-secondary">{t("extensionCenter.discover.description")}</p>
@@ -139,4 +142,8 @@ export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailabl
         busy={runner.busyKey === selected.key} onClose={() => setSelectedKey(null)} onAction={runner.run} />}
     </AnimatePresence>
   </div>;
+  return <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardAvailable}
+    packageUpload={isAdmin ? { busy: runner.busyKey !== null, install: runner.installPackage } : undefined}>
+    {content}
+  </ExtensionCenterLayout>;
 }
