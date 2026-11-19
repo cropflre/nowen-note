@@ -349,7 +349,7 @@ export function readLocalState(
 
     case "diary":
       return (db.prepare(`
-        SELECT id, contentText, mood, images, media, createdAt
+        SELECT id, contentText, mood, images, media, attachments, createdAt
         FROM diaries WHERE userId = ? AND workspaceId IS NULL
         ORDER BY createdAt ASC
       `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
