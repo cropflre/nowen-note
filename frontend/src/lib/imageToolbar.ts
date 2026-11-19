@@ -64,6 +64,17 @@ export function shouldKeepImageActionsOpenOnBlur(
   return Boolean(type && typeof type === "object" && "name" in type && type.name === "image");
 }
 
+/**
+ * 复制图片地址时用来补全相对附件路径的 origin。
+ *
+ * 手机 App / 桌面客户端的页面源是 https://localhost 或 file://，指向的是设备自己而不是
+ * 服务器，拼出来的地址在别的设备上一定打不开。已配置服务器地址就用它（含反代子路径）；
+ * 客户端没有服务器地址时返回空串，让调用方保留相对路径；浏览器里页面源就是服务器。
+ */
+export function getImageCopyOrigin(serverUrl: string, pageOrigin: string, nativeClient: boolean): string {
+  return serverUrl || (nativeClient ? "" : pageOrigin);
+}
+
 export function getImageCopySource(attrs: ImageNodeAttrs, origin?: string): string {
   const src = typeof attrs.src === "string" ? attrs.src.trim() : "";
   if (!src) return "";

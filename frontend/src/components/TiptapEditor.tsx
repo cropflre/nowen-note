@@ -77,7 +77,8 @@ import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, ti
 import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
-import { api, resolveAttachmentUrl } from "@/lib/api";
+import { api, getServerUrl, resolveAttachmentUrl } from "@/lib/api";
+import { isNativeClientRuntime } from "@/lib/serverUrl";
 import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
 import { resolvePhotoUploadMime } from "@/lib/photoUploadMime";
 import {
@@ -88,6 +89,7 @@ import {
 import {
   buildEditedImageAttrs,
   buildReplacedImageAttrs,
+  getImageCopyOrigin,
   getImageCopySource,
   getImageDownloadFilename,
   getImageToolbarPosition,
@@ -3661,7 +3663,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   const handleCopySelectedImageSrc = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = getImageCopyOrigin(
+      getServerUrl(),
+      typeof window !== "undefined" ? window.location.origin : "",
+      isNativeClientRuntime(),
+    );
     const src = getImageCopySource(attrs ?? {}, origin);
     if (!src) return;
     const ok = await copyText(src);
