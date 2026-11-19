@@ -27,6 +27,8 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary Outbox and first-sync upload carry file attachments (DCC-002)" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },
         { "file": "frontend/src/components/__tests__/KnowledgeTreeInlineRename.test.tsx", "case": "DCC-002: failed template rename preserves the typed name for retry and the created document" },
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-002 archive note projection enters existing Sync V2 outbox in the same transaction"},
@@ -379,6 +381,10 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary pushed by sync binds its uploaded media and files so orphan cleanup keeps them (DCC-007)" },
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary upserts without an attachments field keep existing attachments on server and local apply (DCC-007)" },
+        { "file": "backend/tests/diary-file-attachments.test.ts", "case": "editing media keeps attachments; only attachments explicitly removed are deleted" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "native diary pulls keep local attachments when an older server payload has no attachments field" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: opening a trashed journal restores its identity and content without duplicate dates" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: restoring a journal under a deleted archive leaves unrelated siblings in trash" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
@@ -504,6 +510,7 @@
       "title": "Android Native 关闭同步后重启仍保留未发出修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-009: opening a schema 13 database adds diary attachments in place without touching diaries or pending mutations" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "uses the offline blob in original mode without network access (DCC-009)" },
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-009: stopping sync or disabling AI prevents remote model access without changing local data" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "does not contact a server in Native local-only mode (DCC-009)" },
