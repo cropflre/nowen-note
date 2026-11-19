@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自托管服务器的两种常见接入方式都要能用：
+  1. 局域网 HTTP（如 http://192.168.1.10:3001）：保留明文流量。声明本文件后，
+     Android 7.0+ 会忽略 Manifest 里的 usesCleartextTraffic，所以这里必须显式允许。
+  2. 只有局域网 IP 的 HTTPS（自签证书或内部 CA）：除系统证书外，还信任用户在
+     「设置 > 安全 > 加密与凭据 > 安装证书」里手动安装的 CA 证书。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
