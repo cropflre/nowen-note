@@ -435,10 +435,10 @@ npm run build
 服务端最终权限为：
 
 ```text
-用户 ACL ∩ Token scopes ∩ Token 笔记本资源授权
+Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关
 ```
 
-restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。历史 Token 默认保持 `unrestricted`，兼容升级前行为。
+restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。历史 Token 默认保持 `unrestricted`，兼容升级前行为。团队空间的授权规则见下一节。
 
 最简配置：
 
@@ -483,25 +483,91 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
 
 ---
 
+## 团队空间授权（v1.6.0）
+
+可以把自己有权访问的团队笔记本授权给 AI 助手，让它读取、搜索、新建和修改其中的笔记。团队笔记本默认不授权，必须由你主动勾选。
+
+### 如何授权团队空间
+
+1. 打开「设置 → 连接 AI 助手」，选择 AI 助手。
+2. 在「选择 AI 助手可以访问的笔记」中：「个人空间」默认全选；「团队空间」下按团队列出笔记本，默认收起、不勾选。展开团队后勾选需要的笔记本，或勾选团队名称一次选中该团队全部笔记本。
+3. 点击「连接」。系统自动创建受限 Token、保存所选笔记本，并实际调用 `nowen_list_notebooks` 检测连接；创建或检测失败时显示错误，不会显示“准备好了”。
+
+勾选了团队笔记本时，界面会提示：“AI 助手将可以访问你选中的团队笔记。请确认团队内容允许接入该助手。”请先确认团队允许接入该助手。
+
+### 只读与读写
+
+- 每个笔记本旁显示「可编辑」或「只读」，依据是你此刻在该团队中的角色和该目录的权限。
+- 团队 owner、admin、editor 可以授予读写；commenter、viewer 只能授予只读，服务端会拒绝为只读成员创建写入授权。
+- 所选笔记本全部只读时，界面显示「只读连接」，Token 不申请写入范围，AI 只能查看。
+- 对可编辑笔记本只授予只读、自动包含子笔记本、目录结构写入（`notebooks:write`）等高级设置，请在「设置 → 账号安全 → 开发者访问令牌」中创建或编辑令牌。快速连接不会授予目录结构写入。
+
+### 权限如何计算
+
+```text
+最终权限 = Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关
+```
+
+- 团队成员身份和角色在**每次请求**时重新校验，不只在创建令牌时检查。
+- 系统管理员身份、工作区所有者字段、笔记作者字段、笔记本单独共享，都不能代替团队成员身份。
+- 历史 `unrestricted` Token 不会因为升级获得团队目录写入等新能力；团队授权只对显式勾选了团队笔记本的 restricted Token 生效。
+- Token 不能管理团队成员、角色、邀请、分享或服务器配置，也不能创建、扩展或修改自己的授权。
+
+### 团队成员变化如何影响 Token
+
+| 变化 | 下一次请求起的效果 |
+|---|---|
+| 被移出团队 | 该团队的笔记本从笔记本列表、笔记列表、搜索和知识树中消失，读写都被拒绝；个人空间授权不受影响 |
+| 降为 viewer / commenter | 只能读取，所有写入被拒绝，即使令牌里保存的是读写授权 |
+| 重新加入或升级角色 | 原授权按新角色重新生效，但不会超过当初授予的级别 |
+| 笔记本被删除或移出授权 | 立即拒绝访问 |
+| Token 吊销、过期或删除 | 立即返回 401，已配置的 AI 客户端连接同时失效 |
+
+### MCP 工具如何区分空间
+
+- `nowen_list_notebooks` 返回 `notebookId`、`notebookName`、`workspaceId`（个人空间为 `personal`，团队为工作区 ID，他人共享给你的为 `null`）、`workspaceName`、`permission`（`read` / `write`）、`parentId` 和 `noteCount`。个人空间和团队中可能有同名笔记本，请用 `notebookId` 和 `workspaceId` 区分。
+- `nowen_list_notes`、`nowen_search` 不指定空间时只在已授权笔记本内工作；可选的 `workspaceId` 用于限定某个空间。旧的调用方式不变。
+- `nowen_get_knowledge_tree`：连接只覆盖一个空间时可以省略 `workspaceId`；覆盖多个空间时必须指定，否则工具会列出可选空间，要求 AI 明确选择。
+- 目录写入工具（`nowen_preview_knowledge_tree_change`、`nowen_apply_knowledge_tree_change`）处理团队目录时要传 `workspaceId`，仍然需要预览、版本前置条件和确认词；不能跨空间移动；团队中移动和移入回收站默认只有团队管理员可以执行。
+- 任务、自动化、个人网盘、迁移等工具仍只支持个人空间。
+
+### AI 无法访问团队笔记时怎么排查
+
+1. 确认在「连接 AI 助手」或开发者令牌页勾选了该团队笔记本。子笔记本需要单独勾选，或在开发者令牌页开启“自动包含子笔记本”。
+2. 确认你仍是该团队成员；写入需要 editor 及以上角色。
+3. 让 AI 调用 `nowen_list_notebooks`，查看该笔记本的 `workspaceId` 和 `permission`。
+4. 直接建在团队根目录下的文档不属于任何笔记本，暂时不能授权给 AI，请先移入某个团队笔记本。
+5. 目录操作返回 `MCP_TREE_VERSION_CONFLICT`：重新预览后再执行；如果目录里有未授权的子目录，需要一并授权。
+6. 返回 `API_TOKEN_CROSS_SPACE_DENIED`：AI 尝试跨空间创建或移动内容，请在同一空间内操作。
+7. 管理员可以在审计日志中查看 `api_token_request` 事件，其中记录 Token ID、操作、涉及的空间（`spaces`）和结果（`allowed` / `failed` / `denied`）。
+
+### 撤销与安全
+
+- 在「连接 AI 助手 → 你的助手」点「断开」，或在开发者令牌页吊销，立即生效。
+- 团队管理员发现某个成员的 AI 访问不合适时，移除该成员或降低其角色，即可立即收回其 Token 的团队权限。
+- 审计日志不记录 Token 明文、查询内容和笔记正文。
+
+---
+
 ## 可用工具
 
 ### 笔记本
 
 | 工具 | 说明 |
 |---|---|
-| `nowen_list_notebooks` | 列出当前 Token 可以访问的笔记本 |
+| `nowen_list_notebooks` | 列出当前 Token 可以访问的笔记本，含所属空间（`workspaceId` / `workspaceName`）和读写权限 |
 | `nowen_create_notebook` | 创建笔记本；restricted 模式下需拥有目标父笔记本写权限 |
 
 ### 笔记与搜索
 
 | 工具 | 说明 |
 |---|---|
-| `nowen_list_notes` | 列出授权范围内的笔记 |
+| `nowen_list_notes` | 列出授权范围内的笔记；可选 `workspaceId` 限定空间 |
 | `nowen_read_note` | 读取笔记，服务端根据 `noteId` 校验资源范围 |
 | `nowen_create_note` | 在拥有写权限的笔记本创建笔记 |
 | `nowen_update_note` | 更新授权范围内笔记 |
 | `nowen_delete_note` | 删除授权范围内笔记 |
-| `nowen_search` | 全文搜索，结果自动限定在授权范围内 |
+| `nowen_search` | 全文搜索，结果自动限定在授权范围内（含已授权的团队笔记本）；可选 `workspaceId` 限定空间 |
 
 ### 附件与标签
 

@@ -283,7 +283,7 @@ New installations should use a token.
 The effective server permission is:
 
 ```text
-User ACL ∩ Token scopes ∩ Token notebook resource grants
+Token scopes ∩ Token notebook grants ∩ current team membership ∩ resource ACL ∩ MCP service write switch
 ```
 
 You can add an MCP-side allowlist as a second layer:
@@ -307,6 +307,66 @@ You can add an MCP-side allowlist as a second layer:
 ```
 
 See [MCP token notebook resource scopes](./mcp-token-resource-scope.md) for the detailed design.
+
+## Team spaces (v1.6.0)
+
+You can authorize team notebooks you have access to, so the AI assistant can read, search, create and edit notes in them. Team notebooks are never authorized by default; you must select them yourself.
+
+### Authorize a team space
+
+1. Open **Settings → Connect AI Agents** and choose the assistant.
+2. Under **Choose the notes the AI assistant can access**, **Personal space** is fully selected by default. **Team spaces** lists each team's notebooks, collapsed and unselected. Expand a team and select notebooks, or select the team name to pick all of its notebooks at once.
+3. Click **Connect**. Nowen creates a restricted token, stores the selected notebooks and verifies the connection by calling `nowen_list_notebooks`. If creation or verification fails, an error is shown and the panel never reports “Ready”.
+
+When a team notebook is selected, the panel warns: “The AI assistant will be able to access the team notes you selected. Make sure your team allows this assistant to access them.”
+
+### Read-only or read-write
+
+- Each notebook shows **Can edit** or **Read-only**, based on your current team role and the folder's permissions.
+- Team owners, admins and editors can grant read-write access. Commenters and viewers can only grant read-only access; the server rejects write grants from read-only members.
+- If every selected notebook is read-only, the panel shows **Read-only connection**. The token does not request write scope and the AI can only read.
+- For advanced settings, such as read-only access to an editable notebook, automatically including child notebooks or folder-structure writes (`notebooks:write`), create or edit a token under **Settings → Security → Developer access tokens** (开发者访问令牌). Quick connect never grants folder-structure writes.
+
+### How permissions are evaluated
+
+- Team membership and role are checked again on **every request**, not only when the token is created.
+- System administrator status, the workspace owner field, the note author field and direct notebook sharing never replace team membership.
+- Legacy `unrestricted` tokens do not gain new capabilities, such as team folder writes, from this upgrade. Team grants apply only to restricted tokens on which team notebooks were explicitly selected.
+- Tokens cannot manage team members, roles, invitations, sharing or server settings, and cannot create, widen or modify their own grants.
+
+### How membership changes affect a token
+
+| Change | Effect from the next request |
+|---|---|
+| Removed from the team | The team's notebooks disappear from notebook lists, note lists, search and the knowledge tree; reads and writes are denied. Personal grants keep working |
+| Downgraded to viewer or commenter | Reads only; every write is denied, even if the token stores a write grant |
+| Rejoined or promoted | The original grant applies again under the new role, never above the level originally granted |
+| Notebook deleted or removed from the grant | Access is denied immediately |
+| Token revoked, expired or deleted | HTTP 401 immediately; configured AI clients stop working |
+
+### How MCP tools identify spaces
+
+- `nowen_list_notebooks` returns `notebookId`, `notebookName`, `workspaceId` (`personal` for your personal space, the workspace ID for a team, `null` for notebooks shared with you by another user), `workspaceName`, `permission` (`read` or `write`), `parentId` and `noteCount`. Personal and team notebooks can share a name; use `notebookId` and `workspaceId` to tell them apart.
+- `nowen_list_notes` and `nowen_search` stay within authorized notebooks when no space is given. The optional `workspaceId` narrows them to one space. Existing calls keep working.
+- `nowen_get_knowledge_tree` may omit `workspaceId` when the connection covers a single space. When it covers several, the tool lists the available spaces and asks for an explicit choice.
+- The folder tools (`nowen_preview_knowledge_tree_change`, `nowen_apply_knowledge_tree_change`) need `workspaceId` for team folders and still require a preview, version preconditions and a confirmation word. Cross-space moves are rejected. In a team, moving and trashing are limited to team administrators by default.
+- Task, automation, personal drive and migration tools remain personal-space only.
+
+### When the AI cannot access team notes
+
+1. Check that the team notebook is selected in **Connect AI Agents** or on the developer token page. Child notebooks must be selected separately, or enable automatic inclusion of child notebooks on the developer token page.
+2. Check that you are still a member of the team. Writing requires the editor role or higher.
+3. Ask the AI to call `nowen_list_notebooks` and check the notebook's `workspaceId` and `permission`.
+4. Documents created directly at a team's root do not belong to a notebook and cannot be authorized yet. Move them into a team notebook first.
+5. `MCP_TREE_VERSION_CONFLICT` on a folder operation: preview again. If the folder contains unauthorized subfolders, authorize them as well.
+6. `API_TOKEN_CROSS_SPACE_DENIED`: the AI tried to create or move content across spaces. Work within one space.
+7. Administrators can review `api_token_request` audit events, which record the token ID, operation, affected spaces (`spaces`) and result (`allowed`, `failed` or `denied`).
+
+### Revocation and security
+
+- Click **Disconnect** under **Your assistants**, or revoke the token on the developer token page. Both take effect immediately.
+- Team administrators can remove a member or lower the member's role to withdraw that member's token access to the team immediately.
+- Audit logs never contain token secrets, query text or note bodies.
 
 ## Troubleshooting
 

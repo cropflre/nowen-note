@@ -207,7 +207,7 @@ npm run build
 | 任务与个人项目关联 | `nowen_assign_task_project` |
 | 笔记元数据 | `nowen_set_note_flags`（收藏/置顶） |
 | 安全移动笔记 | `nowen_move_note`（默认预览；实际操作必须传入预览版本） |
-| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询） |
+| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询，覆盖多个空间时必须指定） |
 
 ### 重要权限说明
 
@@ -239,7 +239,14 @@ GitHub Actions 见 `.github/workflows/mcp-scope-and-tools-ci.yml`。
 3. 再用执行工具传入完全相同的参数、预览生成的 `expectedRevision`、必要的 `expectedSubtreeRevision`，以及明确的 `confirmation`。删除使用 `MOVE_TREE_TO_TRASH`，恢复使用 `RESTORE_TREE`，其他使用 `APPLY_TREE_CHANGE`。
 4. 后端检查父目录、当前节点、所有后代的授权和预览版本；不符返回 403/409，必须重新预览。删除始终进入可恢复的回收站，绝不执行永久删除。
 
-P0 仅支持**本人个人空间**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`，操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨工作区、高级文件类型、批量删除、权限管理不属于此阶段。
+P0 支持**本人个人空间**，以及（v1.6.0 起）restricted PAT **显式授权的团队笔记本**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。团队目录必须传 `workspaceId`；源节点、目标父节点和整个子树都要属于该团队并在授权范围内，团队成员身份与角色在每次请求时复核，团队中移动和移入回收站默认只有团队管理员可执行。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`（快速连接不授予，需要在开发者令牌页开启），操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨空间移动、unrestricted Token 修改团队目录、高级文件类型、批量删除、权限管理不属于此阶段。
+
+### 团队空间（v1.6.0）
+
+- `nowen_list_notebooks` 返回 `notebookId`、`notebookName`、`workspaceId`（`personal` / 团队 ID / 他人共享为 `null`）、`workspaceName`、`permission`、`parentId`、`noteCount`，并保留旧字段 `id`、`name`、`icon`、`color`。
+- `nowen_list_notes`、`nowen_search`、`nowen_list_notebooks` 新增可选 `workspaceId`；不传时 restricted Token 只在授权笔记本内工作。
+- `nowen_get_knowledge_tree` 在连接覆盖多个空间且未指定 `workspaceId` 时返回错误并列出可选空间，不会自行猜测。
+- 最终权限 = Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关。详见 [MCP 教程的团队空间一节](../../docs/tutorials/mcp.md#团队空间授权v160)。
 
 ### 笔记删除及账号安全
 
