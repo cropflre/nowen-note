@@ -174,7 +174,7 @@ async function permission(tabId: number, rawUrl: string) {
         denied = (error instanceof NowenApiError && error.status >= 400 && error.status < 500)
           || Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
         // The server can have the archive switched off; say so instead of blaming the source.
-        if (error instanceof NowenApiError && error.code === "AI_MEMORY_DISABLED") reason = "AI_MEMORY_DISABLED：此 Nowen 服务器未开启 AI 对话归档，已停止自动保存；管理员在「设置 → 开关」中开启后，再点「存到 Nowen」即可继续。";
+        if (error instanceof NowenApiError && error.code === "AI_MEMORY_DISABLED") reason = "AI_MEMORY_DISABLED：此 Nowen 服务器未开启 AI 对话归档，已停止自动保存；管理员在「设置 → AI 助手」中开启后，再点「存到 Nowen」即可继续。";
       }
     } else denied = Date.now() - (local.authorizationCheckedAt || 0) >= RETRY_WINDOW_MS;
     if (denied) {

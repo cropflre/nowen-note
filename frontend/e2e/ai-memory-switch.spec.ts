@@ -50,15 +50,17 @@ test("the AI conversation archive is on by default, an administrator can switch 
     await page.screenshot({ path: test.info().outputPath("archive-open.png") });
     await dialog.getByRole("button", { name: "Close AI conversation archive", exact: true }).click();
 
-    // Off: the administrator finds the switch in Settings → Switches; the entry disappears without reloading,
-    // the API refuses, and the setting survives a reload.
+    // Off: the administrator reaches the switch from Preferences search (where it used to live), which opens
+    // Settings → AI Assistant at the switch; the entry disappears without reloading, the API refuses,
+    // and the setting survives a reload.
     const serverFlag = () => page.request.get(`${url}/api/settings`).then(response => response.json()).then(body => body.feature_ai_memory_enabled);
-    const openSwitches = async () => {
-      await settings.click();
-      await page.getByRole("button", { name: "Switches", exact: true }).filter({ visible: true }).click();
-    };
-    const toggle = page.getByRole("checkbox", { name: /Enable AI conversation archive/ });
-    await openSwitches();
+    const modal = page.locator('[data-swipe-blocker="settings-modal"]');
+    const toggle = modal.getByRole("switch", { name: "Enable AI conversation archive", exact: true });
+    await settings.click();
+    await modal.getByRole("button", { name: "Preferences", exact: true }).filter({ visible: true }).click();
+    await modal.getByRole("searchbox", { name: "Search preferences" }).fill("archive");
+    await modal.locator('[data-preference-result="ai-memory-archive"]').click();
+    await expect(toggle).toBeFocused();
     await expect(toggle).toBeChecked();
     await toggle.uncheck();
     await expect.poll(serverFlag).toBe("false");
@@ -72,8 +74,9 @@ test("the AI conversation archive is on by default, an administrator can switch 
     await expect(settings).toBeVisible({ timeout: 30000 });
     await expect(entry).toHaveCount(0);
 
-    // On again: the entry comes back without reloading and the API answers.
-    await openSwitches();
+    // On again, directly in Settings → AI Assistant: the entry comes back without reloading and the API answers.
+    await settings.click();
+    await modal.getByRole("button", { name: "AI Assistant", exact: true }).filter({ visible: true }).click();
     await expect(toggle).not.toBeChecked();
     await toggle.check();
     await expect.poll(serverFlag).toBe("true");

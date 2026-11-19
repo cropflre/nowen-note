@@ -17,6 +17,8 @@ vi.mock("@/lib/api", () => ({
     getRegisterConfig: mocks.getRegisterConfig,
     adminResetUserPassword: mocks.adminResetUserPassword,
     requestSudoToken: mocks.requestSudoToken,
+    // User management also shows the web UI access switch.
+    getSiteSettings: vi.fn(async () => ({ web_ui_enabled: "true" })),
   },
 }));
 vi.mock("@/lib/toast", () => ({ toast: { success: mocks.toastSuccess, error: vi.fn() } }));

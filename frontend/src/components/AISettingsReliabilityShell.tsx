@@ -5,7 +5,8 @@ import EmbeddingSettingsPanel from "./EmbeddingSettingsPanel";
 import { getReliableAIStatus, setReliableAIEnabled, type ReliableStatus } from "@/lib/aiReliable";
 import { cn } from "@/lib/utils";
 
-export default function AISettingsReliabilityShell() {
+/** `serverSettings`: administrators' server-wide switches, shown below the manual AI switch and never dimmed with it. */
+export default function AISettingsReliabilityShell({ serverSettings }: { serverSettings?: React.ReactNode } = {}) {
   const [status, setStatus] = useState<ReliableStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -167,6 +168,8 @@ export default function AISettingsReliabilityShell() {
           </div>
         )}
       </section>
+
+      {serverSettings}
 
       <div className={cn(!status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
         <OriginalAISettingsPanel />

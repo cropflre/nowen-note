@@ -34,7 +34,7 @@ describe("journal enhancement contract", () => {
   });
 
   it("exposes journal privacy management in account settings", () => {
-    const settings = source("../../SettingsModal.tsx");
+    const settings = source("../../SecuritySettings.tsx");
     const card = source("../../settings/JournalPrivacySettingsCard.tsx");
     expect(settings).toContain("<JournalPrivacySettingsCard");
     expect(card).toContain("api.journals.organizeArchive()");
