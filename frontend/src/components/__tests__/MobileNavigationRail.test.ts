@@ -8,7 +8,7 @@ describe("mobile navigation rail contract", () => {
   const appSource = source("../../App.tsx");
   const railSource = source("../NavRail.tsx");
   const sidebarSource = source("../Sidebar.tsx");
-  const settingsSource = source("../SettingsModal.tsx");
+  const preferencesSource = source("../settings/preferences/PreferencesPanel.tsx");
   const preferenceSource = source("../../hooks/useMobileRailHidden.ts");
   const controlsSource = source("../../hooks/useMobileSidebarControlsCollapsed.ts");
   const quickTreeSource = source("../MobileKnowledgeTreePanel.tsx");
@@ -40,10 +40,10 @@ describe("mobile navigation rail contract", () => {
     expect(recursiveTreeSource).toContain('data-knowledge-tree-section-heading=""');
   });
 
-  it("exposes the mobile rail preference in Settings", () => {
-    expect(settingsSource).toContain('data-settings-switch="mobile-rail-hidden"');
-    expect(settingsSource).toContain('t("settings.mobileRailHidden")');
-    expect(settingsSource).toContain('t("settings.mobileRailHiddenDesc")');
+  it("exposes the mobile rail preference in Settings → Preferences → Interface & layout", () => {
+    expect(preferencesSource).toContain('anchorId="mobileRailHidden"');
+    expect(preferencesSource).toContain("checked={device.mobileRailHidden}");
+    expect(preferencesSource).toContain("onChange={device.setMobileRailHidden}");
   });
 
   it("shows the complete labeled shortcut rail in Android local mode", () => {

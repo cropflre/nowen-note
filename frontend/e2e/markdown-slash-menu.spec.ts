@@ -471,8 +471,11 @@ for (const width of [1440, 390]) {
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:open-settings")));
         const settings = page.locator('[data-swipe-blocker="settings-modal"]');
         await expect(settings).toBeVisible();
-        await settings.getByRole("button", { name: "开关", exact: true }).filter({ visible: true }).click();
-        const checkbox = settings.getByRole("checkbox", { name: /^代码块自动换行/ });
+        await settings.getByRole("button", { name: "使用偏好", exact: true }).filter({ visible: true }).click();
+        const search = settings.getByRole("searchbox", { name: "搜索使用偏好" });
+        await search.fill("代码块自动换行");
+        await search.press("Enter");
+        const checkbox = settings.getByRole("switch", { name: "代码块自动换行", exact: true });
         await checkbox.setChecked(enabled);
         await expect.poll(async () => (await (await page.request.get(`${server}/api/user-preferences`, { headers })).json()).codeBlockWordWrap).toBe(enabled);
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:close-settings")));

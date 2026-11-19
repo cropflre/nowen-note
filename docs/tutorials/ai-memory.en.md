@@ -4,7 +4,7 @@
 
 This MVP archives raw conversations. Long-term memories, confirmation, context insertion and memory-specific MCP tools are not available. ChatGPT/Doubao adapters have local fixture coverage; real websites, accounts and installed clients still require acceptance.
 
-**On by default.** The Chat archive entry is in the sidebar, and the API and the browser extension can save. On servers that do not want it, an administrator turns it off in **Settings → Switches → Enable AI conversation archive**. Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you click the save button again after switching back on.
+**On by default.** The Chat archive entry is in the sidebar, and the API and the browser extension can save. On servers that do not want it, an administrator turns it off in **Settings → AI Assistant → Enable AI conversation archive** (at the bottom of the page). Turning it off disables the entry and the API (`404 AI_MEMORY_DISABLED`) while keeping saved archives, sources and notes. A running history import stops as interrupted and can be retried after switching back on; content the extension has not sent yet stays on the device and is sent when you click the save button again after switching back on.
 
 ## Save a conversation from the web page
 

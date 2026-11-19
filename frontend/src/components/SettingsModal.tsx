@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Workflow, GripVertical, ArrowUp, ArrowDown, Blocks } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks } from "lucide-react";
 import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
@@ -22,50 +22,29 @@ import MobileAccountSettings from "@/components/settings/MobileAccountSettings";
 import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
 import AutomationCenter from "@/components/automation/AutomationCenter";
-import AISettingsPanel from "@/components/AISettingsPanel";
+// Same component the build aliases @/components/AISettingsPanel to (vite.config.ts); imported directly so it can host serverSettings.
+import AISettingsPanel from "@/components/AISettingsReliabilityShell";
 import UserManagement from "@/components/UserManagement";
 import WorkspaceManagement from "@/components/WorkspaceManagement";
 import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
-import JournalPrivacySettingsCard from "@/components/settings/JournalPrivacySettingsCard";
+import PreferencesPanel from "@/components/settings/preferences/PreferencesPanel";
+import { revealSettingsTarget } from "@/components/settings/preferences/revealSettingsTarget";
+import type { RelatedSettingsTab } from "@/components/settings/preferences/preferenceSearch";
+import AIMemoryArchiveSetting from "@/components/settings/AIMemoryArchiveSetting";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import { useApp, useAppActions } from "@/store/AppContext";
-import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useKnowledgeTreeDisplaySize } from "@/hooks/useKnowledgeTreeDisplaySize";
 import { normalizeSharePageWidth } from "@/lib/sharePageWidth";
 import { api } from "@/lib/api";
-import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
+import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
-import {
-  moveNavigationModule,
-  moveNavigationModuleByOffset,
-  normalizeNavigationModuleOrder,
-  type NavigationModuleId,
-  type TaskCenterOptionalModuleId,
-} from "@/lib/navigationVisibility";
-import {
-  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
-  DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
-  loadMobileKnowledgeTreeCompact,
-  loadDesktopKnowledgeTreeViewMode,
-  loadMobileKnowledgeTreeViewMode,
-  MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT,
-  MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY,
-  MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
-  MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
-  saveDesktopKnowledgeTreeViewMode,
-  saveMobileKnowledgeTreeCompact,
-  saveMobileKnowledgeTreeViewMode,
-  type DesktopKnowledgeTreeViewMode,
-  type MobileKnowledgeTreeViewMode,
-} from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "extensions" | "download" | "about";
+type TabId = "appearance" | "preferences" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "extensions" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -797,623 +776,6 @@ function AboutPanel() {
   );
 }
 
-function SwitchesPanel() {
-  const { t } = useTranslation();
-  const { state } = useApp();
-  const actions = useAppActions();
-  const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
-  const { siteConfig, updateAIMemoryEnabled } = useSiteSettings();
-  // Shown checked right away like the other server switches here; reverted if the server refuses.
-  const [aiMemoryChecked, setAIMemoryChecked] = useState(siteConfig.aiMemoryEnabled);
-  useEffect(() => { setAIMemoryChecked(siteConfig.aiMemoryEnabled); }, [siteConfig.aiMemoryEnabled]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [webUiEnabled, setWebUiEnabled] = useState(false);
-  const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(true);
-  const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [draggedNavigationModule, setDraggedNavigationModule] = useState<NavigationModuleId | null>(null);
-  const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useState<MobileKnowledgeTreeViewMode>(
-    () => loadMobileKnowledgeTreeViewMode(),
-  );
-  const [mobileKnowledgeTreeCompact, setMobileKnowledgeTreeCompact] = useState(
-    () => loadMobileKnowledgeTreeCompact(),
-  );
-  const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
-  const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
-    () => loadDesktopKnowledgeTreeViewMode(),
-  );
-  const desktop = isDesktop();
-  const supportsDesktopMenuBarToggle = desktop && desktopPlatform !== "darwin";
-  const markdownDefaultModes = [
-    { value: "source" as const, label: t("markdown.view.source") },
-    { value: "preview" as const, label: t("markdown.view.preview") },
-    { value: "split" as const, label: t("markdown.view.split") },
-  ];
-  const navigationVisibilityItems: Array<{ id: NavigationModuleId; label: string }> = [
-    { id: "notifications", label: t("sidebar.notifications") },
-    { id: "favorites", label: t("sidebar.favorites") },
-    { id: "files", label: t("sidebar.fileManager") },
-    { id: "diary", label: t("sidebar.dailyRecords", { defaultValue: "每日记录" }) },
-    { id: "tasks", label: t("sidebar.tasks") },
-    { id: "mindmaps", label: t("sidebar.mindMaps") },
-    { id: "ai-chat", label: t("sidebar.aiChat") },
-    { id: "shares", label: t("sidebar.shareManagement") },
-  ];
-  const navigationItemById = new Map(navigationVisibilityItems.map((item) => [item.id, item]));
-  const orderedNavigationVisibilityItems = normalizeNavigationModuleOrder(userPrefs.navigationModuleOrder)
-    .map((id) => navigationItemById.get(id))
-    .filter((item): item is { id: NavigationModuleId; label: string } => !!item);
-  const taskCenterVisibilityItems: Array<{ id: TaskCenterOptionalModuleId; label: string }> = [
-    { id: "inbox", label: t("tasks.inbox", { defaultValue: "收集箱" }) },
-    { id: "my-day", label: t("tasks.myDay", { defaultValue: "我的一天" }) },
-    { id: "planner", label: t("tasks.timePlanning", { defaultValue: "时间规划" }) },
-    { id: "habits", label: t("habits.title") },
-    { id: "stats", label: t("stats.title") },
-  ];
-
-  const setNavigationModuleVisible = (id: NavigationModuleId, visible: boolean) => {
-    const hidden = userPrefs.hiddenNavigationModules;
-    setUserPref(
-      "hiddenNavigationModules",
-      visible
-        ? hidden.filter((item) => item !== id)
-        : Array.from(new Set([...hidden, id])),
-    );
-
-    // Hiding is a presentation preference, not an access-control rule. Only
-    // leave the currently open module when the user explicitly hides that
-    // exact entry here; later deep links can still open hidden modules.
-    if (!visible && state.viewMode === id) {
-      actions.setViewMode("all");
-    }
-  };
-
-  const moveNavigationEntry = (id: NavigationModuleId, offset: -1 | 1) => {
-    setUserPref(
-      "navigationModuleOrder",
-      moveNavigationModuleByOffset(userPrefs.navigationModuleOrder, id, offset),
-    );
-  };
-
-  const dropNavigationEntry = (targetId: NavigationModuleId) => {
-    if (!draggedNavigationModule) return;
-    setUserPref(
-      "navigationModuleOrder",
-      moveNavigationModule(userPrefs.navigationModuleOrder, draggedNavigationModule, targetId),
-    );
-    setDraggedNavigationModule(null);
-  };
-
-  const setTaskCenterModuleVisible = (id: TaskCenterOptionalModuleId, visible: boolean) => {
-    const hidden = userPrefs.hiddenTaskCenterModules;
-    setUserPref(
-      "hiddenTaskCenterModules",
-      visible
-        ? hidden.filter((item) => item !== id)
-        : Array.from(new Set([...hidden, id])),
-    );
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getMe()
-      .then((u) => { if (!cancelled) setIsAdmin((u as any)?.role === "admin"); })
-      .catch(() => { if (!cancelled) setIsAdmin(false); });
-    api.getSiteSettings()
-      .then((s) => { if (!cancelled) setWebUiEnabled(s.web_ui_enabled !== "false"); })
-      .catch(() => {});
-    if (desktop) {
-      getAppInfo()
-        .then((info) => {
-          if (cancelled) return;
-          setDesktopHideMenuBar(!!info?.hideMenuBar);
-          setDesktopPlatform(info?.platform ?? null);
-        })
-        .catch(() => {});
-    }
-    return () => { cancelled = true; };
-  }, [desktop]);
-
-  useEffect(() => {
-    const syncMode = () => setMobileKnowledgeTreeMode(loadMobileKnowledgeTreeViewMode());
-    const syncStorage = (event: StorageEvent) => {
-      if (event.key === MOBILE_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
-    };
-    window.addEventListener(MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
-    window.addEventListener("storage", syncStorage);
-    return () => {
-      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
-      window.removeEventListener("storage", syncStorage);
-    };
-  }, []);
-
-  useEffect(() => {
-    const syncCompact = () => setMobileKnowledgeTreeCompact(loadMobileKnowledgeTreeCompact());
-    const syncStorage = (event: StorageEvent) => {
-      if (event.key === MOBILE_KNOWLEDGE_TREE_COMPACT_STORAGE_KEY) syncCompact();
-    };
-    window.addEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
-    window.addEventListener("storage", syncStorage);
-    return () => {
-      window.removeEventListener(MOBILE_KNOWLEDGE_TREE_COMPACT_CHANGED_EVENT, syncCompact);
-      window.removeEventListener("storage", syncStorage);
-    };
-  }, []);
-
-  useEffect(() => {
-    const syncMode = () => setDesktopKnowledgeTreeMode(loadDesktopKnowledgeTreeViewMode());
-    const syncStorage = (event: StorageEvent) => {
-      if (event.key === DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY) syncMode();
-    };
-    window.addEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
-    window.addEventListener("storage", syncStorage);
-    return () => {
-      window.removeEventListener(DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT, syncMode);
-      window.removeEventListener("storage", syncStorage);
-    };
-  }, []);
-
-  const handleToggleMobileKnowledgeTreeMode = (treeEnabled: boolean) => {
-    const nextMode: MobileKnowledgeTreeViewMode = treeEnabled ? "tree" : "navigator";
-    setMobileKnowledgeTreeMode(nextMode);
-    saveMobileKnowledgeTreeViewMode(nextMode);
-  };
-
-  const handleToggleMobileKnowledgeTreeCompact = (nextCompact: boolean) => {
-    setMobileKnowledgeTreeCompact(nextCompact);
-    saveMobileKnowledgeTreeCompact(nextCompact);
-  };
-
-  const handleToggleDesktopKnowledgeTreeMode = (quickEnabled: boolean) => {
-    const nextMode: DesktopKnowledgeTreeViewMode = quickEnabled ? "quick" : "tree";
-    setDesktopKnowledgeTreeMode(nextMode);
-    saveDesktopKnowledgeTreeViewMode(nextMode);
-  };
-
-  const handleToggleWebUi = async (next: boolean) => {
-    const prev = webUiEnabled;
-    setWebUiEnabled(next);
-    setSavingKey("webUi");
-    try {
-      const updated = await api.updateSiteSettings({ web_ui_enabled: next });
-      setWebUiEnabled(updated.web_ui_enabled !== "false");
-    } catch {
-      setWebUiEnabled(prev);
-    } finally {
-      setSavingKey(null);
-    }
-  };
-
-  const handleToggleAIMemory = async (enabled: boolean) => {
-    const previous = siteConfig.aiMemoryEnabled;
-    setAIMemoryChecked(enabled);
-    setSavingKey("aiMemory");
-    try {
-      await updateAIMemoryEnabled(enabled);
-    } catch {
-      setAIMemoryChecked(previous);
-    } finally {
-      setSavingKey(null);
-    }
-  };
-
-  const handleToggleDesktopMenuBar = async (hide: boolean) => {
-    const prev = desktopHideMenuBar;
-    setDesktopHideMenuBar(hide);
-    setSavingKey("menuBar");
-    try {
-      const res = await setDesktopHideMenuBarPreference(hide);
-      if (typeof res.hideMenuBar === "boolean") setDesktopHideMenuBar(res.hideMenuBar);
-    } catch {
-      setDesktopHideMenuBar(prev);
-    } finally {
-      setSavingKey(null);
-    }
-  };
-
-  const switches = [
-    {
-      key: "codeBlockWordWrap" as const,
-      label: t('settings.codeBlockWordWrap'),
-      hint: t('settings.codeBlockWordWrapDesc'),
-    },
-    {
-      key: "noteTitleAsAppTitle" as const,
-      label: t('settings.prefNoteTitleAsAppTitle'),
-      hint: t('settings.prefNoteTitleAsAppTitleHint'),
-    },
-    {
-      key: "outlineDefaultOpen" as const,
-      label: t('settings.prefOutlineDefaultOpen'),
-      hint: t('settings.prefOutlineDefaultOpenHint'),
-    },
-    {
-      key: "lockOnOpen" as const,
-      label: t('settings.prefLockOnOpen'),
-      hint: t('settings.prefLockOnOpenHint'),
-    },
-    {
-      key: "enableNoteTabs" as const,
-      label: t('settings.enableNoteTabs'),
-      hint: t('settings.enableNoteTabsDesc'),
-    },
-    {
-      key: "showTemplateManagement" as const,
-      label: t('settings.showTemplateManagement'),
-      hint: t('settings.showTemplateManagementDesc'),
-    },
-    {
-      key: "showNoteListDividers" as const,
-      label: t('settings.showNoteListDividers'),
-      hint: t('settings.showNoteListDividersDesc'),
-    },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">
-          {t('settings.switchesTitle')}
-        </h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {t('settings.switchesDesc')}
-          {isAndroidNativeRuntime() && " · 编辑器与导航偏好随账号同步；布局选项仅作用于当前设备。"}
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            {t("settings.navigationVisibilityTitle")}
-          </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            {t("settings.navigationVisibilityDesc")}
-            {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
-          </p>
-        </div>
-        <div className="space-y-1.5" data-navigation-module-order-list="">
-          {orderedNavigationVisibilityItems.map((item, index) => (
-            <div
-              key={item.id}
-              draggable
-              data-navigation-module-order-item={item.id}
-              onDragStart={() => setDraggedNavigationModule(item.id)}
-              onDragEnd={() => setDraggedNavigationModule(null)}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                dropNavigationEntry(item.id);
-              }}
-              className={cn(
-                "flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-2.5 py-2 text-xs text-zinc-700 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300",
-                draggedNavigationModule === item.id && "opacity-50 ring-1 ring-accent-primary/40",
-              )}
-            >
-              <GripVertical size={14} className="shrink-0 cursor-grab text-zinc-400 active:cursor-grabbing" aria-hidden />
-              <input
-                type="checkbox"
-                checked={!userPrefs.hiddenNavigationModules.includes(item.id)}
-                onChange={(event) => setNavigationModuleVisible(item.id, event.target.checked)}
-                className="h-3.5 w-3.5 shrink-0 accent-indigo-600"
-                aria-label={item.label}
-              />
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              <button
-                type="button"
-                disabled={index === 0}
-                onClick={() => moveNavigationEntry(item.id, -1)}
-                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title={t("settings.navigationMoveUp", { defaultValue: "上移" })}
-                aria-label={t("settings.navigationMoveUp", { defaultValue: "上移" })}
-              >
-                <ArrowUp size={13} />
-              </button>
-              <button
-                type="button"
-                disabled={index === orderedNavigationVisibilityItems.length - 1}
-                onClick={() => moveNavigationEntry(item.id, 1)}
-                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title={t("settings.navigationMoveDown", { defaultValue: "下移" })}
-                aria-label={t("settings.navigationMoveDown", { defaultValue: "下移" })}
-              >
-                <ArrowDown size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            {t("settings.taskCenterVisibilityTitle")}
-          </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            {t("settings.taskCenterVisibilityDesc")}
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {taskCenterVisibilityItems.map((item) => (
-            <label key={item.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-3 py-2 text-xs text-zinc-700 transition-colors hover:border-accent-primary/40 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
-              <input
-                type="checkbox"
-                checked={!userPrefs.hiddenTaskCenterModules.includes(item.id)}
-                onChange={(event) => setTaskCenterModuleVisible(item.id, event.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-600"
-              />
-              <span className="truncate">{item.label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <JournalPrivacySettingsCard />
-
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div data-settings-choice="remote-image-paste" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.remoteImagePasteMode")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.remoteImagePasteModeDesc")}
-            </p>
-          </div>
-          <div role="group" aria-label={t("settings.remoteImagePasteMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
-            {(["localize", "ask", "keep-remote"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={userPrefs.remoteImagePasteMode === mode}
-                onClick={() => setUserPref("remoteImagePasteMode", mode)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
-                  userPrefs.remoteImagePasteMode === mode
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
-                )}
-              >
-                {t(`settings.remoteImagePasteMode_${mode}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div data-settings-choice="markdown-default-view" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.markdownDefaultViewMode")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.markdownDefaultViewModeDesc")}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
-            {markdownDefaultModes.map((mode) => (
-              <button
-                key={mode.value}
-                type="button"
-                onClick={() => setUserPref("markdownDefaultViewMode", mode.value)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
-                  userPrefs.markdownDefaultViewMode === mode.value
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          data-settings-choice="code-block-collapse"
-          data-settings-code-block-collapse=""
-          className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch"
-        >
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.codeBlockCollapseMode")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.codeBlockCollapseModeDesc")}
-            </p>
-          </div>
-          <div role="group" aria-label={t("settings.codeBlockCollapseMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
-            {(["expanded", "long", "collapsed"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={userPrefs.codeBlockCollapseMode === mode}
-                onClick={() => setUserPref("codeBlockCollapseMode", mode)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
-                  userPrefs.codeBlockCollapseMode === mode
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
-                )}
-              >
-                {t(`settings.codeBlockCollapseMode_${mode}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-
-        {switches.map((item) => (
-          <label key={item.key} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
-            <input
-              type="checkbox"
-              checked={userPrefs[item.key]}
-              onChange={(e) => setUserPref(item.key, e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-                {item.label}
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-                {item.hint}
-              </p>
-            </div>
-          </label>
-        ))}
-
-        <label
-          data-settings-switch="mobile-rail-hidden"
-          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
-        >
-          <input
-            type="checkbox"
-            checked={mobileRailHidden}
-            onChange={(event) => setMobileRailHidden(event.target.checked)}
-            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.mobileRailHidden")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.mobileRailHiddenDesc")}
-              {" · 仅此设备，不随账号同步"}
-            </p>
-          </div>
-        </label>
-
-        <label
-          data-settings-switch="mobile-knowledge-tree"
-          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
-        >
-          <input
-            type="checkbox"
-            checked={mobileKnowledgeTreeMode === "tree"}
-            onChange={(event) => handleToggleMobileKnowledgeTreeMode(event.target.checked)}
-            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.mobileKnowledgeTreeMode")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.mobileKnowledgeTreeModeDesc")}
-              {" · 仅此设备，不随账号同步"}
-            </p>
-          </div>
-        </label>
-
-        <label
-          data-settings-switch="mobile-knowledge-tree-compact"
-          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
-        >
-          <input
-            type="checkbox"
-            checked={mobileKnowledgeTreeCompact}
-            onChange={(event) => handleToggleMobileKnowledgeTreeCompact(event.target.checked)}
-            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.mobileKnowledgeTreeCompact")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.mobileKnowledgeTreeCompactDesc")}
-              {" · 仅此设备，不随账号同步"}
-            </p>
-          </div>
-        </label>
-
-        <label
-          data-settings-switch="desktop-knowledge-tree"
-          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
-        >
-          <input
-            type="checkbox"
-            checked={desktopKnowledgeTreeMode === "quick"}
-            onChange={(event) => handleToggleDesktopKnowledgeTreeMode(event.target.checked)}
-            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
-              {t("settings.desktopKnowledgeTreeMode")}
-            </div>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-              {t("settings.desktopKnowledgeTreeModeDesc")}
-              {" · 仅此设备，不随账号同步"}
-            </p>
-          </div>
-        </label>
-
-        {supportsDesktopMenuBarToggle && (
-          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
-            <input
-              type="checkbox"
-              checked={desktopHideMenuBar}
-              disabled={savingKey === "menuBar"}
-              onChange={(e) => handleToggleDesktopMenuBar(e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
-                隐藏桌面端菜单栏
-                {savingKey === "menuBar" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-                仅 Windows/Linux 生效；隐藏后可按 Alt 临时显示菜单栏，快捷键仍然可用。
-              </p>
-            </div>
-          </label>
-        )}
-
-        {isAdmin && (
-          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
-            <input
-              type="checkbox"
-              checked={!webUiEnabled}
-              disabled={savingKey === "webUi"}
-              onChange={(e) => handleToggleWebUi(!e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
-                关闭网页端页面
-                {savingKey === "webUi" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-                开启后服务器只保留 API；浏览器访问网页端会显示禁用提示。桌面客户端使用本地界面连接 API，不受影响。
-              </p>
-            </div>
-          </label>
-        )}
-
-        {isAdmin && !isMobileLocalMode() && (
-          <label className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
-            <input
-              type="checkbox"
-              checked={aiMemoryChecked}
-              disabled={savingKey === "aiMemory"}
-              onChange={(e) => handleToggleAIMemory(e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer disabled:opacity-50"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none flex items-center gap-1.5">
-                {t("aiMemory.switchTitle")}
-                {savingKey === "aiMemory" && <Loader2 size={12} className="animate-spin text-zinc-400" />}
-              </div>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
-                {t("aiMemory.switchHint")}
-              </p>
-            </div>
-          </label>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AppearancePanel() {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont, isLoaded } = useSiteSettings();
@@ -2056,14 +1418,33 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   }, [onClose]);
 
   const isAdmin = currentUser?.role === "admin";
+  const securityTabLabel = isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security');
+
+  // Options moved out of Preferences are reachable from its search and Advanced page:
+  // switch to their tab, then bring the section into view once that panel has rendered.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [revealRequest, setRevealRequest] = useState<{ section: string } | null>(null);
+  const openRelatedSetting = useCallback((tab: RelatedSettingsTab, section: string) => {
+    setActiveTab(tab);
+    setRevealRequest({ section });
+  }, []);
+  useEffect(() => {
+    if (!revealRequest || !contentRef.current) return;
+    return revealSettingsTarget(contentRef.current, `[data-settings-section="${revealRequest.section}"]`, { focus: true, timeoutMs: 8000 });
+  }, [revealRequest]);
+  // The phone tab strip scrolls sideways; keep the active tab visible, including after such a jump.
+  const mobileTabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    mobileTabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeTab]);
 
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
-    { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
+    { id: "preferences" as const, label: t('settings.preferences'), icon: SlidersHorizontal },
     ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: t("auditI18n.shortcuts"), icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "automations" as const, label: t("auditI18n.automations"), icon: Workflow },
-    { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
+    { id: "security" as const, label: securityTabLabel, icon: Shield },
     // 每位登录用户都可连接自己的 AI 助手。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
@@ -2151,14 +1532,15 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           className="md:hidden sticky top-0 z-10 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/95 backdrop-blur"
           style={{ paddingTop: 'var(--safe-area-top)', touchAction: 'pan-x' }}
         >
-          <div className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto no-scrollbar" style={{ touchAction: 'pan-x' }}>
+          <div ref={mobileTabsRef} className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto no-scrollbar" style={{ touchAction: 'pan-x' }}>
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  onClick={() => { setActiveTab(tab.id); setRevealRequest(null); }}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0",
                     isActive
@@ -2194,7 +1576,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  onClick={() => { setActiveTab(tab.id); setRevealRequest(null); }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
@@ -2215,7 +1598,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 右侧内容区 */}
-        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div ref={contentRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {/* 关闭按钮 — 桌面端 */}
           <button
             onClick={onClose}
@@ -2253,9 +1636,17 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   }
                 >
             {activeTab === "appearance" && <AppearancePanel />}
-            {activeTab === "switches" && <SwitchesPanel />}
+            {activeTab === "preferences" && (
+              <PreferencesPanel
+                isAdmin={isAdmin}
+                relatedTabLabels={{ security: securityTabLabel, ai: t('settings.ai'), users: t('settings.users') }}
+                onOpenRelatedSetting={openRelatedSetting}
+              />
+            )}
             {activeTab === "shortcuts" && shortcutSurface !== "android" && <ShortcutSettingsPanel />}
-            {activeTab === "ai" && <AISettingsPanel />}
+            {activeTab === "ai" && (
+              <AISettingsPanel serverSettings={isAdmin && !isMobileLocalMode() ? <AIMemoryArchiveSetting /> : undefined} />
+            )}
             {activeTab === "automations" && <AutomationCenter />}
             {activeTab === "security" && <div className="space-y-6">
               {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}

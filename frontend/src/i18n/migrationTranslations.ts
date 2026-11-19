@@ -39,7 +39,7 @@ export const zhCNMigrationTranslations = { migration: {
     chat: {
       title: "这是 AI 聊天记录",
       hint: "ChatGPT 等 AI 聊天记录适合导入到「AI 对话归档」：保留每段对话的原文、顺序和角色，并为每段对话生成一篇可搜索的笔记。",
-      off: "导入 AI 聊天记录需要先开启 AI 对话归档，管理员可以在「设置 → 开关」中开启。也可以先按普通笔记导入。",
+      off: "导入 AI 聊天记录需要先开启 AI 对话归档，管理员可以在「设置 → AI 助手」中开启。也可以先按普通笔记导入。",
       toArchive: "导入到 AI 对话归档", asNotes: "仍按普通笔记导入",
     },
     drop: "拖入笔记文件，或点击选择", dropHere: "松开即可开始导入", formats: "支持 ZIP、Markdown、HTML、TXT 等格式",
@@ -145,7 +145,7 @@ export const enMigrationTranslations = { migration: {
     chat: {
       title: "This is an AI chat export",
       hint: "AI chat exports such as ChatGPT's fit the AI conversation archive: it keeps each conversation's text, order and roles and creates a searchable note for each.",
-      off: "Importing AI chats needs the AI conversation archive, which an administrator can turn on in Settings → Switches. You can also import it as ordinary notes.",
+      off: "Importing AI chats needs the AI conversation archive, which an administrator can turn on in Settings → AI Assistant. You can also import it as ordinary notes.",
       toArchive: "Import into the AI conversation archive", asNotes: "Import as ordinary notes",
     },
     drop: "Drop note files here, or click to choose", dropHere: "Release to start importing", formats: "ZIP, Markdown, HTML, TXT and more",

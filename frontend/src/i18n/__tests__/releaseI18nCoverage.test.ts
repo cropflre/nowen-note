@@ -2,6 +2,7 @@ import { enPluginAppTranslations, zhCNPluginAppTranslations } from "../pluginApp
 import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "../extensionCenterTranslations";
 import { enEditorActionTranslations, zhCNEditorActionTranslations } from "../editorActionTranslations";
 import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "../mcpConnectTranslations";
+import { enPreferencesTranslations, zhCNPreferencesTranslations } from "../preferencesTranslations";
 import i18n from "../index";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -170,6 +171,12 @@ describe("release i18n coverage", () => {
       .replace(/^\s*\/\/.*$/gm, "");
     expect(source.match(/[㐀-鿿]/u), "McpQuickConnect must not hardcode Chinese UI copy").toBeNull();
   });
+
+  it("keeps Preferences translations in parity", () => {
+    expectPatchParity(zhCNPreferencesTranslations, enPreferencesTranslations, "preferences");
+    expect(getPath(zh, "settings.preferences")).toBe("使用偏好");
+    expect(getPath(en, "settings.preferences")).toBe("Preferences");
+  });
   it("rejects invalid values in the complete runtime resources", () => {
     function invalidLeaves(value: unknown, path = ""): string[] {
       if (typeof value === "string") return [];
@@ -234,6 +241,16 @@ describe("release i18n coverage", () => {
       "components/ShareModal.tsx",
       "components/CodeBlockView.tsx",
       "components/AIChatPanel.tsx",
+      "components/settings/preferences/PreferencesPanel.tsx",
+      "components/settings/preferences/PreferenceControls.tsx",
+      "components/settings/preferences/NavigationModuleSettings.tsx",
+      "components/settings/preferences/useDeviceLayoutPreferences.ts",
+      "components/settings/preferences/preferenceSearch.ts",
+      "components/settings/preferences/revealSettingsTarget.ts",
+      "components/settings/preferences/navigationModules.ts",
+      "components/settings/preferences/preferenceFeedback.ts",
+      "components/settings/AdminWebUiSetting.tsx",
+      "components/settings/AIMemoryArchiveSetting.tsx",
     ] as const;
     for (const path of criticalFiles) {
       const source = readFileSync(join(process.cwd(), "src", path), "utf8");
