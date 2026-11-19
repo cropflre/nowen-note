@@ -397,8 +397,8 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
 
 function AboutPanel() {
   const { t } = useTranslation();
-  const feedbackEmail = "nowenlab@qq.com";
-  const feedbackMailto = `mailto:${feedbackEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
+  const contactEmail = "nowenlab@qq.com";
+  const feedbackMailto = `mailto:${contactEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
   const feedbackQqGroupNumber = "1093473044";
   const [showSponsor, setShowSponsor] = useState(false);
   const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
@@ -572,6 +572,19 @@ function AboutPanel() {
         </span>
       </button>
 
+      <a
+        href={`mailto:${contactEmail}`}
+        className="flex w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface p-4 text-left transition-colors hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary" aria-hidden>
+          <Building2 size={16} />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-tx-primary">{t('about.businessPartnerships')}</div>
+          <div className="mt-0.5 break-all text-xs text-tx-secondary">{contactEmail}</div>
+        </div>
+      </a>
+
       {/* 意见与 Bug 反馈 */}
       <a
         href={feedbackMailto}
@@ -595,7 +608,7 @@ function AboutPanel() {
             {t('about.feedbackAction')}
           </div>
           <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
-            {feedbackEmail}
+            {contactEmail}
           </div>
         </div>
       </a>
