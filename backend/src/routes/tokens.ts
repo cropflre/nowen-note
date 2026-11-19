@@ -17,8 +17,8 @@ import {
   type ApiTokenResourceMode,
 } from "../lib/api-tokens";
 import { apiTokensRepository } from "../repositories";
-import { hasPermission, resolveNotebookPermission } from "../middleware/acl";
 import { logAudit } from "../services/audit";
+import { resolveTokenNotebookAccess } from "../services/apiTokenNotebookAccess";
 
 const app = new Hono();
 initApiTokensTable(getDb());
@@ -76,17 +76,32 @@ function normalizeResources(value: unknown): NotebookResourceInput[] {
   return Array.from(byNotebook.values());
 }
 
+/**
+ * 只能把“此刻自己拥有”的权限交给 Token：团队笔记本要求当前成员身份，
+ * viewer / commenter 只能授予只读，资源 ACL 不足时一律拒绝。
+ */
 function validateResources(userId: string, resources: NotebookResourceInput[]): string | null {
   for (const resource of resources) {
-    const { permission } = resolveNotebookPermission(resource.notebookId, userId);
-    if (!hasPermission(permission, "read")) {
+    const { level } = resolveTokenNotebookAccess(userId, resource.notebookId);
+    if (level < 1) {
       return `无权授权笔记本: ${resource.notebookId}`;
     }
-    if (resource.permission === "write" && !hasPermission(permission, "write")) {
+    if (resource.permission === "write" && level < 2) {
       return `当前用户对笔记本 ${resource.notebookId} 没有写权限`;
     }
   }
   return null;
+}
+
+/** 审计用：授权涉及的空间（personal 或工作区 ID）。 */
+function resourceSpaces(resources: NotebookResourceInput[]): string[] {
+  const spaces = new Set<string>();
+  const lookup = getDb().prepare("SELECT workspaceId FROM notebooks WHERE id = ?");
+  for (const resource of resources) {
+    const row = lookup.get(resource.notebookId) as { workspaceId: string | null } | undefined;
+    if (row) spaces.add(row.workspaceId || "personal");
+  }
+  return Array.from(spaces).sort();
 }
 
 function listResources(tokenId: string) {
@@ -96,9 +111,12 @@ function listResources(tokenId: string) {
       r.permission,
       r.includeDescendants,
       n.name AS notebookName,
-      n.parentId
+      n.parentId,
+      n.workspaceId,
+      ws.name AS workspaceName
     FROM api_token_resources r
     LEFT JOIN notebooks n ON n.id = r.resourceId
+    LEFT JOIN workspaces ws ON ws.id = n.workspaceId
     WHERE r.tokenId = ? AND r.resourceType = 'notebook'
     ORDER BY n.name COLLATE NOCASE ASC, r.resourceId ASC
   `).all(tokenId) as Array<{
@@ -107,6 +125,8 @@ function listResources(tokenId: string) {
     includeDescendants: number;
     notebookName: string | null;
     parentId: string | null;
+    workspaceId: string | null;
+    workspaceName: string | null;
   }>;
 }
 
@@ -233,6 +253,7 @@ app.post("/", async (c) => {
     expiresAt,
     resourceMode,
     notebookResources: resources,
+    spaces: resourceSpaces(resources),
   }, { targetType: "api_token", targetId: id });
 
   return c.json({
@@ -248,30 +269,37 @@ app.post("/", async (c) => {
   }, 201);
 });
 
-/** 当前用户可授权给 Token 的笔记本。 */
+/**
+ * 当前用户可授权给 Token 的笔记本。
+ * 团队笔记本只在当前仍是成员时出现，canWrite 已按角色上限和资源 ACL 收紧；
+ * workspaceName / shared 供界面按「个人空间 / 与我共享 / 各团队」分组展示。
+ */
 app.get("/notebook-options", (c) => {
   const denied = rejectApiTokenManagement(c);
   if (denied) return denied;
   const userId = c.req.header("X-User-Id")!;
   const rows = getDb().prepare(`
-    SELECT id, name, parentId, workspaceId, userId
-    FROM notebooks
-    WHERE isDeleted = 0
-    ORDER BY sortOrder ASC, name COLLATE NOCASE ASC
+    SELECT nb.id, nb.name, nb.parentId, nb.workspaceId, nb.userId, ws.name AS workspaceName
+    FROM notebooks nb
+    LEFT JOIN workspaces ws ON ws.id = nb.workspaceId
+    WHERE nb.isDeleted = 0
+    ORDER BY nb.sortOrder ASC, nb.name COLLATE NOCASE ASC
   `).all() as Array<{
     id: string;
     name: string;
     parentId: string | null;
     workspaceId: string | null;
     userId: string;
+    workspaceName: string | null;
   }>;
 
   const notebooks = rows.flatMap((row) => {
-    const { permission } = resolveNotebookPermission(row.id, userId);
-    if (!hasPermission(permission, "read")) return [];
+    const { level } = resolveTokenNotebookAccess(userId, row.id);
+    if (level < 1) return [];
     return [{
       ...row,
-      canWrite: hasPermission(permission, "write"),
+      shared: !row.workspaceId && row.userId !== userId,
+      canWrite: level >= 2,
     }];
   });
   return c.json({ notebooks });
@@ -309,6 +337,7 @@ app.patch("/:id/resources", async (c) => {
     tokenId,
     resourceMode,
     notebookResources: resources,
+    spaces: resourceSpaces(resources),
   }, { targetType: "api_token", targetId: tokenId });
 
   return c.json({

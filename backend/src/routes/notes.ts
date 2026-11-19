@@ -57,6 +57,7 @@ import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 import { resolveNotebookNoteScopeIds } from "../lib/notebookNoteScope";
 import { resolveKnowledgeTreeNoteScopeIds } from "../lib/knowledgeTreeNoteScope";
+import { TOKEN_NOTEBOOK_SCOPE_HEADER, tokenNotebookScopeFromHeader } from "../services/apiTokenNotebookAccess";
 import {
   reportTransientPersistedImageSource,
   stabilizePersistedNoteContent,
@@ -154,6 +155,7 @@ app.get("/", (c) => {
   // 可选 limit（1–100）：摘要视图只取少量条目；未传或非法时保持历史行为返回全部。
   const limitRaw = Number.parseInt(c.req.query("limit") || "", 10);
   const limit = Number.isSafeInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : null;
+  const tokenNotebookScope = tokenNotebookScopeFromHeader(c.req.header(TOKEN_NOTEBOOK_SCOPE_HEADER));
 
   // Phase 2/Y1: isFavorite 不再来自 notes 列，而是按"当前请求用户是否在 favorites 表中收藏"
   // 动态计算（EXISTS 子查询，结果仍是 0/1，前端契约 Note.isFavorite: number 不变）。
@@ -210,10 +212,16 @@ app.get("/", (c) => {
     if (!role) return c.json({ error: "无权访问该工作区" }, 403);
     query += " AND notes.workspaceId = ?";
     params.push(workspaceId);
-  } else {
+  } else if (!tokenNotebookScope || workspaceId === "personal") {
     // 个人空间（默认或 'personal'）
     query += " AND notes.userId = ? AND notes.workspaceId IS NULL";
     params.push(userId);
+  }
+  // restricted API Token：只查询它被授权且当前仍有效的笔记本；未指定空间时可跨个人与团队空间。
+  if (tokenNotebookScope) {
+    if (tokenNotebookScope.length === 0) return c.json([]);
+    query += ` AND notes.notebookId IN (${tokenNotebookScope.map(() => "?").join(",")})`;
+    params.push(...tokenNotebookScope);
   }
 
   if (search) {

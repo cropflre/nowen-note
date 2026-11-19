@@ -52,25 +52,58 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
+const PERSONAL_SPACE = "personal";
+
+/**
+ * 统一笔记本描述：个人空间 workspaceId 为 "personal"，团队为工作区 ID，
+ * 他人共享给我的笔记本为 null。同名笔记本靠 notebookId + workspaceId 区分。
+ */
+function describeNotebook(nb: any) {
+  const shared = nb.space === "shared";
+  return {
+    notebookId: nb.id,
+    notebookName: nb.name,
+    workspaceId: nb.workspaceId || (shared ? null : PERSONAL_SPACE),
+    workspaceName: nb.workspaceId ? nb.workspaceName || nb.workspaceId : shared ? "与我共享" : "个人空间",
+    // 权限由服务端按 Token 授权 ∩ 成员身份 ∩ ACL 给出；MCP 只读模式下一律只读。
+    permission: api.runtime.accessMode === "read-only"
+      ? "read"
+      : nb.permission === "write" || nb.permission === "read" ? nb.permission : null,
+    parentId: nb.parentId ?? null,
+    noteCount: nb.noteCount,
+    // 兼容旧调用方的字段。
+    id: nb.id,
+    name: nb.name,
+    icon: nb.icon,
+    color: nb.color,
+  };
+}
+
+/** 未指定空间时只在授权覆盖的唯一空间内工作；覆盖多个空间时要求调用方明确选择。 */
+async function resolveTreeWorkspace(requested?: string): Promise<string> {
+  if (requested) return requested;
+  const spaces = new Map<string, string>();
+  for (const notebook of (await api.listNotebooks()).map(describeNotebook)) {
+    if (notebook.workspaceId) spaces.set(notebook.workspaceId, notebook.workspaceName);
+  }
+  if (spaces.size <= 1) return spaces.keys().next().value ?? PERSONAL_SPACE;
+  const choices = Array.from(spaces, ([id, name]) => `${id}（${name}）`).join("、");
+  throw new Error(`当前连接可访问多个空间，请用 workspaceId 指定其中一个：${choices}`);
+}
+
 // ==================== 笔记本工具 ====================
 
 server.tool(
   "nowen_list_notebooks",
-  "获取 Nowen Note 中的所有笔记本列表（支持树形结构），返回每个笔记本的 id、名称、图标、颜色和笔记数量",
-  {},
-  async () => {
+  "列出当前连接有权读取的笔记本（含已授权的团队空间）。返回 notebookId、notebookName、workspaceId（personal 或团队 ID）、workspaceName、permission（read/write）、parentId 和 noteCount；同名笔记本请按 notebookId 和 workspaceId 区分",
+  {
+    workspaceId: z.string().optional().describe("可选：只列出 personal 或指定团队工作区 ID 下的笔记本"),
+  },
+  async ({ workspaceId }) => {
     try {
-      const notebooks = await api.listNotebooks();
-      const summary = notebooks.map((nb: any) => ({
-        id: nb.id,
-        name: nb.name,
-        icon: nb.icon,
-        color: nb.color,
-        parentId: nb.parentId,
-        noteCount: nb.noteCount,
-      }));
+      const notebooks = await api.listNotebooks(workspaceId);
       return {
-        content: [{ type: "text" as const, text: stringifyTimedResult(summary) }],
+        content: [{ type: "text" as const, text: stringifyTimedResult(notebooks.map(describeNotebook)) }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -80,7 +113,7 @@ server.tool(
 
 server.tool(
   "nowen_create_notebook",
-  "在 Nowen Note 中创建一个新笔记本",
+  "在 Nowen Note 中创建一个新笔记本；子笔记本自动创建在父笔记本所在空间",
   {
     name: z.string().describe("笔记本名称"),
     parentId: z.string().optional().describe("父笔记本 ID（可选，创建子笔记本时使用）"),
@@ -88,7 +121,9 @@ server.tool(
   },
   async ({ name, parentId, icon }) => {
     try {
-      const notebook = await api.createNotebook({ name, parentId, icon });
+      // 子笔记本必须与父笔记本同一空间，不能把团队目录下的子项建成个人笔记本。
+      const parent = parentId ? (await api.listNotebooks()).find((nb: any) => nb.id === parentId) : undefined;
+      const notebook = await api.createNotebook({ name, parentId, icon, workspaceId: parent?.workspaceId || undefined });
       return {
         content: [{ type: "text" as const, text: `笔记本创建成功:\n${JSON.stringify(notebook, null, 2)}` }],
       };
@@ -102,9 +137,10 @@ server.tool(
 
 server.tool(
   "nowen_list_notes",
-  "获取 Nowen Note 中的笔记列表。可按笔记本、标签、收藏状态、日期范围等筛选。返回笔记概要（不含完整内容）",
+  "获取 Nowen Note 中的笔记列表。可按笔记本、空间、标签、收藏状态、日期范围等筛选。不指定笔记本和空间时，只在当前连接已授权的笔记本内列出。返回笔记概要（不含完整内容）",
   {
     notebookId: z.string().optional().describe("按笔记本 ID 筛选"),
+    workspaceId: z.string().optional().describe("可选：personal 或团队工作区 ID，只列出该空间内已授权的笔记"),
     tagId: z.string().optional().describe("按标签 ID 筛选"),
     isFavorite: z.boolean().optional().describe("是否只返回收藏笔记"),
     isTrashed: z.boolean().optional().describe("是否只返回回收站笔记"),
@@ -112,10 +148,11 @@ server.tool(
     dateFrom: z.string().optional().describe("开始日期 YYYY-MM-DD"),
     dateTo: z.string().optional().describe("结束日期 YYYY-MM-DD"),
   },
-  async ({ notebookId, tagId, isFavorite, isTrashed, search, dateFrom, dateTo }) => {
+  async ({ notebookId, workspaceId, tagId, isFavorite, isTrashed, search, dateFrom, dateTo }) => {
     try {
       const query: Record<string, string> = {};
       if (notebookId) query.notebookId = notebookId;
+      if (workspaceId) query.workspaceId = workspaceId;
       if (tagId) query.tagId = tagId;
       if (isFavorite) query.isFavorite = "1";
       if (isTrashed) query.isTrashed = "1";
@@ -543,20 +580,21 @@ server.tool(
 
 server.tool(
   "nowen_search",
-  "搜索笔记或块；块级搜索会返回稳定 blockId",
+  "搜索笔记或块；块级搜索会返回稳定 blockId。不指定空间时只在当前连接已授权的笔记本内搜索（含已授权的团队笔记本）",
   {
     query: z.string().describe("搜索关键词"),
     level: z.enum(["note", "block"]).optional().describe("搜索层级，默认 note"),
     notebookId: z.string().optional().describe("块级搜索时限定笔记本"),
+    workspaceId: z.string().optional().describe("可选：笔记级搜索只在 personal 或指定团队工作区内进行"),
     limit: z.number().int().positive().max(200).optional().describe("块级结果上限"),
   },
-  async ({ query, level, notebookId, limit }) => {
+  async ({ query, level, notebookId, workspaceId, limit }) => {
     try {
       if (level === "block") {
         const blocks = await api.searchBlocks(query, { notebookId, limit: limit || 50 });
         return { content: [{ type: "text" as const, text: `找到 ${blocks.length} 个块:\n${JSON.stringify(blocks, null, 2)}` }] };
       }
-      const results = await api.search(query);
+      const results = await api.search(query, workspaceId);
       const summary = results.map((r: any) => ({
         id: r.id,
         title: r.title,
@@ -950,13 +988,14 @@ server.tool(
 
 server.tool(
   "nowen_get_knowledge_tree",
-  "读取某个空间的统一知识树，包含文件夹、笔记和文件节点；服务端及 Token 会按权限过滤",
+  "读取某个空间的统一知识树，包含文件夹、笔记和文件节点；服务端及 Token 会按权限过滤。连接只覆盖一个空间时可省略 workspaceId，覆盖多个空间时必须指定",
   {
-    workspaceId: z.string().optional().describe("personal 或团队工作区 ID，默认 personal"),
+    workspaceId: z.string().optional().describe("personal 或团队工作区 ID（见 nowen_list_notebooks 的 workspaceId）"),
   },
   async ({ workspaceId }) => {
     try {
-      const result = await api.getKnowledgeTree(workspaceId);
+      const space = await resolveTreeWorkspace(workspaceId);
+      const result = await api.getKnowledgeTree(space);
       const nodes = Array.isArray(result?.nodes) ? result.nodes : [];
       const summary = nodes.map((node: any) => ({
         id: node.id,
@@ -967,7 +1006,7 @@ server.tool(
         childCount: node.childCount,
         isDeleted: node.isDeleted,
       }));
-      return { content: [{ type: "text" as const, text: JSON.stringify({ nodes: summary }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ workspaceId: space, nodes: summary }, null, 2) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }
@@ -1009,6 +1048,7 @@ server.tool(
 
 const treeOperationShape = {
   operation: z.enum(["create", "rename", "move", "trash", "restore"]),
+  workspaceId: z.string().min(1).optional().describe("节点所在空间：personal（默认）或团队工作区 ID；团队目录必须指定，且不能跨空间移动"),
   nodeId: z.string().min(1).optional().describe("要修改的知识树节点 ID；create 时可省略"),
   parentId: z.string().min(1).optional().describe("create/move 需要目标文件夹节点 ID"),
   title: z.string().trim().min(1).max(120).optional().describe("create/rename 使用的新名称"),
@@ -1017,12 +1057,16 @@ const treeOperationShape = {
 
 async function prepareTreeOperation(params: {
   operation: "create" | "rename" | "move" | "trash" | "restore";
+  workspaceId?: string;
   nodeId?: string;
   parentId?: string;
   title?: string;
   nodeType?: "folder" | "markdown";
 }) {
-  const catalog = await api.getKnowledgeTree("personal", true);
+  const workspaceId = params.workspaceId || PERSONAL_SPACE;
+  const expectedWorkspaceId = workspaceId === PERSONAL_SPACE ? null : workspaceId;
+  const inSpace = (node: TreeMutationNode | undefined) => (node?.workspaceId ?? null) === expectedWorkspaceId;
+  const catalog = await api.getKnowledgeTree(workspaceId, true);
   const nodes = (Array.isArray(catalog?.nodes) ? catalog.nodes : []) as TreeMutationNode[];
   const { operation, nodeId, parentId, title } = params;
   if ((operation === "create" || operation === "rename") && !title?.trim()) {
@@ -1034,8 +1078,10 @@ async function prepareTreeOperation(params: {
   if (operation !== "create" && !nodeId) throw new Error("必须指定 nodeId");
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const source = operation === "create" ? byId.get(parentId!) : byId.get(nodeId!);
-  if (!source) throw new Error("源节点或创建位置不存在，或者当前 Token 没有访问权限");
-  if (source.workspaceId != null) throw new Error("MCP P0 仅支持个人知识树操作");
+  if (!source) {
+    throw new Error(`源节点或创建位置不在 workspaceId=${workspaceId} 的知识树中，或当前 Token 没有访问权限；团队目录请传入对应 workspaceId`);
+  }
+  if (!inSpace(source)) throw new Error("节点不属于指定空间，MCP 不允许跨空间操作目录");
   if (operation === "create" && (source.isDeleted || source.resourceType !== "notebook")) {
     throw new Error("只允许在有效文件夹下创建笔记或文件夹");
   }
@@ -1043,8 +1089,8 @@ async function prepareTreeOperation(params: {
     throw new Error("只允许修改普通笔记或文件夹，其他资源类型暂不开放");
   }
   const target = parentId ? byId.get(parentId) : null;
-  if (parentId && (!target || target.workspaceId != null || target.isDeleted || target.resourceType !== "notebook")) {
-    throw new Error("目标文件夹不存在或不属于个人空间");
+  if (parentId && (!target || !inSpace(target) || target.isDeleted || target.resourceType !== "notebook")) {
+    throw new Error("目标文件夹不存在、已删除或不属于同一空间");
   }
   const isSubtree = ["move", "trash", "restore"].includes(operation);
   const previewId = operation === "create" ? parentId! : nodeId!;
@@ -1063,13 +1109,13 @@ async function prepareTreeOperation(params: {
   if (affectedNodeIds.length > 10000) throw new Error("受影响节点过多，请拆分操作");
   if (isSubtree && affectedNodeIds.some((id) => {
     const descendant = byId.get(id);
-    return !descendant || descendant.workspaceId != null
+    return !descendant || !inSpace(descendant)
       || !["note", "notebook"].includes(descendant.resourceType);
   })) {
     throw new Error("目录包含文件、思维导图或其他尚未验收的资源类型；MCP P0 禁止修改这种混合子树");
   }
   return {
-    nodes, source, target, revision, subtreeRevision,
+    nodes, source, target, revision, subtreeRevision, workspaceId,
     preconditions: treeMutationPreconditions(source, subtreeRevision),
     affectedNodeIds,
   };
@@ -1086,7 +1132,7 @@ server.tool(
         content: [{
           type: "text" as const,
           text: JSON.stringify({
-            dryRun: true, operation: params.operation, nodeId: params.nodeId,
+            dryRun: true, operation: params.operation, workspaceId: plan.workspaceId, nodeId: params.nodeId,
             parentId: params.parentId, title: params.title, nodeType: params.nodeType || "folder",
             source: {
               id: plan.source.id, title: plan.source.title,
@@ -1127,23 +1173,23 @@ server.tool(
       if (plan.subtreeRevision !== expectedSubtreeRevision) {
         throw new Error("子目录内容在预览后发生变化，请重新预览，防止误操作");
       }
-      const preconditions = plan.preconditions;
+      const { preconditions, workspaceId } = plan;
       let result: any;
       if (operation === "create") {
         result = await api.createKnowledgeNode({
           parentId: parentId!, title: title!.trim(), nodeType: nodeType || "folder",
           ...preconditions,
-        });
+        }, workspaceId);
       } else if (operation === "rename") {
-        result = await api.renameKnowledgeNode(nodeId!, { title: title!.trim(), ...preconditions });
+        result = await api.renameKnowledgeNode(nodeId!, { title: title!.trim(), ...preconditions }, workspaceId);
       } else if (operation === "move") {
-        result = await api.moveKnowledgeNode(nodeId!, { parentId: parentId!, ...preconditions });
+        result = await api.moveKnowledgeNode(nodeId!, { parentId: parentId!, ...preconditions }, workspaceId);
       } else if (operation === "trash") {
-        result = await api.trashKnowledgeNode(nodeId!, preconditions);
+        result = await api.trashKnowledgeNode(nodeId!, preconditions, workspaceId);
       } else {
-        result = await api.restoreKnowledgeNode(nodeId!, { includeSubtree: true, ...preconditions });
+        result = await api.restoreKnowledgeNode(nodeId!, { includeSubtree: true, ...preconditions }, workspaceId);
       }
-      return { content: [{ type: "text" as const, text: JSON.stringify({ applied: true, operation, result }, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ applied: true, operation, workspaceId, result }, null, 2) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }

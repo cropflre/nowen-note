@@ -503,11 +503,12 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
     });
   }
   policy.assertWritable("修改知识树");
-  if (url.searchParams.get("workspaceId") && url.searchParams.get("workspaceId") !== "personal") {
-    throw new ScopeDeniedError("MCP 只允许修改个人知识树");
-  }
+  // 团队目录写入与个人目录同一套本地白名单校验；节点必须属于本次请求声明的空间，
+  // 服务端还会再按 Token 授权、团队成员身份与 ACL 复核。
+  const requestedWorkspace = url.searchParams.get("workspaceId") || "personal";
+  const expectedWorkspaceId = requestedWorkspace === "personal" ? null : requestedWorkspace;
   const catalogResponse = await originalFetch(
-    `${baseUrl}/api/knowledge-tree/?workspaceId=personal&includeDeleted=1`,
+    `${baseUrl}/api/knowledge-tree/?workspaceId=${encodeURIComponent(requestedWorkspace)}&includeDeleted=1`,
     { headers: requestAuthHeaders(request) },
   );
   if (!catalogResponse.ok) throw new ScopeDeniedError("知识树不可读取或 Token 缺少读取权限");
@@ -520,9 +521,9 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
   const body = await readJson(request);
   const assertNode = (id: string): any => {
     const node = byId.get(id);
-    if (!node || !visibleIds.has(id) || node.workspaceId != null
+    if (!node || !visibleIds.has(id) || (node.workspaceId ?? null) !== expectedWorkspaceId
       || !["note", "notebook"].includes(node.resourceType)) {
-      throw new ScopeDeniedError("节点不存在、不属于个人空间或未获授权");
+      throw new ScopeDeniedError("节点不存在、不属于请求的空间或未获授权");
     }
     return node;
   };

@@ -34,6 +34,12 @@ on:
       - "backend/src/routes/tasks.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/apiTokenNotebookAccess.ts"
+      - "backend/src/routes/tokens.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/search.ts"
+      - "backend/tests/mcp-team-space.test.ts"
+      - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   pull_request:
     paths:
@@ -65,6 +71,12 @@ on:
       - "backend/src/routes/tasks.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/apiTokenNotebookAccess.ts"
+      - "backend/src/routes/tokens.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/search.ts"
+      - "backend/tests/mcp-team-space.test.ts"
+      - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   workflow_dispatch:
 
@@ -131,6 +143,11 @@ jobs:
           NODE_ENV: test
       - name: Test PAT resource and task boundaries
         run: node --import tsx --test tests/api-token-resource-scope.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test team-space MCP grants through embedded HTTP and standalone stdio MCP
+        run: node --import tsx --test tests/mcp-team-space.test.ts
         working-directory: backend
         env:
           NODE_ENV: test
