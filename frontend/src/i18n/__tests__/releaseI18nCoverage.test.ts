@@ -1,6 +1,7 @@
 import { enPluginAppTranslations, zhCNPluginAppTranslations } from "../pluginAppTranslations";
 import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "../extensionCenterTranslations";
 import { enEditorActionTranslations, zhCNEditorActionTranslations } from "../editorActionTranslations";
+import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "../mcpConnectTranslations";
 import i18n from "../index";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -160,6 +161,14 @@ describe("release i18n coverage", () => {
     expectPatchParity(zhCNPluginAppTranslations, enPluginAppTranslations, "pluginApps");
     expectPatchParity(zhCNExtensionCenterTranslations, enExtensionCenterTranslations, "extensionCenter");
     expectPatchParity(zhCNEditorActionTranslations, enEditorActionTranslations, "editorActions");
+  });
+
+  it("keeps AI assistant connection and team-space authorization copy in parity", () => {
+    expectPatchParity(zhCNMcpConnectTranslations, enMcpConnectTranslations, "mcpConnect");
+    const source = readFileSync(join(process.cwd(), "src/components/settings/McpQuickConnect.tsx"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(source.match(/[㐀-鿿]/u), "McpQuickConnect must not hardcode Chinese UI copy").toBeNull();
   });
   it("rejects invalid values in the complete runtime resources", () => {
     function invalidLeaves(value: unknown, path = ""): string[] {

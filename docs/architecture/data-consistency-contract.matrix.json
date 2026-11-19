@@ -296,6 +296,8 @@
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: standalone stdio MCP uses the same server-side team grants" },
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: revoked, expired and deleted team tokens stop immediately" },
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: token audit logs record space and result without credentials or note bodies" },
+        { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: groups personal, shared and team notebooks without mixing same-name notebooks" },
+        { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: preselects only the user's own personal notebooks" },
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-006 deleted archive listings still enforce projection protection and the current token notebook grant"},
         {"file": "backend/tests/mcp-ai-archive.test.ts", "case": "DCC-006: embedded MCP saves and reads AI archives only within the token's notebook grants and assistant sources"},
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },

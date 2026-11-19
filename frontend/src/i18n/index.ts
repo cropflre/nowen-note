@@ -61,6 +61,7 @@ import { enPluginAppTranslations, zhCNPluginAppTranslations } from "./pluginAppT
 import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "./extensionCenterTranslations";
 import { enEditorActionTranslations, zhCNEditorActionTranslations } from "./editorActionTranslations";
 import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
+import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "./mcpConnectTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
@@ -107,6 +108,7 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNAutomationTranslations,
   zhCNMigrationTranslations,
   zhCNAIMemoryTranslations,
+  zhCNMcpConnectTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -138,6 +140,7 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enAutomationTranslations,
   enMigrationTranslations,
   enAIMemoryTranslations,
+  enMcpConnectTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(
