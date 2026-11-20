@@ -104,6 +104,8 @@ export interface AttachmentDetailDrawerProps {
   onAfterDelete?: (id: string) => void;
   onAfterRename?: (id: string, newFilename: string) => void;
   onAfterMove?: (id: string, folderId: string | null, folderName: string | null) => void;
+  /** Called after a public link was copied or external access was toggled. */
+  onAfterLinkChange?: (id: string) => void;
   showDelete?: boolean;
   isImageHostMode?: boolean;
   extraHeaderActions?: React.ReactNode;
@@ -117,6 +119,7 @@ export default function AttachmentDetailDrawer({
   onAfterDelete,
   onAfterRename,
   onAfterMove,
+  onAfterLinkChange,
   onAfterOrganize,
   onOpenAttachment,
   onFindSimilar,
@@ -240,11 +243,12 @@ export default function AttachmentDetailDrawer({
       const ok = await copyText(snippet);
       if (ok) {
         toast.success(t("attachmentDetail.copiedFormat", { format: imageHostFormatLabel(format) }));
+        onAfterLinkChange?.(detail.id);
       } else {
         toast.error(t("attachmentDetail.copyFailed"));
       }
     },
-    [detail, siteConfig.filePublicOrigin, siteConfig.publicWebOrigin, t],
+    [detail, onAfterLinkChange, siteConfig.filePublicOrigin, siteConfig.publicWebOrigin, t],
   );
 
   const toggleExternalAccess = async () => {
@@ -257,6 +261,7 @@ export default function AttachmentDetailDrawer({
       if (reqIdRef.current !== requestId) return;
       setDetail((prev) => prev?.id === currentId ? { ...prev, externalAccessEnabled: res.externalAccessEnabled } : prev);
       toast.success(t(res.externalAccessEnabled ? "fileManager.externalEnabled" : "fileManager.externalDisabled"));
+      onAfterLinkChange?.(currentId);
     } catch (err: unknown) {
       if (reqIdRef.current === requestId) toast.error(err instanceof Error ? err.message : t("fileManager.accessFailed"));
     } finally {

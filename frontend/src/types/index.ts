@@ -339,6 +339,8 @@ export interface FileItem {
   folderName: string | null;
   /** Serving-instance policy; authenticated runtime URLs retain normal ACL checks. */
   externalAccessEnabled?: boolean;
+  /** List only: the current user already has an active public link for this file. */
+  publicLinkActive?: boolean;
   canManage?: boolean;
   primaryNote: {
     id: string;
