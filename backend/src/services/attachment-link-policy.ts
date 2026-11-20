@@ -25,6 +25,22 @@ export function isAttachmentExternalAccessEnabled(attachmentId: string): boolean
   return row?.externalAccessEnabled !== 0;
 }
 
+/** Batch form of isAttachmentExternalAccessEnabled for one list page. */
+export function attachmentExternalAccessStates(attachmentIds: string[]): Map<string, boolean> {
+  ensureAttachmentLinkPolicyTable();
+  const ids = [...new Set(attachmentIds)];
+  const states = new Map(ids.map((id) => [id, true]));
+  if (!ids.length) return states;
+  const rows = getDb().prepare(`
+    SELECT a.id, a.trashedAt, p.externalAccessEnabled
+    FROM attachments a
+    LEFT JOIN attachment_link_policies p ON p.attachmentId = a.id
+    WHERE a.id IN (${ids.map(() => "?").join(",")})
+  `).all(...ids) as Array<{ id: string; trashedAt: string | null; externalAccessEnabled: number | null }>;
+  for (const row of rows) states.set(row.id, !row.trashedAt && row.externalAccessEnabled !== 0);
+  return states;
+}
+
 export function setAttachmentExternalAccessEnabled(attachmentId: string, enabled: boolean, db: Database.Database = getDb()): void {
   ensureAttachmentLinkPolicyTable(db);
   db.prepare(`
