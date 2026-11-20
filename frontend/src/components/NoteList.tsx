@@ -1,4 +1,5 @@
 import { openAICollaboration } from "@/lib/aiCollaboration";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1472,6 +1473,7 @@ export function VirtualNoteList({
 export default function NoteList({ directorySearchActive = false }: { directorySearchActive?: boolean } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const aiAvailable = useAIConnectionAvailable();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
@@ -2381,7 +2383,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const BULK_CLASSIFY_THRESHOLD = 0.6;
 
   const bulkAiGenerateTags = useCallback(async () => {
-    if (bulkAiRunning) return;
+    if (!aiAvailable || bulkAiRunning) return;
     const ids = Array.from(selectedIds).filter((id) => {
       const n = state.notes.find((x) => x.id === id);
       return n && !n.isLocked && n.contentText;
@@ -2438,7 +2440,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     } else {
       toast.warning(t('noteList.bulkAiTagsPartial', { ok: okCount, fail: failCount }) || `完成 ${okCount} 条，失败 ${failCount} 条`);
     }
-  }, [bulkAiRunning, selectedIds, state.notes, state.tags, actions, t]);
+  }, [aiAvailable, bulkAiRunning, selectedIds, state.notes, state.tags, actions, t]);
 
   // ── 批量 AI 归类：改为"扫描 → 用户确认 → 执行"两段式 ─────────────────
   // 原本是「扫描后直接移动」，用户看到结果时笔记已经被搬走，找不回来也无法反悔。
@@ -2464,7 +2466,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const [classifyScanning, setClassifyScanning] = useState<{ done: number; total: number } | null>(null);
 
   const bulkAiClassify = useCallback(async () => {
-    if (bulkAiRunning || classifyScanning) return;
+    if (!aiAvailable || bulkAiRunning || classifyScanning) return;
     const ids = Array.from(selectedIds).filter((id) => {
       const n = state.notes.find((x) => x.id === id);
       return n && !n.isLocked;
@@ -2545,7 +2547,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           || `AI 给出 ${plan.length} 条建议，另有 ${skippedCount} 条跳过、${failCount} 条失败`,
       );
     }
-  }, [bulkAiRunning, classifyScanning, selectedIds, state.notes, state.notebooks, t]);
+  }, [aiAvailable, bulkAiRunning, classifyScanning, selectedIds, state.notes, state.notebooks, t]);
 
   /** 用户确认后执行真正的移动。由 pendingClassify 面板的"确认"按钮触发。 */
   const confirmClassifyPlan = useCallback(async () => {
@@ -3550,7 +3552,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         </button>
         <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
         <div className="flex shrink-0 items-center gap-1 relative">
-          <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
+          {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
           {/* 移动端排序按钮（搜索/回收站不显示） */}
           {state.viewMode !== "search" && (
             <button
@@ -3900,7 +3902,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
                 {/* ── P4：批量 AI 操作 ──
                     两颗按钮复用当前 selectedIds；运行中按钮 disabled 并替换为进度文本，
                     避免用户误触发二次请求把额度烧掉。 */}
-                <button
+                {aiAvailable && <button
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 disabled:opacity-50 disabled:cursor-wait transition-colors"
                   onClick={bulkAiGenerateTags}
                   disabled={!!bulkAiRunning}
@@ -3916,8 +3918,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
                       ? `${bulkAiRunning.done}/${bulkAiRunning.total}`
                       : (t('noteList.bulkAiTags') || "AI 标签")}
                   </span>
-                </button>
-                <button
+                </button>}
+                {aiAvailable && <button
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 disabled:opacity-50 disabled:cursor-wait transition-colors"
                   onClick={bulkAiClassify}
                   disabled={!!bulkAiRunning || !!classifyScanning}
@@ -3935,7 +3937,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
                       ? `${bulkAiRunning.done}/${bulkAiRunning.total}`
                       : (t('noteList.bulkAiClassify') || "AI 归类")}
                   </span>
-                </button>
+                </button>}
                 <button
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md text-red-500 hover:bg-red-500/10 transition-colors"
                   onClick={() => {
@@ -4323,7 +4325,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         />
 
       {/* AI 批量归类确认面板：扫描完成后弹出，用户逐条审核再执行移动 */}
-      <AiClassifyConfirmModal
+      {aiAvailable && <AiClassifyConfirmModal
         plan={pendingClassify}
         onCancel={() => setPendingClassify(null)}
         onToggle={(noteId) => {
@@ -4335,7 +4337,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           setPendingClassify((prev) => prev ? prev.map((p) => ({ ...p, checked })) : prev);
         }}
         onConfirm={confirmClassifyPlan}
-      />
+      />}
     </div>
   );
 }

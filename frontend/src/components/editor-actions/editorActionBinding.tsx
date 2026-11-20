@@ -10,7 +10,7 @@ import { EditorActionIcon } from "./EditorActionIcon";
 import { EditorActionsHost } from "./EditorActionsHost";
 import { EditorActionsMenu } from "./EditorActionsMenu";
 
-export interface EditorActionBindingOptions { noteId: string; editable: boolean; guest: boolean; trashed: boolean }
+export interface EditorActionBindingOptions { noteId: string; editable: boolean; guest: boolean; trashed: boolean; aiAvailable: boolean }
 
 export interface EditorActionBinding {
   /** Slash entries in a neutral shape; each editor maps them onto its own item type. */
@@ -20,7 +20,7 @@ export interface EditorActionBinding {
 }
 
 /** Shared by both editors: one registry, one runner, one preview host. */
-export function useEditorActionBinding(adapter: EditorActionAdapter | null, { editable, guest, trashed }: EditorActionBindingOptions): EditorActionBinding {
+export function useEditorActionBinding(adapter: EditorActionAdapter | null, { editable, guest, trashed, aiAvailable }: EditorActionBindingOptions): EditorActionBinding {
   const { t } = useTranslation();
   const enabled = Boolean(adapter) && editable && !guest && !trashed;
   const actions = useEditorActions(enabled);
@@ -35,8 +35,16 @@ export function useEditorActionBinding(adapter: EditorActionAdapter | null, { ed
     if (current.phase === "preview") current.resolve("cancel");
   }, [adapter]);
 
+  const hideAiRun = !aiAvailable && ui.phase !== "idle" && ui.action.ai;
+  useEffect(() => {
+    if (!hideAiRun) return;
+    if (ui.phase === "running") ui.cancel();
+    if (ui.phase === "preview") ui.resolve("cancel");
+    if (ui.phase === "conflict") ui.dismiss();
+  }, [hideAiRun, ui]);
+
   const run = useCallback((action: RegisteredEditorAction) => {
-    if (!adapter) return;
+    if (!adapter || (action.ai && !aiAvailable)) return;
     void runEditorAction(adapter, action, {
       run: pluginApi.runEditorAction,
       notify: { info: (message) => toast.info(message), success: (message) => toast.success(message), error: (message) => toast.error(message) },
@@ -44,9 +52,11 @@ export function useEditorActionBinding(adapter: EditorActionAdapter | null, { ed
       t: (key, options) => tRef.current(key, options) as string,
       onUi: setUi,
     });
-  }, [adapter]);
+  }, [adapter, aiAvailable]);
 
-  const visible = useMemo(() => (enabled && adapter ? actions.filter((action) => action.appliesTo.includes(adapter.kind)) : []), [actions, adapter, enabled]);
+  const visible = useMemo(() => (enabled && adapter
+    ? actions.filter((action) => action.appliesTo.includes(adapter.kind) && (aiAvailable || !action.ai))
+    : []), [actions, adapter, aiAvailable, enabled]);
 
   const slashEntries = useMemo(() => visible.filter((action) => action.placements.includes("editor.slash")).map((action) => ({
     id: action.runtimeId,
@@ -61,8 +71,9 @@ export function useEditorActionBinding(adapter: EditorActionAdapter | null, { ed
   const menu = useCallback<EditorActionBinding["menu"]>((placement, options = {}) => {
     if (!adapter || !visible.some((action) => action.placements.includes(placement))) return null;
     const getEntries = () => editorActionsFor(visible, placement, { kind: adapter.kind, editable, guest, trashed, hasSelection: adapter.hasSelection() });
-    return <EditorActionsMenu placement={placement} getEntries={getEntries} onRun={run} iconSize={options.iconSize} compact={options.compact} />;
-  }, [adapter, visible, editable, guest, trashed, run]);
+    // Each open menu snapshots its entries, so a connection change must dismiss it.
+    return <EditorActionsMenu key={String(aiAvailable)} placement={placement} getEntries={getEntries} onRun={run} iconSize={options.iconSize} compact={options.compact} />;
+  }, [adapter, aiAvailable, visible, editable, guest, trashed, run]);
 
-  return { slashEntries, menu, host: <EditorActionsHost state={ui} /> };
+  return { slashEntries, menu, host: hideAiRun ? null : <EditorActionsHost state={ui} /> };
 }

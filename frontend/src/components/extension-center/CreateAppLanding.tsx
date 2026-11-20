@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Archive, BookOpen, CalendarCheck, LayoutGrid, ListChecks, Plane, Users, type LucideIcon } from "lucide-react";
 import { PersonalStudioAI } from "@/components/PersonalStudioAI";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { matchStudioTemplates, newStudioSpec, STUDIO_TEMPLATES, type StudioSpec, type StudioTemplate } from "@/lib/personalApps";
 
 const TEMPLATE_ICON: Record<StudioTemplate, LucideIcon> = {
@@ -14,7 +15,11 @@ const TEMPLATE_ICON: Record<StudioTemplate, LucideIcon> = {
  */
 export function CreateAppLanding({ onPick }: { onPick: (spec: StudioSpec) => void }) {
   const { t } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const [request, setRequest] = useState("");
+  useEffect(() => {
+    if (!aiAvailable) setRequest("");
+  }, [aiAvailable]);
   // A template that already matches the description is offered before (or instead of) asking AI.
   const suggested = useMemo(() => matchStudioTemplates(request), [request]);
   const pick = (template: StudioTemplate) => onPick(newStudioSpec(template, t));
@@ -23,10 +28,10 @@ export function CreateAppLanding({ onPick }: { onPick: (spec: StudioSpec) => voi
   return <div className="space-y-6">
     <header className="min-w-0">
       <h2 className="text-lg font-semibold text-tx-primary">{t("extensionCenter.create.heading")}</h2>
-      <p className="mt-1 text-sm text-tx-secondary">{t("extensionCenter.create.subtitle")}</p>
+      {aiAvailable && <p className="mt-1 text-sm text-tx-secondary">{t("extensionCenter.create.subtitle")}</p>}
     </header>
-    <PersonalStudioAI spec={null} onAccept={onPick} onPromptChange={setRequest} />
-    {suggested.length > 0 && <div role="note" className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-hover/40 px-3 py-2 text-sm">
+    {aiAvailable && <PersonalStudioAI spec={null} onAccept={onPick} onPromptChange={setRequest} />}
+    {aiAvailable && suggested.length > 0 && <div role="note" className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-hover/40 px-3 py-2 text-sm">
       <span className="text-tx-secondary">{t("extensionCenter.create.suggestion")}</span>
       {suggested.map((template) => <button key={template} type="button" onClick={() => pick(template)}
         className="inline-flex min-h-11 items-center rounded-full border border-accent-primary/40 px-3 text-accent-primary hover:bg-accent-primary/10 md:min-h-8">

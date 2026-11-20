@@ -28,14 +28,18 @@ function setSetting(key: string, value: string): void {
 }
 
 test.before(async () => {
-  const [routes, profileRoutes, schema] = await Promise.all([
+  const [routes, profileRoutes, sharedProfileRoutes, reliableAIRoutes, schema] = await Promise.all([
     import("../src/routes/ai"),
     import("../src/routes/user-preferences-legacy"),
+    import("../src/routes/shared-ai-profiles"),
+    import("../src/routes/ai-reliable"),
     import("../src/db/schema"),
   ]);
   app = new Hono();
   app.route("/ai", routes.default);
+  app.route("/ai", sharedProfileRoutes.default);
   app.route("/user-preferences", profileRoutes.default);
+  app.route("/user-preferences/ai-reliable", reliableAIRoutes.default);
   getDb = schema.getDb;
   closeDb = schema.closeDb;
 
@@ -103,7 +107,7 @@ test("anonymous chat and connection probes are rejected without contacting the p
     return Response.json({ choices: [{ message: { content: "unexpected" } }] });
   }) as typeof fetch;
   try {
-    for (const route of ["/ai/chat", "/ai/test"]) {
+    for (const route of ["/ai/chat", "/ai/test", "/ai/test?chatOnly=1"]) {
       const response = await app.request(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -112,6 +116,95 @@ test("anonymous chat and connection probes are rejected without contacting the p
       assert.equal(response.status, 401);
     }
     assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a model-list response cannot satisfy a chat-only Ollama probe", async () => {
+  const originalFetch = globalThis.fetch;
+  const paths: string[] = [];
+  setSetting("ai_provider", "ollama");
+  globalThis.fetch = (async (url) => {
+    const path = new URL(String(url)).pathname;
+    paths.push(path);
+    return path === "/api/tags" ? Response.json({ models: [] }) : new Response("Method Not Allowed", { status: 405 });
+  }) as typeof fetch;
+  const init = { method: "POST", headers: { "X-User-Id": USER_ID } };
+  try {
+    const strict = await app.request("/ai/test?chatOnly=1", init);
+    assert.equal(strict.status, 500);
+    assert.equal((await strict.json()).success, false);
+    assert.deepEqual(paths, ["/v1/chat/completions"]);
+
+    const legacy = await app.request("/ai/test", init);
+    assert.equal(legacy.status, 200);
+    assert.equal((await legacy.json()).success, true);
+    assert.deepEqual(paths.slice(1), ["/v1/chat/completions", "/api/tags"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setSetting("ai_provider", "custom");
+  }
+});
+
+test("manual disable refuses the chat-only probe before contacting the provider", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  setSetting("ai_manual_enabled", "false");
+  globalThis.fetch = (async () => {
+    calls++;
+    return Response.json({ choices: [{ message: { content: "unexpected" } }] });
+  }) as typeof fetch;
+  try {
+    const response = await app.request("/ai/test?chatOnly=1", { method: "POST", headers: { "X-User-Id": USER_ID } });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "AI_CONFIG_DISABLED");
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setSetting("ai_manual_enabled", "true");
+  }
+});
+
+test("DCC-006: availability and settings preserve an inactive user's legacy provider across re-enabling AI", async () => {
+  const url = "https://legacy.example.test/v1";
+  const legacyKey = "legacy-connection-secret";
+  const request = (path: string, method = "GET", body?: object) => app.request(path, {
+    method, headers: { "X-User-Id": OTHER_ID, "Content-Type": "application/json" },
+    body: body && JSON.stringify(body),
+  });
+  assert.equal((await request("/ai/settings", "PUT", {
+    ai_provider: "custom", ai_api_url: url, ai_api_key: legacyKey, ai_model: "legacy-chat",
+  })).status, 200);
+  assert.equal((await request("/user-preferences/ai-reliable/config-enabled", "PUT", { enabled: false })).status, 200);
+
+  const anonymous = await app.request("/ai/profiles/available?activeOnly=1");
+  assert.equal(anonymous.status, 401);
+  const before = getDb().prepare("SELECT key, value FROM user_ai_settings WHERE userId = ? ORDER BY key").all(OTHER_ID);
+  const availability = await request("/ai/profiles/available?activeOnly=1");
+  assert.equal(availability.status, 200);
+  assert.equal((await availability.json()).aiEnabled, false);
+  assert.deepEqual(getDb().prepare("SELECT key, value FROM user_ai_settings WHERE userId = ? ORDER BY key").all(OTHER_ID), before);
+
+  const profileSettings = await request("/ai/profiles/available");
+  assert.equal(profileSettings.status, 200);
+  const directory = await profileSettings.json();
+  assert.equal(directory.personalProfiles[0].model, "legacy-chat");
+  assert.equal(directory.personalProfiles[0].apiKeySet, true);
+  assert.ok(!JSON.stringify(directory).includes(legacyKey));
+  assert.equal((await request("/user-preferences/ai-reliable/config-enabled", "PUT", { enabled: true })).status, 200);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (endpoint, init) => {
+    assert.equal(String(endpoint), `${url}/chat/completions`);
+    assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${legacyKey}`);
+    assert.equal(JSON.parse(String(init?.body)).model, "legacy-chat");
+    return Response.json({ choices: [{ message: { content: "hello" } }] });
+  }) as typeof fetch;
+  try {
+    const connected = await request("/ai/test?chatOnly=1", "POST");
+    assert.equal(connected.status, 200);
+    assert.equal((await connected.json()).success, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -3,6 +3,7 @@ import { Blocks, LayoutDashboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
 import { usePluginApps } from "@/hooks/usePluginApps";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
 import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
@@ -34,6 +35,9 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
 export function PluginAppFrame({ page, compact = false, inspector, workspaceId }: { page: PluginAppPage; compact?: boolean; inspector?: PluginInspectorContext; workspaceId?: string }) {
   const { t } = useTranslation();
   const actions = useAppActions();
+  const aiAvailable = useAIConnectionAvailable();
+  const aiAvailableRef = useRef(aiAvailable);
+  aiAvailableRef.current = aiAvailable;
   const frame = useRef<HTMLIFrameElement>(null);
   const connection = useRef<ReturnType<typeof connectPluginAppFrame> | undefined>(undefined);
   const activeSession = useRef<PluginAppSession | null>(null);
@@ -99,6 +103,7 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
       if (response.pluginId !== current.pluginId || response.instanceId !== current.instanceId || response.requestId !== message.requestId || response.protocol !== "nowen.plugin-ui.v3" || response.kind !== "response") throw new Error("PLUGIN_UI_INVALID_RESPONSE");
       if (message.method === "navigation.open" && response.ok) {
         const target = (response.data as { target?: string })?.target;
+        if (target === "ai-chat" && !aiAvailableRef.current) return response;
         if (["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"].includes(target || "")) {
           replaceAppPathState("/"); actions.setViewMode(target as ViewMode); actions.setMobileView("list");
           const noteId = (response.data as { noteId?: string }).noteId;

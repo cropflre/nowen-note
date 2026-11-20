@@ -35,13 +35,17 @@ app.onError((error, c) => {
 
 app.get("/profiles/available", async (c) => {
   const userId = c.req.header("X-User-Id")!;
-  const personal = ensureAIProfiles(userId);
+  const activeOnly = c.req.query("activeOnly") === "1";
+  const personal = ensureAIProfiles(userId, !activeOnly);
   const sharedProfiles = listSharedAIProfiles(userId);
-  const remote = c.req.header("X-Nowen-Shared-Directory") === "local"
+  const activeSharedId = () => userAISettingsRepository.get(userId, ACTIVE_SHARED_AI_KEY)?.value || "";
+  const localOnly = c.req.header("X-Nowen-Shared-Directory") === "local"
+    || (activeOnly && !getRemoteSharedSelectionId(activeSharedId()));
+  const remote = localOnly
     ? { profiles: [] }
     : await listRemoteSharedProfiles(userId);
   const shared = [...sharedProfiles, ...remote.profiles];
-  const raw = userAISettingsRepository.get(userId, ACTIVE_SHARED_AI_KEY)?.value || "";
+  const raw = activeSharedId();
   const sharedId = getRemoteSharedSelectionId(raw) || raw;
   return c.json({
     personalProfiles: personal.profiles.map(publicAIProfile), sharedProfiles: shared,

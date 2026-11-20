@@ -14,6 +14,7 @@ import SayMarkdownToolbar, {
   type SayMarkdownMode,
 } from "@/components/diary/SayMarkdownToolbar";
 import DiaryAiReportDialog from "@/components/diary/DiaryAiReportDialog";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 
 interface DiaryExperienceBridgeProps {
   rootRef: React.RefObject<HTMLDivElement | null>;
@@ -238,6 +239,7 @@ export default function DiaryExperienceBridge({
   rootRef,
 }: DiaryExperienceBridgeProps) {
   const { t } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const enhancersRef = useRef(new Map<HTMLTextAreaElement, EnhancerRecord>());
   const elevatedRef = useRef(new Map<HTMLElement, PreviousInlineStyle>());
   const reportButtonHostRef = useRef<HTMLDivElement | null>(null);
@@ -276,6 +278,7 @@ export default function DiaryExperienceBridge({
       if (header) {
         const host = document.createElement("div");
         host.dataset.nowenDiaryReportButton = "true";
+        host.style.display = "contents";
         header.appendChild(host);
         reportButtonHostRef.current = host;
         setReportButtonHost(host);
@@ -321,6 +324,10 @@ export default function DiaryExperienceBridge({
   }, [rootRef, scheduleSync, syncEnhancements]);
 
   useEffect(() => {
+    if (!aiAvailable) {
+      setReportOpen(false);
+      return;
+    }
     const handleUseReport = (event: Event) => {
       const content = (event as CustomEvent<{ content?: string }>).detail?.content;
       const container = rootRef.current;
@@ -340,11 +347,11 @@ export default function DiaryExperienceBridge({
     };
     window.addEventListener("nowen:diary-use-report", handleUseReport);
     return () => window.removeEventListener("nowen:diary-use-report", handleUseReport);
-  }, [rootRef]);
+  }, [aiAvailable, rootRef]);
 
   return (
     <>
-      {reportButtonHost && createPortal(
+      {aiAvailable && reportButtonHost && createPortal(
         <button
           type="button"
           onClick={() => setReportOpen(true)}
@@ -357,7 +364,7 @@ export default function DiaryExperienceBridge({
         </button>,
         reportButtonHost,
       )}
-      <DiaryAiReportDialog open={reportOpen} onClose={() => setReportOpen(false)} />
+      {aiAvailable && <DiaryAiReportDialog open={reportOpen} onClose={() => setReportOpen(false)} />}
     </>
   );
 }

@@ -94,6 +94,7 @@ import {
 } from "@/lib/noteContentPersistence";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
   captureEditorCleanBaseline,
@@ -226,6 +227,7 @@ function OrdinaryEditorPane({
   }, []);
   const { t } = useTranslation();
   const { visible: keyboardVisible } = useKeyboardVisible();
+  const aiAvailable = useAIConnectionAvailable();
 
   /**
    * 当前视图级有效锁定状态：DB 的 isLocked **加** 用户偏好带来的"会话锁"。
@@ -322,10 +324,14 @@ function OrdinaryEditorPane({
   const [showCommentPanel, setShowCommentPanel] = useState(false);
   const [showAgent, setShowAgent] = useState(false);
   useEffect(() => {
+    if (!aiAvailable) {
+      setShowAgent(false);
+      return;
+    }
     const open = () => setShowAgent(true);
     window.addEventListener("nowen:open-editor-agent", open);
     return () => window.removeEventListener("nowen:open-editor-agent", open);
-  }, []);
+  }, [aiAvailable]);
   const [showAttachmentsPanel, setShowAttachmentsPanel] = useState(false);
   const [showBacklinksPanel, setShowBacklinksPanel] = useState(false);
   const [backlinksCount, setBacklinksCount] = useState<number | null>(null);
@@ -2364,7 +2370,7 @@ const moveToTrash = useCallback(async () => {
   // AI ���ɱ���
   const [aiTitleLoading, setAiTitleLoading] = useState(false);
   const handleAITitle = useCallback(async () => {
-    if (!activeNote || !activeNote.contentText || aiTitleLoading) return;
+    if (!aiAvailable || !activeNote || !activeNote.contentText || aiTitleLoading) return;
     setAiTitleLoading(true);
     try {
       // 1) �Ȱѱ༭���� pending �� debounce �Ķ� flush ��ȥ�����⣺
@@ -2420,12 +2426,12 @@ const moveToTrash = useCallback(async () => {
     } finally {
       setAiTitleLoading(false);
     }
-  }, [activeNote, actions, aiTitleLoading, t]);
+  }, [activeNote, actions, aiAvailable, aiTitleLoading, t]);
 
   // AI �Ƽ���ǩ
   const [aiTagsLoading, setAiTagsLoading] = useState(false);
   const handleAITags = useCallback(async () => {
-    if (!activeNote || !activeNote.contentText || aiTagsLoading) return;
+    if (!aiAvailable || !activeNote || !activeNote.contentText || aiTagsLoading) return;
     setAiTagsLoading(true);
     try {
       const tagsCtx = buildAiContext({ action: "tags", title: activeNote.title, contentText: activeNote.contentText, maxInputTokens: 1800 });
@@ -2459,7 +2465,7 @@ const moveToTrash = useCallback(async () => {
       api.getTags().then(actions.setTags).catch(console.error);
     } catch (e: any) { console.error("AI tags error:", e); toast.error(e?.message || t("editor.aiTagsFailed") || "AI 推荐标签失败"); }
     setAiTagsLoading(false);
-  }, [activeNote, actions, state.tags, aiTagsLoading]);
+  }, [activeNote, actions, state.tags, aiAvailable, aiTagsLoading]);
 
   // AI �ܽ�
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -2467,7 +2473,7 @@ const moveToTrash = useCallback(async () => {
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
 
   const handleAISummary = useCallback(async () => {
-    if (!activeNote || aiSummaryLoading) return;
+    if (!aiAvailable || !activeNote || aiSummaryLoading) return;
     const snap = editorHandleRef.current?.getSnapshot?.();
     const text = (snap?.contentText || activeNote.contentText || "").trim();
     if (!text) {
@@ -2505,7 +2511,7 @@ const moveToTrash = useCallback(async () => {
     } finally {
       setAiSummaryLoading(false);
     }
-  }, [activeNote, aiSummaryLoading, t]);
+  }, [activeNote, aiAvailable, aiSummaryLoading, t]);
 
   const handleSummaryCopy = useCallback(async () => {
     if (!aiSummaryResult) return;
@@ -2552,7 +2558,7 @@ const moveToTrash = useCallback(async () => {
   }, []);
 
   const handleAIMermaid = useCallback(async (type: "mermaid_mindmap" | "mermaid_flowchart") => {
-    if (!activeNote || aiMermaidLoading) return;
+    if (!aiAvailable || !activeNote || aiMermaidLoading) return;
     const snap = editorHandleRef.current?.getSnapshot?.();
     const text = (snap?.contentText || activeNote.contentText || "").trim();
     if (!text) {
@@ -2594,7 +2600,7 @@ const moveToTrash = useCallback(async () => {
     } finally {
       setAiMermaidLoading(false);
     }
-  }, [activeNote, aiMermaidLoading, t]);
+  }, [activeNote, aiAvailable, aiMermaidLoading, t]);
 
   const handleMermaidInsert = useCallback(() => {
     if (!activeNote || !aiMermaidResult) return;
@@ -2689,7 +2695,7 @@ const moveToTrash = useCallback(async () => {
   }, [activeNote?.id]);
 
   const handleAiClassify = useCallback(async () => {
-    if (!activeNote || aiClassifyLoading) return;
+    if (!aiAvailable || !activeNote || aiClassifyLoading) return;
     setAiClassifyLoading(true);
     try {
       const res = await api.aiClassify({ noteId: activeNote.id });
@@ -2706,7 +2712,15 @@ const moveToTrash = useCallback(async () => {
     } finally {
       setAiClassifyLoading(false);
     }
-  }, [activeNote, aiClassifyLoading, t]);
+  }, [activeNote, aiAvailable, aiClassifyLoading, t]);
+
+  useEffect(() => {
+    if (!aiAvailable) {
+      setShowSummaryDialog(false);
+      setShowMermaidDialog(false);
+      setAiSuggestions(null);
+    }
+  }, [aiAvailable]);
 
   // ���������������ȫһ�µıʼǱ���
   //
@@ -2936,7 +2950,7 @@ const moveToTrash = useCallback(async () => {
             {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
           </span>
           {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
-          {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+          {aiAvailable && canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
             data-editor-ai-entry="mobile"
             variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-accent-primary"
             onMouseDown={event => event.preventDefault()}
@@ -3090,43 +3104,47 @@ const moveToTrash = useCallback(async () => {
                     disabled={!canEditActiveNote || effectiveLocked || isTrashed || modeSwitching || noteIsFullHtmlDoc}
                     onAction={applyCjkTypography}
                   />
-                  <div className="h-px bg-app-border mx-2 my-0.5" />
-                  {/* AI ���ɱ��� */}
-                  <button
-                    onClick={() => {
-                      handleAITitle();
-                      setShowMobileMenu(false);
-                    }}
-                    disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {aiTitleLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Type size={15} className="text-violet-500" />}
-                    <span>{t('editor.aiGenerateTitle')}</span>
-                  </button>
-                  {/* AI �Ƽ���ǩ */}
-                  <button
-                    onClick={() => {
-                      handleAITags();
-                      setShowMobileMenu(false);
-                    }}
-                    disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {aiTagsLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <TagIcon size={15} className="text-violet-500" />}
-                    <span>{t('editor.aiSuggestTags')}</span>
-                  </button>
-                  {/* AI �ܽ� */}
-                  <button
-                    onClick={() => {
-                      handleAISummary();
-                      setShowMobileMenu(false);
-                    }}
-                    disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {aiSummaryLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Sparkles size={15} className="text-violet-500" />}
-                    <span>{t('editor.aiSummary')}</span>
-                  </button>
+                  {aiAvailable && (
+                    <>
+                      <div className="h-px bg-app-border mx-2 my-0.5" />
+                      {/* AI ���ɱ��� */}
+                      <button
+                        onClick={() => {
+                          handleAITitle();
+                          setShowMobileMenu(false);
+                        }}
+                        disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        {aiTitleLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Type size={15} className="text-violet-500" />}
+                        <span>{t('editor.aiGenerateTitle')}</span>
+                      </button>
+                      {/* AI �Ƽ���ǩ */}
+                      <button
+                        onClick={() => {
+                          handleAITags();
+                          setShowMobileMenu(false);
+                        }}
+                        disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        {aiTagsLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <TagIcon size={15} className="text-violet-500" />}
+                        <span>{t('editor.aiSuggestTags')}</span>
+                      </button>
+                      {/* AI �ܽ� */}
+                      <button
+                        onClick={() => {
+                          handleAISummary();
+                          setShowMobileMenu(false);
+                        }}
+                        disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        {aiSummaryLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Sparkles size={15} className="text-violet-500" />}
+                        <span>{t('editor.aiSummary')}</span>
+                      </button>
+                    </>
+                  )}
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* ���� */}
                   <button
@@ -3366,54 +3384,56 @@ const moveToTrash = useCallback(async () => {
                 {/* ���� P3��AI ������� ����
                     ���ڶ�������λ�ã����������� �� չʾ���� �� ������ƶ���
                     ���鲻����"ȫ���ʼǱ�"��ѡ�б����û����ֶ��߹��档 */}
-                <div className="px-2 pt-1 pb-0.5">
-                  <button
-                    onClick={handleAiClassify}
-                    disabled={aiClassifyLoading}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 disabled:opacity-50 disabled:cursor-wait transition-colors"
-                    title={t('editor.aiClassifyTip') || "���ڱʼ������Ƽ�Ŀ��ʼǱ�"}
-                  >
-                    {aiClassifyLoading ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : (
-                      <Sparkles size={12} />
-                    )}
-                    <span className="flex-1 text-left">
-                      {aiClassifyLoading
-                        ? (t('editor.aiClassifyLoading') || "AI ���ڷ�����")
-                        : (t('editor.aiClassifyAction') || "AI �������")}
-                    </span>
-                  </button>
-                  {aiSuggestions && aiSuggestions.length > 0 && (
-                    <div className="mt-1 pl-1 border-l-2 border-violet-200 dark:border-violet-500/30 ml-1.5 flex flex-col gap-0.5">
-                      {aiSuggestions.map((s) => (
-                        <button
-                          key={s.notebookId}
-                          onClick={() => handleMoveToNotebook(s.notebookId)}
-                          className="group w-full flex items-start gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors text-left"
-                          title={s.reason || s.path}
-                        >
-                          <FolderInput size={11} className="mt-0.5 shrink-0 text-violet-500" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate text-tx-primary group-hover:text-violet-600 dark:group-hover:text-violet-400">
-                                {s.path}
-                              </span>
-                              <span className="shrink-0 text-[10px] text-violet-500/80 font-mono">
-                                {Math.round(s.confidence * 100)}%
-                              </span>
-                            </div>
-                            {s.reason && (
-                              <div className="text-[10px] text-tx-tertiary truncate mt-0.5">
-                                {s.reason}
+                {aiAvailable && (
+                  <div className="px-2 pt-1 pb-0.5">
+                    <button
+                      onClick={handleAiClassify}
+                      disabled={aiClassifyLoading}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-500/10 disabled:opacity-50 disabled:cursor-wait transition-colors"
+                      title={t('editor.aiClassifyTip') || "���ڱʼ������Ƽ�Ŀ��ʼǱ�"}
+                    >
+                      {aiClassifyLoading ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={12} />
+                      )}
+                      <span className="flex-1 text-left">
+                        {aiClassifyLoading
+                          ? (t('editor.aiClassifyLoading') || "AI ���ڷ�����")
+                          : (t('editor.aiClassifyAction') || "AI �������")}
+                      </span>
+                    </button>
+                    {aiSuggestions && aiSuggestions.length > 0 && (
+                      <div className="mt-1 pl-1 border-l-2 border-violet-200 dark:border-violet-500/30 ml-1.5 flex flex-col gap-0.5">
+                        {aiSuggestions.map((s) => (
+                          <button
+                            key={s.notebookId}
+                            onClick={() => handleMoveToNotebook(s.notebookId)}
+                            className="group w-full flex items-start gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-violet-50 dark:hover:bg-violet-500/10 transition-colors text-left"
+                            title={s.reason || s.path}
+                          >
+                            <FolderInput size={11} className="mt-0.5 shrink-0 text-violet-500" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-tx-primary group-hover:text-violet-600 dark:group-hover:text-violet-400">
+                                  {s.path}
+                                </span>
+                                <span className="shrink-0 text-[10px] text-violet-500/80 font-mono">
+                                  {Math.round(s.confidence * 100)}%
+                                </span>
                               </div>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                              {s.reason && (
+                                <div className="text-[10px] text-tx-tertiary truncate mt-0.5">
+                                  {s.reason}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="px-3 py-1.5 mt-1 text-[10px] font-medium text-tx-tertiary border-t border-b border-app-border">
                   {t('editor.moveToLabel')}
@@ -3552,32 +3572,34 @@ const moveToTrash = useCallback(async () => {
             </Button>
           )}
 
-          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
-            {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
-              data-editor-ai-entry="desktop"
-              variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary max-lg:w-7 max-lg:px-0", showAgent && "bg-accent-primary/10")}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => setShowAgent(value => !value)}
-              aria-label={t("agent.title")} aria-expanded={showAgent} aria-controls="editor-ai-assistant"
-              title={t("agent.title")}
-            ><Sparkles size={14} /><span className="hidden lg:inline">{t("agent.title")}</span></Button>}
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITitle}
-              disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiGenerateTitle')}
-            >
-              {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
-            </Button>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITags}
-              disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiSuggestTags')}
-            >
-              {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
-            </Button>
-          </div>
+          {aiAvailable && (
+            <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
+              {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+                data-editor-ai-entry="desktop"
+                variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary max-lg:w-7 max-lg:px-0", showAgent && "bg-accent-primary/10")}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => setShowAgent(value => !value)}
+                aria-label={t("agent.title")} aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+                title={t("agent.title")}
+              ><Sparkles size={14} /><span className="hidden lg:inline">{t("agent.title")}</span></Button>}
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+                onClick={handleAITitle}
+                disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
+                title={t('editor.aiGenerateTitle')}
+              >
+                {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
+              </Button>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+                onClick={handleAITags}
+                disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
+                title={t('editor.aiSuggestTags')}
+              >
+                {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
+              </Button>
+            </div>
+          )}
 
           {state.editorFullscreen && (
             <Button
@@ -3778,23 +3800,27 @@ const moveToTrash = useCallback(async () => {
                     </>
                   )}
 
-                  <div className="h-px bg-app-border mx-2 my-0.5" />
-                  <button
-                    onClick={() => { handleAISummary(); setShowDesktopMoreMenu(false); }}
-                    disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {aiSummaryLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Sparkles size={15} className="text-violet-500" />}
-                    <span>{t('editor.aiSummary')}</span>
-                  </button>
-                  <button
-                    onClick={() => { handleAIMermaid("mermaid_mindmap"); setShowDesktopMoreMenu(false); }}
-                    disabled={aiMermaidLoading || !activeNote.contentText || effectiveLocked}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {aiMermaidLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Network size={15} className="text-violet-500" />}
-                    <span>{t('editor.aiGenMindMap') || "AI 思维导图"}</span>
-                  </button>
+                  {aiAvailable && (
+                    <>
+                      <div className="h-px bg-app-border mx-2 my-0.5" />
+                      <button
+                        onClick={() => { handleAISummary(); setShowDesktopMoreMenu(false); }}
+                        disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        {aiSummaryLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Sparkles size={15} className="text-violet-500" />}
+                        <span>{t('editor.aiSummary')}</span>
+                      </button>
+                      <button
+                        onClick={() => { handleAIMermaid("mermaid_mindmap"); setShowDesktopMoreMenu(false); }}
+                        disabled={aiMermaidLoading || !activeNote.contentText || effectiveLocked}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        {aiMermaidLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Network size={15} className="text-violet-500" />}
+                        <span>{t('editor.aiGenMindMap') || "AI 思维导图"}</span>
+                      </button>
+                    </>
+                  )}
 
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
@@ -3955,7 +3981,7 @@ const moveToTrash = useCallback(async () => {
             )}
           </AnimatePresence>
         </div>
-        {showAgent && canEditActiveNote && !effectiveLocked && !isTrashed && !modeSwitching && (
+        {aiAvailable && showAgent && canEditActiveNote && !effectiveLocked && !isTrashed && !modeSwitching && (
           <EditorAgentPanel key={`${selfUser?.userId}-${activeNote.id}-${editorMode}`} note={activeNote} editor={() => editorHandleRef.current} onClose={() => setShowAgent(false)} />
         )}
 
@@ -4082,7 +4108,7 @@ const moveToTrash = useCallback(async () => {
 
       {/* AI �ܽᵯ�� */}
       <AnimatePresence>
-        {showSummaryDialog && (
+        {aiAvailable && showSummaryDialog && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -4167,7 +4193,7 @@ const moveToTrash = useCallback(async () => {
         }}
       />
       <AnimatePresence>
-        {showMermaidDialog && (
+        {aiAvailable && showMermaidDialog && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

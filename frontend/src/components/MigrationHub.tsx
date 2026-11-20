@@ -7,6 +7,7 @@ import { migrationApi, migrationIsActive, type MigrationJob } from "@/lib/migrat
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
 import { detectAIChatExport, type AIChatExport } from "@/lib/aiChatExport";
 import { openAIMemory } from "@/lib/aiMemory";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import {
   IMPORT_ACCEPT, filesFromInput, importErrorKind, importPhase, importRisks, packageImport, planImport, warningText,
@@ -56,6 +57,9 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   // An AI chat export waiting for the person to choose where it goes.
   const [chatExport, setChatExport] = useState<(AIChatExport & { files: ImportFile[] }) | null>(null);
   const { siteConfig } = useSiteSettings();
+  const aiAvailable = useAIConnectionAvailable();
+  const assistantVisible = aiAvailable && view === "assistant";
+  const archiveAvailable = aiAvailable && siteConfig.aiMemoryEnabled;
   const [skipped, setSkipped] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
@@ -69,7 +73,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   const available = !disabled && !localOnly && !!workspaceId;
   const selectedId = job?.id;
   const phase = importPhase(job, preparing !== null);
-  const pollDelay = view === "assistant" || jobs.some((item) => migrationIsActive(item.status)) ? 2500 : 15000;
+  const pollDelay = assistantVisible || jobs.some((item) => migrationIsActive(item.status)) ? 2500 : 15000;
 
   useEffect(() => { onImportedRef.current = onImported; }, [onImported]);
 
@@ -224,22 +228,22 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       {job?.status === "CREATED" && ["network", "changed", "unknown"].includes(problem) && <Button type="button" size="sm" disabled={busy || !available} onClick={() => resumeInput.current?.click()}>{t("migration.smart.resume")}</Button>}
       {job?.status === "PREVIEW_READY" && problem === "changed" && <Button type="button" size="sm" disabled={busy || !available} onClick={() => void run(() => migrationApi.preview(job.id))}>{t("migration.smart.recheck")}</Button>}
       {["no-notes", "unsupported-files", "format", "encoding", "size"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>}
-      {["unsupported-files", "format"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={openAssistant}>{t("migration.smart.useAssistant")}</Button>}
+      {aiAvailable && ["unsupported-files", "format"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={openAssistant}>{t("migration.smart.useAssistant")}</Button>}
     </div>
   </div>;
 
   const chatChoice = chatExport && <section className={card} aria-label={t("migration.smart.chat.title")}>
     <h5 className="text-base font-semibold text-tx-primary">{t("migration.smart.chat.title")}</h5>
-    <p className="text-sm text-tx-secondary">{t(siteConfig.aiMemoryEnabled ? "migration.smart.chat.hint" : "migration.smart.chat.off")}</p>
+    {aiAvailable && <p className="text-sm text-tx-secondary">{t(archiveAvailable ? "migration.smart.chat.hint" : "migration.smart.chat.off")}</p>}
     <div className="flex flex-wrap gap-2">
-      {siteConfig.aiMemoryEnabled && <Button type="button" onClick={() => { const { file, provider } = chatExport; setChatExport(null); openAIMemory("connections", { file, provider }); }}>{t("migration.smart.chat.toArchive")}</Button>}
+      {archiveAvailable && <Button type="button" onClick={() => { const { file, provider } = chatExport; setChatExport(null); openAIMemory("connections", { file, provider }); }}>{t("migration.smart.chat.toArchive")}</Button>}
       <Button type="button" variant="outline" disabled={!available || busy} onClick={() => { const { files } = chatExport; setChatExport(null); void start(files, null, true); }}>{t("migration.smart.chat.asNotes")}</Button>
       <Button type="button" variant="ghost" onClick={() => setChatExport(null)}>{t("migration.smart.startOver")}</Button>
     </div>
   </section>;
 
   const startView = chatChoice || <>
-    {view === "assistant"
+    {assistantVisible
       ? <AssistantMove jobs={jobs} notebooks={notebooks} disabled={!available || busy} onBack={() => setView("files")}
         onOpenJob={(prepared) => { setView("files"); void run(() => migrationApi.get(prepared.id)); }} />
       : <div className="space-y-3">
@@ -255,9 +259,9 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
           </select>
           <span className="mt-1 block font-normal text-tx-secondary">{t("migration.smart.locationHint")}</span>
         </label>}
-        <Button type="button" variant="link" size="sm" className="h-auto min-h-8 whitespace-normal py-1 text-left px-0" onClick={() => { setProblem(null); setView("assistant"); }}>
+        {aiAvailable && <Button type="button" variant="link" size="sm" className="h-auto min-h-8 whitespace-normal py-1 text-left px-0" onClick={() => { setProblem(null); setView("assistant"); }}>
           <Sparkles size={14} className="mr-1.5" aria-hidden="true" />{t("migration.smart.assistantLink")}
-        </Button>
+        </Button>}
       </div>}
   </>;
 

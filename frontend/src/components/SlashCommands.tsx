@@ -582,16 +582,15 @@ export function getDefaultSlashCommands(
       keywords: ["table", "grid", "表格"],
       action: (editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
     },
-    // AI
-    {
+    ...(onAIAssistant ? [{
       id: "ai",
       label: t("slash.ai"),
       description: t("slash.aiDesc"),
       icon: <Sparkles size={16} className="text-violet-500" />,
       category: t("slash.catAI"),
       keywords: ["ai", "assistant", "智能", "助手", "写作"],
-      action: () => onAIAssistant?.(),
-    },
+      action: onAIAssistant,
+    }] : []),
   ];
 }
 

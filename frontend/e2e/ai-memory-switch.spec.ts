@@ -7,14 +7,14 @@ import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // The AI conversation archive ships switched on; an administrator can turn it off (no entry, no API) and back on.
-test("the AI conversation archive is on by default, an administrator can switch it off, and switching it back on restores it", async ({ page }) => {
+test("AI navigation requires a connected model and respects the administrator's archive switch", async ({ page }) => {
   const root = path.resolve(".."), directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-browser-"));
   const executable = process.env.NOWEN_QA_NODE || process.execPath;
   const port = await new Promise<number>(resolve => { const socket = net.createServer(); socket.listen(0, "127.0.0.1", () => { const value = (socket.address() as net.AddressInfo).port; socket.close(() => resolve(value)); }); });
   const url = `http://127.0.0.1:${port}`;
   let logs = "";
   const server = spawn(executable, ["--import", pathToFileURL(path.join(root, "backend/node_modules/tsx/dist/loader.mjs")).href, path.join(root, "backend/tests/application-v3-browser-server.ts")], {
-    cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", V3_BROWSER_PROFILE: directory, FRONTEND_DIST: path.join(root, "frontend/dist"), PORT: String(port) },
+    cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", V3_BROWSER_PROFILE: directory, V3_BROWSER_AI_FIXTURE: "1", FRONTEND_DIST: path.join(root, "frontend/dist"), PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", chunk => { logs += chunk; }); server.stderr.on("data", chunk => { logs += chunk; });
@@ -28,6 +28,7 @@ test("the AI conversation archive is on by default, an administrator can switch 
     // On by default on the server: public settings say so and the archive API answers.
     expect((await (await page.request.get(`${url}/api/settings`)).json()).feature_ai_memory_enabled).toBe("true");
     expect((await page.request.get(`${url}/api/ai-memory/capabilities`, { headers })).status()).toBe(200);
+    expect((await page.request.put(`${url}/api/user-preferences/ai-reliable/config-enabled`, { headers, data: { enabled: false } })).ok()).toBe(true);
 
     await page.goto(url);
     await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
@@ -38,6 +39,18 @@ test("the AI conversation archive is on by default, an administrator can switch 
     const settings = page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true });
     await expect(settings).toBeVisible({ timeout: 30000 });
     const entry = page.getByRole("button", { name: "Chat archive", exact: true });
+    const chat = page.getByRole("button", { name: "AI Chat", exact: true });
+    const modal = page.locator('[data-swipe-blocker="settings-modal"]');
+    const aiSettings = modal.getByRole("button", { name: "AI Assistant", exact: true }).filter({ visible: true });
+    await expect(entry).toHaveCount(0);
+    await expect(chat).toHaveCount(0);
+    await settings.click();
+    await aiSettings.click();
+    const connected = page.waitForResponse(response => response.url().includes("/api/ai/test?chatOnly=1") && response.ok());
+    await modal.getByRole("button", { name: "开启手动 AI 配置", exact: true }).click();
+    expect((await (await connected).json()).success).toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
+    await expect(chat.filter({ visible: true })).toBeVisible();
 
     // On by default in the app: the sidebar entry opens the archive, which says how to save a conversation.
     await expect(entry.filter({ visible: true })).toBeVisible();
@@ -54,7 +67,6 @@ test("the AI conversation archive is on by default, an administrator can switch 
     // Settings → AI Assistant at the switch; the entry disappears without reloading, the API refuses,
     // and the setting survives a reload.
     const serverFlag = () => page.request.get(`${url}/api/settings`).then(response => response.json()).then(body => body.feature_ai_memory_enabled);
-    const modal = page.locator('[data-swipe-blocker="settings-modal"]');
     const toggle = modal.getByRole("switch", { name: "Enable AI conversation archive", exact: true });
     await settings.click();
     await modal.getByRole("button", { name: "Preferences", exact: true }).filter({ visible: true }).click();
@@ -76,7 +88,7 @@ test("the AI conversation archive is on by default, an administrator can switch 
 
     // On again, directly in Settings → AI Assistant: the entry comes back without reloading and the API answers.
     await settings.click();
-    await modal.getByRole("button", { name: "AI Assistant", exact: true }).filter({ visible: true }).click();
+    await aiSettings.click();
     await expect(toggle).not.toBeChecked();
     await toggle.check();
     await expect.poll(serverFlag).toBe("true");

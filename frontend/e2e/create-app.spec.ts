@@ -47,6 +47,7 @@ test("creates apps from AI and from templates, saves them and adds them to the d
 
     // AI path: a matching template is suggested, a cancelled request keeps the description, then a draft is saved.
     const prompt = page.getByRole("textbox", { name: "AI App Builder", exact: true });
+    await expect(prompt).toBeVisible();
     await prompt.fill("A project board with owner and done status");
     await expect(page.getByRole("note").filter({ hasText: "A template may already fit" }).getByRole("button", { name: "Project progress", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Generate preview", exact: true }).click();

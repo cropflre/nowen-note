@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   moveNavigationModule,
-  moveNavigationModuleByOffset,
   normalizeNavigationModuleOrder,
   TASK_CENTER_OPTIONAL_MODULE_IDS,
   type NavigationModuleId,
@@ -125,14 +124,14 @@ function NavigationModuleRow({
 }
 
 /** Sidebar entries: show/hide and order. Hiding is presentation only; deep links still open hidden modules. */
-export function NavigationModulesGroup({ scope }: { scope?: PreferenceScope }) {
+export function NavigationModulesGroup({ modules, scope }: { modules: readonly NavigationModuleId[]; scope?: PreferenceScope }) {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
   const { prefs, setPref } = useUserPreferences();
   const labels = useNavigationModuleLabels();
   const [dragged, setDragged] = useState<NavigationModuleId | null>(null);
-  const order = normalizeNavigationModuleOrder(prefs.navigationModuleOrder);
+  const order = normalizeNavigationModuleOrder(prefs.navigationModuleOrder).filter((id) => modules.includes(id));
 
   const setVisible = (id: NavigationModuleId, visible: boolean) => {
     const hidden = prefs.hiddenNavigationModules;
@@ -158,7 +157,10 @@ export function NavigationModulesGroup({ scope }: { scope?: PreferenceScope }) {
             isLast={index === order.length - 1}
             dragging={dragged === id}
             onVisibleChange={(visible) => setVisible(id, visible)}
-            onMove={(offset) => setPref("navigationModuleOrder", moveNavigationModuleByOffset(prefs.navigationModuleOrder, id, offset))}
+            onMove={(offset) => {
+              const target = order[index + offset];
+              if (target) setPref("navigationModuleOrder", moveNavigationModule(prefs.navigationModuleOrder, id, target));
+            }}
             onDragStart={() => setDragged(id)}
             onDragEnd={() => setDragged(null)}
             onDrop={() => {

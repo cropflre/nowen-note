@@ -16,6 +16,7 @@ vi.mock("@/hooks/useUserPreferences", () => ({ useUserPreferences: () => ({ pref
 vi.mock("@/hooks/useRailMode", () => ({ useRailMode: () => ["label"] }));
 vi.mock("@/hooks/useSidebarTextStyle", () => ({ useSidebarTextStyle: () => ["classic"] }));
 vi.mock("@/hooks/useMobileRailHidden", () => ({ useMobileRailHidden: () => [false, vi.fn()] }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => false }));
 vi.mock("@/lib/api", () => ({
   api: {}, broadcastLogout: vi.fn(), clearServerUrl: vi.fn(),
   getCurrentWorkspace: () => "personal", getServerUrl: () => "https://server",

@@ -7,13 +7,16 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string, options?: Record<string, unknown>) => (options ? `${key}|${Object.values(options).join("|")}` : key) }),
 }));
 vi.mock("@/lib/toast", () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+vi.mock("@/hooks/useEditorActions", () => ({ useEditorActions: () => [wrap, polish] }));
 import { EditorActionsMenu } from "../EditorActionsMenu";
 import { EditorActionsHost } from "../EditorActionsHost";
+import { useEditorActionBinding } from "../editorActionBinding";
 import { registerEditorActions } from "@/lib/editorActions/registry";
+import type { EditorActionAdapter } from "@/lib/editorActions/types";
 
 const [wrap, polish] = registerEditorActions([{ pluginId: "acme.text", pluginName: "Acme Text", editorActions: [
-  { id: "wrap", command: "acme.text.wrap", label: "Wrap", placements: ["editor.toolbar.actions"], appliesTo: ["markdown"], selectionMode: "text", resultMode: "replace-selection" },
-  { id: "polish", prompt: "polish", label: "Polish", placements: ["editor.toolbar.actions"], appliesTo: ["markdown"], selectionMode: "text", resultMode: "open-preview" },
+  { id: "wrap", command: "acme.text.wrap", label: "Wrap", placements: ["editor.toolbar.actions", "editor.slash"], appliesTo: ["markdown"], selectionMode: "text", resultMode: "replace-selection" },
+  { id: "polish", prompt: "polish", label: "Polish", placements: ["editor.toolbar.actions", "editor.slash"], appliesTo: ["markdown"], selectionMode: "text", resultMode: "open-preview" },
 ] as never }], "web");
 
 let root: Root, host: HTMLDivElement;
@@ -29,6 +32,27 @@ const click = async (element: Element, detail = 1) => { await act(async () => { 
 const key = async (element: Element, value: string) => { await act(async () => { element.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true })); }); };
 
 describe("editor actions menu", () => {
+  it("hides AI plugin actions in both placements and dismisses an open menu when disconnected", async () => {
+    const adapter = { kind: "markdown", hasSelection: () => true } as EditorActionAdapter;
+    function BoundActions({ aiAvailable }: { aiAvailable: boolean }) {
+      const binding = useEditorActionBinding(adapter, { noteId: "note", editable: true, guest: false, trashed: false, aiAvailable });
+      return <>{binding.menu("editor.toolbar.actions")}<output>{binding.slashEntries.map(({ label }) => label).join(", ")}</output></>;
+    }
+    const trigger = () => host.querySelector('button[aria-haspopup="menu"]')!;
+
+    await act(async () => root.render(<BoundActions aiAvailable />));
+    expect(host.querySelector("output")?.textContent).toBe("Wrap, Polish");
+    await click(trigger());
+    expect(items()).toHaveLength(2);
+
+    await act(async () => root.render(<BoundActions aiAvailable={false} />));
+    expect(menu()).toBeNull();
+    expect(host.querySelector("output")?.textContent).toBe("Wrap");
+    await click(trigger());
+    expect(items()).toHaveLength(1);
+    expect(items()[0].textContent).toContain("Wrap");
+  });
+
   it("lists entries when opened, explains disabled ones and runs the chosen action", async () => {
     const onRun = vi.fn();
     const getEntries = vi.fn(() => [{ action: wrap, disabledReason: "NEEDS_SELECTION" as const }, { action: polish }]);

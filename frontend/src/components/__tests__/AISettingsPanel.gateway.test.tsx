@@ -2,8 +2,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), available: vi.fn(), update: vi.fn(), discoverModels: vi.fn(), changed: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), available: vi.fn(), update: vi.fn(), discoverModels: vi.fn(), changed: vi.fn(), testDraft: vi.fn(), rememberConnection: vi.fn() }));
 vi.mock("@/lib/aiProfiles", () => ({ aiProfiles: mocks, emitAIProfilesChanged: mocks.changed, getAIProfilesScope: () => "session-a" }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => false, rememberAIProfileConnection: mocks.rememberConnection }));
 vi.mock("@/components/settings/PluginPromptPackSettingsSection", () => ({ default: () => null }));
 vi.mock("@/components/SpeechSettingsPanel", () => ({ default: () => null }));
 import AISettingsPanel from "../AISettingsPanel";
@@ -65,5 +66,20 @@ describe("AI gateway profile editing", () => {
     await act(async () => { select.value = "anthropic"; select.dispatchEvent(new Event("change", { bubbles: true })); });
     expect(host.querySelector<HTMLInputElement>('input[placeholder="https://api.example.com/v1"]')!.value).toBe("https://api.anthropic.com/v1");
     expect(host.querySelector('input[aria-label="请求头值 1"]')).toBeNull();
+  });
+
+  it("invalidates a failed test of the saved connection while leaving an unsuccessful draft unsaved", async () => {
+    mocks.testDraft.mockRejectedValue(new Error("Test rejected"));
+    await act(async () => root.render(<AISettingsPanel />));
+    await input("请求头值 1", "incorrect-draft-header");
+    await click("保存并测试");
+    expect(mocks.rememberConnection).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+
+    await input("请求头值 1", "****");
+    await click("保存并测试");
+    expect(mocks.rememberConnection).toHaveBeenCalledTimes(1);
+    expect(mocks.rememberConnection).toHaveBeenCalledWith(profile, false);
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });

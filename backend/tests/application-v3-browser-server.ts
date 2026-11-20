@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { Server } from "node:net";
+import { createServer } from "node:http";
+import { Server, type AddressInfo } from "node:net";
 
 const directory = path.resolve(process.env.V3_BROWSER_PROFILE || "");
 if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith("nowen-v3-browser-")) throw new Error("An isolated V3 profile is required");
@@ -32,6 +33,25 @@ async function start() {
     service.ecosystem.upsertSource({ id: fixture.sourceId, name: "Fixture Registry", indexUrl: fixture.indexUrl, registryKeyId: fixture.registryKeyId, registryPublicKey: fixture.registryPublicKey });
   }
   if (process.env.V3_BROWSER_AI_FIXTURE === "1") {
+    // The real connection test reaches a deterministic model inside the disposable fixture.
+    const provider = createServer((request, response) => {
+      request.resume();
+      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+        response.writeHead(404).end();
+        return;
+      }
+      response.writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ choices: [{ message: { content: "Hello from fixture" } }] }));
+    });
+    await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+    const port = (provider.address() as AddressInfo).port;
+    const { setUserAISettings } = await import("../src/services/user-ai-settings.js");
+    setUserAISettings("v3-browser-admin", [
+      { key: "ai_provider", value: "openai" },
+      { key: "ai_api_url", value: `http://127.0.0.1:${port}/v1` },
+      { key: "ai_api_key", value: "fixture" },
+      { key: "ai_model", value: "fixture" },
+    ]);
     // Editor action acceptance: a deterministic stand-in for the user's AI model. Only the model call
     // is replaced; the editor action route, plugin checks and note ACL stay real.
     const { editorActionDeps } = await import("../src/plugins/editorActions.js");

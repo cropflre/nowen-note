@@ -17,7 +17,7 @@ test("a ChatGPT export dropped into Import notes goes to the AI conversation arc
   const url = `http://127.0.0.1:${port}`;
   let logs = "";
   const server = spawn(executable, ["--import", pathToFileURL(path.join(root, "backend/node_modules/tsx/dist/loader.mjs")).href, path.join(root, "backend/tests/application-v3-browser-server.ts")], {
-    cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", V3_BROWSER_PROFILE: directory, FRONTEND_DIST: path.join(root, "frontend/dist"), PORT: String(port) },
+    cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", V3_BROWSER_PROFILE: directory, V3_BROWSER_AI_FIXTURE: "1", FRONTEND_DIST: path.join(root, "frontend/dist"), PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", chunk => { logs += chunk; }); server.stderr.on("data", chunk => { logs += chunk; });

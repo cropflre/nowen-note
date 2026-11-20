@@ -111,6 +111,7 @@ import {
   shouldLocalizeUrl,
 } from "@/lib/remoteImageLocalizer";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   normalizeTiptapAttachmentSources,
   reportTransientNoteImageSource,
@@ -1456,6 +1457,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
+  const aiAvailable = useAIConnectionAvailable();
+  useEffect(() => {
+    if (!aiAvailable) setShowAI(false);
+  }, [aiAvailable]);
   // 附件详情：内联可预览附件进入右侧抽屉；桌面本地办公附件优先交给系统程序打开。
   // 采用 attachmentId 走 api.files.get 拿完整详情（包含外链分享 / 重命名 / 引用列表），
   // 与文件管理抽屉体验一致。
@@ -4954,7 +4959,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [editor]);
 
   const openAIAssistant = useCallback(() => {
-    if (!editor) return;
+    if (!aiAvailable || !editor) return;
     const { from, to } = editor.state.selection;
 
     // ⚠️ 关键修复：不要用 doc.textBetween(from, to) ——它只提取 text 节点的
@@ -4988,7 +4993,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     // The shared assistant clamps the anchor to the visual viewport.
     setAiPosition({ top: coords.top + 28, left: coords.left });
     setShowAI(true);
-  }, [editor]);
+  }, [aiAvailable, editor]);
 
   const openTaskCapture = useCallback(() => {
     if (!editor) return;
@@ -5097,7 +5102,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [editor, insertWithMarkdownDetect]);
 
   // Plugin editor actions (contract v5): slash items, toolbar/selection menus and the preview host.
-  const editorActions = useTiptapEditorActions(editor, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed) });
+  const editorActions = useTiptapEditorActions(editor, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed), aiAvailable });
 
   // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -5944,9 +5949,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
-                <Sparkles size={14} className="text-violet-500" />
-              </ToolbarButton>
+              {aiAvailable && (
+                <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
+                  <Sparkles size={14} className="text-violet-500" />
+                </ToolbarButton>
+              )}
               {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
@@ -6731,7 +6738,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={[...getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined), ...editorActions.slashItems]}
+        items={[...getDefaultSlashCommands(t, handleImageUpload, aiAvailable && !isGuest ? openAIAssistant : undefined, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined), ...editorActions.slashItems]}
       />
 
       <AttachmentLibraryPicker
@@ -6802,7 +6809,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* AI Writing Assistant */}
       <AnimatePresence>
-        {showAI && (
+        {aiAvailable && showAI && (
           <AIWritingAssistant
             selectedText={aiSelectedText}
             // fullText 作为上下文传给 AI（截前 2000 字），同样用 Markdown

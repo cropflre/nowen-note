@@ -10,6 +10,7 @@ import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
 import AIMemoryCenter from "@/components/AIMemoryCenter";
 import { openAIMemory } from "@/lib/aiMemory";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
@@ -392,6 +393,7 @@ function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
   const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
@@ -499,7 +501,13 @@ function AppLayout() {
   const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
-  const isAIChatView = state.viewMode === "ai-chat";
+  const isAIChatView = aiAvailable && state.viewMode === "ai-chat";
+  useEffect(() => {
+    if (state.viewMode === "ai-chat" && !aiAvailable) {
+      actions.setViewMode("all");
+      actions.setMobileView("list");
+    }
+  }, [actions, aiAvailable, state.viewMode]);
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
@@ -1053,6 +1061,8 @@ function AppLayout() {
         </div>
       )}
 
+      {aiAvailable && <AICollaborationCenter />}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <AIMemoryCenter />}
       <CommentManagementCenter onOpenComment={handleOpenComment} />
       <NotificationCenter onUnreadChange={setNotificationCount} onOpenComment={handleOpenComment} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
 
@@ -1087,6 +1097,7 @@ function MobileTopBar() {
   const { t } = useTranslation();
   const actions = useAppActions();
   const { siteConfig } = useSiteSettings();
+  const aiAvailable = useAIConnectionAvailable();
   return (
     <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
       <button
@@ -1096,8 +1107,8 @@ function MobileTopBar() {
         <Menu size={24} />
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
-      <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
-      {siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
+      {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
     </header>
   );
 }
@@ -1575,8 +1586,6 @@ function AuthGate() {
   return (
     <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
-      <AICollaborationCenter />
-      <AIMemoryCenter />
       <SidebarSearchExperienceBridge />
       {user && <WechatClipboardBridge key={`${getServerUrl() || "local"}:${user.id}`} />}
       <TooltipProvider>

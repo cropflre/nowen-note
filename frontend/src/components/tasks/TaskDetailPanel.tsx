@@ -1,4 +1,5 @@
 import { readAiProvenance } from "@/lib/aiContentProvenance";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { TaskSaveNoteDialog } from "./TaskSaveNoteDialog";
 import PluginInspector from "../PluginInspector";
 import TaskAttachmentSection from "./TaskAttachmentSection";
@@ -183,6 +184,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   onDeleteDependency?: (id: string) => Promise<void>;
 }>(({ task, treeNode, allTasks, onClose, onUpdate, onDelete, onArchive, onToggle, onSelectTask, onCreated, onReminderCountChange, dependencies = [], onCreateDependency, onDeleteDependency }, ref) => {
   const { t, i18n } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const lang = i18n.resolvedLanguage || i18n.language;
   const isZh = lang.toLowerCase().startsWith("zh");
   const dateLocale = isZh ? zhCN : enUS;
@@ -834,7 +836,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         )}
 
         {/* AI Breakdown */}
-        <TaskAIBreakdown task={task} onCreated={() => onCreated?.()} />
+        {aiAvailable && <TaskAIBreakdown task={task} onCreated={() => onCreated?.()} />}
 
         {/* Save as Template */}
         <TaskTemplateEditor task={task} allTasks={allTasks} onSaved={() => {}} />

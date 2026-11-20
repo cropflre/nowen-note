@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useUserPreferences, type UserPreferences } from "@/hooks/useUserPreferences";
 import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { isMobileSyncEnabled } from "@/lib/mobileSyncStatus";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { NAVIGATION_MODULE_IDS, TASK_CENTER_OPTIONAL_MODULE_IDS } from "@/lib/navigationVisibility";
 import { NavigationModulesGroup, TaskCenterModulesGroup } from "./NavigationModuleSettings";
 import {
@@ -12,7 +13,6 @@ import {
   taskCenterModuleAnchor,
   useNavigationModuleLabels,
   useTaskCenterModuleLabels,
-  visibleNavigationModuleCount,
 } from "./navigationModules";
 import {
   DisclosureRow,
@@ -149,6 +149,8 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
   const device = useDeviceLayoutPreferences();
   const menuBar = useDesktopMenuBarPreference();
   const navigationLabels = useNavigationModuleLabels();
+  const aiAvailable = useAIConnectionAvailable();
+  const navigationModules = NAVIGATION_MODULE_IDS.filter((id) => id !== "ai-chat" || aiAvailable);
   const taskCenterLabels = useTaskCenterModuleLabels();
 
   const localMode = isMobileLocalMode();
@@ -254,7 +256,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
         scope: accountScope,
         target: onPage("navigation"),
       },
-      ...NAVIGATION_MODULE_IDS.map((id): PreferenceSearchEntry => ({
+      ...navigationModules.map((id): PreferenceSearchEntry => ({
         id: navigationModuleAnchor(id),
         title: navigationLabels[id],
         path: [...navigationPath, t("preferences.sections.navigationModules")],
@@ -462,8 +464,8 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
               icon={PanelLeft}
               title={categoryTitles.navigation}
               description={t("preferences.categories.navigation.summary", {
-                visible: visibleNavigationModuleCount(prefs.hiddenNavigationModules),
-                total: NAVIGATION_MODULE_IDS.length,
+                visible: navigationModules.filter((id) => !prefs.hiddenNavigationModules.includes(id)).length,
+                total: navigationModules.length,
               })}
               trailing={t("preferences.manage")}
               onClick={() => navigate("navigation", { from: "category-navigation" })}
@@ -506,7 +508,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
         onBack={goHome}
         headingRef={headingRef}
       />
-      <NavigationModulesGroup />
+      <NavigationModulesGroup modules={navigationModules} />
       <TaskCenterModulesGroup open={taskCenterOpen} onOpenChange={setTaskCenterOpen} />
     </>
   );

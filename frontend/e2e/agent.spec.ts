@@ -54,6 +54,11 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
       request.on("data", chunk => { raw += chunk; });
       request.on("end", async () => {
         const body = JSON.parse(raw);
+        if (!body.stream && body.messages?.length === 1 && body.messages[0].content === "Hi") {
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify({ choices: [{ message: { content: "Connected" } }] }));
+          return;
+        }
         if (!body.tools && body.messages?.[0]?.content?.includes("You compose task DRAFTS")) {
           response.setHeader("Content-Type", "application/json");
           response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ tasks: [{ title: "Review workflow sources", priority: 3 }, { title: "Publish workflow summary", priority: 2 }] }) } }] }));

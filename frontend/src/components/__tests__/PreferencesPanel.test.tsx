@@ -22,7 +22,7 @@ const store = vi.hoisted(() => {
     setPref: vi.fn((key: keyof UserPreferences, value: unknown) => set({ ...prefs, [key]: value })),
   };
 });
-const runtime = vi.hoisted(() => ({ android: false, local: false }));
+const runtime = vi.hoisted(() => ({ android: false, local: false, aiAvailable: true }));
 const app = vi.hoisted(() => ({ viewMode: "all", setViewMode: vi.fn() }));
 
 vi.mock("@/hooks/useUserPreferences", async () => {
@@ -43,6 +43,7 @@ vi.mock("@/lib/mobileLocalMode", async (importOriginal) => ({
   isAndroidNativeRuntime: () => runtime.android,
   isMobileLocalMode: () => runtime.local,
 }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => runtime.aiAvailable }));
 
 import i18n from "@/i18n";
 import { toast } from "@/lib/toast";
@@ -112,6 +113,7 @@ beforeEach(() => {
   store.setPref.mockClear();
   runtime.android = false;
   runtime.local = false;
+  runtime.aiAvailable = true;
   app.viewMode = "all";
   app.setViewMode.mockClear();
   onOpenRelatedSetting.mockClear();
@@ -246,6 +248,21 @@ describe("搜索", () => {
 });
 
 describe("导航与模块", () => {
+  it("hides the AI Chat preference until connected and skips it when moving a visible entry", () => {
+    runtime.aiAvailable = false;
+    render();
+    openCategory("navigation");
+    expect(row("navigation-module-ai-chat")).toBeNull();
+    click(query('[aria-label="下移「思维导图」"]'));
+    const order = () => Array.from(host.querySelectorAll("[data-navigation-module-order-item]"))
+      .map((element) => element.getAttribute("data-navigation-module-order-item"));
+    expect(order().slice(-2)).toEqual(["shares", "mindmaps"]);
+
+    runtime.aiAvailable = true;
+    render();
+    expect(row("navigation-module-ai-chat")).not.toBeNull();
+  });
+
   it("keeps hiding, ordering, drag and drop, and leaves a module that was just hidden", () => {
     app.viewMode = "files";
     render();

@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Database, Loader2, Power, RefreshCw, ShieldCheck } from "lucide-react";
 import OriginalAISettingsPanel from "./AISettingsPanel";
 import EmbeddingSettingsPanel from "./EmbeddingSettingsPanel";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { getReliableAIStatus, setReliableAIEnabled, type ReliableStatus } from "@/lib/aiReliable";
 import { cn } from "@/lib/utils";
 
 /** `serverSettings`: administrators' server-wide switches, shown below the manual AI switch and never dimmed with it. */
 export default function AISettingsReliabilityShell({ serverSettings }: { serverSettings?: React.ReactNode } = {}) {
+  const aiAvailable = useAIConnectionAvailable();
   const [status, setStatus] = useState<ReliableStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -39,10 +41,10 @@ export default function AISettingsReliabilityShell({ serverSettings }: { serverS
 
   const queuedJobs = (status?.index.pending || 0) + (status?.index.processing || 0);
   useEffect(() => {
-    if (queuedJobs <= 0) return;
+    if (!aiAvailable || queuedJobs <= 0) return;
     const timer = window.setInterval(() => void refresh(true), 5_000);
     return () => window.clearInterval(timer);
-  }, [queuedJobs, refresh]);
+  }, [aiAvailable, queuedJobs, refresh]);
 
   const vectorState = status?.index.vectorState || (status?.index.vectorAvailable ? "ready" : "unavailable");
   const vectorEngineText = loading
@@ -124,7 +126,7 @@ export default function AISettingsReliabilityShell({ serverSettings }: { serverS
           </button>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {aiAvailable && <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
             <div className="flex items-center gap-1.5 text-[11px] text-zinc-500"><ShieldCheck size={12} />当前对话模型</div>
             <div className="mt-1 truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
@@ -154,7 +156,7 @@ export default function AISettingsReliabilityShell({ serverSettings }: { serverS
               {vectorEngineText}
             </div>
           </div>
-        </div>
+        </div>}
 
         {(saving || error || status?.configurationError) && (
           <div className={cn(
@@ -177,12 +179,12 @@ export default function AISettingsReliabilityShell({ serverSettings }: { serverS
 
       <div className={cn("nowen-embedding-settings", !status?.enabled && "rounded-2xl ring-1 ring-zinc-200 opacity-80 dark:ring-zinc-800")}>
         <style>{`.nowen-embedding-settings > section > div.mt-5.grid > div:nth-child(4) { display: none; }`}</style>
-        {status?.index.configured && !status.index.vectorAvailable && queuedJobs > 0 && (
+        {aiAvailable && status?.index.configured && !status.index.vectorAvailable && queuedJobs > 0 && (
           <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300">
             向量索引正在初始化，任务完成后会自动切换为“可用”。服务重启时中断的任务会自动恢复，无需重复点击重建。
           </div>
         )}
-        <EmbeddingSettingsPanel />
+        <EmbeddingSettingsPanel showIndexControls={aiAvailable} />
       </div>
     </div>
   );

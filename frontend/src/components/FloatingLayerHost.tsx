@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { ViewMode } from "@/types";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   PLUGIN_CONTRIBUTIONS_CHANGED_EVENT,
   pluginApi,
@@ -79,6 +80,7 @@ export function resolveUiNavigation(target: PluginNavigationTarget): { kind: "se
 export default function FloatingLayerHost() {
   const { state } = useApp();
   const actions = useAppActions();
+  const aiAvailable = useAIConnectionAvailable();
   const [enabled, setEnabled] = useState(false);
   const [components, setComponents] = useState<RegisteredPluginUiAction[]>([]);
   const [layout, setLayout] = useState<UiExtensionLayout>(() => loadUiExtensionLayout());
@@ -116,7 +118,10 @@ export default function FloatingLayerHost() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const visible = useMemo(() => resolveFloatingLayer(components, layout), [components, layout]);
+  const visible = useMemo(() => resolveFloatingLayer(
+    aiAvailable ? components : components.filter(({ action }) => action.target !== "ai-chat"),
+    layout,
+  ), [aiAvailable, components, layout]);
 
   const setPosition = useCallback((position: FloatingLayerPosition) => {
     setLayout((current) => {

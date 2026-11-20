@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Info, Loader2, RefreshCw, Search, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCurrentUserRole } from "@/hooks/useCurrentUserRole";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   EXTENSION_CATEGORIES, filterExtensionListings, pickFeaturedListings,
   type ExtensionCategory, type ExtensionListing,
@@ -53,20 +54,27 @@ function sortForDiscovery(listings: ExtensionListing[]): ExtensionListing[] {
 export default function ExtensionDiscover({ dashboardAvailable, appPagesAvailable }: { dashboardAvailable: boolean; appPagesAvailable: boolean }) {
   const { t } = useTranslation();
   const { role, retry } = useCurrentUserRole();
+  const aiAvailable = useAIConnectionAvailable();
   const isAdmin = role.status === "ready" && role.isAdmin;
   const { state, reload } = useExtensionCatalog({ enabled: role.status === "ready", isAdmin, dashboardAvailable });
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<ExtensionCategory | "all">("all");
+  const [requestedCategory, setCategory] = useState<ExtensionCategory | "all">("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const runner = useExtensionActionRunner(useCallback((listing: ExtensionListing) => setSelectedKey(listing.key), []));
   const online = useOnline();
+  const listings = useMemo(() => aiAvailable
+    ? state.listings
+    : state.listings.filter((listing) => listing.kind !== "builtin" || listing.id !== "ai-chat"), [aiAvailable, state.listings]);
+  const category = requestedCategory === "ai" && !aiAvailable && !listings.some((listing) => listing.category === "ai")
+    ? "all"
+    : requestedCategory;
   const categoryLabel = useCallback((value: ExtensionCategory) => t(`extensionCenter.category.${value}`), [t]);
-  const visible = useMemo(() => sortForDiscovery(filterExtensionListings(state.listings, { query, category }, categoryLabel)), [state.listings, query, category, categoryLabel]);
+  const visible = useMemo(() => sortForDiscovery(filterExtensionListings(listings, { query, category }, categoryLabel)), [listings, query, category, categoryLabel]);
   // Only categories that currently have something to show.
-  const categories = useMemo(() => EXTENSION_CATEGORIES.filter((value) => value === category || state.listings.some((listing) => listing.category === value)), [state.listings, category]);
-  const featured = useMemo(() => (!query.trim() && category === "all" ? pickFeaturedListings(state.listings) : []), [state.listings, query, category]);
+  const categories = useMemo(() => EXTENSION_CATEGORIES.filter((value) => value === category || listings.some((listing) => listing.category === value)), [listings, category]);
+  const featured = useMemo(() => (!query.trim() && category === "all" ? pickFeaturedListings(listings) : []), [listings, query, category]);
   // Re-derive from the latest server state so the drawer never shows a stale install status.
-  const selected = selectedKey ? state.listings.find((listing) => listing.key === selectedKey) || null : null;
+  const selected = selectedKey ? listings.find((listing) => listing.key === selectedKey) || null : null;
   useEffect(() => { if (selectedKey && state.status === "ready" && !selected) setSelectedKey(null); }, [selected, selectedKey, state.status]);
 
   if (role.status === "failed") {

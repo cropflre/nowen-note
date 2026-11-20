@@ -3,7 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioSpec } from "@/lib/personalApps";
 
-const mocks = vi.hoisted(() => ({ pluginApi: { personalAppAIStatus: vi.fn(), previewPersonalAppAI: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ aiAvailable: true, pluginApi: { personalAppAIStatus: vi.fn(), previewPersonalAppAI: vi.fn() } }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => mocks.aiAvailable }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: mocks.pluginApi }));
 vi.mock("react-i18next", async () => {
   // Real English copy, so the test reads what users read and catches missing keys.
@@ -38,22 +39,19 @@ const render = async () => { await act(async () => root.render(<CreateAppLanding
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.aiAvailable = true;
   mocks.pluginApi.personalAppAIStatus.mockResolvedValue({ available: true });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe("create app entry", () => {
-  it("offers templates and a settings link instead of an AI prompt when no model is configured", async () => {
-    mocks.pluginApi.personalAppAIStatus.mockResolvedValue({ available: false, code: "STUDIO_AI_NOT_CONFIGURED" });
+  it("offers templates and hides the entire AI panel while disconnected", async () => {
+    mocks.aiAvailable = false;
     await render();
     expect(textarea()).toBeNull();
-    expect(host.querySelector('[role="note"]')!.textContent).toContain("AI is not set up yet");
-    const opened = vi.fn();
-    window.addEventListener("nowen:open-settings", opened);
-    await act(async () => button("Open settings")!.click());
-    window.removeEventListener("nowen:open-settings", opened);
-    expect(opened).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[aria-label="AI App Builder"]')).toBeNull();
+    expect(mocks.pluginApi.personalAppAIStatus).not.toHaveBeenCalled();
     for (const title of ["Project progress", "Reading log", "Habit tracker", "Meeting notes", "Travel checklist", "Daily to-dos", "Personal records"]) expect(button(title), title).toBeDefined();
     await act(async () => button("Reading log")!.click());
     const picked = onPick.mock.calls[0][0] as StudioSpec;
@@ -62,7 +60,7 @@ describe("create app entry", () => {
     expect(mocks.pluginApi.previewPersonalAppAI).not.toHaveBeenCalled();
   });
 
-  it("explains that AI was turned off", async () => {
+  it("retains the Studio-specific disabled state when the main AI connection is available", async () => {
     mocks.pluginApi.personalAppAIStatus.mockResolvedValue({ available: false, code: "STUDIO_AI_UNAVAILABLE" });
     await render();
     expect(textarea()).toBeNull();
@@ -93,6 +91,26 @@ describe("create app entry", () => {
     expect(host.querySelector('[role="region"]')).toBeNull();
     expect(button("Cancel")).toBeUndefined();
     expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("shows the builder after connection and dismisses it on disconnect", async () => {
+    pendingPreview();
+    mocks.aiAvailable = false;
+    await render();
+    expect(textarea()).toBeNull();
+
+    mocks.aiAvailable = true;
+    await render();
+    await type(textarea()!, "A reading log for my books");
+    await act(async () => button("Generate preview")!.click());
+    const signal = mocks.pluginApi.previewPersonalAppAI.mock.calls[0][2] as AbortSignal;
+
+    mocks.aiAvailable = false;
+    await render();
+    expect(signal.aborted).toBe(true);
+    expect(host.querySelector('[aria-label="AI App Builder"]')).toBeNull();
+    expect(host.textContent).not.toContain("A template may already fit");
+    expect(button("Reading log")).toBeDefined();
   });
 
   it("previews what will be created, which permissions and which data it uses, before applying the draft", async () => {

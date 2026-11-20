@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(), get: vi.fn(), create: vi.fn(), upload: vi.fn(), preview: vi.fn(), approve: vi.fn(),
   retry: vi.fn(), cancel: vi.fn(), pause: vi.fn(), resume: vi.fn(), undo: vi.fn(), report: vi.fn(),
   imported: vi.fn(), view: vi.fn(), legacy: vi.fn(), confirm: vi.fn(), items: vi.fn(), decide: vi.fn(), tokens: vi.fn(), clipboard: vi.fn(),
-  scope: "server:user-1", openArchive: vi.fn(), archiveOn: false,
+  scope: "server:user-1", openArchive: vi.fn(), archiveOn: false, aiAvailable: true,
 }));
 vi.mock("@/lib/migrations", async (original) => ({ ...await original<typeof import("@/lib/migrations")>(), migrationApi: { ...mocks, uploadResumable: mocks.upload } }));
 vi.mock("@/lib/api", () => ({ api: { getNotebooks: async () => [{ id: "book-1", name: "Work" }], tokens: { list: mocks.tokens } } }));
@@ -19,6 +19,7 @@ vi.mock("../settings/McpConnectionPanel", () => ({ default: () => <span>Connecti
 vi.mock("../ui/confirm", () => ({ confirm: mocks.confirm }));
 vi.mock("@/lib/aiMemory", () => ({ openAIMemory: (...args: unknown[]) => mocks.openArchive(...args) }));
 vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: { aiMemoryEnabled: mocks.archiveOn } }) }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => mocks.aiAvailable }));
 vi.mock("react-i18next", () => { const t = (key: string) => key; return { useTranslation: () => ({ t }) }; });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,7 +49,7 @@ const chatgptExport = async () => {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.scope = "server:user-1"; mocks.archiveOn = false;
+  vi.clearAllMocks(); mocks.scope = "server:user-1"; mocks.archiveOn = false; mocks.aiAvailable = true;
   mocks.view.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([baseJob]); mocks.get.mockResolvedValue(baseJob);
   mocks.create.mockResolvedValue({ ...baseJob, status: "CREATED", previewDigest: null });
@@ -89,6 +90,16 @@ describe("Import notes: one drop area, one summary, one import button", () => {
     await click(button("smart.chat.asNotes"));
     await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
     expect(mocks.openArchive).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary import available while the AI connection is unverified", async () => {
+    mocks.list.mockResolvedValue([]); mocks.archiveOn = true; mocks.aiAvailable = false;
+    await render();
+    expect(host.querySelector("[data-import-drop-zone]")).not.toBeNull();
+    expect(button("smart.assistantLink")).toBeUndefined();
+    await choose([await chatgptExport()]);
+    await vi.waitFor(() => expect(button("smart.chat.asNotes")).toBeDefined());
+    expect(button("smart.chat.toArchive")).toBeUndefined();
   });
 
   it("starts with a single drop area and keeps AI and technical settings out of the way", async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, Check, LayoutDashboard, LayoutGrid, List, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { pluginApi } from "@/lib/pluginApi";
@@ -56,6 +57,7 @@ export function StudioSpecPreview({ spec, onChange, disabled = false }: { spec: 
 
 export function PersonalStudio({ appId }: { appId?: string }) {
   const t = useCopy();
+  const aiAvailable = useAIConnectionAvailable();
   const [spec, setSpec] = useState<StudioSpec | null>(null);
   const [app, setApp] = useState<StudioApp | null>(null);
   const [error, setError] = useState("");
@@ -95,7 +97,7 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex items-center gap-2"><span className="text-xs text-tx-secondary">{t.personal}</span><button className={primaryClass} disabled={busy} onClick={() => void save()}><Save size={16}/>{busy ? t.saving : t.save}</button></div></div>
     <div><h1 className="text-xl font-semibold">{t.edit}</h1><p className="mt-1 text-sm text-tx-secondary">{t.noCode}</p></div>
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
-    <PersonalStudioAI spec={spec} onAccept={next => { setSpec(next); setError(""); }} />
+    {aiAvailable && <PersonalStudioAI spec={spec} onAccept={next => { setSpec(next); setError(""); }} />}
     {app && <PersonalStudioVersionHistory app={app} onRestored={next => { setApp(next); setSpec(next.spec); setError(""); }} />}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,380px)_1fr]">
       <div className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-4">

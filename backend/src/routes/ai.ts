@@ -241,6 +241,7 @@ ai.post("/embeddings/test", async (c) => {
 // ===== AI 连接测试 =====
 ai.post("/test", async (c) => {
   const userId = c.req.header("X-User-Id")!;
+  const chatOnly = c.req.query("chatOnly") === "1";
   if (!isManualAIEnabled(userId)) {
     return c.json({
       success: false,
@@ -270,7 +271,7 @@ ai.post("/test", async (c) => {
   } catch (err: any) {
     const msg = err?.message || "连接失败";
     // 补充 Ollama 原生 API 回退
-    if (settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
+    if (!chatOnly && settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
       const ollamaBase = settings.ai_api_url.replace(/\/+$/, "").replace(/\/v1$/, "");
       try {
         const fallbackRes = await aiOutboundFetch(`${ollamaBase}/api/tags`, {

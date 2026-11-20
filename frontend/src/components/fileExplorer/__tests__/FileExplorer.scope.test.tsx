@@ -5,8 +5,9 @@ import FileExplorer from "../FileExplorer";
 
 const state = vi.hoisted(() => ({
   filesList: vi.fn(), foldersList: vi.fn(), workspace: "personal", confirm: vi.fn(), removeFiles: vi.fn(), removeFolder: vi.fn(),
-  createShare: vi.fn(), copyText: vi.fn(),
+  createShare: vi.fn(), copyText: vi.fn(), aiAvailable: false,
 }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => state.aiAvailable }));
 vi.mock("react-i18next", () => ({ initReactI18next: { type: "3rdParty", init() {} }, useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/lib/api", () => ({
   getCurrentWorkspace: () => state.workspace, getServerUrl: () => "http://qa.local", getBaseUrl: () => "/api",
@@ -31,7 +32,7 @@ vi.mock("@/lib/toast", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => {
-  vi.clearAllMocks(); state.workspace = "personal";
+  vi.clearAllMocks(); state.workspace = "personal"; state.aiAvailable = false;
   state.filesList.mockResolvedValue({items:[{id:"file-a",filename:"file.txt",mimeType:"text/plain",size:1,createdAt:"2026-10-15",folderId:null}],total:1});
   state.foldersList.mockResolvedValue({folders:[{id:"folder-a",name:"Folder A",parentId:null,fileCount:0}]});
   state.removeFiles.mockResolvedValue({ deleted: 1, failed: [] });
@@ -39,6 +40,26 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); });
+
+it("offers AI search only while the connection is available", async () => {
+  const getAISearch = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "assetAI.search");
+  await act(async () => root.render(<FileExplorer />));
+  expect(getAISearch()).toBeUndefined();
+  expect(host.querySelector('input[aria-label="fileExplorer.search"]')).not.toBeNull();
+
+  state.aiAvailable = true;
+  await act(async () => root.render(<FileExplorer />));
+  await act(async () => {
+    getAISearch()!.click();
+  });
+  await act(async () => { await vi.dynamicImportSettled(); });
+  expect(document.body.querySelector('[role="dialog"][aria-label="assetAI.search"]')).not.toBeNull();
+
+  state.aiAvailable = false;
+  await act(async () => root.render(<FileExplorer />));
+  expect(getAISearch()).toBeUndefined();
+  expect(document.body.querySelector('[role="dialog"][aria-label="assetAI.search"]')).toBeNull();
+});
 
 it.each([
   { kind: "file", changeWorkspace: true }, { kind: "folder", changeWorkspace: true },

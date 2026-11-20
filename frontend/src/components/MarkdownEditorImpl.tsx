@@ -78,6 +78,7 @@ import * as Y from "yjs";
 
 import { useTranslation } from "react-i18next";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   Bold,
   CheckSquare,
@@ -677,6 +678,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   awareness,
 }, ref) {
   const { t: tr, i18n } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const { prefs: userPrefs } = useUserPreferences();
   const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
   remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
@@ -859,10 +861,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiFullText, setAiFullText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number }>({ top: 100, left: 100 });
+  useEffect(() => {
+    if (!aiAvailable) setAiOpen(false);
+  }, [aiAvailable]);
 
   /** �� AI ���㣺���ⲿ�ṩ onAIAssistant ��ת���ⲿ */
   const openAIAssistant = useCallback(() => {
-    if (isGuest) return;
+    if (!aiAvailable || isGuest) return;
     if (onAIAssistant) {
       onAIAssistant();
       return;
@@ -882,7 +887,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       setAiPosition({ top: coords.top + 24, left: coords.left });
     }
     setAiOpen(true);
-  }, [isGuest, onAIAssistant]);
+  }, [aiAvailable, isGuest, onAIAssistant]);
 
   /** AI ���������ݲ��뵽��ǰѡ��β�� */
   const handleAIInsert = useCallback((text: string) => {
@@ -1010,7 +1015,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [editable, isGuest, note.id]);
 
   // Plugin editor actions (contract v5): the same registry and runner as the rich-text editor.
-  const editorActions = useMarkdownEditorActions(viewRef, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed) });
+  const editorActions = useMarkdownEditorActions(viewRef, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed), aiAvailable });
 
   const slashItems: MdSlashItem[] = useMemo(
     () => [
@@ -1020,13 +1025,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         },
         onAttachmentLibrary: openAttachmentLibrary,
         onVoiceRecord: editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined,
-        onAIAssistant: isGuest ? undefined : openAIAssistant,
+        onAIAssistant: aiAvailable && !isGuest ? openAIAssistant : undefined,
       }),
       ...getMarkdownDailyRecordSlashCommands(),
       ...editorActions.slashItems,
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder, editorActions.slashItems],
+    [tr, aiAvailable, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder, editorActions.slashItems],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -2773,12 +2778,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton
-                onClick={openAIAssistant}
-                title={tr("agent.quickRewrite")}
-              >
-                <Sparkles size={14} className="text-violet-500" />
-              </ToolbarButton>
+              {aiAvailable && (
+                <ToolbarButton
+                  onClick={openAIAssistant}
+                  title={tr("agent.quickRewrite")}
+                >
+                  <Sparkles size={14} className="text-violet-500" />
+                </ToolbarButton>
+              )}
               {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
@@ -2787,7 +2794,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
 
       {/* AI д���������ڸ��㣨���Ƿÿ� & δ���� onAIAssistant ����ʱ���ã� */}
-      {!isGuest && aiOpen && (
+      {aiAvailable && !isGuest && aiOpen && (
         <AIWritingAssistant
           selectedText={aiSelectedText}
           fullText={aiFullText}

@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 
 import {
-  NAVIGATION_MODULE_IDS,
   TASK_CENTER_OPTIONAL_MODULE_IDS,
   type NavigationModuleId,
   type TaskCenterOptionalModuleId,
@@ -34,10 +33,6 @@ export function useTaskCenterModuleLabels(): Record<TaskCenterOptionalModuleId, 
 
 export const navigationModuleAnchor = (id: NavigationModuleId) => `navigation-module-${id}`;
 export const taskCenterModuleAnchor = (id: TaskCenterOptionalModuleId) => `task-center-module-${id}`;
-
-export function visibleNavigationModuleCount(hidden: readonly NavigationModuleId[]): number {
-  return NAVIGATION_MODULE_IDS.filter((id) => !hidden.includes(id)).length;
-}
 
 export function visibleTaskCenterModuleCount(hidden: readonly TaskCenterOptionalModuleId[]): number {
   return TASK_CENTER_OPTIONAL_MODULE_IDS.filter((id) => !hidden.includes(id)).length;
