@@ -581,6 +581,20 @@ export class NowenApiClient {
     });
   }
 
+  /** 删除预览：返回会被删除的全部任务和 revision，不修改数据。 */
+  async previewTaskDeletion(taskId: string, mode: "single" | "series"): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/deletion-preview`, { query: { mode } });
+  }
+
+  /** 永久删除个人任务（任务没有回收站）；服务端按预览 revision 校验，任务树有变化即拒绝。 */
+  async deleteTask(taskId: string, mode: "single" | "series", expectedRevision: string): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+      query: { mode },
+      body: { expectedRevision, confirmation: "DELETE_TASK" },
+    });
+  }
+
   /** MCP Token 的项目操作仅支持本人个人空间。 */
   async listTaskProjects(): Promise<any[]> {
     return this.request("/api/task-projects", { query: { workspaceId: "personal" } });

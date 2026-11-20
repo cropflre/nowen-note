@@ -32,6 +32,7 @@ on:
       - "backend/src/routes/attachment-folders.ts"
       - "backend/src/routes/attachment-trash.ts"
       - "backend/src/routes/tasks.ts"
+      - "backend/src/lib/taskRecurrenceDeletion.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/services/apiTokenNotebookAccess.ts"
@@ -39,6 +40,7 @@ on:
       - "backend/src/routes/notes.ts"
       - "backend/src/routes/search.ts"
       - "backend/tests/mcp-team-space.test.ts"
+      - "backend/tests/mcp-task-delete.test.ts"
       - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   pull_request:
@@ -69,6 +71,7 @@ on:
       - "backend/src/routes/attachment-folders.ts"
       - "backend/src/routes/attachment-trash.ts"
       - "backend/src/routes/tasks.ts"
+      - "backend/src/lib/taskRecurrenceDeletion.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/services/apiTokenNotebookAccess.ts"
@@ -76,6 +79,7 @@ on:
       - "backend/src/routes/notes.ts"
       - "backend/src/routes/search.ts"
       - "backend/tests/mcp-team-space.test.ts"
+      - "backend/tests/mcp-task-delete.test.ts"
       - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   workflow_dispatch:
@@ -148,6 +152,11 @@ jobs:
           NODE_ENV: test
       - name: Test team-space MCP grants through embedded HTTP and standalone stdio MCP
         run: node --import tsx --test tests/mcp-team-space.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test confirmed personal task deletion through embedded HTTP and standalone stdio MCP
+        run: node --import tsx --test tests/mcp-task-delete.test.ts tests/openapi-tasks.test.ts
         working-directory: backend
         env:
           NODE_ENV: test

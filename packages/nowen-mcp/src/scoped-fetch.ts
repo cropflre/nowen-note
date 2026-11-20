@@ -422,9 +422,20 @@ async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Re
     }
     return originalFetch(request);
   }
+  const deletionPreview = /^\/([A-Za-z0-9-]+)\/deletion-preview$/.exec(resource);
+  if (deletionPreview && method === "GET") {
+    const taskResponse = await originalFetch(new Request(new URL("/api/tasks/" + encodeURIComponent(deletionPreview[1]), baseUrl), {
+      headers: requestAuthHeaders(request),
+    }));
+    if (!taskResponse.ok) throw new ScopeDeniedError("任务不存在或无权限");
+    const task = await readJsonResponse(taskResponse);
+    if (!task || task.workspaceId != null) throw new ScopeDeniedError("MCP 仅允许个人任务");
+    return originalFetch(request);
+  }
   const match = /^\/([A-Za-z0-9-]+)$/.exec(resource);
-  if (!match || !['GET', 'PUT'].includes(method)) throw new ScopeDeniedError('MCP 不允许任务批量或删除操作');
+  if (!match || !['GET', 'PUT', 'DELETE'].includes(method)) throw new ScopeDeniedError('MCP 不允许任务批量操作');
   if (method === 'PUT') policy.assertWritable('修改任务');
+  if (method === 'DELETE') policy.assertWritable('删除任务');
   const record = await originalFetch(new Request(new URL('/api/tasks/' + encodeURIComponent(match[1]), baseUrl), {
     headers: requestAuthHeaders(request),
   }));
@@ -436,6 +447,7 @@ async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Re
     await assertPersonalTaskLinks(body, request);
     return originalFetch(request);
   }
+  if (method === 'DELETE') return originalFetch(request);
   return replaceJsonResponse(record, task);
 }
 // Personal project APIs are separate from notebook scope; never allow workspace projects.

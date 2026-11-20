@@ -1184,9 +1184,19 @@ async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext)
     await next();
     return;
   }
+  const deletionPreviewMatch = /^\/api\/tasks\/([^/]+)\/deletion-preview$/.exec(path);
+  if (deletionPreviewMatch && method === "GET") {
+    const task = getDb().prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
+      .get(decodeURIComponent(deletionPreviewMatch[1])) as { userId: string; workspaceId: string | null } | undefined;
+    if (!task || task.userId !== ctx.userId || task.workspaceId !== null) {
+      throw new ApiTokenAccessError("只能预览删除本人个人空间的任务", "API_TOKEN_RESOURCE_DENIED");
+    }
+    await next();
+    return;
+  }
   const match = /^\/api\/tasks\/([^/]+)$/.exec(path);
-  if (!match || !["GET", "PUT"].includes(method)) {
-    throw new ApiTokenAccessError("任务 Token 不允许批量、删除或其他高风险操作", "API_TOKEN_ENDPOINT_DENIED");
+  if (!match || !["GET", "PUT", "DELETE"].includes(method)) {
+    throw new ApiTokenAccessError("任务 Token 不允许批量或其他高风险操作", "API_TOKEN_ENDPOINT_DENIED");
   }
   const task = getDb().prepare("SELECT userId,workspaceId FROM tasks WHERE id=?")
     .get(decodeURIComponent(match[1])) as { userId: string; workspaceId: string | null } | undefined;
@@ -1196,6 +1206,16 @@ async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext)
   if (method === "PUT") {
     const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
     await assertTokenPersonalTaskLinks(ctx, body);
+  }
+  if (method === "DELETE") {
+    // 任务没有回收站：Token 删除必须带删除预览的 revision 和明确确认，路由在事务内再核对 revision。
+    const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
+    if (typeof body.expectedRevision !== "string" || !/^[0-9a-f]{64}$/.test(body.expectedRevision)) {
+      throw new ApiTokenAccessError("请先预览将被删除的任务，并提交预览返回的 expectedRevision", "MCP_PREVIEW_REQUIRED", 409);
+    }
+    if (body.confirmation !== "DELETE_TASK") {
+      throw new ApiTokenAccessError("删除任务需要明确确认 DELETE_TASK", "MCP_CONFIRMATION_REQUIRED", 409);
+    }
   }
   await next();
   if (method === "GET" && c.res.status >= 200 && c.res.status < 300) {

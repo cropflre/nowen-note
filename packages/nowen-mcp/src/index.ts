@@ -913,6 +913,42 @@ server.tool(
   },
 );
 
+server.tool(
+  "nowen_delete_task",
+  "永久删除本人个人任务及其全部子任务，需要 tasks:write；任务没有回收站，删除后无法恢复。默认只预览；向用户说明将被删除的任务并取得同意后，才传 dryRun=false、预览返回的 expectedRevision 和 confirmation=DELETE_TASK。已完成的顶层任务可改用 nowen_archive_task 归档（可恢复）",
+  {
+    taskId: z.string().min(1),
+    mode: z.enum(["single", "series"]).optional().describe("single（默认）只删除这一项；series 删除同一循环系列的全部任务"),
+    dryRun: z.boolean().optional().describe("默认 true：只预览将被删除的任务，不修改数据"),
+    expectedRevision: z.string().optional().describe("执行时填写预览返回的 revision"),
+    confirmation: z.string().optional().describe("执行时填写 DELETE_TASK；必须先征得用户同意"),
+  },
+  async ({ taskId, mode = "single", dryRun, expectedRevision, confirmation }) => {
+    try {
+      if (dryRun !== false) {
+        const plan = await api.previewTaskDeletion(taskId, mode);
+        const items: any[] = Array.isArray(plan?.tasks) ? plan.tasks : [];
+        const root = items.find((item) => item.id === taskId);
+        const archivable = mode === "single" && root && !root.parentId && !root.archivedAt && items.every((item) => item.isCompleted);
+        return { content: [{ type: "text" as const, text: stringifyTimedResult({
+          dryRun: true, taskId, mode, title: root?.title, affected: plan.affected, revision: plan.revision,
+          recoverable: false, mayGenerateNextOccurrence: plan.mayGenerateNextOccurrence,
+          tasks: items.slice(0, 50), omitted: Math.max(0, items.length - 50),
+          ...(plan.mayGenerateNextOccurrence ? { note: "这是未完成的循环任务：single 删除后会按规则生成下一次；要删除整个系列请改用 mode=series" } : {}),
+          ...(archivable ? { alternative: "这些任务均已完成，可改用 nowen_archive_task 归档，之后仍可恢复" } : {}),
+          nextStep: "向用户列出将被永久删除的任务并取得同意后，以相同 taskId 和 mode 调用本工具，传 dryRun=false、expectedRevision 与 confirmation=DELETE_TASK",
+        }) }] };
+      }
+      if (confirmation !== "DELETE_TASK") throw new Error("缺少明确确认：confirmation 必须是 DELETE_TASK，且应先征得用户同意");
+      if (!expectedRevision) throw new Error("请先预览，并传入预览返回的 expectedRevision");
+      const result = await api.deleteTask(taskId, mode, expectedRevision);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ deleted: true, taskId, mode, affected: result.affected, ids: result.ids }, null, 2) }] };
+    } catch (error: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
+    }
+  },
+);
+
 server.tool("nowen_list_task_projects", "列出本人个人空间的任务项目", {}, async () => {
   try {
     const items = await api.listTaskProjects();
