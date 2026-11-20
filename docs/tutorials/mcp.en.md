@@ -440,11 +440,18 @@ If it stays running without crashing, the script can start. Press `Ctrl+C` to st
 
 ## Personal tasks, deadlines and reminders
 
-`tasks:read` permits task queries and `nowen_list_task_reminders`. `tasks:write` permits task/subtask creation, updates, completion and `nowen_create_task_reminder`. Both restricted and unrestricted tokens can access only their owner's personal tasks; shared workspace tasks and global reminder delivery endpoints remain unavailable.
+`tasks:read` permits task queries, `nowen_list_task_reminders` and `nowen_delete_task` previews. `tasks:write` permits task/subtask creation, updates, completion, `nowen_create_task_reminder` and confirmed deletion with `nowen_delete_task`; deletion needs no extra scope. Both restricted and unrestricted tokens can access only their owner's personal tasks; shared workspace tasks, batch operations and global reminder delivery endpoints remain unavailable.
 
 Create a task with `nowen_create_task` or `nowen_create_subtask`, supplying `dueDate: "2026-10-21"` and optionally `dueAt: "2026-10-21T09:30"`. Then call `nowen_create_task_reminder` with its task ID, `offsetMinutes: 30` and `timezoneOffsetMinutes: -480` for a UTC+8 user. The offset follows JavaScript `getTimezoneOffset()` and should reflect the deadline's timezone. The two writes return separate results: if reminder creation fails, retain the task and retry only the reminder. Device notification permission is still required.
 
 Task and note results label database UTC metadata such as `createdAt` and `updatedAt` with `Z`: `01:30Z` is `09:30` in UTC+8. `dueDate` and `dueAt` retain local calendar semantics without UTC conversion. `nowen_update_task` accepts a new `dueAt` or `null` to clear the time.
+
+Delete a mistaken or duplicate task with `nowen_delete_task` (v1.6.0). Tasks have no recycle bin, so deletion takes two calls:
+
+1. Pass only `taskId` (and optionally `mode`). The tool returns a preview of the task and all of its subtasks, with `affected` and a `revision`, and changes nothing. `mode: "series"` deletes the whole recurring series; with the default `single`, deleting an unfinished recurring task may create its next occurrence.
+2. After the person agrees to the preview, call it again with the same `taskId` and `mode`, plus `dryRun: false`, `expectedRevision` (the preview's `revision`) and `confirmation: "DELETE_TASK"`. The result reports `affected` and the deleted `ids`.
+
+If the task was edited, gained a subtask or produced a new occurrence after the preview, the server returns 409 `TASK_DELETION_CONFLICT`, deletes nothing and a new preview is needed. Direct REST calls with a token follow the same rule: request `GET /api/tasks/{id}/deletion-preview` first, then send `expectedRevision` and `confirmation: "DELETE_TASK"` in the `DELETE /api/tasks/{id}` body. Completed top-level tasks can instead be archived with `nowen_archive_task` and restored later; use `nowen_update_task` to change only the title, dates, priority, description or status.
 
 ## Security
 

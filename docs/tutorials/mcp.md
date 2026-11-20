@@ -715,10 +715,10 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 
 新的个人任务工具可使用长期访问令牌：
 
-- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`、`nowen_list_task_reminders`。
-- `tasks:write`：创建/更新任务与子任务、完成任务，以及 `nowen_create_task_reminder`。
-- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**；任务授权与笔记本白名单相互独立。
-- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作、跨工作区移动与删除操作。
+- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`、`nowen_list_task_reminders`，以及 `nowen_delete_task` 的预览。
+- `tasks:write`：创建/更新任务与子任务、完成任务、`nowen_create_task_reminder`，以及确认后用 `nowen_delete_task` 删除任务。删除不需要额外的 Scope。
+- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**（包括删除）；任务授权与笔记本白名单相互独立。
+- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作与跨工作区移动；删除只能逐个进行，而且必须先预览。
 - MCP 的写入工具应由客户端获取用户确认；服务端继续执行令牌 Scope 与任务归属检查。
 
 例如问 Agent：“列出今天的个人待办，并统计逾期任务。”确认授权后，工具会查询 Nowen Note 服务端的真实任务数据。
@@ -726,6 +726,13 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 创建含提醒的任务时，先调用 `nowen_create_task` 或 `nowen_create_subtask`，传入 `dueDate: "2026-10-21"` 和可选的 `dueAt: "2026-10-21T09:30"`；再以返回的任务 ID 调用 `nowen_create_task_reminder`。例如提前 30 分钟、UTC+8 用户使用 `offsetMinutes: 30, timezoneOffsetMinutes: -480`（与 JS `getTimezoneOffset()` 符号一致，按截止日期的时区计算）。这两次写入分别返回结果；提醒失败时保留已建任务，可单独重试提醒，不要重复建任务。设备仍需授予通知权限。
 
 任务与笔记读取结果中的 `createdAt` / `updatedAt` 等数据库 UTC 时间带有明确的 `Z` 后缀，例如 `01:30Z` 对应北京时间 `09:30`。`dueDate` 是本地日期，`dueAt` 是不带时区的本地截止时间，不进行 UTC 平移；`nowen_update_task` 支持修改 `dueAt`，传 `null` 可清除具体时间。
+
+建错或重复的任务用 `nowen_delete_task` 删除（v1.6.0）。任务没有回收站，删除后无法恢复，所以分两步：
+
+1. 先只传 `taskId`（可选 `mode`）。工具返回预览：将被删除的任务及其全部子任务、数量 `affected` 和 `revision`，不修改任何数据。`mode: "series"` 删除整个循环系列；默认的 `single` 删除一个未完成的循环任务时，可能按规则生成下一次。
+2. 向用户说明预览内容并取得同意后，以相同的 `taskId` 和 `mode` 再调用一次，传 `dryRun: false`、`expectedRevision`（预览返回的 `revision`）和 `confirmation: "DELETE_TASK"`。返回 `affected` 和被删除的 `ids`。
+
+预览之后任务被修改、多了子任务或循环生成了新的一次，服务端返回 409 `TASK_DELETION_CONFLICT`，一条都不删，需要重新预览。直接调用 REST 时，令牌同样必须先请求 `GET /api/tasks/{id}/deletion-preview`，再在 `DELETE /api/tasks/{id}` 的请求体里提交 `expectedRevision` 与 `confirmation: "DELETE_TASK"`。已完成的顶层任务也可以改用 `nowen_archive_task` 归档，之后仍可恢复；只改标题、日期、优先级、描述或状态时用 `nowen_update_task`，它不会改动空间、项目或父子关系。
 
 早晚计划 / 任务到点 Webhook：在「设置 → 自动化 → 每日任务简报」配置时间、时区并绑定 HTTPS URL，具体参见 [Task Digest 示例插件](../../examples/plugins/task-digest/README.md)。
 

@@ -365,6 +365,14 @@ New sources follow the versioned [Source Adapter contract](../../docs/architectu
 
 `nowen_ai_archive_sources/save/list/read` use `/api/ai-memory` and need the archive switched on. Assistants can only save into **AI assistant (MCP)** sources the person created in the Chat archive page; MCP cannot create, enable, revoke or delete sources or archives, and does not import files. Saves are idempotent by message ID; when appending, include the last message saved before; when adding earlier history, include the first saved message. Without `expectedRevision` the current revision is used, and a stale one is refused without overwriting. Read-only mode can only list and read.
 
+## v1.6.0：删除个人任务
+
+`nowen_delete_task` 删除本人个人任务及其全部子任务。任务没有回收站，删除后无法恢复，所以工具默认只预览：返回将被删除的任务、数量 `affected` 和 `revision`，不修改数据；`mode=series` 删除整个循环系列。向用户说明并取得同意后，以相同的 `taskId`、`mode` 再调用一次，传 `dryRun=false`、`expectedRevision` 和 `confirmation=DELETE_TASK`，返回 `affected` 与被删除的 `ids`。预览之后任务被修改、新增了子任务或循环生成了新的一次，服务端会在删除事务里核对 revision 并返回 409 `TASK_DELETION_CONFLICT`，一条都不删。
+
+删除使用 `tasks:write`（预览只需 `tasks:read`），不需要额外的 Scope；限定笔记本的 Token 同样能删除本人个人任务。团队任务、他人任务和 `POST /api/tasks/batch` 批量删除仍对 Token 关闭。直接调用 REST 时，Token 也必须先 `GET /api/tasks/{id}/deletion-preview`，再在 `DELETE /api/tasks/{id}` 的请求体里提交 `expectedRevision` 与 `confirmation: "DELETE_TASK"`，否则返回 409。已完成的顶层任务可以改用 `nowen_archive_task` 归档，之后仍可恢复；只改标题、日期、优先级、描述或状态时用 `nowen_update_task`。
+
+`nowen_delete_task` permanently deletes a personal task with all of its subtasks; tasks have no recycle bin. It previews by default, listing the tasks to be removed with `affected` and a `revision`, and changes nothing; `mode=series` covers the whole recurring series. After the person agrees, call it again with the same `taskId` and `mode`, `dryRun=false`, `expectedRevision` and `confirmation=DELETE_TASK`. If the task tree or series changed after the preview, the server re-checks the revision inside the deletion transaction and returns 409 `TASK_DELETION_CONFLICT` without deleting anything. Deletion uses `tasks:write` (previews need `tasks:read`) and no extra scope; notebook-restricted tokens can delete their owner's personal tasks too. Team tasks, other users' tasks and batch deletion stay unavailable to tokens. Completed top-level tasks can be archived with `nowen_archive_task` instead and restored later.
+
 ## 发行说明
 
 当前仓库保证的是源码构建方式。除非 Nowen Note 的 Release 或官方文档明确宣布 npm / DXT 包，避免假设 `npx nowen-mcp` 或一键 DXT 已经可用。
