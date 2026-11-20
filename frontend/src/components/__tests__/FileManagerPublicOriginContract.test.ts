@@ -23,11 +23,13 @@ describe("File page public-origin contract", () => {
     expect(explorer).not.toContain("downloadAttachment(buildPublicAttachmentUrl");
   });
 
-  it("uses the same public URL builder in the attachment share drawer", () => {
+  it("shows and copies only the server-issued link in the attachment share drawer", () => {
     const source = read("../attachmentDetail/AttachmentDetailDrawer.tsx");
-    expect(source).toContain("buildPublicAttachmentUrl(");
-    expect(source).toContain("filePublicOrigin: siteConfig.filePublicOrigin");
-    expect(source).toContain("publicWebOrigin: siteConfig.publicWebOrigin");
+    expect(source).toContain("await createStableFileShareUrl(currentId)");
+    expect(source).toContain("formatImageHostSnippet(format, url, filename)");
+    // The 12-hour runtime URL must never be displayed as the share link.
+    expect(source).not.toContain("buildPublicAttachmentUrl(");
+    expect(source).toContain("value={publicLink}");
     expect(source).toContain("href={resolveAttachmentUrl(detail.url)}");
   });
 
