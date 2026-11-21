@@ -1,122 +1,92 @@
 #!/usr/bin/env node
 /**
- * Release-only acquisition of the exact ffmpeg-static@5.3.0 / FFmpeg b6.1.1
- * upstream binaries. GitHub Release browser URLs can return HTTP 504 on
- * runners while the GitHub Assets API remains healthy.
+ * Release packaging installs the minimal FFmpeg that scripts/ffmpeg/build-desktop.sh
+ * builds from pinned sources (the same components as the Docker image). Build jobs
+ * place ffmpeg-<platform>-<arch>[.exe] and SHA256SUMS in $RUNNER_TEMP/nowen-ffmpeg.
  *
- * --prepare downloads the host binary BEFORE backend/npm ci and exports
- * FFMPEG_BIN via GITHUB_ENV, so ffmpeg-static's install.js reuses it.
- * --install copies the pinned, verified binary into the actual bundled
- * backend/node_modules/ffmpeg-static path. macOS x64/arm64 builds call
- * --install for each architecture immediately before native rebuilding.
+ * --prepare verifies the host binary BEFORE backend npm ci and exports FFMPEG_BIN via
+ * GITHUB_ENV, so ffmpeg-static's install.js reuses it instead of downloading.
+ * --install copies the verified binary into backend/node_modules/ffmpeg-static.
+ * macOS x64/arm64 builds call --install for each architecture before native rebuilding.
  *
- * Refuse unexpected bytes or unsupported platforms. Do NOT replace these
- * release assets with an unrelated system FFmpeg.
+ * Refuse missing, unlisted, modified or wrong-architecture binaries. Never fall back to
+ * downloading a general-purpose FFmpeg.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import zlib from "node:zlib";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const assets = Object.freeze({
-  "linux-x64": {
-    id: 316528626,
-    compressed: "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa",
-    binary: "e7e7fb30477f717e6f55f9180a70386c62677ef8a4d4d1a5d948f4098aa3eb99",
-  },
-  "win32-x64": {
-    id: 316528798,
-    compressed: "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77",
-    binary: "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
-  },
-  "darwin-x64": {
-    id: 316528367,
-    compressed: "929b375c1182d956c51f7ac25e0b2b0411fb01f6f407aa15c9758efeb4242106",
-    binary: "ebdddc936f61e14049a2d4b549a412b8a40deeff6540e58a9f2a2da9e6b18894",
-  },
-  "darwin-arm64": {
-    id: 316528311,
-    compressed: "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
-    binary: "a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584",
-  },
-});
+const SUPPORTED = new Set(["linux-x64", "win32-x64", "darwin-x64", "darwin-arm64"]);
 
-const args = process.argv.slice(2);
-const mode = args.includes("--prepare") ? "prepare" : args.includes("--install") ? "install" : null;
-const arg = (key, fallback) => {
-  const direct = args.find((value) => value.startsWith(key + "="));
-  return direct ? direct.slice(key.length + 1) : fallback;
-};
-const platform = arg("--platform", process.platform);
-const arch = arg("--arch", process.arch);
-const key = platform + "-" + arch;
-const asset = assets[key];
-if (!mode || !asset) throw new Error("Unsupported release FFmpeg invocation: " + args.join(" ") + " (" + key + ")");
-const binaryPath = path.join(process.env.RUNNER_TEMP || os.tmpdir(), "nowen-release-ffmpeg-" + key + (platform === "win32" ? ".exe" : ""));
-const expectedDestination = path.join(root, "backend", "node_modules", "ffmpeg-static", platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
-
-function verifyBinary(bytes) {
-  if (hash(bytes) !== asset.binary) throw new Error("Pinned FFmpeg binary SHA-256 mismatch: " + key);
-  if (platform === "win32" && bytes.toString("ascii", 0, 2) !== "MZ") throw new Error("Invalid Windows executable");
-  if (platform === "linux" && bytes.toString("ascii", 1, 4) !== "ELF") throw new Error("Invalid ELF executable");
-  if (platform === "darwin") {
-    const cpu = arch === "arm64" ? 0x0100000c : 0x01000007;
-    if (bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) throw new Error("Invalid macOS FFmpeg architecture: " + arch);
-  }
+export function binaryName(platform, arch) {
+  const key = platform + "-" + arch;
+  if (!SUPPORTED.has(key)) throw new Error("Unsupported release FFmpeg target: " + key);
+  return "ffmpeg-" + key + (platform === "win32" ? ".exe" : "");
 }
 
-async function fetchPinnedAsset() {
-  const url = "https://api.github.com/repos/eugeneware/ffmpeg-static/releases/assets/" + asset.id;
-  let previousError;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const headers = {
-        Accept: "application/octet-stream",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "nowen-note-pinned-release-fetch",
-      };
-      const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-      if (token) headers.Authorization = "Bearer " + token;
-      const response = await fetch(url, { headers, redirect: "follow", signal: AbortSignal.timeout(180_000) });
-      if (!response.ok) throw new Error("GitHub Assets API HTTP " + response.status);
-      const compressed = Buffer.from(await response.arrayBuffer());
-      if (hash(compressed) !== asset.compressed) throw new Error("Pinned FFmpeg download SHA-256 mismatch: " + key);
-      const bytes = zlib.gunzipSync(compressed);
-      verifyBinary(bytes);
-      fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
-      fs.writeFileSync(binaryPath, bytes, { mode: 0o755 });
-      if (platform !== "win32") fs.chmodSync(binaryPath, 0o755);
-      return binaryPath;
-    } catch (error) {
-      previousError = error;
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+export function verifyBinary(file, { platform, arch }) {
+  const name = binaryName(platform, arch);
+  if (!fs.existsSync(file)) throw new Error("Minimal FFmpeg is missing: " + file + " (run scripts/ffmpeg/build-desktop.sh)");
+  const bytes = fs.readFileSync(file);
+  const sums = path.join(path.dirname(file), "SHA256SUMS");
+  const listed = fs.existsSync(sums) && fs.readFileSync(sums, "utf8").split(/\r?\n/)
+    .map((line) => line.split(/\s+/)).find(([, entry]) => entry === name)?.[0];
+  if (!listed || listed !== crypto.createHash("sha256").update(bytes).digest("hex")) {
+    throw new Error("Minimal FFmpeg SHA-256 does not match SHA256SUMS: " + name);
+  }
+  if (platform === "win32") {
+    const pe = bytes.toString("ascii", 0, 2) === "MZ" ? bytes.readUInt32LE(0x3c) : -1;
+    if (pe < 0 || bytes.toString("latin1", pe, pe + 4) !== "PE\0\0" || bytes.readUInt16LE(pe + 4) !== 0x8664) {
+      throw new Error("Invalid Windows x64 FFmpeg executable: " + name);
+    }
+  } else if (platform === "linux") {
+    if (bytes.toString("latin1", 0, 4) !== "\x7fELF" || bytes.readUInt16LE(0x12) !== 0x3e) {
+      throw new Error("Invalid Linux x64 FFmpeg executable: " + name);
+    }
+  } else {
+    const cpu = arch === "arm64" ? 0x0100000c : 0x01000007;
+    if (bytes.readUInt32LE(0) !== 0xfeedfacf || bytes.readUInt32LE(4) !== cpu) {
+      throw new Error("Invalid macOS FFmpeg architecture: " + arch);
     }
   }
-  throw new Error("Unable to acquire pinned FFmpeg " + key + ": " + previousError?.message);
+  return bytes;
 }
 
-if (mode === "prepare") {
-  await fetchPinnedAsset();
-  const envFile = process.env.GITHUB_ENV;
+export function prepare({ dir, platform, arch, envFile }) {
+  const file = path.join(dir, binaryName(platform, arch));
+  verifyBinary(file, { platform, arch });
   if (!envFile) throw new Error("GITHUB_ENV is required for release preparation");
-  fs.appendFileSync(envFile, "FFMPEG_BIN=" + binaryPath + "\n");
-  console.log("[release-ffmpeg] pinned " + key + " ready for npm ci (SHA-256 verified)");
-} else {
-  if (!fs.existsSync(expectedDestination.replace(/ffmpeg(?:\.exe)?$/, ""))) {
+  fs.appendFileSync(envFile, "FFMPEG_BIN=" + file + "\n");
+  return file;
+}
+
+export function install({ dir, platform, arch, destination }) {
+  const bytes = verifyBinary(path.join(dir, binaryName(platform, arch)), { platform, arch });
+  if (!fs.existsSync(path.dirname(destination))) {
     throw new Error("Backend ffmpeg-static module is not installed: run backend npm ci first");
   }
-  let source = binaryPath;
-  if (!fs.existsSync(source) || arg("--platform", process.platform) !== process.platform || arg("--arch", process.arch) !== process.arch) {
-    source = await fetchPinnedAsset();
+  fs.writeFileSync(destination, bytes);
+  if (platform !== "win32") fs.chmodSync(destination, 0o755);
+  return destination;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const args = process.argv.slice(2);
+  const option = (key, fallback) => args.find((value) => value.startsWith(key + "="))?.slice(key.length + 1) ?? fallback;
+  const platform = option("--platform", process.platform);
+  const arch = option("--arch", process.arch);
+  const dir = path.resolve(process.env.NOWEN_FFMPEG_DIR || path.join(process.env.RUNNER_TEMP || os.tmpdir(), "nowen-ffmpeg"));
+  if (args.includes("--prepare")) {
+    const file = prepare({ dir, platform, arch, envFile: process.env.GITHUB_ENV });
+    console.log("[release-ffmpeg] minimal " + platform + "-" + arch + " ready for npm ci: " + file);
+  } else if (args.includes("--install")) {
+    const destination = path.join(root, "backend", "node_modules", "ffmpeg-static", platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    install({ dir, platform, arch, destination });
+    console.log("[release-ffmpeg] installed minimal " + platform + "-" + arch + " FFmpeg at " + destination);
   } else {
-    verifyBinary(fs.readFileSync(source));
+    throw new Error("Unsupported release FFmpeg invocation: " + args.join(" "));
   }
-  fs.copyFileSync(source, expectedDestination);
-  if (platform !== "win32") fs.chmodSync(expectedDestination, 0o755);
-  verifyBinary(fs.readFileSync(expectedDestination));
-  console.log("[release-ffmpeg] installed pinned " + key + " binary at " + expectedDestination);
 }

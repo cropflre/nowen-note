@@ -27,30 +27,19 @@ RUN --mount=type=secret,id=github_token,required=false \
     && cc -O3 -fPIC -shared sqlite-vec.c -o vec0.so -lm
 
 # ---------- ffmpeg: 只编译动态照片转码用到的组件 ----------
-# 后端只用 ffmpeg 把实况/动态照片里的 MOV/MP4 转成 H.264/AAC MP4（backend/src/services/modern-media.ts）。
 # Alpine 的 ffmpeg 包会连带 x265、AV1、Vulkan、字幕渲染等约 97MB 依赖；精简版约 8MB。
+# 组件清单与桌面安装包共用，说明见 scripts/ffmpeg/minimal-configure-flags.txt。
 # 版本与 Alpine 3.23 的 ffmpeg 8.0.1 相同；源码 SHA-256 已与 aports 记录的 SHA-512 交叉核对。
-# 滤镜除了命令里的 scale/format，还包括 ffmpeg 自动插入的：-t 用 trim/atrim，按显示矩阵
-# 旋转用 transpose/hflip/vflip/rotate，容器裁剪用 crop，格式转换用 aformat/aresample，无滤镜时用 null/anull。
 FROM alpine:3.23 AS ffmpeg-build
 WORKDIR /build
 RUN apk add --no-cache build-base curl nasm pkgconf x264-dev zlib-dev
+COPY scripts/ffmpeg/minimal-configure-flags.txt /minimal-configure-flags.txt
 RUN curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 300 \
       https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o ffmpeg.tar.xz \
     && echo "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41  ffmpeg.tar.xz" | sha256sum -c - \
     && tar -xJf ffmpeg.tar.xz --strip-components=1 \
-    && ./configure \
-      --disable-everything --disable-autodetect --disable-doc --disable-debug \
-      --disable-ffplay --disable-ffprobe --disable-avdevice --disable-network \
-      --enable-gpl --enable-libx264 --enable-pthreads --enable-zlib \
-      --enable-protocol=file,pipe \
-      --enable-demuxer=mov \
-      --enable-muxer=mp4 \
-      --enable-decoder=h263,h264,hevc,mjpeg,mpeg4,vp8,vp9,aac,aac_fixed,aac_latm,alac,amrnb,amrwb,flac,mp3,mp3float,opus,vorbis,pcm_alaw,pcm_mulaw,pcm_s16be,pcm_s16le,pcm_s24be,pcm_s24le,pcm_s32be,pcm_s32le,pcm_f32be,pcm_f32le,pcm_u8 \
-      --enable-parser=h263,h264,hevc,mjpeg,mpeg4video,vp8,vp9,aac,aac_latm,flac,mpegaudio,opus,vorbis \
-      --enable-encoder=libx264,aac \
-      --enable-filter=aformat,anull,aresample,atrim,crop,format,hflip,null,rotate,scale,transpose,trim,vflip \
-      --optflags=-O3 \
+    && ./configure $(grep -v -e '^#' -e '^$' /minimal-configure-flags.txt) \
+      --enable-pthreads --enable-zlib --optflags=-O3 \
     && make -j"$(nproc)" ffmpeg \
     && strip ffmpeg
 
