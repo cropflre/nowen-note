@@ -16,7 +16,7 @@ Phase 3 增加“渠道分发”页、Store / Docker Hub / NAS 状态观察、�
 
 ## Phase 2C · 独立桌面候选构建（不发布）
 
-新增 [release-center-candidate.yml](../../.github/workflows/release-center-candidate.yml)，在 GitHub Actions 中手动输入固定源码 SHA、稳定版号 X.Y.Z 和 UUID，即可尝试编译 Windows Full/Lite、macOS Intel/Apple Silicon 与 Linux 候选包。使用服务端只读权限和 `--publish never`，不创建 Tag、Draft、Release，不推 Docker 或 TestFlight。每个平台分别输出安装候选和来源/摘要 JSON 证据；**候选包未签名、未正式审批，不能导入 Phase 2B 作为正式 Tag Release**。
+新增 [release-center-candidate.yml](../../.github/workflows/release-center-candidate.yml)，在 GitHub Actions 中手动输入固定源码 SHA、稳定版号 X.Y.Z 和 UUID，即可尝试编译 Windows x64、macOS Intel/Apple Silicon 与 Linux 候选包。使用服务端只读权限和 `--publish never`，不创建 Tag、Draft、Release，不推 Docker 或 TestFlight。每个平台分别输出安装候选和来源/摘要 JSON 证据；**候选包未签名、未正式审批，不能导入 Phase 2B 作为正式 Tag Release**。
 
 独立工作流须先注册至 GitHub 默认分支、候选 SHA 必须包含 staging 脚本，并经受控实际三平台验证才能作为可靠构建入口。正式发布写权限仍应关闭。细节与未验收项见 [Phase 2C 实现记录](../../docs/qa/v1.5.3/release-center-phase2c.md)。
 

@@ -135,7 +135,7 @@ test("uncertain Draft creation survives API rate limits and restart without repe
   assert.equal(f.store.task(task.id).state, "reconciling");
   assert.ok(github.calls.every((c) => c.startsWith("GET ")));
 });
-test("debug archives cannot enter formal verification, while a Full+Lite archive is checked using the shared updater validator", async (t) => {
+test("debug archives cannot enter formal verification, while a formal archive is checked using the shared updater validator", async (t) => {
   const f = fixture(t), context = { taskId: randomUUID(), sha: "a".repeat(40), version: "1.5.2", platform: "windows" as const };
   const debug = await buildArchive(context);
   const path = join(f.directory, "artifact.zip");
@@ -143,18 +143,19 @@ test("debug archives cannot enter formal verification, while a Full+Lite archive
   await assert.rejects(verifyArchive(path, { ...context, purpose: "formal-import" }, debug.digest, new AbortController().signal));
   const formal = await buildArchive(context, async (dir) => {
     await rm(join(dir, "release-center-manifest.json"));
-    const binary = Buffer.from("unsigned fixture; not an installable EXE");
-    const name = "Nowen-Note-Lite-1.5.2-setup.exe";
-    const sha512 = createHash("sha512").update(binary).digest("base64");
-    await writeFile(join(dir, name), binary);
-    await writeFile(join(dir, "Nowen-Note-Lite-1.5.2-portable.exe"), binary);
-    await writeFile(join(dir, `${name}.blockmap`), "fixture blockmap");
-    await writeFile(join(dir, "latest-lite.yml"), `version: 1.5.2\nfiles:\n  - url: ${name}\n    size: ${binary.length}\n    sha512: ${sha512}\npath: ${name}\nsha512: ${sha512}\n`);
   });
   await writeFile(path, formal.archive);
   const verified = await verifyArchive(path, { ...context, purpose: "formal-import" }, archiveDigest(formal.archive), new AbortController().signal);
-  assert.equal(verified.files.length, 8);
-  assert.ok(verified.files.some((f) => f.name === "latest-lite.yml"));
+  assert.equal(verified.files.length, 4);
+  assert.ok(verified.files.some((f) => f.name === "latest.yml"));
+  // Lite 版已停止打包：混入 Lite 安装包的正式归档按清单外文件拒绝。
+  const withLite = await buildArchive(context, async (dir) => {
+    await rm(join(dir, "release-center-manifest.json"));
+    await writeFile(join(dir, "Nowen-Note-Lite-1.5.2-setup.exe"), Buffer.from("unsigned fixture; not an installable EXE"));
+  });
+  const litePath = join(f.directory, "lite.zip");
+  await writeFile(litePath, withLite.archive);
+  await assert.rejects(verifyArchive(litePath, { ...context, purpose: "formal-import" }, archiveDigest(withLite.archive), new AbortController().signal), /清单外文件/);
   await assert.rejects(verifyArchive(path, { ...context, purpose: "formal-import" }, `sha256:${"0".repeat(64)}`, new AbortController().signal));
 });
 
@@ -204,7 +205,7 @@ test("a cancelled request with an uncertain publish intent records the confirmed
   const candidate = f.candidate;
   candidate.draftId = 515; candidate.authorId = 42; candidate.state = "publishing";
   f.store.db.prepare("UPDATE release_candidates SET data=? WHERE id=?").run(JSON.stringify(candidate), candidate.id);
-  const expectedBody = `${candidate.notes}\n\n### 桌面端支持\n\n- Windows x64 Full / Lite（GitHub 直接下载，安装包未提供代码签名）\n- macOS Intel x64 / Apple Silicon arm64\n- Linux x64\n\n<!-- nowen-release-center:${candidate.id}:${candidate.digest} -->`;
+  const expectedBody = `${candidate.notes}\n\n### 桌面端支持\n\n- Windows x64（GitHub 直接下载，安装包未提供代码签名）\n- macOS Intel x64 / Apple Silicon arm64\n- Linux x64\n\n<!-- nowen-release-center:${candidate.id}:${candidate.digest} -->`;
   const assets = candidate.verifications.flatMap((v) => v.files).map((file, i) => ({ id: 900 + i, name: file.name, size: file.size, state: "uploaded", digest: `sha256:${file.sha256}` }));
   f.github.request = async (path, method = "GET") => {
     f.github.calls.push(`${method} ${path}`);

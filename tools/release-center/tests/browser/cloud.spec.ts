@@ -7,7 +7,7 @@ test("cloud form pins source, confirms a remote build, displays jobs and recover
   await page.goto("/#new");
   await page.getByLabel("源码分支").fill(`release/v${releaseVersion}`);
   await page.getByLabel("发布版本",{exact:true}).fill(releaseVersion);
-  await page.getByLabel("Windows Full / Lite",{exact:true}).uncheck();
+  await page.getByLabel("Windows x64",{exact:true}).uncheck();
   await page.getByLabel("macOS Intel / Apple Silicon",{exact:true}).uncheck();
   await page.getByRole("button",{name:"检查远端版本"}).click();
   await expect(page.getByText("a".repeat(40),{exact:true})).toBeVisible();

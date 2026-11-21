@@ -23,7 +23,7 @@ function key(value: unknown): string {
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 const files = (candidate: ReleaseCandidate) => candidate.verifications.flatMap((v) => v.files).sort((a, b) => a.name.localeCompare(b.name));
 const marker = (candidate: ReleaseCandidate) => `<!-- nowen-release-center:${candidate.id}:${candidate.digest} -->`;
-const releaseBody = (candidate: ReleaseCandidate) => `${candidate.notes}\n\n### 桌面端支持\n\n- Windows x64 Full / Lite（GitHub 直接下载，安装包未提供代码签名）\n- macOS Intel x64 / Apple Silicon arm64\n- Linux x64\n\n${marker(candidate)}`;
+const releaseBody = (candidate: ReleaseCandidate) => `${candidate.notes}\n\n### 桌面端支持\n\n- Windows x64（GitHub 直接下载，安装包未提供代码签名）\n- macOS Intel x64 / Apple Silicon arm64\n- Linux x64\n\n${marker(candidate)}`;
 
 export class Publication {
   private controllers = new Map<string, AbortController>();
@@ -55,7 +55,7 @@ export class Publication {
   private plan(candidate: ReleaseCandidate): Plan {
     return { id: candidate.id, branch: candidate.tag, sha: candidate.sha, version: candidate.version, channel: "stable", platforms: [...PLATFORMS], notes: candidate.notes,
       createdAt: new Date().toISOString(), checks: [], ready: true, debugReady: false, workflowRef: candidate.tag, workflowSha: candidate.sha,
-      effects: ["导入已存在 Tag 的正式三平台构建；不推 Tag、不 dispatch，也不上传 TestFlight、Docker 或商店", "Windows Full 与 Lite、macOS 双架构、Linux 全部校验后才能准备 Draft；审批与发布分开确认"] };
+      effects: ["导入已存在 Tag 的正式三平台构建；不推 Tag、不 dispatch，也不上传 TestFlight、Docker 或商店", "Windows、macOS 双架构、Linux 全部校验后才能准备 Draft；审批与发布分开确认"] };
   }
   private task(candidate: ReleaseCandidate, operation: "verify" | "draft" | "publish", requestKey: string, fingerprint: string, jobs: Job[] = [], reserveVersion = false) {
     const at = new Date().toISOString();
