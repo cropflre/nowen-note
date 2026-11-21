@@ -14,6 +14,8 @@ This MVP archives raw conversations. Long-term memories, confirmation, context i
 
 The first save creates a source named after the site (such as “ChatGPT”), which the site's other conversations share. Only conversations whose button you clicked save by themselves; installing the extension or opening a page does not read any chat. Hover the button to open the note or stop automatic saving; clicking the button again turns it back on.
 
+To get the button out of the way, hover it and click the ✕ at its top-left corner. That hides it on every ChatGPT and Doubao page, now and later. To bring it back, open the extension popup and tick “在页面上显示「存到 Nowen」按钮” (show the “Save to Nowen” button on the page). Hiding affects only the button: conversations that already save automatically keep doing so, and the save button in the popup still works.
+
 Streaming replies are archived only after they finish. The button shows saved only after a matching durable server receipt; local queuing is not a server backup and does not mean another device has the data. Web captures are marked partial, and unloaded history, images or attachments are not claimed as saved. Without stable message IDs a page cannot save automatically; click again when there are new messages.
 
 After you regenerate or edit an earlier message on the site, the conversation no longer matches the saved version: its automatic saving pauses (other conversations of the site go on) and the button explains why. Clicking the button again saves the current page as a new archive (its title ends in “第 2 份”, copy 2) and leaves the saved one unchanged. If you deleted a conversation's archive in Nowen, clicking again saves it anew as well.
