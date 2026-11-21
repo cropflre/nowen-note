@@ -28,7 +28,12 @@ test("workbench cards use real data, persist layouts and keep dormant plugin car
     await target.getByPlaceholder("admin", { exact: true }).fill(username);
     await target.locator("input[type=password]").fill(password);
     await target.locator("button[type=submit]").click();
-    await expect(target.getByRole("button", { name: "Dashboard", exact: true }).filter({ visible: true })).toBeVisible({ timeout: 30000 });
+    await expect(target.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true })).toBeVisible({ timeout: 30000 });
+  };
+  // The rail has a single Apps entry; the workbench is the Dashboard tab of the Extension Center it opens.
+  const openDashboard = async (target: Page) => {
+    await target.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
+    await target.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "Dashboard", exact: true }).click();
   };
   const card = (target: Page, id: string) => target.locator(`[data-widget-id="${id}"]`);
   try {
@@ -48,7 +53,7 @@ test("workbench cards use real data, persist layouts and keep dormant plugin car
     expect(typeof task.id).toBe("string");
 
     await signIn(page, "v3_browser", "v3-browser-test-password");
-    await page.getByRole("button", { name: "Dashboard", exact: true }).filter({ visible: true }).click();
+    await openDashboard(page);
     await expect(page.getByRole("heading", { name: "My dashboard", level: 2 })).toBeVisible();
     await expect(card(page, "nowenlab.hello-app/hello")).toBeVisible();
     await expect(card(page, "nowen-builtin/quick-note")).toBeVisible();
@@ -121,7 +126,7 @@ test("workbench cards use real data, persist layouts and keep dormant plugin car
     const member = await memberContext.newPage();
     try {
       await signIn(member, "v3_member", "v3-member-test-password");
-      await member.getByRole("button", { name: "Dashboard", exact: true }).filter({ visible: true }).click();
+      await openDashboard(member);
       await expect(card(member, "nowen-builtin/recent-notes")).toBeVisible();
       await expect(member.getByLabel("Dashboard layout", { exact: true })).toHaveValue("Default");
       await expect(card(member, "nowen-builtin/recent-notes")).not.toContainText("Workbench idea");

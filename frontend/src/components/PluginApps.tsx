@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Blocks, LayoutDashboard } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
 import { usePluginApps } from "@/hooks/usePluginApps";
@@ -18,15 +18,17 @@ import ExtensionDiscover from "./extension-center/ExtensionDiscover";
 import MyPlugins from "./extension-center/MyPlugins";
 
 export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
-  const { enabled, centerEnabled, dashboardEnabled, pages, pinned } = usePluginApps();
+  const { enabled, centerEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const actions = useAppActions();
   if (!centerEnabled) return null;
   const open = (path: string) => { pushAppPathState(path); actions.setMobileSidebar(false); };
+  // One entry for the whole Extension Center. The workbench is its "Dashboard" tab, so it has no second rail entry:
+  // two entries opening the same page under the same title made users ask what the difference was.
   return <>
-    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(dashboardEnabled ? [{ runtimeId: "dashboard", title: t("pluginApps.dashboard"), route: "/apps/dashboard" }] : []), ...(enabled ? pages.filter(pinned) : [])].map(page => (
+    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(enabled ? pages.filter(pinned) : [])].map(page => (
       <button key={page.runtimeId} data-mobile-drawer-rail-item="" type="button" title={page.title} aria-label={page.title} onClick={() => open(page.route)} className="flex w-10 min-h-10 flex-col items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover">
-        {page.runtimeId === "dashboard" ? <LayoutDashboard size={17} /> : <Blocks size={17} />}{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
+        <Blocks size={17} />{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
       </button>
     ))}
   </>;

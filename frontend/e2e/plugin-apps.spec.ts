@@ -191,7 +191,9 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await expect(personal.locator("#items")).toContainText("Phase 2 item");
     await expect(personal.locator("#items")).toContainText("Existing Nowen task");
     await expect(personal.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Dashboard", exact: true }).filter({ visible: true }).click();
+    // The rail has a single Apps entry; the dashboard is a tab of the Extension Center it opens.
+    await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
+    await page.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "Dashboard", exact: true }).click();
     const countCard = page.locator('[data-widget-id="nowenlab.personal-dashboard/count"]');
     await expect(countCard.locator("p")).toHaveText("1");
     await page.getByRole("button", { name: "Edit layout", exact: true }).click();
