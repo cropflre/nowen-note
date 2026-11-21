@@ -14,6 +14,11 @@ export interface EditorActionSnapshot {
   /** Markdown as stored, including internal markers, used to keep block identities on replace. */
   readonly original: string;
   readonly hasSelection: boolean;
+  /**
+   * The range `apply` would write for `mode`, after the same note, editor and text checks; null on conflict.
+   * Writes nothing, so a host with its own write path (the AI assistant) stays anchored to the captured text.
+   */
+  resolve(mode: "insert" | "replace"): { from: number; to: number } | null;
   /** Writes one undoable transaction; "conflict" means nothing was written. */
   apply(markdown: string, mode: "insert" | "replace"): "applied" | "conflict";
   release(): void;

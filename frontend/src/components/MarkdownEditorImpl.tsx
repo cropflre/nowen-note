@@ -182,6 +182,7 @@ import {
   insertLink,
   insertImage,
   replaceSelection,
+  replaceRange,
   applyMarkdownCjkTypography,
 } from "@/lib/markdownCommands";
 import {
@@ -193,6 +194,8 @@ import {
   getDefaultMdSlashItems,
 } from "@/components/MarkdownSlashMenu";
 import { useMarkdownEditorActions } from "@/components/editor-actions/markdownEditorActions";
+import { useAIAssistantAnchor, type AIApplyOutcome } from "@/hooks/useAIAssistantAnchor";
+import { createMarkdownEditorActionAdapter } from "@/lib/editorActions/markdownAdapter";
 
 export function normalizeFormatHeadingLevel(level: number): 1 | 2 | 3 | 4 | 5 | 6 {
   const normalized = Number.isFinite(level) ? Math.trunc(level) : 1;
@@ -864,6 +867,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   useEffect(() => {
     if (!aiAvailable) setAiOpen(false);
   }, [aiAvailable]);
+  // 助手打开时记下选区：结果回来后只往这段原文写入，笔记或原文变了就拒绝（见 useAIAssistantAnchor）。
+  const { capture: captureAIAnchor, apply: applyAIAnchor } = useAIAssistantAnchor(aiOpen, note.id);
 
   /** �� AI ���㣺���ⲿ�ṩ onAIAssistant ��ת���ⲿ */
   const openAIAssistant = useCallback(() => {
@@ -886,26 +891,29 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       // Shared assistant owns viewport clamping (including mobile keyboards).
       setAiPosition({ top: coords.top + 24, left: coords.left });
     }
+    captureAIAnchor((getNoteId) => createMarkdownEditorActionAdapter(() => viewRef.current, getNoteId));
     setAiOpen(true);
-  }, [aiAvailable, isGuest, onAIAssistant]);
+  }, [aiAvailable, captureAIAnchor, isGuest, onAIAssistant]);
 
   /** AI ���������ݲ��뵽��ǰѡ��β�� */
-  const handleAIInsert = useCallback((text: string) => {
-    const view = viewRef.current;
-    if (!view) return;
-    const { to } = view.state.selection.main;
-    view.dispatch({
-      changes: { from: to, to, insert: text },
-    });
-    queueMicrotask(() => view.focus());
-  }, []);
+  const handleAIInsert = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("insert", ({ to }) => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        changes: { from: to, to, insert: text },
+      });
+      queueMicrotask(() => view.focus());
+    })
+  ), [applyAIAnchor]);
 
   /** AI �����������滻��ǰѡ�� */
-  const handleAIReplace = useCallback((text: string) => {
-    const view = viewRef.current;
-    if (!view) return;
-    replaceSelection(view, text);
-  }, []);
+  const handleAIReplace = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("replace", ({ from, to }) => {
+      const view = viewRef.current;
+      if (view) replaceRange(view, from, to, text);
+    })
+  ), [applyAIAnchor]);
 
   const openTaskCapture = useCallback(() => {
     const view = viewRef.current;

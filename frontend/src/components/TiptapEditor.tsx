@@ -164,6 +164,8 @@ import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
 import { useTiptapEditorActions } from "@/components/editor-actions/tiptapEditorActions";
+import { useAIAssistantAnchor, type AIApplyOutcome } from "@/hooks/useAIAssistantAnchor";
+import { createTiptapEditorActionAdapter } from "@/lib/editorActions/tiptapAdapter";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
@@ -1461,6 +1463,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   useEffect(() => {
     if (!aiAvailable) setShowAI(false);
   }, [aiAvailable]);
+  // 助手打开时记下选区：结果回来后只往这段原文写入，笔记或原文变了就拒绝（见 useAIAssistantAnchor）。
+  const { capture: captureAIAnchor, apply: applyAIAnchor } = useAIAssistantAnchor(showAI, note.id);
   // 附件详情：内联可预览附件进入右侧抽屉；桌面本地办公附件优先交给系统程序打开。
   // 采用 attachmentId 走 api.files.get 拿完整详情（包含外链分享 / 重命名 / 引用列表），
   // 与文件管理抽屉体验一致。
@@ -4992,8 +4996,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const coords = editor.view.coordsAtPos(from);
     // The shared assistant clamps the anchor to the visual viewport.
     setAiPosition({ top: coords.top + 28, left: coords.left });
+    captureAIAnchor((getNoteId) => createTiptapEditorActionAdapter(editor, getNoteId));
     setShowAI(true);
-  }, [aiAvailable, editor]);
+  }, [aiAvailable, captureAIAnchor, editor]);
 
   const openTaskCapture = useCallback(() => {
     if (!editor) return;
@@ -5089,17 +5094,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
   }, [editable, editor, isGuest, showPasteToast, t]);
 
-  const handleAIInsert = useCallback((text: string) => {
-    if (!editor) return;
-    const { to } = editor.state.selection;
-    insertWithMarkdownDetect(text, to, to);
-  }, [editor, insertWithMarkdownDetect]);
+  // 写入位置来自打开助手时记下的锚点，而不是此刻的选区；锚点失效时什么都不写。
+  const handleAIInsert = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("insert", ({ to }) => insertWithMarkdownDetect(text, to, to))
+  ), [applyAIAnchor, insertWithMarkdownDetect]);
 
-  const handleAIReplace = useCallback((text: string) => {
-    if (!editor) return;
-    const { from, to } = editor.state.selection;
-    insertWithMarkdownDetect(text, from, to);
-  }, [editor, insertWithMarkdownDetect]);
+  const handleAIReplace = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("replace", ({ from, to }) => insertWithMarkdownDetect(text, from, to))
+  ), [applyAIAnchor, insertWithMarkdownDetect]);
 
   // Plugin editor actions (contract v5): slash items, toolbar/selection menus and the preview host.
   const editorActions = useTiptapEditorActions(editor, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed), aiAvailable });

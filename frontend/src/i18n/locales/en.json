@@ -2710,7 +2710,10 @@
     "retry": "Retry",
     "requestFailed": "AI request failed, please check settings",
     "generating": "AI is generating…",
-    "noteTooLongSelectFirst": "Note is long. Select a section first, or use chunk-based processing."
+    "noteTooLongSelectFirst": "Note is long. Select a section first, or use chunk-based processing.",
+    "applyConflict": "The note changed, so nothing was written. Copy the result, or reopen the assistant to try again on the current text.",
+    "applyEncrypted": "The selection is inside an encrypted region, so nothing was written. Copy the result and apply it manually.",
+    "applyTooLarge": "The selection is over 32 KB and cannot be anchored safely, so nothing was written. Select less text, or copy the result."
   },
   "aiChat": {
     "title": "AI Knowledge Q&A",

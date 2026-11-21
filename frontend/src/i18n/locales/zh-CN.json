@@ -2710,7 +2710,10 @@
     "retry": "重试",
     "requestFailed": "AI 请求失败，请检查设置",
     "generating": "AI 正在生成内容…",
-    "noteTooLongSelectFirst": "当前笔记较长，建议先选中一段文字处理，或使用分段处理全文。"
+    "noteTooLongSelectFirst": "当前笔记较长，建议先选中一段文字处理，或使用分段处理全文。",
+    "applyConflict": "文档已变化，结果没有写入。可以复制结果，或关闭后重新打开 AI 助手，基于当前内容再试。",
+    "applyEncrypted": "所选位置在加密区域内，结果没有写入。可以复制结果后手动处理。",
+    "applyTooLarge": "所选内容超过 32 KB，无法安全定位，结果没有写入。请缩小选区，或复制结果。"
   },
   "aiChat": {
     "title": "AI 知识问答",

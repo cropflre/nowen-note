@@ -82,19 +82,27 @@ export function createTiptapEditorActionAdapter(editor: Editor, getNoteId: () =>
       };
       editor.on("transaction", follow);
       let released = false;
+      // The one definition of "still the same text": every write path goes through it.
+      const locate = (mode: "insert" | "replace"): { from: number; to: number } | null => {
+        if (released || editor.isDestroyed || !editor.isEditable || getNoteId() !== noteId || !range.alive) return null;
+        const state = editor.state;
+        if (range.to > state.doc.content.size) return null;
+        if (mode === "replace" && serialize(state.doc, range.from, range.to) !== original) return null;
+        const from = mode === "replace" ? range.from : range.to, to = range.to;
+        return touchesEncryptedBlock(state.doc, from, to) ? null : { from, to };
+      };
       const snapshot: EditorActionSnapshot = {
         kind: "tiptap",
         noteId,
         text,
         original,
         hasSelection: from < to,
+        resolve: locate,
         apply(markdown, mode) {
-          if (released || editor.isDestroyed || !editor.isEditable || getNoteId() !== noteId || !range.alive) return "conflict";
+          const at = locate(mode);
+          if (!at) return "conflict";
+          const { from, to } = at;
           const state = editor.state;
-          if (range.to > state.doc.content.size) return "conflict";
-          if (mode === "replace" && serialize(state.doc, range.from, range.to) !== original) return "conflict";
-          const from = mode === "replace" ? range.from : range.to, to = range.to;
-          if (touchesEncryptedBlock(state.doc, from, to)) return "conflict";
           const $from = state.doc.resolve(from);
           const tr = state.tr;
           let end = to;

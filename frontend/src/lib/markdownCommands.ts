@@ -334,6 +334,16 @@ export function replaceSelection(view: EditorView, text: string): boolean {
   return true;
 }
 
+/** 在指定范围写入文本（AI 助手用：范围已由锚点校验，不再读取当前选区） */
+export function replaceRange(view: EditorView, from: number, to: number, text: string): boolean {
+  view.dispatch({
+    changes: { from, to, insert: text },
+    selection: EditorSelection.cursor(from + text.length),
+  });
+  focus(view);
+  return true;
+}
+
 
 /**
  * One CodeMirror transaction for all changes, so Mod-Z rolls back the entire

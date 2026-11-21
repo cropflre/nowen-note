@@ -74,18 +74,29 @@ export function createMarkdownEditorActionAdapter(getView: () => EditorView | nu
       const detach = attachFollower(view, follow);
       if (!detach) return { error: "NOT_READY" };
       let released = false;
+      // The one definition of "still the same text". The encrypted-block check stays with the callers:
+      // it has to look at the range that is finally written.
+      const locate = (mode: "insert" | "replace"): { from: number; to: number } | null => {
+        if (released || getView() !== view || !view.dom.isConnected || getNoteId() !== noteId || !range.alive) return null;
+        const current = view.state;
+        if (current.readOnly || !current.facet(EditorView.editable) || range.to > current.doc.length) return null;
+        if (mode === "replace" && current.sliceDoc(range.from, range.to) !== original) return null;
+        return mode === "replace" ? { from: range.from, to: range.to } : { from: range.to, to: range.to };
+      };
       const snapshot: EditorActionSnapshot = {
         kind: "markdown",
         noteId,
         text,
         original,
         hasSelection: from < to,
+        resolve(mode) {
+          const at = locate(mode);
+          return at && !touchesEncryptedBlock(view.state.doc.toString(), at.from, at.to) ? at : null;
+        },
         apply(markdown, mode) {
-          if (released || getView() !== view || !view.dom.isConnected || getNoteId() !== noteId || !range.alive) return "conflict";
+          let at = locate(mode);
+          if (!at) return "conflict";
           const current = view.state;
-          if (current.readOnly || !current.facet(EditorView.editable) || range.to > current.doc.length) return "conflict";
-          if (mode === "replace" && current.sliceDoc(range.from, range.to) !== original) return "conflict";
-          let at = mode === "replace" ? { from: range.from, to: range.to } : { from: range.to, to: range.to };
           let insert = markdown;
           if (mode === "insert" && markdown.trim().includes("\n")) {
             // Block results start a new block after the current line instead of splitting it.

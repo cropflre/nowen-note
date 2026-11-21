@@ -168,6 +168,36 @@ describe.each(editors)("%s editor action adapter", (_kind, create) => {
     expect(snapshot.apply("X", "insert")).toBe("conflict");
   });
 
+  it("resolve reports the followed range without writing, and refuses what apply refuses", () => {
+    const harness = create("Hello world");
+    harness.select("world");
+    const snapshot = captured(harness);
+    const original = snapshot.resolve("replace");
+    expect(original).not.toBeNull();
+    expect(snapshot.resolve("insert")).toEqual({ from: original!.to, to: original!.to });
+
+    // Edits elsewhere move the range; the same text stays addressed and nothing is written.
+    harness.insertAt("Hello", "Hey ");
+    const afterEdit = harness.text();
+    const moved = snapshot.resolve("replace");
+    expect(moved!.from).toBeGreaterThan(original!.from);
+    expect(moved!.to - moved!.from).toBe(original!.to - original!.from);
+    expect(harness.text()).toBe(afterEdit);
+
+    // Changed text: replacing is refused, an insertion point only needs to stay alive.
+    harness.insertAt("rld", "X");
+    expect(snapshot.resolve("replace")).toBeNull();
+    expect(snapshot.resolve("insert")).not.toBeNull();
+
+    harness.noteId.current = "note-2";
+    expect([snapshot.resolve("replace"), snapshot.resolve("insert")]).toEqual([null, null]);
+    harness.noteId.current = "note-1";
+    expect(snapshot.resolve("insert")).not.toBeNull();
+
+    snapshot.release();
+    expect([snapshot.resolve("replace"), snapshot.resolve("insert")]).toEqual([null, null]);
+  });
+
   it("reports IME composition and refuses oversized selections", () => {
     const harness = create("x".repeat(40 * 1024));
     harness.composing(true);

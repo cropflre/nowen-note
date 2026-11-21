@@ -16,6 +16,7 @@ function fakeAdapter(options: { text?: string; original?: string; hasSelection?:
   const release = vi.fn();
   const snapshot: EditorActionSnapshot = {
     kind: "markdown", noteId: "note-1", text: options.text ?? "hello", original: options.original ?? options.text ?? "hello", hasSelection: options.hasSelection ?? true,
+    resolve: () => (options.outcome === "conflict" ? null : { from: 0, to: 0 }),
     apply: (markdown, mode) => { applied.push({ markdown, mode }); return options.outcome ?? "applied"; },
     release,
   };
