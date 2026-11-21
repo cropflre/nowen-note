@@ -390,7 +390,24 @@ function buildBackendNodeModulesFilter() {
   rules.push("!better-sqlite3/deps/**");
   rules.push("!better-sqlite3/docs/**");
   rules.push("!better-sqlite3/benchmark/**");
+  // 为 Electron 重新编译时 node-gyp 会在 build/ 留下 .o/.obj/.a/.lib/.pdb/.iobj 和 sqlite3.c 副本
+  // （Windows 约 60MB）；运行时 bindings 只加载 build/Release/better_sqlite3.node。
+  rules.push("!better-sqlite3/build/**");
+  rules.push("better-sqlite3/build/Release/better_sqlite3.node");
   return rules;
+}
+
+// mac 两个架构依次用同一份 node_modules 打包；Linux 的锁文件没记录 libc，glibc 与 musl
+// 两份 libvips 都会被装上。按本次打包的目标只保留对应的 sharp 原生包（各约 16MB）。
+function pruneForeignSharpPackages(backendNodeModules, platform, arch) {
+  const scope = path.join(backendNodeModules, "@img");
+  if (!fs.existsSync(scope)) return;
+  const keep = new Set([`sharp-${platform}-${arch}`, `sharp-libvips-${platform}-${arch}`]);
+  for (const name of fs.readdirSync(scope)) {
+    if (/^sharp-(libvips-)?(darwin|linux|linuxmusl|win32|wasm32)\b/.test(name) && !keep.has(name)) {
+      fs.rmSync(path.join(scope, name), { recursive: true, force: true });
+    }
+  }
 }
 
 module.exports = {
@@ -408,9 +425,12 @@ module.exports = {
     return true; // 返回 true 表示继续打包
   },
   afterPack(context) {
-    if (context.electronPlatformName !== "darwin") return;
     const arch = require("builder-util").Arch[context.arch];
-    const resources = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources");
+    const resources = context.electronPlatformName === "darwin"
+      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources")
+      : path.join(context.appOutDir, "resources");
+    pruneForeignSharpPackages(path.join(resources, "backend/node_modules"), context.electronPlatformName, arch);
+    if (context.electronPlatformName !== "darwin") return;
     verifyMacSharp(path.join(resources, "backend/node_modules"), arch);
     verifyMacFfmpeg(path.join(resources, "backend/node_modules/ffmpeg-static/ffmpeg"), arch);
   },
@@ -421,6 +441,8 @@ module.exports = {
   },
   // 仅打包中英两种语言；默认会有 100+ 种 locale，约占 36MB
   electronLanguages: ["en-US", "zh-CN"],
+  // bzip2 比默认的 zlib 小约 6%，只在首次拖进“应用程序”时多几秒解压，不影响启动。
+  dmg: { format: "UDBZ" },
   // GitHub Releases 作为自动更新 feed
   // 发布时需设置 GH_TOKEN 环境变量；私有仓库需 private: true
   //

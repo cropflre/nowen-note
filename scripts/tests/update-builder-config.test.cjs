@@ -1,10 +1,12 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const test = require("node:test");
 const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "../..");
 const full = require(path.join(repoRoot, "electron", "builder.config.js"));
+const base = require(path.join(repoRoot, "electron", "builder.base.config.js"));
 
 test("full desktop updater uses stable no-space artifact names", () => {
   assert.equal(full.nsis?.artifactName, "Nowen-Note-${version}-setup.${ext}");
@@ -66,5 +68,56 @@ test("macOS 11 users are not offered an incompatible Electron upgrade", async ()
     }
   } finally {
     os.release = original;
+  }
+});
+
+function tempDir(t, prefix) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+test("desktop packages ship the better-sqlite3 binary without its compile intermediates", (t) => {
+  const { FileMatcher } = require("app-builder-lib/out/fileMatcher");
+  const { filter: patterns } = full.extraResources.find((item) => item.from === "backend/node_modules");
+  const source = tempDir(t, "nowen-native-filter-");
+  for (const file of ["better-sqlite3/package.json", "better-sqlite3/lib/index.js",
+    "better-sqlite3/build/Release/better_sqlite3.node", "better-sqlite3/build/Release/test_extension.node",
+    "better-sqlite3/build/Release/better_sqlite3.pdb", "better-sqlite3/build/Release/better_sqlite3.iobj",
+    "better-sqlite3/build/Release/sqlite3.lib", "better-sqlite3/build/Release/obj/gen/sqlite3/sqlite3.c",
+    "better-sqlite3/build/deps/sqlite3.vcxproj", "better-sqlite3/build/Release/.electron-abi.json"]) {
+    fs.mkdirSync(path.dirname(path.join(source, file)), { recursive: true });
+    fs.writeFileSync(path.join(source, file), "x");
+  }
+  const filter = new FileMatcher(source, "/out", (value) => value, patterns).createFilter();
+  const included = [];
+  (function walk(directory) {
+    for (const name of fs.readdirSync(directory)) {
+      const file = path.join(directory, name);
+      const stat = fs.statSync(file);
+      if (!filter(file, stat)) continue;
+      if (stat.isDirectory()) walk(file);
+      else included.push(path.relative(source, file).split(path.sep).join("/"));
+    }
+  })(source);
+  assert.deepEqual(included.sort(), ["better-sqlite3/build/Release/better_sqlite3.node",
+    "better-sqlite3/lib/index.js", "better-sqlite3/package.json"]);
+});
+
+test("each desktop package keeps only its own platform's sharp runtime", (t) => {
+  const { Arch } = require("builder-util");
+  for (const [platform, kept] of [
+    ["linux", ["colour", "sharp-libvips-linux-x64", "sharp-linux-x64"]],
+    ["win32", ["colour", "sharp-win32-x64"]],
+  ]) {
+    const appOutDir = tempDir(t, "nowen-sharp-prune-");
+    const scope = path.join(appOutDir, "resources/backend/node_modules/@img");
+    for (const name of ["colour", "sharp-darwin-arm64", "sharp-libvips-darwin-arm64", "sharp-linux-x64",
+      "sharp-libvips-linux-x64", "sharp-linuxmusl-x64", "sharp-libvips-linuxmusl-x64", "sharp-win32-x64", "sharp-wasm32"]) {
+      fs.mkdirSync(path.join(scope, name), { recursive: true });
+    }
+    base.afterPack({ electronPlatformName: platform, arch: Arch.x64, appOutDir,
+      packager: { appInfo: { productFilename: "Nowen Note" } } });
+    assert.deepEqual(fs.readdirSync(scope).sort(), kept, platform);
   }
 });
