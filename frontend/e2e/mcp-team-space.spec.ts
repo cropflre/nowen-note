@@ -8,12 +8,13 @@ import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 type ToolResult = { isError?: boolean; content?: Array<{ text?: string }> };
+type StdioReply = { id: number; result: ToolResult & { serverInfo?: { name: string } } };
 const text = (result: ToolResult) => (result.content || []).map(item => item.text || "").join("\n");
 
 /** Talks newline-delimited JSON-RPC to the standalone stdio MCP launcher, as a desktop AI client would. */
 async function stdioTool(launcher: string, baseUrl: string, token: string, calls: Array<[string, Record<string, unknown>]>): Promise<ToolResult[]> {
   const child = spawn(process.execPath, [launcher], { env: { ...process.env, NOWEN_URL: baseUrl, NOWEN_API_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] });
-  const replies = new Map<number, (value: any) => void>();
+  const replies = new Map<number, (value: StdioReply) => void>();
   let buffer = "";
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => {
@@ -21,18 +22,18 @@ async function stdioTool(launcher: string, baseUrl: string, token: string, calls
     for (let index = buffer.indexOf("\n"); index >= 0; index = buffer.indexOf("\n")) {
       const line = buffer.slice(0, index).trim();
       buffer = buffer.slice(index + 1);
-      if (line) { const message = JSON.parse(line); replies.get(message.id)?.(message); }
+      if (line) { const message = JSON.parse(line) as StdioReply; replies.get(message.id)?.(message); }
     }
   });
   let id = 0;
-  const request = (method: string, params: unknown) => new Promise<any>((resolve, reject) => {
+  const request = (method: string, params: unknown) => new Promise<StdioReply>((resolve, reject) => {
     const current = ++id;
     const timer = setTimeout(() => reject(new Error(`stdio MCP timed out: ${method}`)), 20000);
     replies.set(current, value => { clearTimeout(timer); resolve(value); });
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: current, method, params })}\n`);
   });
   try {
-    expect((await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "team-space-e2e", version: "1" } })).result.serverInfo.name).toBe("nowen-note");
+    expect((await request("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "team-space-e2e", version: "1" } })).result.serverInfo?.name).toBe("nowen-note");
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const results: ToolResult[] = [];
     for (const [name, args] of calls) results.push((await request("tools/call", { name, arguments: args })).result);

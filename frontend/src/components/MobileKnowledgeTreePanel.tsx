@@ -659,7 +659,7 @@ export default function MobileKnowledgeTreePanel({
       summary: { title: node.title, notebookId: "" },
       request: () => api.getNote(node.resourceId),
       onSuccess: (note) => activateNote(note, node.parentId),
-      onError: (requestError: any) => toast.error(requestError?.message || "打开文档失败"),
+      onError: (requestError) => toast.error((requestError instanceof Error && requestError.message) || "打开文档失败"),
     });
   }, [actions, activateNote, cancelNoteLoad, closeMenu, loadNote, rememberOpened, state.activeNote, unlockedFolderIds, variant]);
 

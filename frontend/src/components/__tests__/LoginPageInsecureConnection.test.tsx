@@ -42,12 +42,13 @@ function setPageUrl(url: string) {
 describe("登录页明文 HTTP 提示", () => {
   let host: HTMLDivElement;
   let root: Root;
+  const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
 
   beforeEach(() => {
     localStorage.clear();
     Reflect.deleteProperty(window, "nowenDesktop");
     Reflect.deleteProperty(window, "Capacitor");
-    vi.stubGlobal("scrollTo", vi.fn());
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: vi.fn() });
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -58,7 +59,8 @@ describe("登录页明文 HTTP 提示", () => {
     host.remove();
     setPageUrl(DEFAULT_PAGE_URL);
     vi.clearAllMocks();
-    vi.unstubAllGlobals();
+    if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+    else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
   });
 
   async function renderPage(isClientMode = false) {

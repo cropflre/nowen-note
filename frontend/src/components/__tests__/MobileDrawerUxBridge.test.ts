@@ -2,7 +2,6 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  ANDROID_DRAWER_SAFE_AREA_CSS,
   annotateMobileDrawerControls,
   getNoteCardSelectionRoot,
   getSidebarSearchInput,

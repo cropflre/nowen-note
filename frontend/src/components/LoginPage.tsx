@@ -653,9 +653,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || twoFactorUsername || username.trim());
       onLogin(data.token, data.user);
-    } catch (err: any) {
+    } catch (err) {
       if (!isClientMode) setServiceUnavailable(true);
-      else setError(err?.message || t("auth.networkError"));
+      else setError((err instanceof Error && err.message) || t("auth.networkError"));
     } finally {
       setIsLoading(false);
     }

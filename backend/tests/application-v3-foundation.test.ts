@@ -16,12 +16,12 @@ import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, APP_BRIDGE_V3_MAX_REQU
 const pages = [{ id: "home", title: "Home", entry: "ui/index.html", platforms: ["web", "desktop"], requiredPermissions: ["plugin-storage:read"] }];
 const declared = ["plugin-storage:read"];
 
-test("V3 apps open by default on 1.5.3 while explicit shutdown and legacy gates remain effective", () => {
+test("V3 apps open by default on 1.6.0 while explicit shutdown and legacy gates remain effective", () => {
   const keys = ["NOWEN_EXTENSIONS_V21", "NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_CORE", "NOWEN_EXTENSION_V3_APP_PAGES", "NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS", "NOWEN_EXTENSION_V3_PLUGIN_DATA"];
   const previous = keys.map(key => process.env[key]);
   try {
     keys.forEach(key => delete process.env[key]);
-    assert.equal(NOWEN_VERSION, "1.5.3");
+    assert.equal(NOWEN_VERSION, "1.6.0");
     assert.equal(NOWEN_VERSION, JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version);
     assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: true, pluginData: true, inspectors: false });
     assert.equal(getExtensionPlatformFeatureFlags().extensionsV21, false);
@@ -119,11 +119,12 @@ async function packV3(overrides: { manifest?: any; html?: string; extra?: Record
   for (const [path, content] of Object.entries(overrides.extra || {})) zip.file(path, content);
   return zip.generateAsync({ type: "nodebuffer" });
 }
-test("V3 installs on the real 1.5.3 host and still enforces version and shutdown gates", async () => {
+test("V3 installs on the real 1.6.0 host and still enforces version and shutdown gates", async () => {
   await enabledV3(() => {
     assert.equal(parsePluginManifest(manifestV3()).apiVersion, 3);
     assert.throws(() => parsePluginManifest(manifestV3(), { currentVersion: "1.5.2" }), /当前版本为 1.5.2/);
-    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.6.0" } }), /当前版本为 1.5.3/);
+    assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.6.0" } }).apiVersion, 3);
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.6.1" } }), /当前版本为 1.6.0/);
     assert.throws(() => parsePluginManifest({ ...manifestV3(), apiVersion: 2 }));
     assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.5.0" } }), /V3 插件必须/);
     process.env.NOWEN_EXTENSION_V3_APP_PAGES = "0";

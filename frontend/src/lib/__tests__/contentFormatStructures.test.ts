@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { markdownToTiptapJSON, tiptapJsonToMarkdown } from "@/lib/contentFormat";
 
 // Rich text ↔ Markdown fidelity for adjacent lists and for formatting that only HTML can carry.
-type Json = { type: string; attrs?: Record<string, any>; content?: Json[]; text?: string; marks?: Array<{ type: string }> };
+type Json = { type: string; attrs?: Record<string, unknown>; content?: Json[]; text?: string; marks?: Array<{ type: string }> };
 const text = (value: string, marks?: string[]): Json => ({ type: "text", text: value, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) });
 const p = (value: string | Json[], attrs: Record<string, unknown> = {}): Json => ({ type: "paragraph", attrs, content: typeof value === "string" ? (value ? [text(value)] : []) : value });
 const doc = (...content: Json[]): Json => ({ type: "doc", content });

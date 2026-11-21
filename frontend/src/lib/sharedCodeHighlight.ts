@@ -1,4 +1,5 @@
 import { common, createLowlight } from "lowlight";
+import type { Root, RootContent } from "hast";
 
 const sharedLowlight = createLowlight(common);
 
@@ -11,7 +12,7 @@ const sharedLowlight = createLowlight(common);
 export function highlightSharedCode(code: string, lang: string): string {
   if (!code) return "";
   try {
-    let tree: any;
+    let tree: Root;
     if (lang && lang !== "auto" && sharedLowlight.registered(lang)) {
       tree = sharedLowlight.highlight(lang, code);
     } else {
@@ -29,7 +30,7 @@ export function highlightSharedCode(code: string, lang: string): string {
  *   - element：标签名 + className + children（lowlight 不产出其他属性）
  *   - text：转义后输出
  */
-function hastToHtml(node: any): string {
+function hastToHtml(node: Root | RootContent): string {
   if (!node) return "";
   if (node.type === "root") {
     return (node.children || []).map(hastToHtml).join("");

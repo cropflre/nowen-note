@@ -813,17 +813,19 @@ server.tool("nowen_get_task_summary", "Read personal task counts", {}, async () 
 });
 // ==================== 任务项目与安全元数据工具 ====================
 
-server.tool(
+server.registerTool(
   "nowen_update_task",
-  "更新本人个人任务的标题、描述、到期日期/具体时间、优先级或状态；不会修改空间、项目或父子关系",
   {
-    taskId: z.string().min(1),
-    title: z.string().min(1).optional(),
-    description: z.string().optional(),
-    dueDate: z.string().nullable().optional(),
-    dueAt: dueAtSchema.nullable().optional(),
-    priority: z.number().int().min(1).max(3).optional(),
-    status: z.enum(["todo", "doing", "blocked", "done"]).optional(),
+    description: "更新本人个人任务的标题、描述、到期日期/具体时间、优先级或状态；不会修改空间、项目或父子关系",
+    inputSchema: z.object({
+      taskId: z.string().min(1),
+      title: z.string().min(1).optional(),
+      description: z.string().optional(),
+      dueDate: z.string().nullable().optional(),
+      dueAt: dueAtSchema.nullable().optional(),
+      priority: z.number().int().min(1).max(3).optional(),
+      status: z.enum(["todo", "doing", "blocked", "done"]).optional(),
+    }).strict(),
   },
   async ({ taskId, title, description, dueDate, dueAt, priority, status }) => {
     try {

@@ -64,11 +64,20 @@ test("task tools preserve wall times, label UTC metadata and create scoped remin
         assert.equal(note.updatedAt, "2026-10-20T09:30:00+08:00");
         assert.equal(note.contentText, "2026-10-20 01:30:00");
         const count = writes.length;
-        for (const name of ["nowen_create_task", "nowen_create_subtask", "nowen_update_task"]) {
-          const result = await client.callTool({ name, arguments: {
-            title: "Meeting", taskId: "task-1", parentTaskId: "task-1",
-            dueDate: "2026-10-21", dueAt: "2026-10-21T09:30",
-          } });
+        const details = { title: "Meeting", dueDate: "2026-10-21", dueAt: "2026-10-21T09:30" };
+        const invalidUpdate = await client.callTool({
+          name: "nowen_update_task",
+          arguments: { ...details, taskId: "task-1", parentTaskId: "task-1" },
+        });
+        assert.equal(invalidUpdate.isError, true);
+        assert.match(resultText(invalidUpdate), /parentTaskId/);
+        assert.equal(writes.length, count);
+        for (const [name, fields] of [
+          ["nowen_create_task", {}],
+          ["nowen_create_subtask", { parentTaskId: "task-1" }],
+          ["nowen_update_task", { taskId: "task-1" }],
+        ] as const) {
+          const result = await client.callTool({ name, arguments: { ...details, ...fields } });
           if (mode === "read-only") assert.equal(result.isError, true);
           else {
             assert.ok(!result.isError, resultText(result));

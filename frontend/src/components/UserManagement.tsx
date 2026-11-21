@@ -964,11 +964,11 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                   const { sudoToken } = await api.requestSudoToken(sudoPwd);
                   sudoAsk.resolve(sudoToken);
                   setSudoAsk(null);
-                } catch (err: any) {
-                  if (err?.status === 429) {
+                } catch (err) {
+                  if (typeof err === "object" && err !== null && "status" in err && err.status === 429) {
                     setSudoError(t("userManagement.sudoRateLimited"));
                   } else {
-                    setSudoError(err?.message || t("userManagement.sudoWrongPassword"));
+                    setSudoError((err instanceof Error && err.message) || t("userManagement.sudoWrongPassword"));
                   }
                 } finally {
                   setSudoSubmitting(false);

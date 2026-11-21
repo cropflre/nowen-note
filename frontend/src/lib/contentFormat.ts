@@ -1517,6 +1517,7 @@ function restoreMathPlaceholders(
   // 公式块的 ID 标记（结束 `$$` 后独占一行，或旧版接在结束行行尾）与公式落在同一段：
   // 拆成公式后面只含标记的段落，由块 ID 还原挂到公式块上，不留空段落
   out = out.replace(
+    // eslint-disable-next-line no-control-regex -- Match the NUL-delimited internal math placeholder.
     /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*(NOWENBLOCKIDTOKEN\d+END)?\s*<\/p>/g,
     (_m, idx, token?: string) => {
       const latex = blocks[Number(idx)] || "";

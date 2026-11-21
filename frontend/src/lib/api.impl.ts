@@ -1,5 +1,5 @@
 import { readAiProvenance } from "./aiContentProvenance";
-﻿import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
+import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
 import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";

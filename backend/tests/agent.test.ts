@@ -65,6 +65,40 @@ test("real tool loop preserves unsaved snapshot; approval never writes; receipt 
   const metadata = JSON.stringify(db.prepare("SELECT * FROM agent_runs").all()) + JSON.stringify(db.prepare("SELECT * FROM agent_steps").all()) + JSON.stringify(db.prepare("SELECT * FROM agent_approvals").all());
   assert.ok(!metadata.includes("Original text") && !metadata.includes("secret-test-key") && !metadata.includes(token));
 });
+test("DCC-001: rich-text Agent receipts allow declaration defaults and still verify the saved edit", async () => {
+  const original = JSON.stringify({ type: "doc", content: [{
+    type: "paragraph", content: [{ type: "text", marks: [{ type: "bold" }], text: "Original text" }],
+  }] });
+  db.prepare("UPDATE notes SET content=?,contentFormat='tiptap-json' WHERE id='note-a'").run(original);
+  const run = await settled((await (await create({ content: original, format: "tiptap-json" })).json()).id);
+  assert.equal(run.status, "waiting_approval");
+  assert.equal((await send(`/runs/${run.id}/approve`, { token: run.proposal!.token, snapshot: original })).status, 200);
+
+  const saved = JSON.parse(run.proposal!.result);
+  const declaration = saved.content[0];
+  const { type, text, marks } = declaration.content[0];
+  declaration.content[0] = { type, marks, text };
+  declaration.attrs = {
+    blockId: "blk_11111111-1111-4111-8111-111111111111",
+    textAlign: null, indent: 0, lineHeight: null, firstLineIndent: 0,
+  };
+  const persist = () => db.prepare("UPDATE notes SET content=?,version=2 WHERE id='note-a'").run(JSON.stringify(saved));
+
+  declaration.attrs.lineHeight = 2;
+  persist();
+  assert.equal((await send(`/runs/${run.id}/receipt`)).status, 409);
+  declaration.attrs.lineHeight = null;
+
+  saved.content[1].content[0].marks = [];
+  persist();
+  assert.equal((await send(`/runs/${run.id}/receipt`)).status, 409);
+  saved.content[1].content[0].marks = [{ type: "bold" }];
+
+  persist();
+  const receipt = await send(`/runs/${run.id}/receipt`);
+  assert.equal(receipt.status, 200, await receipt.clone().text());
+  assert.equal((await receipt.json()).status, "completed");
+});
 test("expired editor snapshots and concurrent versions cannot approve (DCC-004)", async () => {
   const run = await settled((await (await create()).json()).id);
   assert.equal((await send(`/runs/${run.id}/approve`, { token: run.proposal!.token, snapshot: "New local edit" })).status, 409);

@@ -1,6 +1,6 @@
 import { readAiProvenance } from "@/lib/aiContentProvenance";
 import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
-﻿import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
+import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";

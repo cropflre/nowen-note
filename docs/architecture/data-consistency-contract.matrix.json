@@ -9,6 +9,7 @@
       "checks": [
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-001 archive receipts are idempotent and require persisted matching operations"},
         { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
+        { "file": "backend/tests/agent.test.ts", "case": "DCC-001: rich-text Agent receipts allow declaration defaults and still verify the saved edit" },
         { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
         {
@@ -299,6 +300,7 @@
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: standalone stdio MCP uses the same server-side team grants" },
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: revoked, expired and deleted team tokens stop immediately" },
         { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: token audit logs record space and result without credentials or note bodies" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: MCP task update rejects extra fields before changing the task" },
         { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: task deletion stays inside the token owner's personal tasks, write scope and write-enabled connections" },
         { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: standalone stdio MCP with a notebook whitelist deletes only confirmed personal tasks" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: groups personal, shared and team notebooks without mixing same-name notebooks" },

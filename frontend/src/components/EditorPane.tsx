@@ -1,6 +1,6 @@
 import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { aiClipboardText, createAiProvenance, markAiMarkdown } from "@/lib/aiContentProvenance";
-﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
+import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import PluginInspector from "./PluginInspector";
 import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
@@ -2393,7 +2393,7 @@ const moveToTrash = useCallback(async () => {
       //    MD �༭�� debounce ��Ȼ�� flush���� AI �����ʱ���û��Կ��ܼ�������
       //    �� ���� �� version ������������� 409�������������±ʼ����� version ���ԡ�
       const doUpdate = async (version: number) =>
-        api.updateNote(activeNote.id, { title: `${t("ai.generatedTitlePrefix")}${cleaned}`, contentFormat: activeNote.contentFormat, version } as any);
+        api.updateNote(activeNote.id, { title: `${t("ai.generatedTitlePrefix")}${cleaned}`, contentFormat: activeNote.contentFormat, version });
 
       let updated;
       try {

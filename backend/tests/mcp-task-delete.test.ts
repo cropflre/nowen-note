@@ -155,6 +155,26 @@ test("MCP personal task deletion", async (t) => {
       ({ taskId, dryRun: false, expectedRevision, confirmation: "DELETE_TASK", ...extra });
     await configure(settings);
 
+    await t.test("DCC-006: MCP task update rejects extra fields before changing the task", async () => {
+      const task = await create("session-owner", { title: "Original task" });
+      const before = row(task.id);
+      const invalid = await tool(writer, "nowen_update_task", {
+        taskId: task.id, title: "Unexpected change", projectId: "other-project",
+      });
+      assert.equal(invalid.isError, true, text(invalid));
+      assert.deepEqual(row(task.id), before);
+
+      const updated = await tool(writer, "nowen_update_task", {
+        taskId: task.id, title: "Updated task", description: "Review on Friday", priority: 3, status: "doing",
+      });
+      assert.equal(updated.isError, undefined, text(updated));
+      const saved = json(updated).task;
+      assert.equal(saved.title, "Updated task");
+      assert.equal(saved.description, "Review on Friday");
+      assert.equal(saved.priority, 3);
+      assert.equal(saved.status, "doing");
+    });
+
     await t.test("DCC-007: MCP task deletion previews the whole subtree and deletes only after a confirmed, current preview", async () => {
       const root = await create("session-owner", { title: "Wrong study plan" });
       const child = await create("session-owner", { title: "Chapter 1", parentId: root.id });

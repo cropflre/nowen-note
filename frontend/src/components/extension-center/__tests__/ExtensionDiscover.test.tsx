@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getMe: vi.fn(), confirm: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn(), toastInfo: vi.fn(), push: vi.fn(),
+  aiAvailable: vi.fn(), getMe: vi.fn(), confirm: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn(), toastInfo: vi.fn(), push: vi.fn(),
   setViewMode: vi.fn(), setMobileView: vi.fn(),
   api: {
     features: vi.fn(), list: vi.fn(), registrySources: vi.fn(), registryIndex: vi.fn(), getRuntimePolicy: vi.fn(),
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     uninstall: vi.fn(), settings: vi.fn(), setSettings: vi.fn(), executions: vi.fn(),
   },
 }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: mocks.aiAvailable }));
 vi.mock("@/lib/api", () => ({ api: { getMe: mocks.getMe } }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: mocks.api, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT: "nowen:plugin-contributions-changed" }));
 vi.mock("@/components/ui/confirm", () => ({ confirm: mocks.confirm }));
@@ -38,6 +39,7 @@ const click = async (element: Element) => { await act(async () => { (element as 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.aiAvailable.mockReturnValue(true);
   mocks.getMe.mockResolvedValue({ role: "admin" });
   mocks.api.features.mockResolvedValue({ currentNowenVersion: "1.5.3", runtimePlatform: "server", applicationV3: { dashboardWidgets: true } });
   mocks.api.list.mockResolvedValue([]);
@@ -106,6 +108,13 @@ describe("Extension Center discover", () => {
     await click([...studio.querySelectorAll("button")].find((button) => button.textContent?.trim() === "extensionCenter.action.open")!);
     expect(mocks.push).toHaveBeenCalledWith("/apps/studio");
     expect(mocks.api.installFromRegistry).not.toHaveBeenCalled();
+  });
+
+  it("hides built-in AI and its empty category when no AI connection is available", async () => {
+    mocks.aiAvailable.mockReturnValue(false);
+    await render();
+    expect(host.querySelector('[data-extension-card="builtin:ai-chat"]')).toBeNull();
+    expect(buttons("extensionCenter.category.ai")).toHaveLength(0);
   });
 
   it("filters by search text and category and reloads after plugin changes", async () => {
