@@ -62,6 +62,11 @@ export function initAIConversationPanel(tab: chrome.tabs.Tab | undefined) {
       render(await send("AI_MANAGE", { action }));
     }));
   });
+  // The button on the page reads and writes the same key (ai-conversations/capture.ts); that bundle cannot share a module with this one.
+  const HIDDEN_KEY = "nowenAIPageButtonHidden";
+  const showButton = element<HTMLInputElement>("ai-page-button");
+  void chrome.storage.local.get(HIDDEN_KEY).then((saved) => { showButton.checked = saved[HIDDEN_KEY] !== true; });
+  showButton.addEventListener("change", () => void chrome.storage.local.set({ [HIDDEN_KEY]: !showButton.checked }));
   void send("AI_STATUS").then(render).catch((error: Error) => report(error.message));
   const poll = window.setInterval(() => { if (!busy) void send("AI_STATUS").then(render).catch(() => undefined); }, 2000);
   window.addEventListener("pagehide", () => window.clearInterval(poll), { once: true });

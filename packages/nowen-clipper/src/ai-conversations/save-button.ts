@@ -5,6 +5,8 @@ export interface SaveButtonActions {
   status(): Promise<QuickStatus>;
   stop(): Promise<QuickStatus>;
   open(): Promise<QuickStatus>;
+  /** The person closed the button with ✕: keep it away from now on. The button has already removed itself. */
+  dismiss(): void;
   /** Only a real click by the person may read and save the conversation; tests substitute this check. */
   trusted?(event: Event): boolean;
 }
@@ -15,6 +17,11 @@ const CSS = `
   max-width: min(300px, calc(100vw - 32px)); color: #1f2937;
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
 button { font: inherit; cursor: pointer; }
+.row { position: relative; display: flex; }
+.close { position: absolute; top: -8px; left: -8px; display: none; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid #d0d7e2;
+  border-radius: 50%; background: #fff; color: #64748b; font-size: 14px; line-height: 1; box-shadow: 0 2px 6px rgba(15, 23, 42, .18); }
+.close:hover { background: #f3f6fd; color: #1f2937; }
+.row:hover .close, .row:focus-within .close { display: grid; }
 .main { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 6px 14px; border: 1px solid #d0d7e2; border-radius: 999px;
   background: #fff; color: inherit; box-shadow: 0 6px 18px rgba(15, 23, 42, .14); white-space: nowrap; }
 .main::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5b7cfa; flex: none; }
@@ -37,6 +44,8 @@ button:focus-visible { outline: 2px solid #5b7cfa; outline-offset: 2px; }
   .wrap { color: #e5e9f3; }
   .main, .detail, .more button { background: #1c2333; border-color: #3a4560; color: #e5e9f3; }
   .main:hover, .more button:hover { background: #26304a; }
+  .close { background: #1c2333; border-color: #3a4560; color: #aab4c8; }
+  .close:hover { background: #26304a; color: #fff; }
   .wrap[data-state="saved"] .main { color: #6ee7b7; border-color: #2f6f58; }
   .detail { color: #c3cbdb; }
   .wrap[data-state="error"] .detail { color: #fda29b; border-color: #7a2e2a; }
@@ -60,16 +69,21 @@ export function createSaveButton(doc: Document, actions: SaveButtonActions) {
   };
   const style = element("style", "", CSS);
   const wrap = element("div", "wrap");
+  const row = element("div", "row");
   const main = element("button", "main");
+  const close = element("button", "close", "×");
   const detail = element("p", "detail");
   const more = element("div", "more");
   const open = element("button", "", "打开笔记");
   const stop = element("button", "", "停止自动保存");
-  for (const button of [main, open, stop]) button.type = "button";
+  for (const button of [main, close, open, stop]) button.type = "button";
+  close.setAttribute("aria-label", "隐藏「存到 Nowen」按钮");
+  close.title = "隐藏按钮（可在扩展弹窗里重新显示）";
   detail.setAttribute("role", "status");
   detail.title = "点击收起";
+  row.append(main, close);
   more.append(open, stop);
-  wrap.append(main, detail, more);
+  wrap.append(row, detail, more);
   root.append(style, wrap);
 
   const trusted = actions.trusted || ((event: Event) => event.isTrusted);
@@ -105,7 +119,9 @@ export function createSaveButton(doc: Document, actions: SaveButtonActions) {
     try { const next = await actions.status(); if (!busy) render(next); }
     catch { /* Keep showing the last known state; the next click reports the real error. */ }
   }
+  function hide() { clearTimeout(poll); host.remove(); }
   main.addEventListener("click", (event) => { if (trusted(event)) { dismissed = ""; void run(actions.save, true); } });
+  close.addEventListener("click", (event) => { if (trusted(event)) { hide(); actions.dismiss(); } });
   detail.addEventListener("click", () => { dismissed = detail.textContent || ""; detail.hidden = true; });
   open.addEventListener("click", (event) => { if (trusted(event)) void run(actions.open); });
   stop.addEventListener("click", (event) => { if (trusted(event)) void run(actions.stop); });
@@ -118,7 +134,7 @@ export function createSaveButton(doc: Document, actions: SaveButtonActions) {
       doc.documentElement.append(host);
       void refresh();
     },
-    hide() { clearTimeout(poll); host.remove(); },
+    hide,
     refresh,
     /** For tests only: the closed shadow root is otherwise unreachable. */
     root,

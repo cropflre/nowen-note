@@ -81,7 +81,8 @@ export function createCaptureController(options: CaptureRuntimeOptions) {
   return { refresh, stop() { stopped = true; disconnect(); } };
 }
 
-export function installAICaptureRuntime(doc: Document, win: Window): () => void {
+/** `trusted` only lets tests stand in for a real click; the page script never passes it. */
+export function installAICaptureRuntime(doc: Document, win: Window, trusted?: (event: Event) => boolean): () => void {
   const controller = createCaptureController({
     doc, url: () => win.location.href,
     permission: (url) => chrome.runtime.sendMessage({ type: "AI_CAPTURE_PERMISSION", url }),
@@ -96,14 +97,35 @@ export function installAICaptureRuntime(doc: Document, win: Window): () => void 
     if (!response?.ok) throw new Error(response?.error || "扩展暂时无法处理，请刷新页面后重试。");
     return response;
   };
+  // The person can close the button with ✕ and bring it back from the popup. The popup reads and writes the same
+  // key (ai-conversations/popup.ts); this script must stay one standalone file, so the two cannot share a module.
+  const HIDDEN_KEY = "nowenAIPageButtonHidden";
+  // Out of sight until the saved choice is read, so a button the person closed never flashes back in.
+  let hidden = true;
+  let watching = false;
   // Reading the conversation happens only here, inside the click on the button.
   const button = createSaveButton(doc, {
     save: async () => ask("AI_QUICK_SAVE", { preview: await extractConversation(doc, win.location.href) }),
     status: () => ask("AI_QUICK_STATUS"),
     stop: () => ask("AI_QUICK_STOP"),
     open: () => ask("AI_QUICK_OPEN"),
+    dismiss: () => { hidden = true; void chrome.storage.local.set({ [HIDDEN_KEY]: true }).catch(() => undefined); },
+    trusted,
   });
-  const place = () => { if (detectConversation(win.location.href)) button.show(); else button.hide(); };
+  const choose = (saved: unknown) => { hidden = saved === true; place(); };
+  // Closing or restoring it in any tab, or from the popup, reaches every open chat page.
+  const storageChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => { if (area === "local" && HIDDEN_KEY in changes) choose(changes[HIDDEN_KEY].newValue); };
+  const place = () => {
+    const onConversation = !!detectConversation(win.location.href);
+    // Each write of the archive state is delivered to every listener of this storage, and this script runs on all pages:
+    // only a page that shows a conversation listens, and reads the saved choice, at all.
+    if (onConversation && !watching) {
+      watching = true;
+      chrome.storage.onChanged.addListener(storageChanged);
+      void chrome.storage.local.get(HIDDEN_KEY).then((saved) => choose(saved[HIDDEN_KEY])).catch(() => undefined);
+    }
+    if (onConversation && !hidden) button.show(); else button.hide();
+  };
   let lastUrl = win.location.href;
   const poll = win.setInterval(() => {
     // Single-page apps switch conversations without reloading, and may also re-render the page around the button.
@@ -124,7 +146,7 @@ export function installAICaptureRuntime(doc: Document, win: Window): () => void 
     if (message?.type === "AI_STATUS_CHANGED") { void button.refresh(); sendResponse({ ok: true }); }
   };
   chrome.runtime.onMessage.addListener(listener);
-  const stop = () => { controller.stop(); button.hide(); win.clearInterval(poll); chrome.runtime.onMessage.removeListener(listener); };
+  const stop = () => { controller.stop(); button.hide(); win.clearInterval(poll); chrome.runtime.onMessage.removeListener(listener); chrome.storage.onChanged.removeListener(storageChanged); };
   win.addEventListener("pagehide", stop, { once: true });
   place();
   void controller.refresh().catch(() => undefined);
