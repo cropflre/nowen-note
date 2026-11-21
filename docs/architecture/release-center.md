@@ -40,7 +40,7 @@ Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量
 | `ios-release.yml` | `v*.*.*-ios` 和通用 `v*.*.*` Tag、手动 dispatch | 签名 IPA artifact `nowen-note-ios`，14 天；**Tag push 自动上传 TestFlight**；手动上传开关默认 false |
 | `verify-release-update-assets.mjs` | local / remote 校验 | remote 经 gh 下载；校验命名、SHA-512、大小、blockmap、Full/Lite 隔离；Windows + Linux 更新元数据同时存在时还要求完整 macOS 资产 |
 
-正式 Windows 资产命名：`Nowen-Note-<v>-setup.exe`、`portable.exe`、`setup.exe.blockmap`、`latest.yml`，Lite 独立 `Nowen-Note-Lite-*` 与 `latest-lite.yml`。macOS 要求 x64/arm64 的 `.dmg`、`.zip` 与 `latest-mac.yml`；Linux 配置为 x64 `.AppImage`、`.deb` 与 `latest-linux.yml`。同名并不证明资产来自同一 SHA，已有守卫依赖同 Tag CI 与远端内容校验。
+正式 Windows 资产命名：`Nowen-Note-<v>-setup.exe`、`portable.exe`、`setup.exe.blockmap`、`latest.yml`；1.6.1 起不再打包 Lite 版（`Nowen-Note-Lite-*`、`latest-lite.yml`）。macOS 要求 x64/arm64 的 `.dmg`、`.zip` 与 `latest-mac.yml`；Linux 配置为 x64 `.AppImage`、`.deb` 与 `latest-linux.yml`。同名并不证明资产来自同一 SHA，已有守卫依赖同 Tag CI 与远端内容校验。
 
 首次审计 root/backend/Android 版本均为 `1.5.1`；root lockfile 顶层和根 package entry 仍是 `1.5.0`。`frontend/package.json` 的 `0.0.0` 是前端工程版本，不冒充应用发行版本。本次不自动同步或修复版本。CHANGELOG 的未发布内容与 QA 文档中的 NO-GO 不能视为发布许可。
 

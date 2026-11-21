@@ -5,7 +5,6 @@ const path = require("node:path");
 
 const repoRoot = path.resolve(__dirname, "../..");
 const full = require(path.join(repoRoot, "electron", "builder.config.js"));
-const lite = require(path.join(repoRoot, "electron", "builder.lite.config.js"));
 
 test("full desktop updater uses stable no-space artifact names", () => {
   assert.equal(full.nsis?.artifactName, "Nowen-Note-${version}-setup.${ext}");
@@ -17,18 +16,26 @@ test("full desktop updater uses stable no-space artifact names", () => {
     require(path.join(repoRoot, "package.json")).scripts["electron:build"],
     /node build\/verifyUpdateArtifactsCli\.js/,
   );
-});
-
-test("lite updater stays on an isolated latest-lite channel", () => {
-  assert.ok(Array.isArray(lite.publish));
-  assert.ok(lite.publish.every((provider) => provider.channel === "latest-lite"));
-  assert.equal(lite.nsis?.artifactName, "Nowen-Note-Lite-${version}-setup.${ext}");
-  assert.equal(lite.portable?.artifactName, "Nowen-Note-Lite-${version}-portable.${ext}");
-  assert.equal(lite.afterAllArtifactBuild, undefined);
   assert.match(
     fs.readFileSync(path.join(repoRoot, "scripts", "safe-build-legacy.mjs"), "utf8"),
     /verifyUpdateArtifactsCli\.js/,
   );
+});
+
+test("Lite installers are no longer packaged or published", () => {
+  for (const file of ["electron/builder.lite.config.js", "electron/builder.lite.base.config.js",
+    "scripts/build-lite.mjs", "scripts/build-lite-legacy.mjs"]) {
+    assert.equal(fs.existsSync(path.join(repoRoot, file)), false, file);
+  }
+  const scripts = require(path.join(repoRoot, "package.json")).scripts;
+  assert.equal(scripts["electron:build:lite"], undefined);
+  assert.equal(scripts["electron:build:lite:safe"], undefined);
+  assert.equal(full.publish.some((provider) => provider.channel), false, "full stays on the default latest channel");
+  for (const file of [".github/workflows/release-center-candidate.yml", ".github/workflows/release.yml",
+    "scripts/release-center-stage-candidate.mjs", "scripts/release-center-formal-assets.mjs",
+    "scripts/release-ci-assets.mjs", "scripts/release-github.mjs", "scripts/release-legacy.sh"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(repoRoot, file), "utf8"), /builder\.lite|build-lite|Nowen-Note-Lite|latest-lite/, file);
+  }
 });
 
 test("macOS 11 users are not offered an incompatible Electron upgrade", async () => {
@@ -41,7 +48,7 @@ test("macOS 11 users are not offered an incompatible Electron upgrade", async ()
     _logger: { info() {}, warn() {} },
   };
   try {
-    for (const config of [full, lite]) {
+    for (const config of [full]) {
       assert.equal(config.mac.minimumSystemVersion, "12.0.0");
       const event = { packager: { platform: { nodeName: "darwin" }, platformSpecificBuildOptions: {
         releaseInfo: { releaseNotes: "original notes" },

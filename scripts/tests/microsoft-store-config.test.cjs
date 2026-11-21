@@ -77,12 +77,10 @@ test("Store runtime is detected by real Electron process.windowsStore, never by 
   assert.equal(snapshot.installOnQuit, false);
 });
 
-test("existing NSIS Full/Lite builder targets are unchanged", () => {
+test("existing NSIS builder targets are unchanged", () => {
   const full = require(path.join(repoRoot, "electron", "builder.config.js"));
-  const lite = require(path.join(repoRoot, "electron", "builder.lite.config.js"));
   assert.ok(full.win.target.some(t => t.target === "nsis"));
   assert.ok(full.win.target.some(t => t.target === "portable"));
-  assert.ok(lite.win.target.some(t => t.target === "nsis"));
   assert.equal(full.directories.output, "dist-electron");
 });
 

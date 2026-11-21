@@ -79,8 +79,6 @@ export function selectPlatformFiles(directory, platform, version) {
   const required = platform === "mac" ? requiredMacReleaseAssets(version) : platform === "linux" ? requiredDebugReleaseAssets("linux", version) : [
     `Nowen-Note-${version}-setup.exe`, `Nowen-Note-${version}-portable.exe`,
     `Nowen-Note-${version}-setup.exe.blockmap`, "latest.yml",
-    `Nowen-Note-Lite-${version}-setup.exe`, `Nowen-Note-Lite-${version}-portable.exe`,
-    `Nowen-Note-Lite-${version}-setup.exe.blockmap`, "latest-lite.yml",
   ];
   const allowed = new Set([...required, ...(platform === "mac" || platform === "linux" ? required.filter((name) => /\.(dmg|zip|AppImage)$/.test(name)).map((name) => `${name}.blockmap`) : [])]);
   const entries = fs.readdirSync(directory, { withFileTypes: true });

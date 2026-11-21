@@ -143,10 +143,6 @@ jobs:
         if: matrix.platform == 'windows'
         shell: bash
         run: npx electron-builder --config electron/builder.config.js --win --publish never
-      - name: Build unsigned Windows Lite
-        if: matrix.platform == 'windows'
-        shell: bash
-        run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
       - name: Verify macOS packaging contracts
         if: matrix.platform == 'macos'
         shell: bash

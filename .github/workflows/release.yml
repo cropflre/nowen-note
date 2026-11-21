@@ -30,7 +30,7 @@ on:
         type: boolean
         default: true
       windows:
-        description: Replace Windows Full/Lite candidates with same-tag CI assets
+        description: Replace Windows candidates with same-tag CI assets
         type: boolean
         default: true
       linux:
@@ -156,14 +156,7 @@ jobs:
         run: npx electron-builder --config electron/builder.config.js --win --publish never
         shell: bash
 
-      - name: Build Electron Lite (Windows)
-        if: matrix.os == 'windows-latest' && github.event_name == 'push'
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
-        shell: bash
-
-      - name: Stage exact Windows Full and Lite assets
+      - name: Stage exact Windows assets
         if: matrix.os == 'windows-latest' && github.event_name == 'push'
         shell: pwsh
         run: |
@@ -173,11 +166,7 @@ jobs:
             @("dist-electron", "Nowen-Note-$version-setup.exe"),
             @("dist-electron", "Nowen-Note-$version-portable.exe"),
             @("dist-electron", "Nowen-Note-$version-setup.exe.blockmap"),
-            @("dist-electron", "latest.yml"),
-            @("dist-electron-lite", "Nowen-Note-Lite-$version-setup.exe"),
-            @("dist-electron-lite", "Nowen-Note-Lite-$version-portable.exe"),
-            @("dist-electron-lite", "Nowen-Note-Lite-$version-setup.exe.blockmap"),
-            @("dist-electron-lite", "latest-lite.yml")
+            @("dist-electron", "latest.yml")
           )
           New-Item -ItemType Directory -Path windows-release -Force | Out-Null
           foreach ($entry in $expected) {

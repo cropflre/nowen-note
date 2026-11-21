@@ -424,14 +424,8 @@ module.exports = {
   // GitHub Releases 作为自动更新 feed
   // 发布时需设置 GH_TOKEN 环境变量；私有仓库需 private: true
   //
-  // Channel 策略：
-  //   full 版发布走 electron-builder 默认的 "latest" channel（latest.yml），
-  //   lite 版在 builder.lite.config.js 显式声明 channel: "lite"（latest-lite.yml）。
-  //   两者完整互不影响：
-  //     - full 客户端只从 latest*.yml 拉取 → 永远收不到 lite 增量
-  //     - lite 客户端只从 latest-lite*.yml 拉取 → 永远收不到 full 增量
-  //   这样即便同一 GitHub Release 同时上传了 full + lite 二进制，自动更新
-  //   也不会出现"full 安装包被误升级成 lite"的灾难。
+  // Channel 策略：走 electron-builder 默认的 "latest" channel（latest*.yml）。
+  // 不再发布 Lite 版；已安装的旧 Lite 客户端只读 latest-lite*.yml，不会被升级成完整版。
   publish: [
     {
       provider: "github",
@@ -444,7 +438,6 @@ module.exports = {
   files: [
     "electron/**/*",
     "!electron/builder.config.js",
-    "!electron/builder.lite.config.js",
     "!electron/node/**/*",
     // package.json 用于 electron-builder 读取 dependencies 并自动收集运行时依赖
     "package.json",

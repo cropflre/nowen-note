@@ -101,8 +101,8 @@ export function verifyFiles(directory, kind, source) {
 export function assertFullInventory(assets, source, additionalNames) {
   const v = version(source);
   const required = [...additionalNames, ...requiredMacReleaseAssets(v), ...requiredDebugReleaseAssets("linux", v),
-    ...["Nowen-Note", "Nowen-Note-Lite"].flatMap(prefix => [`${prefix}-${v}-setup.exe`, `${prefix}-${v}-portable.exe`, `${prefix}-${v}-setup.exe.blockmap`]),
-    "latest.yml", "latest-lite.yml"];
+    `Nowen-Note-${v}-setup.exe`, `Nowen-Note-${v}-portable.exe`, `Nowen-Note-${v}-setup.exe.blockmap`,
+    "latest.yml"];
   const allowed = new Set([...required, ...required.filter(name => /\.(dmg|zip|AppImage)$/.test(name)).map(name => name + ".blockmap")]);
   for (const name of required) assert.ok(assets.some(asset => asset.name === name), `missing Release asset: ${name}`);
   for (const asset of assets) assert.ok(allowed.has(asset.name), `unexpected Release asset: ${asset.name}`);
