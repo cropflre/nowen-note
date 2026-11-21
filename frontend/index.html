@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" class="dark" spellcheck="false">
+<html lang="zh-CN" spellcheck="false">
   <head>
     <meta charset="UTF-8" />
     <!-- SEC-ELECTRON-01-E3.4: CSP — 保留严格默认策略，补齐 nowen-note 实际资源来源 -->
@@ -25,36 +25,55 @@
     <title>nowen-note</title>
     <script>
       (function () {
+        var root = document.documentElement;
         try {
-          var s = localStorage.getItem("nowen-note-skin");
-          if (s === "macos") document.documentElement.setAttribute("data-skin", "macos");
+          if (localStorage.getItem("nowen-note-skin") === "macos") root.setAttribute("data-skin", "macos");
+          // Match ThemeProvider before React mounts, including its light default.
+          var theme = localStorage.getItem("nowen-note-theme");
+          var dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          root.classList.add(dark ? "dark" : "light");
         } catch (e) {}
       })();
     </script>
     <style>
-      /* The splash renders before the app theme CSS is available. */
+      /* Fall back to the matching app theme palette until index.css loads. */
       :root {
-        --app-boot-bg: #f7f6ef;
-        --app-boot-ink: #293a32;
-        --app-boot-muted: #56645b;
-        --app-boot-paper: #fffdf5;
-        --app-boot-cover: #c5d5b9;
-        --app-boot-rule: #9aa991;
-        --app-boot-bookmark: #cd854e;
-        --app-boot-action: #385c4a;
+        --app-boot-bg: #ffffff;
+        --app-boot-ink: #111827;
+        --app-boot-muted: #6b7280;
+        --app-boot-paper: #f9fafb;
+        --app-boot-cover: #e0e7ff;
+        --app-boot-rule: #9ca3af;
+        --app-boot-bookmark: #3b82f6;
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --app-boot-bg: #161e1c;
-          --app-boot-ink: #e7ece3;
-          --app-boot-muted: #acb8ac;
-          --app-boot-paper: #34423a;
-          --app-boot-cover: #4b6655;
-          --app-boot-rule: #7f9984;
-          --app-boot-bookmark: #e4a36d;
-        }
+      :root.dark {
+        --app-boot-bg: #0d1117;
+        --app-boot-ink: #e6edf3;
+        --app-boot-muted: #8b949e;
+        --app-boot-paper: #161b22;
+        --app-boot-cover: #253040;
+        --app-boot-rule: #6e7681;
+        --app-boot-bookmark: #58a6ff;
       }
-      html, body { margin: 0; width: 100%; height: 100%; background: var(--app-boot-bg); }
+      :root[data-skin="macos"] {
+        --app-boot-bg: #ececec;
+        --app-boot-ink: #000000;
+        --app-boot-muted: rgba(0, 0, 0, 0.60);
+        --app-boot-paper: #ffffff;
+        --app-boot-cover: #b4d8ff;
+        --app-boot-rule: rgba(0, 0, 0, 0.40);
+        --app-boot-bookmark: #007aff;
+      }
+      :root[data-skin="macos"].dark {
+        --app-boot-bg: #1e1e1e;
+        --app-boot-ink: #ffffff;
+        --app-boot-muted: rgba(255, 255, 255, 0.60);
+        --app-boot-paper: #2e2e2e;
+        --app-boot-cover: rgba(10, 132, 255, 0.30);
+        --app-boot-rule: rgba(255, 255, 255, 0.40);
+        --app-boot-bookmark: #0a84ff;
+      }
+      html, body { margin: 0; width: 100%; height: 100%; background: var(--color-bg, var(--app-boot-bg)); }
       .app-boot-splash {
         position: fixed;
         inset: 0;
@@ -63,8 +82,8 @@
         overflow: auto;
         padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
         box-sizing: border-box;
-        background: var(--app-boot-bg);
-        color: var(--app-boot-ink);
+        background: var(--color-bg, var(--app-boot-bg));
+        color: var(--color-text-primary, var(--app-boot-ink));
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
         text-align: center;
         opacity: 0;
@@ -76,7 +95,7 @@
       .app-boot-splash--leaving { opacity: 0; visibility: visible; pointer-events: none; }
       .app-boot-content { width: 100%; max-width: 320px; margin: auto; }
       .app-boot-title { font-size: 17px; font-weight: 650; line-height: 1.4; }
-      .app-boot-subtitle { margin-top: 4px; font-size: 13px; line-height: 1.6; color: var(--app-boot-muted); }
+      .app-boot-subtitle { margin-top: 4px; font-size: 13px; line-height: 1.6; color: var(--color-text-secondary, var(--app-boot-muted)); }
       .app-boot-spinner { position: relative; width: 82px; height: 76px; margin: 0 auto 14px; }
       .app-boot-spinner::before, .app-boot-notebook {
         position: absolute;
@@ -84,19 +103,19 @@
         width: 48px;
         height: 58px;
         box-sizing: border-box;
-        border: 1px solid var(--app-boot-rule);
+        border: 1px solid var(--color-text-tertiary, var(--app-boot-rule));
         border-radius: 5px 8px 8px 5px;
       }
       .app-boot-spinner::before {
         content: "";
         left: 24px;
-        background: var(--app-boot-cover);
+        background: var(--color-active, var(--app-boot-cover));
         transform: rotate(11deg);
       }
       .app-boot-notebook {
         left: 13px;
-        background: var(--app-boot-paper);
-        box-shadow: inset 5px 0 var(--app-boot-cover), 0 3px 6px rgba(0, 0, 0, 0.1);
+        background: var(--color-surface, var(--app-boot-paper));
+        box-shadow: inset 5px 0 var(--color-active, var(--app-boot-cover)), 0 3px 6px rgba(0, 0, 0, 0.1);
         transform: rotate(-9deg);
         transform-origin: 10% 90%;
       }
@@ -106,8 +125,8 @@
         inset: 21px 9px auto 12px;
         height: 2px;
         border-radius: 2px;
-        background: var(--app-boot-rule);
-        box-shadow: 0 8px var(--app-boot-rule), 0 16px var(--app-boot-rule);
+        background: var(--color-text-tertiary, var(--app-boot-rule));
+        box-shadow: 0 8px var(--color-text-tertiary, var(--app-boot-rule)), 0 16px var(--color-text-tertiary, var(--app-boot-rule));
       }
       .app-boot-notebook::after {
         content: "";
@@ -116,7 +135,7 @@
         right: 8px;
         width: 8px;
         height: 13px;
-        background: var(--app-boot-bookmark);
+        background: var(--color-accent-primary, var(--app-boot-bookmark));
         clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 75%, 0 100%);
       }
       @keyframes appBootLiftPage {
@@ -131,10 +150,10 @@
       @media (prefers-reduced-motion: reduce) { .app-boot-splash { transition: none; } }
       .app-boot-actions { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 8px; }
       .app-boot-reload, .app-boot-copy { display: none; align-items: center; justify-content: center; margin-top: 12px; padding: 8px 14px; border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; }
-      .app-boot-reload { border: 1px solid var(--app-boot-action); background: var(--app-boot-action); color: #fff; }
-      .app-boot-copy { border: 1px solid var(--app-boot-rule); background: transparent; color: inherit; }
-      .app-boot-actions button:focus-visible { outline: 2px solid var(--app-boot-ink); outline-offset: 2px; }
-      .app-boot-code { display: none; width: 100%; max-height: 108px; overflow: auto; margin: 12px 0 0; padding: 8px; border-radius: 8px; background: var(--app-boot-paper); box-sizing: border-box; color: var(--app-boot-muted); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
+      .app-boot-reload { border: 1px solid transparent; background: var(--color-text-primary, var(--app-boot-ink)); color: var(--color-bg, var(--app-boot-bg)); }
+      .app-boot-copy { border: 1px solid var(--color-text-tertiary, var(--app-boot-rule)); background: transparent; color: inherit; }
+      .app-boot-actions button:focus-visible { outline: 2px solid var(--color-accent-primary, var(--app-boot-bookmark)); outline-offset: 2px; }
+      .app-boot-code { display: none; width: 100%; max-height: 108px; overflow: auto; margin: 12px 0 0; padding: 8px; border-radius: 8px; background: var(--color-surface, var(--app-boot-paper)); box-sizing: border-box; color: var(--color-text-secondary, var(--app-boot-muted)); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
 
       /* Issue #145 UI guard styles */
       .fixed.inset-0.z-\[10000\] > [role="dialog"][aria-modal="true"] { background: var(--color-bg, #fff) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }

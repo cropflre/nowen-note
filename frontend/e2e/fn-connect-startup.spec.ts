@@ -9,6 +9,7 @@ test.use({
 });
 
 test("slow gateway modules keep loading and automatically reveal login", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
   await page.clock.install();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -21,11 +22,14 @@ test("slow gateway modules keep loading and automatically reveal login", async (
     await expect(page.locator("#app-boot-splash")).toHaveCount(1);
     await page.clock.runFor(12_100);
     await expect(page.locator(".app-boot-title")).toHaveText(/仍在加载|Still loading/);
+    // A fresh install uses the app's light theme even on a dark system.
+    await expect(page.locator("#app-boot-splash")).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await expect(page.locator(".app-boot-spinner")).toBeVisible();
     await expect(page.locator("#app-boot-copy")).toBeVisible();
     release();
     await expect(page.locator("#root form").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.locator("#app-boot-splash")).toHaveCount(0);
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(255, 255, 255)");
     expect(await page.evaluate(() => (window as Window & { __NOWEN_BOOT_DIAGNOSTICS__: { stage: string } }).__NOWEN_BOOT_DIAGNOSTICS__.stage)).toBe("ready");
   } finally {
     release();
