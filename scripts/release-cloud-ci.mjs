@@ -100,6 +100,23 @@ async function androidStage() {
   if (!run('jarsigner', ['-verify', aab], { env: { ...e, LC_ALL: 'C' } }).includes('jar verified.')) throw Error('AAB 签名验证失败');
   await copyFile(aab, `release-android/Nowen-Note-${e.RC_VERSION}.aab`);
 }
+// Docker Hub stores and serves layers exactly as pushed. `docker save` on an overlay2
+// runner exports uncompressed layers, which is how v1.5.4–v1.6.0 arm64 images reached
+// Docker Hub at ~2.6x their gzip size. Reject such archives before they are staged.
+export function assertGzipLayers(archive, read = member => run('tar', ['-xOf', archive, member])) {
+  const pending = [...JSON.parse(read('index.json')).manifests];
+  let layers = 0;
+  while (pending.length) {
+    const node = JSON.parse(read(`blobs/sha256/${pending.shift().digest.replace(/^sha256:/, '')}`));
+    pending.push(...(node.manifests || []));
+    for (const layer of node.layers || []) {
+      if (!/^application\/vnd\.(oci\.image\.layer\.v1|docker\.image\.rootfs\.diff)\.tar/.test(layer.mediaType)) continue;
+      if (!/gzip$/.test(layer.mediaType)) throw Error(`Docker 镜像层未压缩：${layer.mediaType}`);
+      layers += 1;
+    }
+  }
+  if (!layers) throw Error('Docker 镜像归档里没有找到镜像层');
+}
 async function dockerStage() {
   if (!['amd64', 'arm64'].includes(e.RC_ARCH)) throw Error('无效 Docker 架构');
   const ref = `${CLOUD_REPO}:v${e.RC_VERSION}-${e.RC_ARCH}`;
@@ -107,7 +124,8 @@ async function dockerStage() {
   if (image.Architecture !== e.RC_ARCH || image.Os !== 'linux' || image.Config.Labels['org.opencontainers.image.revision'] !== e.GITHUB_SHA || image.Config.Labels['org.opencontainers.image.version'] !== e.RC_VERSION) throw Error('Docker 镜像来源不一致');
   await mkdir('release-docker', { recursive: true });
   run('docker', ['run', '--rm', '--entrypoint', 'node', ref, '-e', "const Database=require('./backend/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close(); require('./backend/node_modules/sharp')({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer().catch(()=>process.exit(1));"]);
-  run('docker', ['save', '-o', 'release-docker/image.tar', ref]);
+  // The archive is written by BuildKit (see release-build.yml), not `docker save`.
+  assertGzipLayers('release-docker/image.tar');
   // Docker's image ID may be represented differently across runner image stores;
   // pin the exact transferred archive rather than trusting cross-runner Id equality.
   const archive = await fileDigest('release-docker/image.tar');
