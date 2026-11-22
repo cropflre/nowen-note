@@ -49,6 +49,7 @@ import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 // 之所以从 @tiptap/extension-table 解构里去掉 TableRow，是因为下面要用扩展过的版本，
 // 同名导出会冲突。行高语义为"min-height"——内容超出仍会撑开。
 import { TableRowResizable } from "./extensions/TableRowResizable";
+import { AlignmentShortcuts } from "./extensions/AlignmentShortcuts";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
 import {
@@ -187,6 +188,7 @@ import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
 import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
 import { IndentExtension } from "@/lib/codeBlockIndent";
+import { insertTabSpaces, removeTabSpaces } from "@/lib/richTextTabSpaces";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
@@ -670,7 +672,8 @@ const BlockIdExtension = Extension.create({
 
 /**
  * 键盘扩展：
- *   - Tab / Shift-Tab：智能缩进 —— 代码块内插空格；列表内 sink/lift；表格内由 tiptap-table 处理；其余调块级 indent。
+ *   - Tab / Shift-Tab：智能缩进 —— 代码块内插空格；列表内 sink/lift；表格内由 tiptap-table 处理；
+ *     正文无选区时插入/删除 4 个空格；其余调块级 indent。
  *   - Mod-s：立即保存（由外部通过 ref 注入 flush 函数）。
  */
 function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void>) {
@@ -744,6 +747,13 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
             : editor.chain().focus().liftListItem("listItem").run();
           if (changed) normalizeAdjacentLists(editor);
           return true;
+        }
+
+        // 正文无选区时：Tab 插入 4 个空格，Shift+Tab 删除（Issue #915）。
+        // 有选区、或 Shift+Tab 没有可删的空格时，仍按块级视觉缩进处理。
+        if (editor.isEditable) {
+          const tabSpaces = delta === 1 ? insertTabSpaces : removeTabSpaces;
+          if (tabSpaces(editor.state, editor.view.dispatch)) return true;
         }
 
         // 仅普通块级内容使用视觉缩进。
@@ -1774,7 +1784,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         underline: false,
         // 行内代码（inline code）使用 StarterKit 默认实现：
         //   - 反引号 `text` 触发 input rule 自动转 code mark
-        //   - 快捷键 Mod-E（StarterKit 默认）切换
+        //   - 快捷键 Mod-Shift-E 切换（StarterKit 默认的 Mod-E 由 AlignmentShortcuts 改为居中）
         //   - Markdown 序列化为 `text`
         // 之前显式置 false 是为了配合 codeBlock 一起关，但代码里 IPC "code" 分支、
         // editor.isActive("code")、工具栏按钮都依赖这个 mark，缺失会导致空跑。
@@ -1900,6 +1910,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
+      AlignmentShortcuts,
       IndentExtension,
       LineHeightExtension,
       BlockIdExtension, // BLOCK-ID-01: heading blockId 稳定生成
@@ -4390,6 +4401,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
    *   { mark: "bold" | "italic" | "underline" | "strike" | "code" }
    *   { node: "heading", level: 1..6 }
    *   { node: "paragraph" }
+   *   { align: "left" | "center" }（ShortcutRuntimeBridge 的 Ctrl/Cmd+L、Ctrl/Cmd+E）
    *
    * 为什么直接监听 window 事件（而不是通过 ref 暴露 runFormat）：
    *   - editor 是 TiptapEditor 闭包内变量，穿 ref 会污染 NoteEditorHandle 合约；
@@ -4408,6 +4420,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       if (!detail || editor.isDestroyed) return;
 
       const chain = editor.chain().focus();
+      if (detail.align === "left" || detail.align === "center") {
+        chain.setTextAlign(detail.align).run();
+        return;
+      }
       if (detail.mark) {
         switch (detail.mark) {
           case "bold":      chain.toggleBold().run();      break;

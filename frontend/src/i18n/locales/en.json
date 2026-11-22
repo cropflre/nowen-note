@@ -767,7 +767,7 @@
     "tablePickerHint": "Drag to select rows and columns",
     "rows": "Rows",
     "cols": "Columns",
-    "indent": "Increase Indent (Tab)",
+    "indent": "Increase Indent (select text, then Tab)",
     "outdent": "Decrease Indent (Shift+Tab)",
     "firstLineIndent2": "First-line indent: 2 characters",
     "tableAlign": "Table alignment",
@@ -919,6 +919,8 @@
     "columnsDesc": "Create a column layout",
     "callout": "Callout",
     "calloutDesc": "Create a highlighted callout",
+    "textBox": "Text box",
+    "textBoxDesc": "A draggable box that floats beside the text",
     "details": "Collapsible",
     "detailsDesc": "Create a collapsible block",
     "blockquote": "Blockquote",
@@ -982,6 +984,7 @@
       "blockquote": "Quote",
       "codeBlock": "Code Block",
       "callout": "Callout",
+      "textBox": "Text box",
       "details": "Collapsible",
       "columns": "Columns Block"
     },
@@ -3473,6 +3476,10 @@
   "richText": {
     "noEmoji": "No matching emoji",
     "calloutStyle": "Change callout style",
+    "textBoxMove": "Drag to move the text box; drop on the left or right half to switch sides",
+    "textBoxFloatLeft": "Float left",
+    "textBoxFloatRight": "Float right",
+    "textBoxResize": "Drag to resize, or use the arrow keys",
     "calloutColors": {
       "gray": "Default",
       "blue": "Information",

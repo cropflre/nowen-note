@@ -29,12 +29,14 @@ import {
   CALLOUT_TYPE_ORDER,
   type CalloutType,
 } from "./calloutTypes";
+import { normalizeTextBoxFloat } from "./textBox";
+import { TextBoxControls } from "./TextBoxControls";
 
 const POPUP_WIDTH = 300;
 const SWATCH_SIZE = 26;
 const SWATCH_GAP = 6;
 
-export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProps) {
+export function CalloutNodeView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const { t } = useTranslation();
   const type = (node.attrs.type as CalloutType) || "blue";
   const editable = useSyncExternalStore(
@@ -101,6 +103,11 @@ export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProp
       className="callout-nodeview group relative"
     >
       <NodeViewContent className="prosemirror-callout-content" />
+
+      {/* 文本框（带 float 的高亮块，Issue #915）：拖动柄、靠左/靠右、宽度拖拽柄 */}
+      {editable && normalizeTextBoxFloat(node.attrs.float) && (
+        <TextBoxControls editor={editor} node={node} getPos={getPos} updateAttributes={updateAttributes} />
+      )}
 
       {/* 框外顶部居中悬浮调色按钮：与分栏微圆点同款（16px 圆点、浮在块正上方、水平居中）。
           始终渲染，显隐交给 CSS（悬停块/按钮时显示；.is-open 打开选色器时保持显示），

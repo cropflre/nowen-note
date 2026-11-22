@@ -10,7 +10,7 @@
  *   menu:open-settings    打开设置（Ctrl/Cmd+,）
  *   menu:open-shortcuts   打开键盘快捷键帮助（Ctrl/Cmd+Shift+/）
  *   menu:toggle-sidebar   切换笔记列表（Ctrl/Cmd+Shift+B）
- *   menu:focus-note-list  聚焦笔记列表（Ctrl/Cmd+L）
+ *   menu:focus-note-list  聚焦笔记列表（无快捷键：Ctrl/Cmd+L 留给编辑器左对齐）
  *   menu:zoom-in/out/reset 视图缩放
  *
  * 自动更新事件：
@@ -39,6 +39,8 @@ export interface FormatMenuPayload {
   mark?: "bold" | "italic" | "underline" | "strike" | "code";
   node?: "heading" | "paragraph";
   level?: number;
+  /** 段落对齐（富文本快捷键 Ctrl/Cmd+L、Ctrl/Cmd+E）；Markdown 编辑器没有对齐，忽略此项。 */
+  align?: "left" | "center";
 }
 
 /**

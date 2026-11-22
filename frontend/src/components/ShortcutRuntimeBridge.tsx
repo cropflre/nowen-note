@@ -17,6 +17,8 @@ const FORMAT_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
   underline: { mark: "underline" },
   strikethrough: { mark: "strike" },
   "inline-code": { mark: "code" },
+  "align-left": { align: "left" },
+  "align-center": { align: "center" },
   paragraph: { node: "paragraph" },
   "heading-1": { node: "heading", level: 1 },
   "heading-2": { node: "heading", level: 2 },

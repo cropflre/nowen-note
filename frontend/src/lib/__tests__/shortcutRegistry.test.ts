@@ -87,6 +87,24 @@ describe("shortcutRegistry", () => {
       .toBe("清除格式 (Ctrl+Shift+X)");
   });
 
+  it("uses Word-style alignment keys and moves inline code to Shift+E (Issue #915)", () => {
+    expect(formatShortcutForCommand("align-center", "windows", "desktop")).toBe("Ctrl+E");
+    expect(formatShortcutForCommand("align-center", "macos", "web")).toBe("⌘E");
+    expect(formatShortcutForCommand("align-left", "windows", "web")).toBe("Ctrl+L");
+    expect(formatShortcutForCommand("align-left", "macos", "desktop")).toBe("⌘L");
+    expect(formatShortcutForCommand("inline-code", "windows", "web")).toBe("Ctrl+Shift+E");
+    expect(formatShortcutForCommand("tab-spaces", "windows", "desktop")).toBe("Tab");
+    expect(getShortcutCommand("align-center")?.customizable).toBe(true);
+    expect(getShortcutCommand("align-left")?.customizable).toBe(true);
+    expect(appendShortcutToTooltip("居中对齐", "windows", "web")).toBe("居中对齐 (Ctrl+E)");
+    expect(appendShortcutToTooltip("Align Left", "macos", "desktop")).toBe("Align Left (⌘L)");
+
+    const ctrlE = { key: "e", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false };
+    expect(shortcutMatchesEvent("align-center", ctrlE, "windows", "desktop")).toBe(true);
+    expect(shortcutMatchesEvent("inline-code", ctrlE, "windows", "desktop")).toBe(false);
+    expect(shortcutMatchesEvent("inline-code", { ...ctrlE, key: "E", shiftKey: true }, "windows", "desktop")).toBe(true);
+  });
+
   it("exposes shared Markdown categories without duplicating command IDs", () => {
     expect(getShortcutCommand("bold")?.secondaryCategories).toContain("markdown");
     expect(new Set(SHORTCUT_COMMANDS.map((command) => command.id)).size).toBe(SHORTCUT_COMMANDS.length);

@@ -767,7 +767,7 @@
     "tablePickerHint": "拖动选择行列",
     "rows": "行数",
     "cols": "列数",
-    "indent": "增加缩进 (Tab)",
+    "indent": "增加缩进（选中文字后按 Tab）",
     "outdent": "减少缩进 (Shift+Tab)",
     "firstLineIndent2": "首行缩进 2 字符",
     "tableAlign": "表格对齐",
@@ -919,6 +919,8 @@
     "columnsDesc": "创建分栏布局",
     "callout": "高亮块",
     "calloutDesc": "创建高亮提示块",
+    "textBox": "文本框",
+    "textBoxDesc": "浮动在正文旁、可拖动的文本框，适合图文排版",
     "details": "折叠块",
     "detailsDesc": "创建可展开的折叠块",
     "blockquote": "引用",
@@ -982,6 +984,7 @@
       "blockquote": "引用",
       "codeBlock": "代码块",
       "callout": "高亮块",
+      "textBox": "文本框",
       "details": "折叠块",
       "columns": "分栏块"
     },
@@ -3473,6 +3476,10 @@
   "richText": {
     "noEmoji": "无匹配表情",
     "calloutStyle": "切换提示块样式",
+    "textBoxMove": "拖动移动文本框；放到左半边或右半边可切换靠左或靠右",
+    "textBoxFloatLeft": "靠左浮动",
+    "textBoxFloatRight": "靠右浮动",
+    "textBoxResize": "拖动调整宽度，也可用方向键",
     "calloutColors": {
       "gray": "默认",
       "blue": "信息",

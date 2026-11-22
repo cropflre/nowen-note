@@ -7,7 +7,7 @@ import {
 export { createSlashExtension } from "@/components/extensions/SlashCommandExtension";
 import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
-  Quote, FileCode, Minus, ImagePlus, Sparkles, Columns2, Info, ChevronDown,
+  Quote, FileCode, Minus, ImagePlus, Sparkles, Columns2, Info, ChevronDown, PanelRight,
   Bold, Italic, Highlighter, Table2,
   Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch, Network, BrainCircuit
 } from "lucide-react";
@@ -281,13 +281,18 @@ export function getDefaultSlashCommands(
       action: (editor) => editor.chain().focus().toggleTaskList().run(),
     },
     // Rich-text containers use structural replacement, preserving column parents.
-    ...(["columns", "callout", "details"] as const).map((type) => ({
+    ...(["columns", "callout", "textBox", "details"] as const).map((type) => ({
       id: type,
       label: t(`slash.${type}`),
       description: t(`slash.${type}Desc`),
-      icon: type === "columns" ? <Columns2 size={16} /> : type === "callout" ? <Info size={16} /> : <ChevronDown size={16} />,
+      icon: type === "columns" ? <Columns2 size={16} />
+        : type === "callout" ? <Info size={16} />
+        : type === "textBox" ? <PanelRight size={16} />
+        : <ChevronDown size={16} />,
       category: t("slash.catFormat"),
-      keywords: [type, t(`slash.${type}`)],
+      keywords: type === "textBox"
+        ? [type, "textbox", "sidebar", "float", t(`slash.${type}`), "文本框", "侧栏", "浮动", "环绕", "图文"]
+        : [type, t(`slash.${type}`)],
       action: (editor: Editor) => { convertBlock(editor, { type }, editor.state.selection.from); },
     })),
     // 格式

@@ -1604,6 +1604,9 @@ export async function buildPrintableHtml(note: {
     .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }
+    /* 文本框（带 float 的高亮块，浮动样式写在内联 style）：只让段落和标题环绕，其他块从文本框下方开始 */
+    .content div[data-type="callout"][data-float] ~ :not(p, h1, h2, h3, h4, h5, h6) { clear: both; }
+    .content::after { content: ""; display: block; clear: both; }
     @media print {
       .page { padding: 24px 28px; max-width: 100%; }
       a { color: inherit; text-decoration: none; }
