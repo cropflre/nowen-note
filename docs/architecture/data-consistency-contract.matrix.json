@@ -378,7 +378,8 @@
           "case": "insertion rejects foreign files, cross-space reuse, read-only and trashed targets without writes"
         },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: a completed desktop migration replaces NAS auth with local credentials and address" },
-        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" }
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" },
+        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" }
       ]
     },
     {

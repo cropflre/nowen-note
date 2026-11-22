@@ -51,6 +51,7 @@ import {
   buildServerPathCandidates as _buildServerPathCandidates,
   cacheResolvedServerConnection as _cacheResolvedServerConnection,
   clearResolvedServerConnection as _clearResolvedServerConnection,
+  getConfiguredApiBaseUrl as _getConfiguredApiBaseUrl,
   getResolvedApiBaseUrl as _getResolvedApiBaseUrl,
   inferBrowserServerBaseUrl as _inferBrowserServerBaseUrl,
   isNativeClientRuntime,
@@ -5371,6 +5372,39 @@ export async function testServerConnection(serverUrl: string): Promise<ServerPro
     apiOk: true,
     websocketOk,
   };
+}
+
+/**
+ * 登录请求在当前 API 路径拿到非 Nowen 响应（404、代理页面等）时使用：
+ * 在同一入口下用无凭据的健康检查找可用的兼容路径，找到后缓存。
+ */
+export async function discoverNowenApiPath(serverUrl: string, skipApiBaseUrl?: string): Promise<ServerPathCandidate | null> {
+  for (const candidate of _buildServerPathCandidates(_normalizeBase(serverUrl))) {
+    if (candidate.apiBaseUrl === skipApiBaseUrl) continue;
+    if ((await probeHealthCandidate(candidate)).ok) {
+      _cacheResolvedServerConnection(candidate);
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * 登录成功后在后台确认 WebSocket 路径，不阻塞进入工作台。
+ * 找到可用路径时更新缓存，实时连接下次重连即使用；找不到时由实时连接状态提示离线。
+ */
+export async function resolveWebSocketPathAfterLogin(serverUrl: string): Promise<boolean> {
+  const candidates = _buildServerPathCandidates(_normalizeBase(serverUrl));
+  const apiBaseUrl = _getConfiguredApiBaseUrl(serverUrl);
+  const api = candidates.find((candidate) => candidate.apiBaseUrl === apiBaseUrl);
+  if (!api) return false;
+  for (const candidate of [api, ...candidates.filter((item) => item !== api)]) {
+    if (await probeWebSocketCandidate(candidate.websocketUrl)) {
+      _cacheResolvedServerConnection({ ...api, websocketUrl: candidate.websocketUrl, websocketPath: candidate.websocketPath });
+      return true;
+    }
+  }
+  return false;
 }
 
 /** 诊断结果 */

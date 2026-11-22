@@ -6,7 +6,7 @@ describe("Android UGREEN external-browser fallback contract", () => {
   const remoteAccessSource = fs.readFileSync("src/lib/ugreenRemoteAccess.ts", "utf8");
   const i18nSource = fs.readFileSync("src/i18n/index.ts", "utf8");
 
-  it("routes a trusted native UGREEN address before the normal health request", () => {
+  it("routes a trusted native UGREEN address before any Nowen login request", () => {
     const resolverStart = source.indexOf("const resolveBaseUrl = async");
     const resolverEnd = source.indexOf("const persistRememberedLogin", resolverStart);
     const resolver = source.slice(resolverStart, resolverEnd);
@@ -14,12 +14,14 @@ describe("Android UGREEN external-browser fallback contract", () => {
     const nativeGatewayBranch = resolver.indexOf(
       "isNativeMobileClient && isUgreenRemoteAccessUrl(url)",
     );
-    const normalHealthRequest = resolver.indexOf("testServerConnection(url)");
+    const resolvedAddress = resolver.lastIndexOf("return url;");
 
     expect(nativeGatewayBranch).toBeGreaterThan(-1);
-    expect(normalHealthRequest).toBeGreaterThan(nativeGatewayBranch);
+    expect(resolvedAddress).toBeGreaterThan(nativeGatewayBranch);
     expect(resolver).toContain("await beginUgreenAuthorization(url)");
     expect(resolver).toContain("return null");
+    expect(resolver).not.toContain("submitPasswordLogin");
+    expect(source.indexOf("await resolveBaseUrl()")).toBeLessThan(source.indexOf("await submitPasswordLogin("));
   });
 
   it("opens native UGREEN access in the system browser instead of claiming in-app login", () => {
