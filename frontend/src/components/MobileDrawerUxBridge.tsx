@@ -1,7 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 import KnowledgeTreeDrawer from "@/components/KnowledgeTreeDrawer";
-import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
-import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { usesFunctionalNoteList } from "@/lib/unifiedTreeOnlyLayout";
 
@@ -285,8 +283,6 @@ export default function MobileDrawerUxBridge() {
       <style data-mobile-drawer-ux="">{ANDROID_DRAWER_SAFE_AREA_CSS}</style>
       <style data-note-workspace-layout-controls="">{LEGACY_NOTE_LIST_CONTROL_CSS}</style>
       <KnowledgeTreeDrawer />
-      <ShortcutHelpCenter />
-      <ShortcutRuntimeBridge />
     </>
   );
 }

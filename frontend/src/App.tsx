@@ -65,6 +65,8 @@ import {
   shortcutMatchesEvent,
 } from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
+import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
+import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
 import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
@@ -1073,6 +1075,11 @@ function AppLayout() {
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
       />
+
+      {/* 快捷键运行时与帮助中心要常驻：构建里 CommandPalette 是关闭时不渲染的懒加载壳，
+          挂在它里面会让自定义键位、帮助和工具栏快捷键提示全部失效。 */}
+      <ShortcutRuntimeBridge />
+      <ShortcutHelpCenter />
 
       <AnimatePresence>
         {settingsOpen && <SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />}

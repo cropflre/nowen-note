@@ -163,6 +163,7 @@ import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/li
 import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
+import { shouldHandleFormatEvent } from "@/lib/formatEventTarget";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { buildWikiNoteLink, detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { getMarkdownDailyRecordSlashCommands } from "@/components/daily-records/markdownDailyRecordSlashCommands";
@@ -2030,6 +2031,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const handler = (ev: Event) => {
       const view = viewRef.current;
       if (!view) return;
+      // Split view may mount another editor; only the focused one handles shortcuts.
+      if (!shouldHandleFormatEvent(view.dom)) return;
       const detail = (ev as CustomEvent<FormatMenuPayload>).detail;
       if (!detail) return;
 

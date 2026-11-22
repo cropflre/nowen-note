@@ -162,6 +162,7 @@ import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
+import { shouldHandleFormatEvent } from "@/lib/formatEventTarget";
 import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
 import { useTiptapEditorActions } from "@/components/editor-actions/tiptapEditorActions";
@@ -4418,6 +4419,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<FormatMenuPayload>).detail;
       if (!detail || editor.isDestroyed) return;
+      // 分屏时另一个编辑器有焦点就不处理，见 shouldHandleFormatEvent。
+      if (!shouldHandleFormatEvent(editor.view.dom)) return;
 
       const chain = editor.chain().focus();
       if (detail.align === "left" || detail.align === "center") {
