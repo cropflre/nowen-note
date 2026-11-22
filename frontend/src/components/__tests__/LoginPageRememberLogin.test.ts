@@ -12,6 +12,10 @@ describe("登录页记住账号密码", () => {
     expect(source).toContain("loadRememberedCredentials()");
     expect(source).toContain('type="checkbox"');
     expect(source).toContain('t("auth.rememberMe")');
-    expect(source.match(/await persistRememberedLogin\(baseUrl \|\| ""\)/g)).toHaveLength(2);
+    // 普通登录和两步验证成功都经过同一个 completeLogin，在保存令牌前保存记住的账号。
+    const completeLogin = source.slice(source.indexOf("const completeLogin = async"), source.indexOf("const handleSubmit = async"));
+    expect(completeLogin).toContain("await persistRememberedLogin(baseUrl)");
+    expect(completeLogin.indexOf("persistRememberedLogin")).toBeLessThan(completeLogin.indexOf("storeAuthTokens"));
+    expect(source.match(/await completeLogin\(/g)).toHaveLength(2);
   });
 });

@@ -1,4 +1,4 @@
-import { setServerUrl, testServerConnection } from "@/lib/api";
+import { discoverNowenApiPath, setServerUrl } from "@/lib/api";
 import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 import { getDeviceId } from "@/lib/deviceId";
 import { fetchLoginRequest } from "@/lib/loginRequest";
@@ -100,9 +100,8 @@ async function retryWithRememberedPassword(
 }
 
 export async function switchAccountLogin(account: AccountLoginHistoryItem): Promise<AccountLoginSwitchResult> {
-  const probe = await testServerConnection(account.serverUrl);
-  if (!probe.ok) return { status: "network_error", message: probe.error };
-  const apiBaseUrl = probe.apiBaseUrl || getResolvedApiBaseUrl(account.serverUrl);
+  // 不先做 /health 探测：直接用已缓存（或标准）的 API 路径校验会话，由实际响应决定结果。
+  let apiBaseUrl = getResolvedApiBaseUrl(account.serverUrl);
   const loaded = await loadAccountLoginToken(account.id);
   if (!loaded.ok || !loaded.token) {
     if (loaded.error === "TOKEN_UNAVAILABLE") return retryWithRememberedPassword(account);
@@ -114,11 +113,29 @@ export async function switchAccountLogin(account: AccountLoginHistoryItem): Prom
   try {
     // /api/me 经过全局 JWT + session 中间件，会正确拒绝已被下线的 jti。
     // /api/auth/verify 在旧服务端只校验 JWT 签名，会把已撤销会话误判为有效。
-    const response = await fetch(`${apiBaseUrl}/me`, {
-      headers: { Authorization: `Bearer ${loaded.token}` },
-      signal: controller.signal,
-    });
-    const body = await response.json().catch(() => ({}));
+    const requestMe = async (base: string) => {
+      const res = await fetch(`${base}/me`, {
+        headers: { Authorization: `Bearer ${loaded.token}` },
+        signal: controller.signal,
+        redirect: "manual",
+      });
+      const text = await res.text().catch(() => "");
+      const json = (() => {
+        try { return JSON.parse(text); } catch { return null; /* 非 JSON：代理页面或路由异常 */ }
+      })();
+      return { res, json: json && typeof json === "object" ? json : null };
+    };
+    let { res: response, json } = await requestMe(apiBaseUrl);
+    if (!json) {
+      // 路径变了（例如反代改成 /public/api）：在同一入口下无凭据探测后重试一次。
+      const found = await discoverNowenApiPath(account.serverUrl, apiBaseUrl).catch(() => null);
+      if (found) {
+        apiBaseUrl = found.apiBaseUrl;
+        ({ res: response, json } = await requestMe(apiBaseUrl));
+      }
+    }
+    if (!json) return { status: "network_error", message: "无法连接目标服务器" };
+    const body = json;
     const code = typeof body?.code === "string" ? body.code : "";
     if (response.status === 401 || AUTH_INVALID_CODES.has(code)) {
       if (EXPLICIT_REAUTH_CODES.has(code)) {
