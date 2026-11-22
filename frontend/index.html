@@ -183,6 +183,8 @@
            让面板始终停留在输入法上方；空间不足时由面板自身纵向滚动。 */
         html[data-keyboard="open"] [data-mobile-editor-toolbar="expanded"],
         html[data-keyboard="open"] [data-markdown-mobile-toolbar="expanded"] {
+          /* 这段内联样式不经过 PostCSS：先写 vh 给不认识 dvh 的旧 WebView。 */
+          max-height: max(8rem, calc(100vh - var(--keyboard-height, 0px) - var(--safe-area-top, 0px) - 10rem)) !important;
           max-height: max(8rem, calc(100dvh - var(--keyboard-height, 0px) - var(--safe-area-top, 0px) - 10rem)) !important;
           overflow-y: auto !important;
           overflow-x: hidden !important;
