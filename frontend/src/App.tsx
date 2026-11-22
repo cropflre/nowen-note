@@ -67,6 +67,7 @@ import {
 import CommandPalette from "@/components/common/CommandPalette";
 import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
 import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
+import NoteCardTouchSelectionGuard from "@/components/NoteCardTouchSelectionGuard";
 import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
@@ -1080,6 +1081,8 @@ function AppLayout() {
           挂在它里面会让自定义键位、帮助和工具栏快捷键提示全部失效。 */}
       <ShortcutRuntimeBridge />
       <ShortcutHelpCenter />
+      {/* 同理：手机长按笔记卡片的选字守卫原本也挂在命令面板里，构建中从未生效。 */}
+      <NoteCardTouchSelectionGuard />
 
       <AnimatePresence>
         {settingsOpen && <SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
