@@ -1,6 +1,7 @@
 import { setServerUrl, testServerConnection } from "@/lib/api";
 import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 import { getDeviceId } from "@/lib/deviceId";
+import { fetchLoginRequest } from "@/lib/loginRequest";
 import { loadRememberedCredentials } from "@/lib/rememberLogin";
 import type { User } from "@/types";
 import { clearAuthTokens, refreshAccessToken, storeAuthTokens } from "@/lib/authSession";
@@ -79,7 +80,7 @@ async function retryWithRememberedPassword(
   }
 
   try {
-    const response = await fetch(`${getResolvedApiBaseUrl(account.serverUrl)}/auth/login`, {
+    const response = await fetchLoginRequest(`${getResolvedApiBaseUrl(account.serverUrl)}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

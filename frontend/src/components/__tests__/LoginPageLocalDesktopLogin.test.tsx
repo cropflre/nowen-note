@@ -1,4 +1,6 @@
 import React, { act } from "react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testServerConnection } from "@/lib/api";
@@ -158,10 +160,13 @@ describe("桌面端本地登录信息提示", () => {
 
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await act(async () => host.querySelector("form")
         ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
       await waitFor(() => expect(host.textContent).toContain("auth.loginNoResponse"));
+      // 只自动补发一次，补发仍无响应才提示。
+      expect(fetch).toHaveBeenCalledTimes(2);
 
       vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "wrong password" }), {
         status: 401,
@@ -170,9 +175,60 @@ describe("桌面端本地登录信息提示", () => {
       await act(async () => host.querySelector("form")
         ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
       await waitFor(() => expect(host.textContent).toContain("auth.loginHttpError"));
+      // 服务端已给出 HTTP 响应（含密码错误）时不重发。
+      expect(fetch).toHaveBeenCalledTimes(1);
     } finally {
       errorLog.mockRestore();
+      warnLog.mockRestore();
     }
+  });
+
+  it("登录请求第一次没有 HTTP 响应时自动补发一次，用户不必再点", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const onLogin = vi.fn();
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={onLogin} />));
+    await waitFor(() => expect(host.textContent).toContain(localHint.serverUrl));
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.localDesktopLogin.fillButton")?.click());
+
+    vi.stubGlobal("fetch", vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        token: "token-after-retry",
+        user: { id: "user-local", username: "desktop" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await act(async () => host.querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      await waitFor(() => expect(onLogin).toHaveBeenCalledWith("token-after-retry", expect.objectContaining({ username: "desktop" })));
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(host.textContent).not.toContain("auth.loginNoResponse");
+    } finally {
+      warnLog.mockRestore();
+    }
+  });
+
+  it("登录页高度用类声明，旧 WebView 不支持 dvh 时由 index.css 回退到 vh，页面仍可滚动", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={vi.fn()} />));
+    const container = host.firstElementChild as HTMLElement;
+    expect(container.className).toContain("overflow-y-auto");
+    expect(container.className).toContain("min-h-[100dvh]");
+    expect(container.className).toContain("max-h-[100dvh]");
+    // 内联 dvh 在旧 WebView 中会被整条丢弃，回退规则也匹配不到。
+    expect(container.getAttribute("style") || "").not.toContain("dvh");
+
+    const css = readFileSync(path.join(process.cwd(), "src/index.css"), "utf8");
+    const start = css.indexOf("@supports not (height: 100dvh)");
+    const fallback = css.slice(start, css.indexOf("@supports", start + 1));
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(fallback).toContain(".min-h-\\[100dvh\\] { min-height: 100vh !important; }");
+    expect(fallback).toContain(".max-h-\\[100dvh\\] { max-height: 100vh !important; }");
   });
 
   it("证书过期展示到期时间，重新检测不提交密码，并保留设备本地入口", async () => {

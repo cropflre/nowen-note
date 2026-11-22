@@ -168,6 +168,38 @@ describe("账号历史切换", () => {
     expect(localStorage.getItem("nowen-token")).toBe("fresh-token");
   });
 
+  it("用已保存密码重新登录时第一次没有响应，自动补发一次", async () => {
+    installDesktopHistory("revoked-token", {
+      serverUrl: account.serverUrl,
+      username: account.username,
+      password: "remembered-secret",
+      hasPassword: true,
+      autoLogin: false,
+    });
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: "SESSION_REVOKED",
+        error: "该会话已被下线",
+      }), { status: 401, headers: { "Content-Type": "application/json" } }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        token: "fresh-token",
+        user: { id: "user-1", username: "alice", displayName: "Alice" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const result = await switchAccountLogin(account);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy).toHaveBeenNthCalledWith(3,
+      "https://notes.example.com/api/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result.status).toBe("switched");
+    expect(localStorage.getItem("nowen-token")).toBe("fresh-token");
+    warnLog.mockRestore();
+  });
+
   it("已标记需重登的历史账号可直接使用匹配的已保存密码", async () => {
     installDesktopHistory("", {
       serverUrl: account.serverUrl,

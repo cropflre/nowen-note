@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { buildServerUrl, getResolvedApiBaseUrl, isUnencryptedRemoteServerUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
+import { fetchLoginRequest } from "@/lib/loginRequest";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
@@ -491,6 +492,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     (onAccountLogin || onLogin)(token, switchedUser);
   };
 
+  // 客户端偶发第一次登录请求无响应，自动补发一次；网页端同源请求失败即按服务不可用处理。
+  const sendLoginRequest = (url: string, init: RequestInit) =>
+    isClientMode ? fetchLoginRequest(url, init) : fetch(url, init);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -537,7 +542,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       const target = safeLoginRequestTarget(loginUrl);
       let res: Response;
       try {
-        res = await fetch(loginUrl, {
+        res = await sendLoginRequest(loginUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
@@ -612,7 +617,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : getServerUrl());
       const verifyUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`;
       const { getDeviceId } = await import("@/lib/deviceId");
-      const res = await fetch(verifyUrl, {
+      const res = await sendLoginRequest(verifyUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -705,10 +710,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   return (
     <div
       ref={scrollContainerRef}
-      className="flex flex-col items-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden"
+      // 高度必须用类：旧版 WebView 不认识 dvh，会直接丢掉内联值，index.css 的 vh 回退只能作用于类。
+      // 一旦没有高度上限，页面无法滚动，表单较长时「登录工作台」按钮会被挤出屏幕。
+      className="flex flex-col items-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden min-h-[100dvh] max-h-[100dvh]"
       style={{
-        minHeight: "100dvh",
-        maxHeight: "100dvh",
         paddingTop: "var(--safe-area-top)",
         paddingBottom: `calc(var(--safe-area-bottom) + ${keyboardHeight}px)`,
       }}
