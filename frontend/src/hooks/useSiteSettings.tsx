@@ -106,7 +106,7 @@ function applyToDOM(title: string, faviconUrl: string) {
 
   const apple = document.createElement("link");
   apple.rel = "apple-touch-icon";
-  apple.href = faviconUrl || "/apple-touch-icon.svg";
+  apple.href = faviconUrl || "/apple-touch-icon.png";
   document.head.appendChild(apple);
 }
 

@@ -1,28 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
-  <!-- 背景 - Nowen Note 深色主题 -->
-  <rect width="108" height="108" fill="#0D1117"/>
-  
-  <!-- 笔记纸 - 带折角的圆角矩形（白色纸面） -->
-  <path fill="#FFFFFF" d="M28,26 L66,26 L80,40 L80,82 C80,83.66 78.66,85 77,85 L28,85 C26.34,85 25,83.66 25,82 L25,29 C25,27.34 26.34,26 28,26 Z"/>
-
-  <!-- 纸张折角阴影 -->
-  <path fill="#C8D6E5" d="M66,26 L66,40 L80,40 Z"/>
-
-  <!-- 品牌蓝色标记笔效果 - 左侧竖向色带 -->
-  <path fill="#3B82F6" d="M25,26 L30,26 L30,85 L25,85 Z"/>
-
-  <!-- 笔记横线 -->
-  <line x1="35" y1="48" x2="72" y2="48" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
-  <line x1="35" y1="55" x2="72" y2="55" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
-  <line x1="35" y1="62" x2="72" y2="62" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
-  <line x1="35" y1="69" x2="60" y2="69" stroke="#CBD5E1" stroke-width="1.5" fill="none"/>
-
-  <!-- 大写字母 N - Nowen品牌标识 -->
-  <path fill="#3B82F6" d="M40,78 L40,44 L44.5,44 L62,72 L62,44 L66.5,44 L66.5,78 L62,78 L44.5,50 L44.5,78 Z"/>
-
-  <!-- 右下角小铅笔装饰 -->
-  <path fill="#3B82F6" d="M72,66 L78,60 L84,66 L78,72 Z"/>
-  <path fill="#2563EB" d="M78,72 L75,75 L81,75 Z"/>
-  <!-- 铅笔笔尖 -->
-  <path fill="#F59E0B" d="M75,75 L78,78 L81,75 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#173158"/>
+      <stop offset="1" stop-color="#0A172B"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDE9FC"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#3EB4FF"/>
+      <stop offset="1" stop-color="#2067E6"/>
+    </linearGradient>
+  </defs>
+  <rect id="icon-background" width="32" height="32" rx="7" fill="url(#background)"/>
+  <g id="icon-mark">
+    <path fill="url(#blue)" d="M20.65 10.2 25.35 7.05v17.9l-4.7-4.7z"/>
+    <path fill="#53B9FF" d="M20.65 10.2 25.35 7.05v4.55l-4.7 3.15z"/>
+    <path fill="url(#paper)" d="M6.65 7.05h4.1l14.6 14.6v3.3h-4.1l-10.1-10.1v2H6.65z"/>
+    <path fill="url(#blue)" d="M7.85 18.45h4.2l2.4 2.4h-6.6a1.2 1.2 0 0 1 0-2.4zm0 4.1h8.3l2.4 2.4H7.85a1.2 1.2 0 0 1 0-2.4z"/>
+  </g>
 </svg>
