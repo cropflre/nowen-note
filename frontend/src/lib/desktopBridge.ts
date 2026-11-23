@@ -340,6 +340,33 @@ export interface DesktopHttpAPI {
   }>;
 }
 
+/** 桌面热更新状态，由主进程的壳加载器（electron/hot-update/runtime.js）给出。 */
+export interface DesktopHotUpdateStatus {
+  enabled: boolean;
+  disabledReason: string | null;
+  shellVersion: string;
+  runtimeVersion: string | null;
+  effectiveVersion: string;
+  bundleId: string | null;
+  trial: boolean;
+  pending: { bundleId: string; version: string } | null;
+  restartRequired: boolean;
+  phase: "disabled" | "idle" | "checking" | "downloading" | "ready" | "up-to-date" | "error";
+  message: string;
+  lastCheckAt: number | null;
+  autoDownload: boolean;
+  lastRollback: { bundleId: string; version: string; reason: string; at: number } | null;
+}
+
+/** 界面只能查询、触发检查、确认就绪、请求重启；地址和公钥都由主进程固定。 */
+export interface DesktopHotUpdateAPI {
+  status: () => Promise<DesktopHotUpdateStatus | null>;
+  check: () => Promise<DesktopHotUpdateStatus | null>;
+  apply: () => Promise<boolean>;
+  ready: () => Promise<DesktopHotUpdateStatus | null>;
+  setAutoDownload: (enabled: boolean) => Promise<DesktopHotUpdateStatus | null>;
+}
+
 export interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
@@ -401,6 +428,8 @@ export interface NowenDesktopAPI {
   accountHistory?: DesktopAccountHistoryAPI;
   /** 桌面端 JSON API 原生请求通道；避免 file:// renderer 依赖 CORS 预检。 */
   http?: DesktopHttpAPI;
+  /** 桌面热更新。旧版本 preload 没有此字段。 */
+  hotUpdate?: DesktopHotUpdateAPI;
 }
 
 function getBridge(): NowenDesktopAPI | null {
@@ -478,6 +507,17 @@ export function onFormatMenu(
 export function onEncryptedAutoLock(handler: () => void): () => void {
   const bridge = getBridge();
   return bridge ? bridge.on("security:auto-lock", handler) : () => {};
+}
+
+export function getDesktopHotUpdate(): DesktopHotUpdateAPI | null {
+  return getBridge()?.hotUpdate ?? null;
+}
+
+/** 订阅桌面热更新状态 */
+export function onDesktopHotUpdateStatus(handler: (status: DesktopHotUpdateStatus) => void): () => void {
+  const bridge = getBridge();
+  if (!bridge?.hotUpdate) return () => {};
+  return bridge.on("hot-update:status", (payload) => handler(payload as DesktopHotUpdateStatus));
 }
 
 /** 订阅自动更新事件 */

@@ -413,9 +413,28 @@ function pruneForeignSharpPackages(backendNodeModules, platform, arch) {
   }
 }
 
+// ===== 热更新信任锚点 =====
+// 桌面壳指纹和签名公钥写进 app.asar 里 package.json 的 nowenHotUpdate 字段，
+// 由 electron/hot-update/loader.js 启动时读取；热更新包改不到 app.asar。
+// 指纹从 git 提交计算，与发版流水线的 hot job 一致。见 docs/architecture/hot-update.md。
+function resolveHotUpdateAnchors() {
+  const root = path.resolve(__dirname, "..");
+  const runtime = JSON.parse(
+    require("child_process").execFileSync(
+      process.execPath,
+      [path.join(root, "scripts/hot-update/runtime-fingerprint.mjs"), "--repo", root],
+      { encoding: "utf8" },
+    ),
+  );
+  // 列表第一把是当前签名用的公钥。
+  const active = (JSON.parse(fs.readFileSync(path.join(root, "hot-update/public-keys.json"), "utf8")).keys || [])[0];
+  return { runtimeVersion: runtime.desktop, publicKey: active?.pem || "", keyId: active?.id || "" };
+}
+
 module.exports = {
   appId: "com.nowen.note",
   productName: "Nowen Note",
+  extraMetadata: { nowenHotUpdate: resolveHotUpdateAnchors() },
   // 打包前自动校验原生模块，避免漏跑 rebuild:native 导致安装后崩溃
   beforeBuild(context) {
     checkNativeModule();

@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const settings = require('../settings');
 const { requestLocalAccountBootstrap } = require('../localAccountBootstrap');
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8').replace(/\r\n/g, '\n');
@@ -166,14 +167,17 @@ function backendHarness(dir, health) {
     localAuthBootstrapError: null, localAuthBootstrapSucceeded: false, localAccountCreationAllowed: false,
     reachable: false, process: { env: {}, resourcesPath: dir }, __dirname: dir,
     console: { log() {}, warn() {}, error() {} }, app: { isPackaged: false }, fs, path, requestLocalAccountBootstrap,
+    setTimeout, clearTimeout,
     require: () => ({ setRuntimeDir() {}, publishRuntime() {} }),
     getFreePort: async () => 4321, getBackendEntry: () => path.join(dir, 'backend-entry.js'), getUserDataPath: () => dir,
     findNodeExecutable: () => ({ cmd: 'node', useElectron: false }), getLocalAccountSecret: () => 'secret-secret-secret',
     ensureJwtSecret: () => 'jwt', getFrontendDist: () => '', registerClipperNativeHost: () => {},
     spawn: () => {
       const child = Object.assign(new EventEmitter(), {
-        pid: 100 + children.length, exitCode: null, signalCode: null, stdout: new EventEmitter(), stderr: new EventEmitter(),
+        pid: 100 + children.length, exitCode: null, signalCode: null, stdout: new EventEmitter(), stderr: new PassThrough(),
       });
+      // 和真实进程一样，退出时 stderr 随之关闭。
+      child.once('exit', () => child.stderr.end());
       children.push(child);
       return child;
     },

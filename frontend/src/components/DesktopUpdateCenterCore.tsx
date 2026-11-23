@@ -35,6 +35,8 @@ import {
   updateStatusText,
   writeBooleanPreference,
 } from "@/lib/updateExperience";
+import { DesktopHotUpdateSection } from "@/components/DesktopHotUpdate";
+import { runEditorSafetyFlush } from "@/lib/editorSafetyFlush";
 
 const FALLBACK_RELEASE_NOTES = "本次更新包含功能优化和问题修复。";
 
@@ -60,28 +62,6 @@ function formatCheckTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function runEditorSafetyFlush(): void {
-  window.dispatchEvent(new CustomEvent("nowen:before-desktop-update", {
-    detail: { reason: "desktop-update-install" },
-  }));
-
-  const eventInit: KeyboardEventInit = {
-    key: "s",
-    code: "KeyS",
-    bubbles: true,
-    cancelable: true,
-    ctrlKey: !navigator.platform.toLowerCase().includes("mac"),
-    metaKey: navigator.platform.toLowerCase().includes("mac"),
-  };
-  const targets = new Set<EventTarget>();
-  if (document.activeElement) targets.add(document.activeElement);
-  document.querySelectorAll<HTMLElement>(
-    '.ProseMirror[contenteditable="true"], .cm-content[contenteditable="true"]',
-  ).forEach((element) => targets.add(element));
-  targets.forEach((target) => target.dispatchEvent(new KeyboardEvent("keydown", eventInit)));
-  (document.activeElement as HTMLElement | null)?.blur?.();
 }
 
 function SwitchRow({
@@ -177,6 +157,7 @@ function UpdateSettingsAddon({
           {updateStatusText(snapshot)}
         </span>
       </div>
+      <DesktopHotUpdateSection />
     </div>
   );
 }

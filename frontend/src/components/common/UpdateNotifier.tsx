@@ -310,15 +310,21 @@ export default function UpdateNotifier() {
     }
   };
 
+  // 安卓和桌面都加载安装包里的前端，刷新不会变新；有热更新时改为检查热更新。
+  const desktopHotUpdate = (window as Window & { nowenDesktop?: { hotUpdate?: { check?: () => Promise<{ phase: string; message: string } | null> } } }).nowenDesktop?.hotUpdate;
+  const canCheckHotUpdate = isAndroidNative() || Boolean(desktopHotUpdate?.check);
   const handleCheckHotUpdate = () => {
     const key = computeDismissKey();
     if (key) {
       writeDismissed(key);
       setDismissed(key);
     }
-    void import("@/lib/hotUpdate")
-      .then(({ getHotUpdateController }) => getHotUpdateController().check({ manual: true }))
+    const checking = desktopHotUpdate?.check
+      ? desktopHotUpdate.check()
+      : import("@/lib/hotUpdate").then(({ getHotUpdateController }) => getHotUpdateController().check({ manual: true }));
+    void checking
       .then((result) => {
+        if (!result) return;
         // 下载成功时底部会出现「立即重启」提示；其余结果直接告诉用户。
         if (result.phase !== "ready") toast.info(result.message || "当前已是最新版本");
       })
@@ -396,10 +402,10 @@ export default function UpdateNotifier() {
           ，当前 <span className="font-mono opacity-80">v{CLIENT_VERSION}</span>
         </span>
         <button
-          onClick={isAndroidNative() ? handleCheckHotUpdate : handleReload}
+          onClick={canCheckHotUpdate ? handleCheckHotUpdate : handleReload}
           className="flex-shrink-0 px-2.5 py-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium"
         >
-          {isAndroidNative() ? "检查更新" : "刷新"}
+          {canCheckHotUpdate ? "检查更新" : "刷新"}
         </button>
         <button
           onClick={handleDismiss}

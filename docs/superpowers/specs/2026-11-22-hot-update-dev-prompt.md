@@ -3,7 +3,7 @@
 > 用法：把本文全文交给负责开发的 AI（Codex、Claude Code 等），在 nowen-note 仓库里执行。
 > 本文写于 2026-11-22，依据当时 `origin/release/v1.6.1` 附近的代码。开工前先逐条核对第 2 节，和代码对不上时先停下汇报，不要自行猜测。
 >
-> 进度：阶段 1（发版流水线）、阶段 2（安卓）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1、2 对本文做了这些调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`；签名必须用公钥列表的第一把；`readyTimeout` 用 45 秒而不是 10 秒；「自动下载更新」开关放在「关于 → 应用更新」卡片里。
+> 进度：阶段 1（发版流水线）、阶段 2（安卓）、阶段 3（桌面）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1、2 对本文做了这些调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`；签名必须用公钥列表的第一把；`readyTimeout` 用 45 秒而不是 10 秒；「自动下载更新」开关放在「关于 → 应用更新」卡片里。阶段 3 的调整也已改在下文：锚点写进 app.asar 的 `package.json`（不另建 `runtime.json`）；主进程依赖靠包装 `Module._nodeModulePaths` 解析（`Module.globalPaths` 只是副本）；后端依赖靠包内 `backend/node_modules` 链接（动态 `import()` 不认 NODE_PATH）；不加解压库；新包另有 180 秒就绪超时；不按包记录 schema 版本；保护页做成原生对话框。
 
 ## 0. 角色与目标
 
@@ -121,7 +121,7 @@
   - 单测必须覆盖两类情况。只改 versionName、前端或后端源码时，指纹不变；改了 Java、插件版本、Electron 版本或原生依赖时，指纹改变。
 - runtimeVersion 必须存在壳里，不能放进会被热更新替换的目录：
   - 安卓：构建时写入 BuildConfig 或原生资源，通过一个最小的原生方法读出来，加在现有的自定义插件里就行；
-  - 桌面：打包时生成 `electron/runtime.json` 放进 app.asar，由加载器读取。
+  - 桌面：打包时由 electron-builder 的 `extraMetadata` 写进 app.asar 里 `package.json` 的 `nowenHotUpdate` 字段，由加载器读取。
 
 ### 3.3 热更新包、清单、签名、托管
 
@@ -223,10 +223,10 @@
 
 **加载器 `loader.js`**（属于壳，永远不热更新）。在 `main-bootstrap.js` 里、`require('./main.js')` 之前调用：
 
-- 状态文件 `<userData>/hot-update/state.json` 记录 `{ active, pending, lastGood, blocked, bootAttempts, maxSequence }`。写入时先写临时文件再 rename，保证原子性。
+- 状态文件 `<userData>/hot-update/state.json` 记录 `{ active, pending, trial: { attempts }, blocked, maxSequence, lastRollback }` 等字段，`active` 只在界面确认就绪后写入（相当于 lastGood）。写入时先写临时文件再 rename，保证原子性。
 - 选择顺序：pending → active → 内置版本。选中热更新包时，重新校验清单签名和包内全部文件的 sha256，不通过就当作损坏处理。把这项校验的实测耗时写进汇报。
-- 每次用候选包启动时 `bootAttempts` 加一；超过 2 次还没收到"就绪"信号，就屏蔽这个包，退回 lastGood 或内置版本。
-- 加载热更新包里的 main.js 之前，要让它能解析 app.asar 里的 node_modules（例如把 `path.join(app.getAppPath(), "node_modules")` 加进全局模块搜索路径），并把热更新包的根目录告诉主进程代码（例如通过环境变量或模块级变量）。`process.resourcesPath` 仍然指向安装目录。
+- 每次用候选包启动时试运行次数加一；连续 2 次还没收到"就绪"信号，就屏蔽这个包，退回已确认可用的包或内置版本。单次启动 180 秒内没有就绪，也立即屏蔽并重启。
+- 加载热更新包里的 main.js 之前，要让它能解析 app.asar 里的 node_modules。`Module.globalPaths` 只是 Node 启动时的副本，改它无效；做法是包装 `Module._nodeModulePaths`，只给包内 `electron/` 下的文件在最前面加上安装包的 `node_modules`。热更新包的根目录通过加载器暴露给主进程代码。`process.resourcesPath` 仍然指向安装目录。
 - 如果热更新包的 main.js 在 require 阶段就抛异常：屏蔽这个包，执行 `app.relaunch()` 后 `app.exit()`。不要在同一个进程里再 require 另一份 main.js。
 
 **主进程改造**
@@ -234,7 +234,7 @@
 - 逐个检查 `electron/*.js` 里 `__dirname`、`process.resourcesPath`、`app.getAppPath()` 的用法，分清哪些是热更新资源，哪些是壳资源：
   - 前端目录、后端入口、`backend/templates`、preload → 当前生效的包；
   - 图标、clipper native host、`backend/node_modules` → 安装目录。
-- 启动后端子进程时设置 `NODE_PATH=<resources>/backend/node_modules`（后端是 CommonJS，NODE_PATH 对它有效），`FRONTEND_DIST` 指向当前生效的包。核对后端对 templates 等相对路径的解析是否正确。
+- 后端的原生依赖来自安装目录：加载器在包内建 `backend/node_modules` 链接，指向 `<resources>/backend/node_modules`（Windows 用目录联接）。不能用 `NODE_PATH`：后端有 `import("sharp")` 等动态导入，走 ESM 解析，NODE_PATH 对它无效。`FRONTEND_DIST` 指向当前生效的包。核对后端对 templates 等相对路径的解析是否正确。
 - 核对 `security.js` 的 file:// 规则在热更新包路径下仍然成立（只允许当前入口自身重载），不要放宽成允许任意 file://。
 - `main-bootstrap.js` 里用正则识别后端子进程（匹配 `backend/dist/index.js`），这个正则对热更新包里的路径也要继续生效。
 
@@ -244,13 +244,13 @@
 
 **下载与安装**
 
-- 主进程把包下载到 `<userData>/hot-update/tmp/`，然后：
+- 主进程下载包（在内存里校验），然后：
   1. 校验 zip 的签名和 sha256；
   2. 解压到 `<userData>/hot-update/bundles/<bundleId>/`，并防范 zip slip：拒绝绝对路径、`..` 和符号链接；
   3. 逐个文件比对清单里的 sha256；
   4. 写入 pending。
 - 旧包最多保留 3 个。
-- 解压库：主进程目前没有可用的，需要往根 `dependencies` 里加一个零依赖、MIT 协议、仍在维护的库（例如 fflate），并说明理由。
+- 解压库：不新增依赖。壳内置一个只认流水线确定性 zip 的读取器（`electron/hot-update/zip-reader.js`），解压用 Node 自带的 zlib。
 - IPC 参照 `updater:*` 的命名，新增 `hot-update:status`、`hot-update:check`、`hot-update:apply`。renderer 不能传入 URL、路径或公钥。
 - 界面：在 `DesktopUpdateCenterCore.tsx` 里展示热更新的状态，包括可用、下载中、待重启、已回退和失败原因。现有的整包流程保留不动。
 - 以下情况不启用热更新：未打包的开发态（除非设置了测试用环境变量、指向本地测试服务器），以及微软商店版。
@@ -258,9 +258,9 @@
 ### 3.7 数据库迁移与回退（属于数据一致性范围，必须登记到矩阵）
 
 1. 任何回退都不能让低 schema 的代码去写高 schema 的数据库。依赖并保留现有的两道守卫：后端的 `DatabaseUpgradeRequiredError`，以及安卓 `nativeDatabase.ts` 对 `user_version` 的检查。不得削弱它们。
-2. 选择回退目标时，跳过支持的 schema 低于当前数据库版本的包。每次成功启动后，记录该包实际支持的 schema 版本。
+2. 不按包记录支持的 schema 版本：回退后能不能打开数据，由后端的启动检查（`DatabaseUpgradeRequiredError`）和安卓的 `user_version` 检查当场判断，打不开就进第 4 条的保护页。
 3. 桌面在应用一个会升级 schema 的热更新包之前，先做与 `backupDatabaseBeforeUpdate()` 相同的备份。把这个函数抽成共享函数，不要复制粘贴。安卓如果有可复用的备份机制就复用；没有的话，在矩阵里登记为已知风险并汇报，不要自己发明破坏性流程。
-4. 如果唯一能用的只剩内置版本，而它的 schema 又低于数据库（后端抛出 `DATABASE_UPGRADE_REQUIRED`，或者安卓报"原生数据库版本高于当前支持版本"），就显示保护页，提供"重新获取最新热更新"和"下载最新安装包"两个选项。这时不写库、不清数据、不自动从备份恢复。这个保护页必须包含在第一个带热更新能力的整包里。
+4. 如果唯一能用的只剩内置版本，而它的 schema 又低于数据库（后端抛出 `DATABASE_UPGRADE_REQUIRED`，或者安卓报"原生数据库版本高于当前支持版本"），就显示保护页，提供"重新获取最新热更新"和"下载最新安装包"两个选项。这时不写库、不清数据、不自动从备份恢复。这个保护页必须包含在第一个带热更新能力的整包里。桌面的保护页是原生对话框，多一个「退出」。
 5. 切换包之前，等编辑器保存完、Outbox 写入磁盘。
 
 ### 3.8 发版流水线

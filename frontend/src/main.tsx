@@ -214,6 +214,14 @@ function renderDatabaseGuard(failure: NativeDatabaseUpgradeRequiredError) {
  * 本地库因为这份代码打不开时不确认；版本过新显示保护页是正常状态，照常确认。
  */
 function confirmHotUpdateWhenReady() {
+  const desktopHotUpdate = (window as Window & { nowenDesktop?: { hotUpdate?: { ready?: () => Promise<unknown> } } }).nowenDesktop?.hotUpdate;
+  if (desktopHotUpdate?.ready) {
+    // 桌面：本地后端在开窗前已通过健康检查，界面出现即可确认（主进程据此结束新包的试运行）。
+    void whenBootSplashDismissed()
+      .then(() => desktopHotUpdate.ready?.())
+      .catch((error) => reportBootError("hot-update-ready", error, false));
+    return;
+  }
   const capacitor = (window as Window & { Capacitor?: { getPlatform?: () => string } }).Capacitor;
   if (capacitor?.getPlatform?.() !== "android") return;
   void whenBootSplashDismissed()

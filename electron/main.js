@@ -49,6 +49,13 @@ const {
   copyDataDir,
   verifyCopiedDataDir,
 } = require("./dataDir");
+const { buildReleaseDownloadUrl } = require("./updaterPolicy");
+
+// 桌面热更新：由 main-bootstrap.js 里的壳加载器提供（electron/hot-update/）。
+// bundle 非空时，本进程的代码、前端和后端入口都来自这个热更新包；没有加载器时为 null。
+const hotUpdate = globalThis.__nowenHotUpdate || null;
+// 热更新触发的重启（立即更新、新包超时退回等）和切换模式一样先停后端、托盘再退出。
+hotUpdate?.setRelaunch?.(relaunchApp);
 
 // 日志 & 崩溃上报需尽早初始化（crashReporter.start 建议在 ready 之前）
 initLogger({
@@ -262,6 +269,7 @@ function ensureJwtSecret() {
 }
 
 function getBackendEntry() {
+  if (hotUpdate?.bundle) return path.join(hotUpdate.bundle.root, "backend", "dist", "index.js");
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "backend", "dist", "index.js");
   }
@@ -287,6 +295,7 @@ function isLiteOnlyBuild() {
 }
 
 function getFrontendDist() {
+  if (hotUpdate?.bundle) return path.join(hotUpdate.bundle.root, "frontend", "dist");
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "frontend", "dist");
   }
@@ -613,6 +622,11 @@ async function launchBackend() {
   };
   // 关键：用 Electron 自身跑 node 模式时必须设置这个环境变量
   if (useElectron) spawnEnv.ELECTRON_RUN_AS_NODE = "1";
+  // 热更新包里的后端：原生依赖经包内 backend/node_modules 链接从安装目录解析（hot-update/runtime.js）；
+  // 安装目录里的 backend/package.json 是旧版本号，用覆盖变量报告实际运行的版本。
+  // 这里直接读 globalThis：后端启动这段代码会被单测单独截取运行。
+  const runningHotUpdate = globalThis.__nowenHotUpdate;
+  if (runningHotUpdate?.bundle) spawnEnv.NOWEN_APP_VERSION_OVERRIDE = runningHotUpdate.bundle.version;
 
   try {
     backendProcess = spawn(nodeExe, [backendEntry], {
@@ -635,9 +649,17 @@ async function launchBackend() {
   backendProcess.stdout.on("data", (d) =>
     console.log("[Backend]", d.toString().trimEnd())
   );
-  backendProcess.stderr.on("data", (d) =>
-    console.error("[Backend Error]", d.toString().trimEnd())
-  );
+  let databaseUpgrade = null;
+  let stderrTail = "";
+  backendProcess.stderr.on("data", (d) => {
+    const text = d.toString();
+    // 数据库比代码新时，后端在初始化数据库前抛出 DatabaseUpgradeRequiredError 并打印这句后退出（退出码 1；
+    // Docker 的 startup-check.js 则以 78 退出）。留一段尾巴再匹配，防止这句被拆进两个数据块。
+    stderrTail = (stderrTail + text).slice(-4096);
+    const match = /数据库版本 (\d+) 高于当前程序支持的 (\d+)/.exec(stderrTail);
+    if (match) databaseUpgrade = { databaseVersion: Number(match[1]), supportedVersion: Number(match[2]) };
+    console.error("[Backend Error]", text.trimEnd());
+  });
   backendProcess.on("exit", (code, signal) => {
     console.error(
       `[Backend] Exited code=${code} signal=${signal || ""}${spawnErr ? " err=" + spawnErr.message : ""}`
@@ -677,7 +699,26 @@ async function launchBackend() {
   // 探测本身只会等满 30 秒并报"启动超时"，每次重试都白等，真实原因也被盖住。
   const child = backendProcess;
   const stoppedBeforeReady = new Promise((_, reject) => {
-    child.once("exit", (code, signal) => reject(new Error(`后端进程已退出（code=${code} signal=${signal || ""}）`)));
+    child.once("exit", (code, signal) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        const error = new Error(`后端进程已退出（code=${code} signal=${signal || ""}）`);
+        if (code === 78 || databaseUpgrade) Object.assign(error, { code: "DATABASE_UPGRADE_REQUIRED", databaseUpgrade });
+        reject(error);
+      };
+      // exit 事件可能早于最后一段 stderr：读完（最多等 1 秒）再判断是不是数据库比代码新。
+      const stderr = child.stderr;
+      if (!stderr || stderr.readableEnded || stderr.destroyed) return settle();
+      const timer = setTimeout(settle, 1000);
+      const drained = () => {
+        clearTimeout(timer);
+        settle();
+      };
+      stderr.once("end", drained);
+      stderr.once("close", drained);
+    });
     child.once("error", () => reject(new Error("后端进程未能启动")));
   });
   try {
@@ -1476,6 +1517,53 @@ function tailLogFile(lines = 20) {
   }
 }
 
+/**
+ * 本地数据库比当前代码新（多半是热更新包升级过数据库后又被退回）：只给出安全的出口，
+ * 不启动后端、不打开主界面，数据原样保留（DCC-013）。
+ */
+async function showDatabaseUpgradeGuard(err) {
+  closeSplash();
+  hotUpdate?.reportEnvironmentFailure("database-upgrade-required");
+  const info = err?.databaseUpgrade || null;
+  const detail =
+    "这台电脑上的笔记数据已被更新的版本升级过" +
+    (info ? `（数据版本 ${info.databaseVersion}，当前版本最高支持 ${info.supportedVersion}）` : "") +
+    "。为了不损坏数据，当前版本不会读写它。你的数据仍然完整地保存在本机：\n" +
+    getUserDataPath();
+  const canRetry = Boolean(hotUpdate?.getStatus().enabled);
+  for (;;) {
+    const buttons = [...(canRetry ? ["获取最新版本"] : []), "下载最新安装包", "退出"];
+    const { response } = await dialog.showMessageBox({
+      type: "warning",
+      title: "Nowen Note",
+      message: "需要更新后才能打开本机数据",
+      detail,
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true,
+    });
+    const choice = buttons[response];
+    if (choice === "获取最新版本") {
+      // 新包可能曾被回退屏蔽，但它可能是唯一能打开这份数据的版本，允许用户主动再试。
+      const status = await hotUpdate.check({ manual: true, retryBlocked: true });
+      if (status.phase === "ready" && hotUpdate.apply()) return;
+      await dialog.showMessageBox({
+        type: "info",
+        title: "Nowen Note",
+        message: status.message || "暂时没有可用的新版本",
+        detail: "可以下载最新安装包，安装后重新打开。",
+        buttons: ["好"],
+      });
+    } else if (choice === "下载最新安装包") {
+      await shell.openExternal(buildReleaseDownloadUrl()).catch(() => undefined);
+    } else {
+      app.quit();
+      return;
+    }
+  }
+}
+
 function showStartupError(err) {
   closeSplash();
   const logDir = getLogDir();
@@ -1777,6 +1865,29 @@ async function changeRemoteServer() {
 }
 
 // ---------- IPC：app 信息 ----------
+/** 桌面热更新的 IPC：界面只能查询状态、触发检查、确认就绪、请求重启，不能指定任何地址或路径。 */
+function registerHotUpdateIpc() {
+  const guarded = (handler) => (event, ...args) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return handler(...args);
+  };
+  for (const channel of ["hot-update:status", "hot-update:check", "hot-update:apply", "hot-update:ready", "hot-update:set-auto-download"]) {
+    ipcMain.removeHandler(channel);
+  }
+  ipcMain.handle("hot-update:status", guarded(() => hotUpdate?.getStatus() ?? null));
+  ipcMain.handle("hot-update:check", guarded(() => (hotUpdate ? hotUpdate.check({ manual: true }) : null)));
+  ipcMain.handle("hot-update:apply", guarded(() => hotUpdate?.apply() ?? false));
+  ipcMain.handle("hot-update:ready", guarded(() => hotUpdate?.markReady() ?? null));
+  ipcMain.handle("hot-update:set-auto-download", guarded((enabled) => hotUpdate?.setAutoDownload(enabled === true) ?? null));
+  hotUpdate?.onStatus((status) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send("hot-update:status", status);
+    }
+  });
+  if (hotUpdate?.bundle) console.log(`[hot-update] 主进程运行热更新包 ${hotUpdate.bundle.bundleId}`);
+}
+
 function registerAppIpc() {
   ipcMain.removeHandler("client:http-json");
   ipcMain.handle("client:http-json", async (event, payload = {}) => {
@@ -2638,6 +2749,13 @@ app.whenReady().then(async () => {
     createWindow();
   } catch (err) {
     console.error("[Electron] Startup failed:", err);
+    if (err?.code === "DATABASE_UPGRADE_REQUIRED") {
+      stopBackend();
+      await showDatabaseUpgradeGuard(err);
+      return;
+    }
+    // 远端服务连不上与热更新包无关，不计入新包的试运行次数。
+    if (currentRuntime === "remote") hotUpdate?.reportEnvironmentFailure("remote-unreachable");
     showStartupError(err);
     stopBackend();
     // Lite 启动失败时给用户机会改服务器或回退到本地
@@ -2715,6 +2833,7 @@ app.whenReady().then(async () => {
 
   // IPC
   registerAppIpc();
+  registerHotUpdateIpc();
   registerCredentialsIpc();
 
   // 文件夹同步 IPC（SEC-ELECTRON-01-B: 全部加 sender 校验）

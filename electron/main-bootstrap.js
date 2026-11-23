@@ -1,9 +1,19 @@
 'use strict';
 
+const path = require('node:path');
 const childProcess = require('node:child_process');
 const electron = require('electron');
-const security = require('./security');
-const { installCameraPermissionPolicyBootstrap } = require('./camera-permission');
+const { bootstrapHotUpdate } = require('./hot-update/loader');
+
+// 先决定这次运行哪个包（热更新包或安装包自带的版本），再从同一个目录加载下面所有入口代码。
+// 加载器出错只会退回安装包自带的版本。见 docs/architecture/hot-update.md。
+let hotUpdate = null;
+try {
+  hotUpdate = bootstrapHotUpdate({ electron, shellDir: __dirname });
+} catch (error) {
+  console.error('[hot-update] bootstrap failed, using the bundled version', error);
+}
+const loadEntry = hotUpdate ? hotUpdate.loadEntry : (load) => load(__dirname);
 
 const recentBackendOutput = [];
 const outputLimit = 160;
@@ -58,8 +68,11 @@ electron.dialog.showErrorBox = function patchedShowErrorBox(title, content) {
   return originalShowErrorBox(title, enhanced);
 };
 
-// Install before main.js registers its restrictive renderer permission handlers.
-// The bootstrap composes with those handlers and only adds trusted, video-only camera access.
-installCameraPermissionPolicyBootstrap(electron, security);
-
-require('./main.js');
+loadEntry((electronDir) => {
+  const security = require(path.join(electronDir, 'security'));
+  const { installCameraPermissionPolicyBootstrap } = require(path.join(electronDir, 'camera-permission'));
+  // Install before main.js registers its restrictive renderer permission handlers.
+  // The bootstrap composes with those handlers and only adds trusted, video-only camera access.
+  installCameraPermissionPolicyBootstrap(electron, security);
+  require(path.join(electronDir, 'main.js'));
+});
