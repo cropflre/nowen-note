@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "runtimeEpoch": {
+    "android": 1,
+    "desktop": 1
+  },
+  "revokedBundleIds": {
+    "android": [],
+    "desktop": []
+  }
+}

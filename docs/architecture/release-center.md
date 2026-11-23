@@ -22,8 +22,12 @@
 | `ios-release.yml` | reusable/manual iOS 签名与 IPA 构建，只输出 artifact；TestFlight 上传归统一发布工作流 | 否 |
 | `microsoft-store-appx.yml` | 独立 AppX 候选打包和 manifest 校验 | 否，不自动提交 Partner Center |
 | `sync-gitee-release.yml` | GitHub Release 已正式发布后镜像允许的小文件 | 否，发布后的异步镜像 |
+| `sync-r2-hot-update.yml` | 由 `release-publish.yml` 在 GitHub Release 成功后调用（也可手动按 Tag 重跑）；按 Tag 源码复核热更新签名与壳指纹，复制到 R2 `hot/<tag>/`，渠道地址 `hot/stable/<target>/<runtimeVersion>.json` 只向前移动 | 否，发布后的异步镜像 |
+| `hot-update-ci.yml` | 热更新脚本、配置和相关工作流改动时，用临时密钥跑完整的打包、签名、校验测试 | 否 |
 
 **唯一正式路径：** `release-build.yml` → 人工复核候选产物 → `release-publish.yml`。不得用 Tag push、旧 `publish.yml`、旧 `release-assets` 或本地 legacy 脚本绕过该路径。v1.5.4 冻结期间不触发任何发布工作流。
+
+构建目标 `hot`（热更新包）需要 Secret `NOWEN_HOT_UPDATE_PRIVATE_KEY` 和已提交的 `hot-update/public-keys.json`，缺一个 plan 阶段就会失败；产物为 `release-hot`，随 GitHub Release 一起发布。格式、信任模型和密钥管理见 [热更新](./hot-update.md)。
 
 Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量 `NOWEN_ANDROID_CERT_SHA256` 校验证书 SHA-256；Java `keystore.properties` 的密码、Alias 等字段使用可往返的 Unicode 转义。仅 `apksigner verify` 成功不等于签名身份正确。
 

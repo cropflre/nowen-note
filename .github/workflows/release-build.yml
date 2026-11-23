@@ -37,6 +37,7 @@ jobs:
           RC_ANDROID_SIGNING_READY: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' }}
           NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
           RC_IOS_SIGNING_READY: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' }}
+          RC_HOT_UPDATE_SIGNING_READY: ${{ secrets.NOWEN_HOT_UPDATE_PRIVATE_KEY != '' }}
           # Official GitHub macOS distribution is always unsigned/unnotarized.
           RC_MAC_SIGNING_ENABLED: 'false'
           RC_MAC_SIGNING_READY: 'false'
@@ -45,7 +46,7 @@ jobs:
           NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
         run: node scripts/release-cloud-ci.mjs plan
       - run: npm ci
-      - run: npm run test:update-release && npm run test:microsoft-store
+      - run: npm run test:update-release && npm run test:microsoft-store && npm run test:hot-update
       - run: node scripts/verify-extension-ecosystem-rc1.mjs
   desktop:
     needs: plan
@@ -207,8 +208,44 @@ jobs:
         working-directory: packages/nowen-clipper
       - uses: actions/upload-artifact@v4
         with: { name: release-clipper, path: 'packages/nowen-clipper/releases/*.zip', if-no-files-found: error, retention-days: 7 }
+  hot:
+    # 热更新包：与桌面、安卓安装包同一提交、同样的构建命令；签名后用入库公钥和源码壳指纹复核。
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'hot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - name: Build frontend and backend like the desktop and Android packages
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          node scripts/release-cloud-ci.mjs prepare
+          npm ci
+          (cd backend && npm ci)
+          (cd frontend && npm ci)
+          npm run build:all
+      - run: npm run test:hot-update
+      - name: Build hot-update bundles
+        env:
+          RC_VERSION: ${{ inputs.version }}
+        run: node scripts/hot-update/build-bundles.mjs --out release-hot --version "$RC_VERSION"
+      - name: Sign with the project hot-update key
+        env:
+          NOWEN_HOT_UPDATE_PRIVATE_KEY: ${{ secrets.NOWEN_HOT_UPDATE_PRIVATE_KEY }}
+        run: node scripts/hot-update/sign.mjs --dir release-hot
+      - name: Verify against committed public keys and this commit's runtime fingerprint
+        env:
+          RC_VERSION: ${{ inputs.version }}
+          RC_SHA: ${{ inputs.commit_sha }}
+        run: node scripts/hot-update/verify.mjs --dir release-hot --version "$RC_VERSION" --commit "$RC_SHA" --check-runtime
+      - uses: actions/upload-artifact@v4
+        with: { name: release-hot, path: 'release-hot/*', if-no-files-found: error, retention-days: 7 }
   manifest:
-    needs: [plan, desktop, ios, store, android, docker, nas, clipper]
+    needs: [plan, desktop, ios, store, android, docker, nas, clipper, hot]
     if: ${{ !cancelled() && needs.plan.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45

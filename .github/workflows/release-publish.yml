@@ -114,6 +114,14 @@ jobs:
     with:
       tag: v${{ inputs.version }}
     secrets: inherit
+  r2-hot-update:
+    # 只在 Release 里带有热更新产物时才有动作；渠道地址只会向前移动。
+    needs: [verify, github]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
+    uses: ./.github/workflows/sync-r2-hot-update.yml
+    with:
+      tag: v${{ inputs.version }}
+    secrets: inherit
   testflight:
     needs: verify
     if: contains(fromJSON(needs.verify.outputs.channels), 'testflight')

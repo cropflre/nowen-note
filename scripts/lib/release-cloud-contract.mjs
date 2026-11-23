@@ -1,7 +1,7 @@
 export const CLOUD_REPO = 'cropflre/nowen-note';
 export const BUILD_WORKFLOW = 'release-build.yml';
 export const PUBLISH_WORKFLOW = 'release-publish.yml';
-export const BUILD_TARGETS = ['windows', 'macos', 'linux', 'android', 'ios', 'store', 'docker', 'fpk', 'upk', 'clipper'];
+export const BUILD_TARGETS = ['windows', 'macos', 'linux', 'android', 'ios', 'store', 'docker', 'fpk', 'upk', 'clipper', 'hot'];
 export const PUBLISH_CHANNELS = ['github', 'docker', 'testflight'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function version(value) {

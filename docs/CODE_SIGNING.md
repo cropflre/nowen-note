@@ -18,6 +18,10 @@ The workflow always uses `electron-builder --publish never` and does not publish
 
 **Integrity metadata is not a substitute for signed publisher identity.** A separate future Authenticode solution requires an explicit product decision and new release safeguards.
 
+## Hot-update bundles (project-owned RSA signature)
+
+Hot-update bundles (`nowen-hot-*`) are signed with the project's own RSA-3072 key: the private key lives only in the `NOWEN_HOT_UPDATE_PRIVATE_KEY` Actions secret and offline backups, and the public key is committed in `hot-update/public-keys.json` and built into the app shells. This authenticates the project as the bundle's publisher. It is not Authenticode or Apple Developer ID, and it does not change the installer signing policy above. See [hot-update.md](architecture/hot-update.md).
+
 ## No third-party signing dependency
 
 The active Windows GitHub publishing pipeline no longer requires a third-party signing account, token, organization ID, artifact configuration, or signer-common-name bootstrap. Microsoft Store's publisher identity is used only by the Store AppX channel.

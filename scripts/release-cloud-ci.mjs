@@ -49,6 +49,10 @@ async function plan() {
   if (input.targets.includes('ios') && e.RC_IOS_SIGNING_READY !== 'true') throw Error('iOS 签名 Secrets 不完整');
   if (input.targets.includes('macos') && e.RC_MAC_SIGNING_ENABLED === 'true' && e.RC_MAC_SIGNING_READY !== 'true') throw Error('macOS 签名/公证 Secrets 不完整');
   if (input.targets.includes('fpk') && (!/^https:\/\//.test(e.FNPACK_URL || '') || !/^[a-f0-9]{64}$/.test(e.FNPACK_SHA256 || ''))) throw Error('FPK 构建需要 FNPACK_URL 与 FNPACK_SHA256 仓库变量');
+  if (input.targets.includes('hot')) {
+    if (e.RC_HOT_UPDATE_SIGNING_READY !== 'true') throw Error('热更新构建需要 Secret NOWEN_HOT_UPDATE_PRIVATE_KEY（见 docs/architecture/hot-update.md）');
+    if (!((await json('hot-update/public-keys.json')).keys?.length > 0)) throw Error('热更新构建需要先提交 hot-update/public-keys.json 里的公钥');
+  }
   await prepare();
   await appendFile(e.GITHUB_OUTPUT, `targets=${JSON.stringify(input.targets)}\nplatforms=${JSON.stringify(input.targets.filter(t => ['windows', 'macos', 'linux'].includes(t)))}\n`);
 }
