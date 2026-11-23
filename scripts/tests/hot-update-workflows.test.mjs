@@ -89,6 +89,8 @@ test("桌面候选构建：每个平台打包后核对安装包里的热更新�
 
 test("热更新 CI 覆盖脚本、配置和相关工作流的改动", () => {
   const workflow = load("hot-update-ci.yml");
+  // 发版分支是直接推送的，不经过 PR，所以 release/** 的推送也要跑。
+  assert.deepEqual(workflow.on.push.branches, ["main", "release/**"]);
   for (const trigger of [workflow.on.push, workflow.on.pull_request]) {
     for (const path of ["hot-update/**", "scripts/hot-update/**", ".github/workflows/sync-r2-hot-update.yml", ".github/workflows/release-center-candidate.yml", "backend/build.bundle.mjs"]) {
       assert.ok(trigger.paths.includes(path), path);
