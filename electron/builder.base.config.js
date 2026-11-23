@@ -315,6 +315,7 @@ const LINUX_HOMEPAGE =
 //   - sqlite-vec / sqlite-vec-{platform}-{arch}  平台二进制 .so/.dll/.dylib
 //   - bonjour-service           涉及 multicast-dns 的动态行为，传递依赖较深
 //   - quickjs-emscripten        Sandbox 子进程运行时动态加载 JS/WASM 解释器
+//   - unpdf                     PDF 附件文本提取，后端运行时 await import("unpdf")
 // 其他业务依赖已全部 inline 进 bundle，运行时不再需要。
 //
 // 我们用"白名单顶层目录"的方式精准保留这些包及其运行时传递依赖。
@@ -342,6 +343,8 @@ const BACKEND_KEEP_PACKAGES = [
   "quickjs-emscripten",
   "quickjs-emscripten-core",
   "@jitl",                 // 整个 scope（WASM variants + FFI types）
+  // PDF 附件文本提取：纯 ESM、零依赖；peer 依赖 @napi-rs/canvas 只用于把页面渲染成图片，提取文字用不到。
+  "unpdf",
   // HEIF 解码和兼容预览的运行时依赖。
   "libheif-js",
   "ffmpeg-static",

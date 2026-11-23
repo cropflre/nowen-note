@@ -121,3 +121,42 @@ test("each desktop package keeps only its own platform's sharp runtime", (t) => 
     assert.deepEqual(fs.readdirSync(scope).sort(), kept, platform);
   }
 });
+
+test("desktop packages keep every package the backend loads at runtime", (t) => {
+  const { FileMatcher } = require("app-builder-lib/out/fileMatcher");
+  const { filter: patterns } = full.extraResources.find((item) => item.from === "backend/node_modules");
+  const bundleSource = fs.readFileSync(path.join(repoRoot, "backend", "build.bundle.mjs"), "utf8");
+  const externals = [...bundleSource.match(/const external = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  // 原样复制进 backend/dist 的子进程脚本，它们 import 的包同样要从安装目录解析。
+  const copiedScripts = [...bundleSource.matchAll(/copyFileSync\(\s*join\(__dirname,\s*([^)]*)\)/g)]
+    .map((match) => path.join(repoRoot, "backend", ...[...match[1].matchAll(/"([^"]+)"/g)].map((part) => part[1])));
+  assert.ok(copiedScripts.length >= 2, "build.bundle.mjs copies the plugin runner scripts");
+  const childImports = copiedScripts.flatMap((file) =>
+    [...fs.readFileSync(file, "utf8").matchAll(/(?:from\s+|import\s*\(\s*)["']([^"'./][^"']*)["']/g)]
+      .map((match) => match[1])
+      .filter((specifier) => !specifier.startsWith("node:"))
+      .map((specifier) => specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]));
+  // unzipper 的 S3 辅助函数里有可选的 AWS SDK require，思源导入只读本地文件，桌面端有意不带。
+  const notShipped = new Set(["@aws-sdk/client-s3"]);
+  const required = [...new Set([...externals, ...childImports])].filter((name) => !notShipped.has(name)).sort();
+  assert.ok(required.includes("unpdf") && required.includes("quickjs-emscripten"), required.join(", "));
+
+  const source = tempDir(t, "nowen-runtime-filter-");
+  const runtimeFiles = required.flatMap((name) => [`${name}/package.json`, `${name}/dist/index.mjs`, `${name}/dist/index.cjs`]);
+  for (const file of runtimeFiles) {
+    fs.mkdirSync(path.dirname(path.join(source, file)), { recursive: true });
+    fs.writeFileSync(path.join(source, file), "x");
+  }
+  const filter = new FileMatcher(source, "/out", (value) => value, patterns).createFilter();
+  const included = new Set();
+  (function walk(directory) {
+    for (const name of fs.readdirSync(directory)) {
+      const file = path.join(directory, name);
+      const stat = fs.statSync(file);
+      if (!filter(file, stat)) continue;
+      if (stat.isDirectory()) walk(file);
+      else included.add(path.relative(source, file).split(path.sep).join("/"));
+    }
+  })(source);
+  assert.deepEqual(runtimeFiles.filter((file) => !included.has(file)), [], "安装包里缺这些后端运行时文件");
+});
