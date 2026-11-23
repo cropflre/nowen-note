@@ -737,6 +737,18 @@
         { "file": "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts", "case": "opens an explicitly restored ordinary personal body before the server acknowledges its folder restore" },
         { "file": "backend/tests/knowledge-tree-root-documents.test.ts", "case": "moving folders and documents into root documents retains hidden containers" }
       ]
+    },
+    {
+      "id": "DCC-013",
+      "title": "Hot-update rollback never lets older code read or write a newer local database",
+      "status": "covered",
+      "checks": [
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-013: a database newer than this code is refused without writes and reported for the guard page" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: a newer local database boots into the guard page instead of the application" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: a bundle that cannot open the database is never confirmed, so the plugin rolls it back" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: the guard page only offers safe recovery and may retry a blocked newer bundle" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: without a usable newer bundle the guard keeps the data untouched and does not restart" }
+      ]
     }
   ]
 }

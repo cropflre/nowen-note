@@ -43,6 +43,7 @@ import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPorta
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
+import HotUpdateStatusCard from "./settings/HotUpdateStatusCard";
 
 type TabId = "appearance" | "preferences" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "extensions" | "download" | "about";
 
@@ -462,6 +463,7 @@ function AboutPanel() {
 
       {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}
       <VersionCompareCard />
+      <HotUpdateStatusCard />
 
       <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
 

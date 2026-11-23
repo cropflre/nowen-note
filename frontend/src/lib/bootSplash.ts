@@ -23,6 +23,15 @@ export function reportBootStage(stage: "runtime" | "rendering" | "authentication
 
 let dismissed = false;
 let removeTimer: number | null = null;
+let resolveDismissed: () => void = () => undefined;
+const dismissedPromise = new Promise<void>((resolve) => {
+  resolveDismissed = resolve;
+});
+
+/** 真实界面已经出现（启动卡片被撤下）时完成；热更新用它确认新包能正常启动。 */
+export function whenBootSplashDismissed(): Promise<void> {
+  return dismissedPromise;
+}
 
 function bootWindow(): NowenBootWindow {
   return window as NowenBootWindow;
@@ -79,6 +88,7 @@ function removeSplash(element: HTMLElement): void {
 export function dismissBootSplash(): void {
   if (dismissed || typeof document === "undefined") return;
   dismissed = true;
+  resolveDismissed();
   const target = bootWindow();
   try {
     if (typeof target.__NOWEN_MARK_BOOT_READY__ === "function") target.__NOWEN_MARK_BOOT_READY__();

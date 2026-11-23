@@ -16,8 +16,10 @@ describe("knowledge tree scrollbar runtime contract", () => {
     expect(runtime).toContain(install);
     expect(main).toContain('import("./lib/coreRuntimeInstallers")');
     expect(main).toContain("installCoreRuntime(installOptionalRuntime, reportBootError);");
+    // renderEntry 是唯一渲染入口：本地库正常时渲染应用，版本过新时只渲染热更新保护页（DCC-013）。
     expect(main.indexOf("installCoreRuntime(installOptionalRuntime, reportBootError);"))
-      .toBeLessThan(main.indexOf("() => renderApplication(),"));
+      .toBeLessThan(main.indexOf("() => renderEntry(),"));
+    expect(main).toMatch(/function renderEntry\(\) \{[\s\S]*?renderApplication\(\);/);
     expect(main).toContain("if (!coreRuntimeInstalled) {");
   });
 

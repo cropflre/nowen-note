@@ -98,6 +98,16 @@ async function androidStage() {
       !badging.includes(`versionName='${e.RC_VERSION}'`) || !badging.includes(`versionCode='${expectedCode}'`)) {
     throw Error('Android APK application ID / versionName / versionCode 不匹配');
   }
+  // 热更新信任锚点：APK 写入的壳指纹和公钥必须与本次提交一致，否则装上后永远收不到热更新。
+  const nativeConfig = JSON.parse(run('unzip', ['-p', apk, 'assets/capacitor.config.json']));
+  const { computeRuntimeVersions, gitTreeReader } = await import('./hot-update/lib/fingerprint.mjs');
+  const activeKey = (await json('hot-update/public-keys.json')).keys?.[0];
+  const anchors = nativeConfig.plugins?.NowenHotUpdateRuntime;
+  if (anchors?.runtimeVersion !== computeRuntimeVersions(gitTreeReader(process.cwd())).android ||
+      (anchors?.publicKey ?? '') !== (activeKey?.pem ?? '') || (nativeConfig.plugins?.LiveUpdate?.publicKey ?? '') !== (activeKey?.pem ?? '')) {
+    throw Error('Android APK 的热更新壳指纹或公钥与源码不一致');
+  }
+  console.log(`Android hot-update anchors verified: runtime ${anchors.runtimeVersion}, key ${activeKey?.id ?? 'none'}`);
   await mkdir('release-android', { recursive: true });
   await copyFile(apk, `release-android/Nowen-Note-${e.RC_VERSION}.apk`);
   const aab = 'frontend/android/app/build/outputs/bundle/release/app-release.aab';

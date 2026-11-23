@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import type { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
-import { openNativeDatabase } from "../nativeDatabase";
+import { getNativeDatabaseOpenFailure, NativeDatabaseUpgradeRequiredError, openNativeDatabase } from "../nativeDatabase";
 import { NATIVE_TASK_REPEAT_FIELDS, nativeTaskRepeatValues } from "../nativeTaskFields";
 import { cacheConfirmedNativeTasks } from "../nativeTaskComposerCache";
 import type { Task } from "@/types";
@@ -367,4 +367,23 @@ it("native diary pulls keep local attachments when an older server payload has n
     await engine.applyEntity(db, scope, { entityType: "diary", entityId: "remote-diary", payload: { contentText: "删掉附件", attachments: "[]" } });
     expect(await db.query("SELECT attachments FROM diaries WHERE id='remote-diary'")).toEqual([{ attachments: "[]" }]);
   } finally { await db.close(); }
+});
+
+it("DCC-013: a database newer than this code is refused without writes and reported for the guard page", async () => {
+  fixture.raw.exec("PRAGMA user_version=99");
+  const snapshot = () => ({
+    version: fixture.raw.prepare("PRAGMA user_version").get(),
+    outbox: fixture.raw.prepare("SELECT * FROM sync_outbox").all(),
+    conflicts: fixture.raw.prepare("SELECT * FROM sync_conflicts").all(),
+  });
+  const before = snapshot();
+  const refused = openNativeDatabase("newer-schema-account");
+  await expect(refused).rejects.toBeInstanceOf(NativeDatabaseUpgradeRequiredError);
+  await expect(refused).rejects.toMatchObject({ code: "NATIVE_DATABASE_UPGRADE_REQUIRED", databaseVersion: 99 });
+  expect(getNativeDatabaseOpenFailure()).toBeInstanceOf(NativeDatabaseUpgradeRequiredError);
+  expect(snapshot()).toEqual(before);
+  // 换回能打开它的版本（这里用旧库模拟）后可以正常打开，失败记录随之清除。
+  fixture.raw.exec("PRAGMA user_version=6");
+  await openNativeDatabase("newer-schema-account");
+  expect(getNativeDatabaseOpenFailure()).toBeNull();
 });

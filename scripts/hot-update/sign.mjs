@@ -21,6 +21,8 @@ export async function signBundles({ dir, privateKeyPem, keysFile = path.join(DEF
   const keyId = publicKeyId(createPublicKey(privateKey));
   const trusted = await loadTrustedKeys(keysFile);
   if (!trusted.has(keyId)) throw new Error(`签名私钥对应的公钥 ${keyId} 不在 ${path.basename(keysFile)} 里，拒绝签名`);
+  // 安卓插件只能配置一把公钥，安装包里写的是列表第一把；用别的钥签名，安卓会全部验签失败。
+  if ([...trusted.keys()][0] !== keyId) throw new Error(`签名必须使用公钥列表里的第一把（当前生效的公钥），而不是 ${keyId}`);
 
   const drafts = (await readdir(dir)).filter((name) => /^draft-(android|desktop)\.json$/.test(name)).sort();
   if (drafts.length !== TARGETS.length) throw new Error("找不到全部清单草稿；请先运行 build-bundles.mjs");

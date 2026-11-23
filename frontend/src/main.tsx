@@ -4,6 +4,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { MotionConfig } from "framer-motion";
 import { initializeMobileLocalFirstRuntime } from "./lib/mobileLocalFirstRuntime";
+import { getNativeDatabaseOpenFailure, NativeDatabaseUpgradeRequiredError } from "./lib/nativeDatabase";
+import { bootDatabaseGate, shouldConfirmHotUpdateBundle } from "./lib/hotUpdate/bootGate";
 import { initializeDesktopLocalSession } from './lib/desktopLocalSession';
 import "./lib/androidCompat";
 import "./lib/noteTransferRefreshBridge";
@@ -30,7 +32,7 @@ import "./inline-comments.css";
 import "./loading-experience.css";
 import "./note-appearance.css";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
-import { observeBootSplashReadiness, reportBootStage } from "./lib/bootSplash";
+import { observeBootSplashReadiness, reportBootStage, whenBootSplashDismissed } from "./lib/bootSplash";
 
 reportBootStage("runtime");
 
@@ -46,6 +48,7 @@ const PublicNotebookView = React.lazy(async () => {
   return import("./components/PublicNotebookView");
 });
 const GlobalBridges = React.lazy(() => import("./components/GlobalBridges"));
+const HotUpdateDatabaseGuard = React.lazy(() => import("./components/HotUpdateDatabaseGuard"));
 
 function reportBootError(source: string, error: unknown, fatal: boolean): void {
   try {
@@ -181,6 +184,54 @@ function renderApplication() {
   }
 }
 
+/**
+ * 本地库版本比这份代码新（多半是热更新包升级过数据库后又被回退）：只显示保护页，
+ * 旧代码绝不读写这个库（DCC-013）。
+ */
+function renderDatabaseGuard(failure: NativeDatabaseUpgradeRequiredError) {
+  if (applicationRendered) return;
+  reportBootStage("rendering");
+  applicationRendered = true;
+  try {
+    const root = document.getElementById("root");
+    if (!root) throw new Error("Missing #root mount element");
+    ReactDOM.createRoot(root).render(
+      <ApplicationBootErrorBoundary>
+        <BootSplashReadinessObserver />
+        <React.Suspense fallback={null}>
+          <HotUpdateDatabaseGuard databaseVersion={failure.databaseVersion} supportedVersion={failure.supportedVersion} />
+        </React.Suspense>
+      </ApplicationBootErrorBoundary>,
+    );
+  } catch (error) {
+    applicationRendered = false;
+    reportBootError("database-guard", error, true);
+  }
+}
+
+/**
+ * 安卓热更新：界面真正出现后才向插件确认这个包可用；否则插件会退回安装包自带的版本并屏蔽这个包。
+ * 本地库因为这份代码打不开时不确认；版本过新显示保护页是正常状态，照常确认。
+ */
+function confirmHotUpdateWhenReady() {
+  const capacitor = (window as Window & { Capacitor?: { getPlatform?: () => string } }).Capacitor;
+  if (capacitor?.getPlatform?.() !== "android") return;
+  void whenBootSplashDismissed()
+    .then(async () => {
+      if (!shouldConfirmHotUpdateBundle(getNativeDatabaseOpenFailure())) return;
+      const { getHotUpdateController } = await import("./lib/hotUpdate");
+      await getHotUpdateController().confirmReady();
+    })
+    .catch((error) => reportBootError("hot-update-ready", error, false));
+}
+
+function renderEntry() {
+  const failure = getNativeDatabaseOpenFailure();
+  if (bootDatabaseGate(failure) === "database-guard") renderDatabaseGuard(failure as NativeDatabaseUpgradeRequiredError);
+  else renderApplication();
+  confirmHotUpdateWhenReady();
+}
+
 let coreRuntimeInstalled = false;
 Promise.resolve()
   .then(() => import("./lib/coreRuntimeInstallers"))
@@ -191,7 +242,7 @@ Promise.resolve()
   .then(() => initializeDesktopLocalSession().catch(error => reportBootError('desktop-local-session',error,false)))
   .then(() => initializeMobileLocalFirstRuntime())
   .then(
-    () => renderApplication(),
+    () => renderEntry(),
     (error) => {
       // Native local-first initialization is an enhancement. A rejected or unsupported
       // native bridge must never prevent Web/WKWebView users from reaching login/workspace.
@@ -202,6 +253,6 @@ Promise.resolve()
         return;
       }
       reportBootError("mobile-local-first", error, false);
-      renderApplication();
+      renderEntry();
     },
   );

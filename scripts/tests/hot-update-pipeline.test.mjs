@@ -174,6 +174,12 @@ test("私钥对应的公钥没有入库时拒绝签名；输出目录不为空�
   const stranger = generateKeyPairSync("rsa", { modulusLength: 3072 }).privateKey.export({ type: "pkcs8", format: "pem" });
   await assert.rejects(signBundles({ dir: outDir, privateKeyPem: stranger, keysFile: path.join(root, "hot-update/public-keys.json") }), /不在/);
   await assert.rejects(signBundles({ dir: outDir, privateKeyPem: "", keysFile: path.join(root, "hot-update/public-keys.json") }), /缺少/);
+  // 列表里排在后面的钥（例如准备轮换的新钥）不能用来签名：安卓安装包只认第一把。
+  const second = generateKeyPairSync("rsa", { modulusLength: 3072 });
+  const rotation = path.join(root, "..", `${path.basename(root)}-rotation-keys.json`);
+  writeFileSync(rotation, JSON.stringify({ schema: 1, keys: [...keysJson.keys, { id: publicKeyId(second.publicKey), pem: toPublicPem(second.publicKey) }] }));
+  t.after(() => rmSync(rotation, { force: true }));
+  await assert.rejects(signBundles({ dir: outDir, privateKeyPem: second.privateKey.export({ type: "pkcs8", format: "pem" }), keysFile: rotation }), /第一把/);
   await assert.rejects(buildBundles({ repoRoot: root, outDir }), /必须为空/);
   // 草稿没签名就校验 → 有多余文件、缺签名清单
   await assert.rejects(verify(root, outDir), /签名清单/);

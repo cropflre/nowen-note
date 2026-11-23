@@ -33,6 +33,12 @@ android {
             }
         }
     }
+    packaging {
+        resources {
+            // 热更新插件带来的 okhttp-brotli 与 jspecify 各有一份 Java 9 OSGi 元数据，同名冲突；安卓用不到。
+            excludes += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF"]
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false

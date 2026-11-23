@@ -1,4 +1,28 @@
 import type { CapacitorConfig } from "@capacitor/cli";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+
+// ===== 热更新信任锚点 =====
+// 壳指纹（runtimeVersion）和签名公钥在 cap sync 时写进 APK 自带的
+// android/app/src/main/assets/capacitor.config.json（已被 gitignore）。热更新包只替换网页目录，
+// 改不到这里，所以前端和插件只信任这里的值。指纹从 git 提交计算，与发版流水线的 hot job 一致。
+// 本机测试可用 NOWEN_HOT_UPDATE_TEST_PUBLIC_KEYS_FILE 指向临时公钥列表；CI 里设置会直接失败。
+// 详见 docs/architecture/hot-update.md。
+function resolveHotUpdateAnchors() {
+  const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  const runtime = JSON.parse(
+    execFileSync(process.execPath, [path.join(repoRoot, "scripts/hot-update/runtime-fingerprint.mjs"), "--repo", repoRoot], { encoding: "utf8" }),
+  );
+  const testKeys = process.env.NOWEN_HOT_UPDATE_TEST_PUBLIC_KEYS_FILE;
+  if (testKeys && process.env.GITHUB_ACTIONS === "true") throw new Error("CI 构建不允许使用测试热更新公钥");
+  const keys = JSON.parse(readFileSync(testKeys ? path.resolve(testKeys) : path.join(repoRoot, "hot-update/public-keys.json"), "utf8")).keys ?? [];
+  // 列表第一把是当前签名用的公钥；安卓插件只能配置一把。
+  const active = keys[0];
+  if (testKeys) console.warn(`[hot-update] 使用测试公钥 ${active?.id ?? "(空)"}，这个安装包不能发布`);
+  return { runtimeVersion: String(runtime.android), publicKey: active?.pem ?? "", keyId: active?.id ?? "" };
+}
+const hotUpdate = resolveHotUpdateAnchors();
 
 // Live Reload 开关：设置环境变量 `CAP_LIVE_URL=http://<电脑LAN_IP>:5173` 后再
 // 执行 `npx cap sync android` / run android，即可让 WebView 直接加载电脑的
@@ -73,6 +97,17 @@ const config: CapacitorConfig = {
       // (Light 主题下 = 白色)，即"输入框下方一大片白色空白延伸到键盘顶端"。
       resize: "none",
     },
+    LiveUpdate: {
+      // 新包启动后 45 秒内没调用 ready() 就退回 APK 自带的版本（进程被杀也会在下次启动回退），
+      // 回退后屏蔽这个包；下载、切换都由前端按签名清单手动驱动，从不连 Capawesome Cloud。
+      // 不用 10 秒：应用自己把 12 秒才算慢启动，低端机加上首次数据库迁移会被误判为坏包。
+      readyTimeout: 45000,
+      autoDeleteBundles: true,
+      autoBlockRolledBackBundles: true,
+      autoUpdateStrategy: "none",
+      ...(hotUpdate.publicKey ? { publicKey: hotUpdate.publicKey } : {}),
+    },
+    NowenHotUpdateRuntime: hotUpdate,
   },
 };
 

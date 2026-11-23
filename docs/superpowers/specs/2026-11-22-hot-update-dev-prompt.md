@@ -3,7 +3,7 @@
 > 用法：把本文全文交给负责开发的 AI（Codex、Claude Code 等），在 nowen-note 仓库里执行。
 > 本文写于 2026-11-22，依据当时 `origin/release/v1.6.1` 附近的代码。开工前先逐条核对第 2 节，和代码对不上时先停下汇报，不要自行猜测。
 >
-> 进度：阶段 1（发版流水线）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1 对本文做了四处调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`。
+> 进度：阶段 1（发版流水线）、阶段 2（安卓）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1、2 对本文做了这些调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`；签名必须用公钥列表的第一把；`readyTimeout` 用 45 秒而不是 10 秒；「自动下载更新」开关放在「关于 → 应用更新」卡片里。
 
 ## 0. 角色与目标
 
@@ -166,7 +166,7 @@
 
 - `@capawesome/capacitor-live-update` 8.8.2 在安卓上用 `Signature.getInstance("SHA256withRSA")` 对下载下来的 zip 原始字节验签。公钥是 X.509 SubjectPublicKeyInfo 格式的 PEM（`-----BEGIN PUBLIC KEY-----`），签名是 base64。配置了 `publicKey` 之后，签名就是必填项，插件也不再单独校验 checksum。
 - 所以统一用 RSA 3072 + SHA-256 + PKCS#1 v1.5。Node 端 `crypto.sign("sha256", bytes, privateKey)` 默认就是这种填充方式。必须写互通测试：用 Node 签名，再用和插件相同的算法（Java 或 openssl）验证；还要在真机或模拟器上做一次端到端验证。
-- 桌面壳内置一个**公钥列表**，便于轮换密钥。安卓插件只能配一把公钥，换钥要发新 APK（`capacitor.config.ts` 是指纹输入，runtimeVersion 会随之改变）。
+- 签名只能用公钥列表的**第一把**（`sign.mjs` 强制检查），因为安卓插件只能配置一把，安装包里写的就是第一把。换钥时把新钥放到第一位，并同时切换 Secret；公钥列表是壳指纹的输入，旧安装包会自动走整包更新。
 - 新增脚本：
   - `scripts/hot-update/generate-keys.mjs`：由用户在本地执行，私钥只写到本地文件，并提示用户离线备份两份；
   - `scripts/hot-update/sign.mjs`：从 Secret `NOWEN_HOT_UPDATE_PRIVATE_KEY` 读取私钥签名，不打印私钥；
@@ -203,12 +203,12 @@
 - `UpdateNotifier.tsx`：
   - 安卓和桌面的软提示改成"立即检查热更新"；
   - 安卓硬提示改为比较壳版本（`@capacitor/app` 的 `App.getInfo().version`，或插件的 `getVersionName()`），不再用 `__APP_VERSION__`。
-- 设置的"使用偏好"里加一个"自动下载更新"开关，默认打开。
+- 「关于」页的「应用更新」卡片里加一个"自动下载更新"开关，默认打开（和版本信息、检查更新放在一起）。
 
 ### 3.5 安卓实现
 
 - 依赖：安装 `@capawesome/capacitor-live-update` 并固定精确版本（当前是 8.8.2，MIT 协议）。按官方文档完成安卓集成，然后执行 `npx cap sync android`。iOS 工程同步时也会带上这个插件：iOS 上不下载、不切换包，但要确保 iOS 构建能通过。
-- `capacitor.config.ts` 里的插件配置：`readyTimeout: 10000`、`autoDeleteBundles: true`、`autoBlockRolledBackBundles: true`、`autoUpdateStrategy: "none"`、`publicKey: <入库公钥 PEM>`。公钥只维护一个入库文件，构建时分别注入 Capacitor 配置和 JS 代码，并用测试保证两处一致。
+- `capacitor.config.ts` 里的插件配置：`readyTimeout: 45000`（应用自己把 12 秒才算作慢启动，10 秒会把低端机上的正常启动误判成坏包）、`autoDeleteBundles: true`、`autoBlockRolledBackBundles: true`、`autoUpdateStrategy: "none"`、`publicKey: <入库公钥 PEM>`。公钥只维护一个入库文件，`cap sync` 时写进安装包；JS 不内置公钥，运行时通过原生插件 `NowenHotUpdateRuntime` 从安装包读取，和下载插件用的是同一把。
 - 代码放在 `frontend/src/lib/hotUpdate/`。清单解析、验签、接受条件判断、回退目标选择这些纯逻辑写成纯函数，并配单测。流程如下：
   1. 依次请求固定的渠道地址，取回签名信封，用 WebCrypto（RSASSA-PKCS1-v1_5 / SHA-256）验签；
   2. 按 3.4 的条件判断是否接受；
@@ -300,7 +300,7 @@
 - 验收：
   1. 装好 v1 APK 后，发布一个 v1.0.1 热更新包：应用自动下载，重启后生效；登录态、服务器地址、本地笔记、Outbox 全都还在；
   2. 篡改过的包、签名错误的包、runtime 不匹配的包、版本更低的包：全部被拒绝，应用照常使用；
-  3. 故意做一个坏包（白屏、不调用 `ready()`）：约 10 秒后回退到内置版本，并屏蔽这个包；
+  3. 故意做一个坏包（白屏、不调用 `ready()`）：约 45 秒后回退到内置版本，并屏蔽这个包；
   4. 热更新包升级了本地 schema 后又被强制回退：出现保护页，数据无损；
   5. 抓包确认没有任何请求发往 capawesome、capgo 等第三方域名。
 

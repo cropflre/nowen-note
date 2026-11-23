@@ -760,9 +760,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           throw new Error(`原生数据库版本无效：${String(version)}`);
         }
         if (version > SCHEMA_VERSION) {
-          throw new Error(
-            `原生数据库版本 ${version} 高于当前支持版本 ${SCHEMA_VERSION}`,
-          );
+          throw new NativeDatabaseUpgradeRequiredError(version, SCHEMA_VERSION);
         }
 
         if (version === 0) {
@@ -1104,7 +1102,38 @@ function createOpenDecision(): Extract<OpenDecision, { kind: "create" }> {
   };
 }
 
+/**
+ * 本地库的 schema 比当前代码新：通常是热更新包升级过数据库后又回退到了旧版本。
+ * 旧代码绝不能继续读写这个库（DCC-013），只能引导用户换回能打开它的新版本。
+ */
+export class NativeDatabaseUpgradeRequiredError extends Error {
+  readonly code = "NATIVE_DATABASE_UPGRADE_REQUIRED";
+
+  constructor(readonly databaseVersion: number, readonly supportedVersion: number) {
+    super(`原生数据库版本 ${databaseVersion} 高于当前支持版本 ${supportedVersion}`);
+    this.name = "NativeDatabaseUpgradeRequiredError";
+  }
+}
+
+let lastOpenFailure: unknown = null;
+
+/** 最近一次 openNativeDatabase 失败的原因；之后打开成功会清空。 */
+export function getNativeDatabaseOpenFailure(): unknown {
+  return lastOpenFailure;
+}
+
 export async function openNativeDatabase(accountId: string): Promise<NativeDatabase> {
+  try {
+    const database = await openNativeDatabaseOnce(accountId);
+    lastOpenFailure = null;
+    return database;
+  } catch (error) {
+    lastOpenFailure = error;
+    throw error;
+  }
+}
+
+async function openNativeDatabaseOnce(accountId: string): Promise<NativeDatabase> {
   if (!Capacitor.isNativePlatform()) {
     throw new Error("原生数据库只能在 Android 或 iOS 运行时打开");
   }
