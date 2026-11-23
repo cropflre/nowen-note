@@ -33,22 +33,22 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.6.0 更新亮点 · 2026-11-21
+## v1.6.1 更新亮点 · 2026-11-23
 
-- **扩展中心与设置**。在「发现」「我的」「工作台」浏览和管理扩展，支持上传插件包。设置中的「使用偏好」支持搜索，并提供常用选项入口。
-- **笔记导入与 AI 对话归档**。「导入笔记」可识别 Obsidian、Logseq 和 AI 聊天记录，并引导至对应流程。浏览器剪藏扩展支持一键保存受支持的 AI 对话。
-- **说说附件**。发布或编辑说说时可添加 PDF、Office 文档、压缩包等文件。文件附件独立于图片和视频额度。
-- **AI 写作与 MCP**。写作助手从打开时的选区应用结果，原文变更后仍可复制生成内容。MCP 令牌可访问明确授权的团队笔记本，并按当前成员权限校验。个人任务支持修改和预览后确认删除。
+- **首次支持热更新。** Windows、macOS、Linux 和 Android 用户先下载安装 v1.6.1，之后的多数更新可在应用内完成。
+- **编辑器与分享。** 编辑器支持 Tab 插入四个空格、快捷键对齐和可拖动的文本框。分享页支持显示高亮块、文本框、分栏和折叠块。
+- **登录与附件。** 简化已配置反向代理时的登录流程，改善旧版 Android WebView 的登录布局，并修复桌面端无法提取 PDF 附件文字的问题。
 
-[v1.6.0 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.0)
+[v1.6.1 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
 
-发布包覆盖 Windows、macOS、Linux、Android、飞牛 fnOS、绿联 UGOS 与浏览器剪藏扩展。Docker 镜像支持 `amd64` 与 `arm64`。
+本次提供 Windows 安装程序和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB，以及 Android APK 和 AAB。Docker 镜像见 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags)，飞牛 fnOS、绿联 UGOS 和剪藏扩展的下载见 [v1.6.0 发布页](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)。
 
 > [!IMPORTANT]
 > 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** GitHub 发布的 macOS 安装包未做 Apple Developer ID 签名或公证，Windows 直接下载的 EXE 未签名。
 
 ## 近期版本
 
+- **v1.6.0**（2026-11-21）更新扩展中心和设置，改进笔记导入、AI 对话归档与说说附件，并扩展 MCP 团队空间授权和个人任务操作。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
 - **v1.5.5**（2026-11-09）增强 Web、桌面和 Android 双向同步、知识树冲突处理和桌面启动恢复。[更新说明](./docs/releases/v1.5.5.md)
 - **v1.5.4**（2026-11-02）新增 AI 修改审核和 Markdown 章节折叠，增强附件恢复与桌面 NAS 离线体验。[更新说明](./docs/releases/v1.5.4.md)
 - **v1.5.3**（2026-10-23）改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)

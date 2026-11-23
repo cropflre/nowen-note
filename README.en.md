@@ -33,22 +33,22 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.6.0 highlights · 2026-11-21
+## v1.6.1 highlights · 2026-11-23
 
-- **Extensions and settings.** Browse and manage extensions in Discover, My Extensions, and Workbench. Upload plugin packages and use the searchable preferences to find commonly used settings.
-- **Note import and AI conversation archives.** Import Notes recognizes Obsidian, Logseq, and AI chat exports and guides you to the right import flow. The browser clipper can save supported AI conversations in one click.
-- **Attachments in Moments.** Add PDFs, Office documents, archives, and other files when publishing or editing a Moment. File attachments have a separate allowance from images and videos.
-- **AI writing and MCP.** The writing assistant keeps edits anchored to the original selection. If the source text changes, generated text remains available to copy. MCP can access explicitly authorized team notebooks within the member's current permissions. MCP can edit personal tasks and delete them after preview and confirmation.
+- **Hot updates are now supported.** Install v1.6.1 once on Windows, macOS, Linux, or Android. After that, most updates can be applied inside the app.
+- **Editing and sharing.** The editor supports four-space Tab indentation, alignment shortcuts, and draggable text boxes. Shared pages display highlights, text boxes, columns, and collapsible blocks.
+- **Sign-in and attachments.** Sign-in is simpler with an existing reverse proxy, the sign-in page works better on older Android WebViews, and desktop clients can extract text from PDF attachments again.
 
-[v1.6.0 release notes and downloads](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0) · [Official download center](https://nowen.cn/#/note/download) · [Gitee release and download links](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.0)
+[v1.6.1 release notes and downloads](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [Official download center](https://nowen.cn/#/note/download) · [Gitee release and download links](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
 
-Release packages cover Windows, macOS, Linux, Android, Feiniu fnOS, UGREEN UGOS, and the browser clipper. Docker images are available for `amd64` and `arm64`.
+This release includes Windows setup and portable packages, macOS packages for Intel and Apple Silicon, Linux AppImage and DEB packages, and Android APK and AAB files. Find Docker images on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) and Feiniu fnOS, UGREEN UGOS, and browser clipper downloads on the [v1.6.0 release page](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0).
 
 > [!IMPORTANT]
 > Back up the database, attachments, and deployment configuration before upgrading, and verify that you can restore them. **Rolling back the application or Docker image does not roll back persistent data.** GitHub's macOS packages lack Apple Developer ID signing and notarization. Direct Windows EXE downloads are unsigned.
 
 ## Recent releases
 
+- **v1.6.0** (2026-11-21) updated the extension center and settings, improved note imports, AI chat archiving, and Moment attachments, and expanded MCP team-space authorization and personal task operations. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
 - **v1.5.5** (2026-11-09) improved two-way sync across web, desktop, and Android, knowledge-tree conflict recovery, and desktop startup. [Release notes](./docs/releases/v1.5.5.md)
 - **v1.5.4** (2026-11-02) introduced reviewable AI edits and Markdown chapter folding and improved attachment recovery and offline use on desktop. [Release notes](./docs/releases/v1.5.4.md)
 - **v1.5.3** (2026-10-23) improved editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)
