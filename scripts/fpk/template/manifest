@@ -1,7 +1,7 @@
 appname               = nowen-note
 version               = {{VERSION}}
 display_name          = 弄文笔记
-desc                  = `<h2>弄文笔记（Nowen Note）v{{VERSION}}</h2><p>开源、自托管的 NAS 笔记与个人知识管理工具，提供 Markdown 编辑、知识树、文件管理、任务管理、AI 辅助和 Web / PC / Android 多端同步。所有笔记及附件保存在自己管理的设备上。</p><p><b>版本更新：</b>{{UPDATE_NOTES}}</p><p><b>升级提示：</b>请先备份数据库、附件及部署配置，确认数据目录挂载正确；回滚镜像不会自动回滚数据库。多端实时同步需要设备在线并连接同一服务端。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note/releases/tag/v{{VERSION}}">版本更新说明</a></p>`
+desc                  = `<h2>弄文笔记（Nowen Note）v{{VERSION}}</h2><p><b>把灵感、资料和待办收进自己的飞牛 NAS。</b></p><p>弄文笔记是一款开源、自托管的个人知识库。用富文本或 Markdown 写笔记，用浏览器扩展剪藏好文章，再用知识树归类、全文搜索找回资料。每天记下进展，用任务看板安排下一步。</p><p>笔记和附件由你的 NAS 管理。网页端、桌面端与 Android 在线连接同一服务、登录同一账号即可同步。配置 AI 服务后，还能辅助写作、总结笔记和对知识库提问。</p><p><b>版本更新：</b>{{UPDATE_NOTES}}</p><p><b>升级提示：</b>请先备份数据库、附件及部署配置，确认数据目录挂载正确；回滚镜像不会自动回滚数据库。</p><p><a href="https://nowen.cn/">官方网站</a> · <a href="https://github.com/cropflre/nowen-note/releases/tag/v{{VERSION}}">版本更新说明</a></p>`
 arch                  = x86_64
 source                = thirdparty
 maintainer            = Nowen

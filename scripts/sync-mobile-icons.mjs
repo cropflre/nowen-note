@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * 同步移动端 App 图标到桌面端 Electron 图标。
- *
- * 单一来源：electron/icon.png（由 npm run build:icon 从 frontend/public/favicon.svg 生成）
+ * 从 frontend/public/favicon.svg 同步移动端 App 图标。
  * 输出：
  *   - Android launcher icon：frontend/android/app/src/main/res/mipmap-<density>/ic_launcher*.png
  *   - Android adaptive icon 配置：mipmap-anydpi-v26/ic_launcher*.xml + values/ic_launcher_background.xml
  *   - iOS AppIcon：frontend/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
+ *   - HarmonyOS 应用图标：AppScope 与 entry 下的分层图标和启动窗口图标
  */
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,7 +14,7 @@ import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
-const SOURCE_ICON = path.join(REPO_ROOT, "electron", "icon.png");
+const SOURCE_ICON = path.join(REPO_ROOT, "frontend", "public", "favicon.svg");
 const ANDROID_RES_DIR = path.join(REPO_ROOT, "frontend", "android", "app", "src", "main", "res");
 const IOS_ICON = path.join(
   REPO_ROOT,
@@ -28,7 +27,11 @@ const IOS_ICON = path.join(
   "AppIcon-512@2x.png",
 );
 
-const BACKGROUND = "#FFFFFF";
+const HARMONY_MEDIA_DIRS = ["AppScope", "entry/src/main"].map((scope) =>
+  path.join(REPO_ROOT, "nowen-harmony", scope, "resources", "base", "media"),
+);
+const ICON_SIZE = 1024;
+const ANDROID_BACKGROUND = "#101F37";
 const DENSITIES = [
   { dir: "mipmap-mdpi", size: 48 },
   { dir: "mipmap-hdpi", size: 72 },
@@ -37,88 +40,29 @@ const DENSITIES = [
   { dir: "mipmap-xxxhdpi", size: 192 },
 ];
 
-function ensureFile(file) {
-  if (!fs.existsSync(file)) {
-    console.error(`[sync-mobile-icons] 找不到源图标：${file}`);
-    console.error("请先运行：npm run build:icon");
-    process.exit(1);
-  }
+function renderSvg(svg) {
+  return sharp(Buffer.from(svg, "utf8"), { density: (72 * ICON_SIZE) / 32 })
+    .resize(ICON_SIZE, ICON_SIZE)
+    .png({ compressionLevel: 9 });
 }
 
-async function sourcePng(size) {
-  return sharp(SOURCE_ICON)
-    .resize(size, size, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toBuffer();
+async function resizeIcon(icon, size, outFile) {
+  await sharp(icon).resize(size, size).png({ compressionLevel: 9 }).toFile(outFile);
+  logWrite(outFile, size);
 }
 
-async function renderSquare(size, outFile) {
-  const icon = await sourcePng(size);
-  await sharp({
-    create: {
-      width: size,
-      height: size,
-      channels: 4,
-      background: BACKGROUND,
-    },
-  })
-    .composite([{ input: icon, gravity: "center" }])
-    .flatten({ background: BACKGROUND })
-    .removeAlpha()
-    .png({ compressionLevel: 9 })
-    .toFile(outFile);
-}
-
-async function renderRound(size, outFile) {
-  const icon = await sourcePng(size);
+async function renderRound(icon, size, outFile) {
   const mask = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`,
+    "utf8",
   );
-  await sharp({
-    create: {
-      width: size,
-      height: size,
-      channels: 4,
-      background: BACKGROUND,
-    },
-  })
-    .composite([{ input: icon, gravity: "center" }, { input: mask, blend: "dest-in" }])
+  await sharp(icon)
+    .resize(size, size)
+    .ensureAlpha()
+    .composite([{ input: mask, blend: "dest-in" }])
     .png({ compressionLevel: 9 })
     .toFile(outFile);
-}
-
-async function renderForeground(size, outFile) {
-  // Adaptive Icon 的 foreground 保持透明背景，background 单独由 @color/ic_launcher_background 提供。
-  // 这里直接使用桌面图标的完整透明画布，确保 logo 与桌面端一致。
-  await sharp(SOURCE_ICON)
-    .resize(size, size, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png({ compressionLevel: 9 })
-    .toFile(outFile);
-}
-
-async function renderIosIcon() {
-  fs.mkdirSync(path.dirname(IOS_ICON), { recursive: true });
-  const icon = await sourcePng(1024);
-  await sharp({
-    create: {
-      width: 1024,
-      height: 1024,
-      channels: 4,
-      background: BACKGROUND,
-    },
-  })
-    .composite([{ input: icon, gravity: "center" }])
-    .flatten({ background: BACKGROUND })
-    .removeAlpha()
-    .png({ compressionLevel: 9 })
-    .toFile(IOS_ICON);
-  logWrite(IOS_ICON, 1024);
+  logWrite(outFile, size);
 }
 
 function writeText(file, text) {
@@ -145,39 +89,67 @@ function syncAdaptiveIconXml() {
     path.join(ANDROID_RES_DIR, "values", "ic_launcher_background.xml"),
     `<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">${BACKGROUND}</color>
+    <color name="ic_launcher_background">${ANDROID_BACKGROUND}</color>
 </resources>
 `,
   );
 }
 
-async function renderAndroidIcons() {
+async function renderAndroidIcons(squareIcon, adaptiveForeground) {
   syncAdaptiveIconXml();
   for (const d of DENSITIES) {
     const dir = path.join(ANDROID_RES_DIR, d.dir);
     fs.mkdirSync(dir, { recursive: true });
     console.log(`[${d.dir}]`);
-    const square = path.join(dir, "ic_launcher.png");
-    const round = path.join(dir, "ic_launcher_round.png");
-    const foreground = path.join(dir, "ic_launcher_foreground.png");
-    await renderSquare(d.size, square);
-    logWrite(square, d.size);
-    await renderRound(d.size, round);
-    logWrite(round, d.size);
-    await renderForeground(d.size, foreground);
-    logWrite(foreground, d.size);
+    await resizeIcon(squareIcon, d.size, path.join(dir, "ic_launcher.png"));
+    await renderRound(squareIcon, d.size, path.join(dir, "ic_launcher_round.png"));
+    // 常规图标画布为 48dp，Adaptive Icon 的每一层使用 108dp。
+    const layerSize = (d.size * 108) / 48;
+    await resizeIcon(adaptiveForeground, layerSize, path.join(dir, "ic_launcher_foreground.png"));
+  }
+}
+
+async function renderHarmonyIcons(svg, backgroundSvg, foregroundSvg) {
+  const background = await renderSvg(backgroundSvg).removeAlpha().toBuffer();
+  const foreground = await renderSvg(foregroundSvg).toBuffer();
+  for (const dir of HARMONY_MEDIA_DIRS) {
+    writeText(path.join(dir, "app_icon.svg"), svg);
+    fs.writeFileSync(path.join(dir, "icon_background.png"), background);
+    fs.writeFileSync(path.join(dir, "icon_foreground.png"), foreground);
+    logWrite(path.join(dir, "icon_background.png"), ICON_SIZE);
+    logWrite(path.join(dir, "icon_foreground.png"), ICON_SIZE);
   }
 }
 
 async function main() {
-  ensureFile(SOURCE_ICON);
-  console.log(`[sync-mobile-icons] source: ${path.relative(REPO_ROOT, SOURCE_ICON)}`);
-  await renderAndroidIcons();
-  await renderIosIcon();
-  console.log("\nDone. Mobile app icons now match the desktop Electron logo.");
+  const svg = fs.readFileSync(SOURCE_ICON, "utf8");
+  const backgroundTag = /<rect id="icon-background"[^>]*\/>/;
+  const markTag = '<g id="icon-mark">';
+  if (!backgroundTag.test(svg) || !svg.includes(markTag)) {
+    throw new Error("favicon.svg 需要 icon-background 和 icon-mark 图层");
+  }
+
+  const squareSvg = svg.replace(backgroundTag, (tag) => tag.replace(/\s+rx="[^"]*"/, ""));
+  const foregroundSvg = svg.replace(backgroundTag, "");
+  const backgroundSvg = squareSvg.replace(markTag, '<g id="icon-mark" display="none">');
+  // 将图形居中缩至 75%，让外缘进入 Android 66dp 的圆形安全区。
+  const adaptiveSvg = foregroundSvg.replace(
+    markTag,
+    '<g id="icon-mark" transform="translate(4 4) scale(0.75)">',
+  );
+
+  const squareIcon = await renderSvg(squareSvg).removeAlpha().toBuffer();
+  const adaptiveForeground = await renderSvg(adaptiveSvg).toBuffer();
+  await renderAndroidIcons(squareIcon, adaptiveForeground);
+
+  fs.mkdirSync(path.dirname(IOS_ICON), { recursive: true });
+  fs.writeFileSync(IOS_ICON, squareIcon);
+  logWrite(IOS_ICON, ICON_SIZE);
+
+  await renderHarmonyIcons(svg, backgroundSvg, foregroundSvg);
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error("[sync-mobile-icons] 生成失败", error);
   process.exit(1);
 });
