@@ -101,6 +101,10 @@ test("candidate builds compile, smoke-test and install the minimal FFmpeg on eve
   assert.match(ffmpegJob, /smoke-motion\.mjs "\$RUNNER_TEMP\/nowen-ffmpeg\/ffmpeg-linux-x64"/);
   assert.ok(workflow.jobs.build.needs.includes("ffmpeg"));
   const build = workflow.jobs.build.steps.map((step) => step.run || "").join("\n");
+  const linuxFfmpeg = '"$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-linux-x64"';
+  const restoreMode = build.indexOf(`chmod +x ${linuxFfmpeg}`);
+  const smoke = build.indexOf(`node scripts/ffmpeg/smoke-motion.mjs ${linuxFfmpeg}`);
+  assert.ok(restoreMode >= 0 && restoreMode < smoke, "restore executable mode before Linux smoke test");
   for (const pattern of [/build-desktop\.sh darwin-arm64/, /build-desktop\.sh darwin-x64/, /ffmpeg-win32-x64\.exe/,
     /ffmpeg-darwin-x64" arch -x86_64/, /release-cloud-ffmpeg\.mjs --prepare/, /release-cloud-ffmpeg\.mjs --install --platform=darwin --arch=x64/]) {
     assert.match(build, pattern);

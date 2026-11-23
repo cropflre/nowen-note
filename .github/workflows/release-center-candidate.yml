@@ -168,7 +168,11 @@ jobs:
         run: |
           case "$RC_PLATFORM" in
             windows) node scripts/ffmpeg/smoke-motion.mjs "$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-win32-x64.exe" ;;
-            linux) node scripts/ffmpeg/smoke-motion.mjs "$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-linux-x64" ;;
+            linux)
+              # 下载产物后恢复执行位，再运行转码测试。
+              chmod +x "$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-linux-x64"
+              node scripts/ffmpeg/smoke-motion.mjs "$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-linux-x64"
+              ;;
             macos)
               node scripts/ffmpeg/smoke-motion.mjs "$RUNNER_TEMP/nowen-ffmpeg/ffmpeg-darwin-arm64"
               if arch -x86_64 /usr/bin/true 2>/dev/null; then
