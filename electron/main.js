@@ -1885,7 +1885,17 @@ function registerHotUpdateIpc() {
       if (!window.isDestroyed()) window.webContents.send("hot-update:status", status);
     }
   });
-  if (hotUpdate?.bundle) console.log(`[hot-update] 主进程运行热更新包 ${hotUpdate.bundle.bundleId}`);
+  if (hotUpdate) {
+    // 日志里写清三个版本，与「设置 → 关于」对得上；加载器的启动日志早于日志文件，退回原因在这里补记。
+    const status = hotUpdate.getStatus();
+    const notes = [
+      `安装包 v${status.shellVersion}`,
+      `壳版本号 ${status.runtimeVersion || "无"}`,
+      ...(status.enabled ? [] : [`热更新未启用（${status.disabledReason}）`]),
+      ...(status.lastRollback ? [`上次退回 v${status.lastRollback.version}（${status.lastRollback.reason}）`] : []),
+    ];
+    console.log(`[hot-update] 正在运行 v${status.effectiveVersion}（${status.bundleId ? `热更新包 ${status.bundleId}` : "安装包自带"}），${notes.join("，")}`);
+  }
 }
 
 function registerAppIpc() {

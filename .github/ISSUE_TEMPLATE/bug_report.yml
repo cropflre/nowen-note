@@ -37,7 +37,8 @@ body:
     id: version
     attributes:
       label: 版本号（不知道可不填）
-      placeholder: 例如：v1.3.1
+      description: 在「设置 → 关于」里能看到。电脑和安卓客户端如果显示了「正在运行」「安装包」「壳版本号」三项，请都填上。
+      placeholder: 例如：正在运行 v1.6.2（热更新），安装包 v1.6.1，壳版本号 e1-0123456789abcdef
 
   - type: textarea
     id: attachments

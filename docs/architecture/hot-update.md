@@ -1,9 +1,10 @@
 # 热更新
 
-> 状态（2026-11-22）：
+> 状态（2026-11-23）：
 > - 阶段 1「发版流水线」已完成：打包、签名、校验、发布到 GitHub Release 和 R2 渠道。
 > - 阶段 2「安卓客户端」已完成，并在模拟器上做了端到端验收，记录见下文。
 > - 阶段 3「桌面客户端」已完成，在开发构建和打包后的 macOS 应用上做了真实 Electron 验收，记录见下文；Windows、Linux 安装包还没有实测。
+> - 阶段 4「收尾」已完成：发布说明的「更新方式」由脚本生成，桌面候选构建会核对安装包里的锚点。第一个带热更新能力的整包还没有发出，步骤见「第一个带热更新能力的整包」。
 >
 > 完整任务书见 [AI 开发提示词](../superpowers/specs/2026-11-22-hot-update-dev-prompt.md)。
 
@@ -90,6 +91,25 @@ gh secret set NOWEN_HOT_UPDATE_PRIVATE_KEY < ~/nowen-hot-update-private.pem
 1. 把私钥离线备份两份。私钥丢了，已安装的客户端就再也收不到热更新，只能发新整包、换新钥。
 2. 提交 `hot-update/public-keys.json`。注意：公钥列表本身是壳指纹的输入，加钥或换钥会改变两端的 runtimeVersion。
 
+## 第一个带热更新能力的整包
+
+只有装了带公钥安装包的用户才能收到热更新。公钥是打包时写进安装包的，所以顺序不能乱：
+
+1. **生成密钥并提交公钥**：维护者本人操作，见上一节。提交后两端的壳指纹都会变。
+2. **合入发版分支**：把 `feat/hot-update` 合入当前发版分支，跑 `npm run test:hot-update`、`npm run test:update-release`、`npm run test:microsoft-store`，以及前端和 `electron/__tests__` 的测试。
+3. **候选构建，验证流水线**：在发版中心发起不发布的候选构建，目标包含 `pc`、`android`、`hot`。这是这些工作流第一次在 GitHub 上运行，任何一步失败都先修好：
+   - plan 阶段的 Secret 和公钥检查通过；
+   - 安卓 `android-stage` 和桌面的「Verify hot-update trust anchors」都通过，输出里有公钥 ID：安卓日志不是 `key none`，桌面摘要不是「没有公钥」；
+   - `release-hot` 产物里有两端的 zip 和签名信封。
+4. **正式发版**：这一版的「更新方式」会是「本版是第一个支持热更新的版本，需要下载安装一次」。
+5. **发布后核对**：
+   - GitHub Release 里有 `nowen-hot-android-<version>.zip`、`nowen-hot-desktop-<version>.zip` 和两份签名信封；
+   - `https://download.nowen.cn/hot/stable/<target>/<runtimeVersion>.json` 能下载，内容与 Release 里的信封相同；
+   - 装上这个整包，「设置 → 关于」显示壳版本号；手动检查热更新，提示「当前已是最新版本」。
+6. **下一个版本**：壳没变时，「更新方式」会显示热更新送达。正式通知用户之前，先在一台设备上手动检查，确认能下载、重启后生效。
+
+Tag 触发的 `release.yml` 只打安装包，不生成热更新包。这个整包和之后的版本都要走发版中心的云端流程。
+
 ## 每次发版
 
 1. 在发版中心勾选构建目标「热更新包」（`hot`），或用 `--target ...,hot`。plan 阶段会检查 Secret 和入库公钥。
@@ -103,6 +123,15 @@ gh secret set NOWEN_HOT_UPDATE_PRIVATE_KEY < ~/nowen-hot-update-private.pem
    - 按 Tag 源码重新复核；
    - 把文件复制到 R2 的 `hot/<tag>/`，这是不可变目录：已存在的对象必须完全一致；
    - 用 `pointer.mjs decide` 判断后，覆盖渠道地址 `hot/stable/<target>/<runtimeVersion>.json`。渠道地址**只向前移动**：重跑旧版本的发布不会把它指回去。
+4. 发布说明按[模板](../releases/github-release-template.md)写。其中「更新方式」用命令生成，`--since` 填上一个正式版的 Tag：
+
+   ```bash
+   node scripts/hot-update/update-mode.mjs --since v1.6.1
+   ```
+
+   壳没变时，它写「已经是 v1.6.1 的用户会在应用内自动收到本版」；壳变了，它列出原因，例如 `electron 43.8.4 → 44.0.0`。
+
+构建时会核对安装包里的锚点：安卓在 `android-stage`，桌面在候选构建打包之后（`verify-desktop-anchors.mjs`）。和源码不一致就失败。没有公钥时核对照样通过，但会写明这批安装包不接受热更新。
 
 客户端轮询以下两个地址：
 
@@ -117,7 +146,28 @@ https://github.com/cropflre/nowen-note/releases/latest/download/nowen-hot-<targe
 
 - 首选尽快发修复版"往前滚"。
 - 要撤回某个包，把它的 bundleId 加进 `hot-update/config.json` 的 `revokedBundleIds`，然后随下一个版本发布。客户端看到当前生效的包被撤回，会退回上一个可用版本或安装包自带的版本（阶段 2、3 实现）。
-- 换钥：把新公钥放到列表第一位，同时切换 Secret，随一个整包版本一起发布。签名只能用第一把公钥。公钥列表本身是壳指纹的输入，所以换钥后，旧安装包收不到新清单，会走整包更新，不会出现验签失败。
+- 换钥、私钥丢失或泄露：见下一节。
+
+## 密钥轮换与私钥丢失
+
+安装包只信任打包时写进去的那一把公钥（公钥列表的第一把）。公钥列表又是两端壳指纹的输入，所以换钥一定伴随一次整包更新：旧安装包在渠道地址上找不到自己壳指纹的新清单，会走整包更新提示，不会出现验签失败。
+
+**计划内换钥：**
+
+1. 在仓库之外生成新密钥。`generate-keys.mjs` 会把新公钥追加到列表末尾，要手动把它移到第一位，因为签名只认第一把。旧公钥可以同时删掉。
+2. 用新私钥更新 Secret `NOWEN_HOT_UPDATE_PRIVATE_KEY`，再离线备份两份。
+3. 随一个整包版本发布。这一版的「更新方式」会显示两端都需要新安装包，原因是「热更新签名公钥有变化」。
+4. 新版本发出后，旧私钥就没有用了：旧安装包的壳指纹不同，收不到之后的任何清单。
+
+**私钥丢失**（还在用，但再也签不出新包）：已安装的客户端只信任旧公钥，从此收不到热更新，但整包更新提示照常，数据不受影响。按计划内换钥发一个整包，用户装上后热更新恢复。
+
+**私钥泄露：**
+
+- 拿到私钥的人能签出客户端会接受的包。不过客户端只从安装包里写死的两个地址下载（`download.nowen.cn` 和本仓库的 GitHub Release），对方还得能写这两个地方。
+- 已经装上的旧安装包无法吊销旧公钥，换钥只能保护之后装上新整包的用户。所以发现泄露后要立即做两件事：
+  - 按计划内换钥发整包；
+  - 检查 R2 和 GitHub 的写权限和访问记录，确认渠道地址和 Release 资产没被替换。
+- 防范靠保管：私钥只放在 GitHub Secret 和两份离线备份里，不进任何仓库、日志或产物。
 
 ## 本地命令
 
@@ -129,6 +179,9 @@ https://github.com/cropflre/nowen-note/releases/latest/download/nowen-hot-<targe
 | `node scripts/hot-update/verify.mjs --dir <dir> --version X.Y.Z [--commit SHA] [--check-runtime]` | 复核 |
 | `node scripts/hot-update/pointer.mjs key --file <清单>` | 算出清单对应的 R2 渠道地址 |
 | `node scripts/hot-update/pointer.mjs decide --next <新清单> --current <现有文件>` | 判断渠道地址是否应该前移 |
+| `node scripts/hot-update/runtime-fingerprint.mjs [--revision <Tag 或提交>] [--explain]` | 某个提交两端的壳指纹，以及参与计算的输入 |
+| `node scripts/hot-update/update-mode.mjs --since <上一个正式版 Tag> [--ref <提交>] [--json]` | 发布说明的「更新方式」：本版能否通过热更新送达；壳变了的话列出原因 |
+| `node scripts/hot-update/verify-desktop-anchors.mjs [--dist dist-electron]` | 核对打包好的桌面应用里的锚点与源码提交一致 |
 
 ## 安卓客户端（阶段 2）
 
@@ -304,6 +357,34 @@ CI 里设置测试公钥变量会直接失败。
 - 已签名、已公证的 macOS 安装包；
 - 账号模式下的 Outbox 和多设备同步；
 - 打包后的白屏、后端退出场景只在开发构建里跑过。这两段逻辑与是否打包无关。
+
+## 常见问题
+
+**为什么还要先装一次安装包？** 旧安装包里没有加载器和公钥，不会检查热更新。装上第一个带热更新能力的整包之后，大多数版本才能在应用内直接更新。
+
+**哪些版本能热更新送达？** 只改前端、后端和主进程 JS 的版本可以。改了 Electron 版本、原生依赖、安卓原生代码、打包结构或公钥的版本，需要新安装包。每一版的发布说明会写明是哪一种。
+
+**为什么 macOS 和 Windows 的整包更新还是要手动下载？**
+- 整包更新替换的是整个应用。macOS 上应用内自动安装要求 Apple Developer ID 签名，项目没有购买；Windows 按现有政策同样走浏览器下载。
+- 热更新只替换用户数据目录里的前端、后端和主进程 JS，不碰已安装的应用本身，所以不需要这些证书。
+
+**会改动我的数据吗？**
+- 新版本的后端可能升级数据库表结构。桌面端在每个新包第一次启动前，先把数据库备份到数据目录的 `backups-pre-update/`。
+- 万一退回到旧版本，旧代码发现数据库比自己新，就不会读写它：安卓显示保护页，桌面弹出保护对话框，只提供获取最新版本、下载安装包等安全出口。
+
+**新版本有问题怎么办？** 客户端会自动退回上一个可用的版本，并屏蔽这个包：
+- 安卓：45 秒内界面没有正常出现就退回；
+- 桌面：180 秒内没有就绪、主进程加载出错、或连续两次没能启动完成，都会退回。
+
+退回后界面提示一次。维护者随后发修复版，或者撤回这个包。
+
+**怎么知道自己在用热更新？** 「设置 → 关于」显示正在运行的版本（热更新或安装包自带）、安装包版本和壳版本号。反馈问题时请把这三项都填上；桌面端的日志开头也会记下它们。
+
+**能关掉吗？** 「关于」里可以关掉自动下载，关掉后仍可手动检查。安卓只在 Wi-Fi 下自动下载。
+
+**哪些版本没有热更新？** Microsoft Store 版（由商店更新）、iOS、开发构建。Docker 和 NAS 等服务端照常更新镜像或安装包，浏览器访问的界面随服务端一起更新。
+
+**会连接第三方服务吗？** 不会。客户端只访问 `download.nowen.cn` 和本仓库的 GitHub Release。安卓插件的下载请求里带一个随机的安装 ID，见安卓一节的「隐私」。
 
 ## 后续注意事项
 

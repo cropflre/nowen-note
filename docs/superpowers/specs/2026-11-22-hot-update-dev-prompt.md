@@ -3,7 +3,7 @@
 > 用法：把本文全文交给负责开发的 AI（Codex、Claude Code 等），在 nowen-note 仓库里执行。
 > 本文写于 2026-11-22，依据当时 `origin/release/v1.6.1` 附近的代码。开工前先逐条核对第 2 节，和代码对不上时先停下汇报，不要自行猜测。
 >
-> 进度：阶段 1（发版流水线）、阶段 2（安卓）、阶段 3（桌面）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1、2 对本文做了这些调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`；签名必须用公钥列表的第一把；`readyTimeout` 用 45 秒而不是 10 秒；「自动下载更新」开关放在「关于 → 应用更新」卡片里。阶段 3 的调整也已改在下文：锚点写进 app.asar 的 `package.json`（不另建 `runtime.json`）；主进程依赖靠包装 `Module._nodeModulePaths` 解析（`Module.globalPaths` 只是副本）；后端依赖靠包内 `backend/node_modules` 链接（动态 `import()` 不认 NODE_PATH）；不加解压库；新包另有 180 秒就绪超时；不按包记录 schema 版本；保护页做成原生对话框。
+> 进度：阶段 1（发版流水线）、阶段 2（安卓）、阶段 3（桌面）、阶段 4（收尾）已在分支 `feat/hot-update` 完成，实际格式与用法以 [docs/architecture/hot-update.md](../../architecture/hot-update.md) 为准。阶段 1、2 对本文做了这些调整，已改在下文：签名信封替代单独的 `.sig`；清单不放 `dbSchema`；打包配置不计入壳指纹；R2 路径为 `hot/<tag>/`；签名必须用公钥列表的第一把；`readyTimeout` 用 45 秒而不是 10 秒；「自动下载更新」开关放在「关于 → 应用更新」卡片里。阶段 3 的调整也已改在下文：锚点写进 app.asar 的 `package.json`（不另建 `runtime.json`）；主进程依赖靠包装 `Module._nodeModulePaths` 解析（`Module.globalPaths` 只是副本）；后端依赖靠包内 `backend/node_modules` 链接（动态 `import()` 不认 NODE_PATH）；不加解压库；新包另有 180 秒就绪超时；不按包记录 schema 版本；保护页做成原生对话框。阶段 4：项目原本没有发版说明模板，新增 `docs/releases/github-release-template.md`，「更新方式」由 `scripts/hot-update/update-mode.mjs` 比较上一版的壳指纹生成；另加桌面候选构建的安装包锚点核对（对应安卓 `android-stage`），Bug 反馈模板和桌面日志都带上三个版本号。第一个带热更新能力的整包是否发、何时发，由用户决定。
 
 ## 0. 角色与目标
 

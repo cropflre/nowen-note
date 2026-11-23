@@ -76,10 +76,21 @@ test("R2 热更新同步：按 Tag 源码复核，只写 hot/ 前缀，渠道地
   }
 });
 
+test("桌面候选构建：每个平台打包后核对安装包里的热更新锚点，再整理候选产物", () => {
+  const steps = load("release-center-candidate.yml").jobs.build.steps;
+  const index = (pattern) => steps.findIndex((step) => pattern.test(step.run || ""));
+  const verify = index(/^node scripts\/hot-update\/verify-desktop-anchors\.mjs$/);
+  assert.ok(verify > 0, "缺少热更新锚点核对");
+  assert.equal(steps[verify].if, undefined, "三个平台都要核对");
+  const lastPackage = steps.reduce((last, step, position) => (/electron-builder --config electron\/builder\.config\.js/.test(step.run || "") ? position : last), -1);
+  assert.ok(lastPackage >= 0 && verify > lastPackage, "核对要在所有 electron-builder 打包之后");
+  assert.ok(verify < index(/release-center-stage-candidate\.mjs/), "核对要在整理候选产物之前");
+});
+
 test("热更新 CI 覆盖脚本、配置和相关工作流的改动", () => {
   const workflow = load("hot-update-ci.yml");
   for (const trigger of [workflow.on.push, workflow.on.pull_request]) {
-    for (const path of ["hot-update/**", "scripts/hot-update/**", ".github/workflows/sync-r2-hot-update.yml", "backend/build.bundle.mjs"]) {
+    for (const path of ["hot-update/**", "scripts/hot-update/**", ".github/workflows/sync-r2-hot-update.yml", ".github/workflows/release-center-candidate.yml", "backend/build.bundle.mjs"]) {
       assert.ok(trigger.paths.includes(path), path);
     }
   }

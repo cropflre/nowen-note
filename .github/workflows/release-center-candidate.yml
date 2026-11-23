@@ -260,6 +260,10 @@ jobs:
           npm run rebuild:native
           npx electron-builder --config electron/builder.config.js --linux --publish never
           npm run verify:linux-desktop
+      # 安装包里的热更新壳指纹和公钥必须与本次提交一致，否则装上后收不到热更新（docs/architecture/hot-update.md）。
+      - name: Verify hot-update trust anchors in the packaged app
+        shell: bash
+        run: node scripts/hot-update/verify-desktop-anchors.mjs
       - name: Check exact candidate assets and stage evidence
         shell: bash
         env:

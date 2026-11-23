@@ -23,6 +23,7 @@ on:
       - ".github/workflows/release-build.yml"
       - ".github/workflows/release-publish.yml"
       - ".github/workflows/sync-r2-hot-update.yml"
+      - ".github/workflows/release-center-candidate.yml"
       - ".github/workflows/hot-update-ci.yml"
   pull_request:
     paths:
@@ -44,6 +45,7 @@ on:
       - ".github/workflows/release-build.yml"
       - ".github/workflows/release-publish.yml"
       - ".github/workflows/sync-r2-hot-update.yml"
+      - ".github/workflows/release-center-candidate.yml"
       - ".github/workflows/hot-update-ci.yml"
   workflow_dispatch:
 
