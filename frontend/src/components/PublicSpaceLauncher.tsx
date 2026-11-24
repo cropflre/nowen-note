@@ -42,7 +42,7 @@ type SpaceActionCopy = {
 };
 
 function resolveCopy(): SpaceActionCopy {
-  const language = document.documentElement.lang || navigator.language || "zh-CN";
+  const language = document.documentElement.lang || navigator.language || "en";
   if (!language.toLowerCase().startsWith("zh")) {
     return {
       label: "Spaces",

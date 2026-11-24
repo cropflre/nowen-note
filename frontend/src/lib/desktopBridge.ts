@@ -408,6 +408,10 @@ export interface NowenDesktopAPI {
   getLiteMigrationProgress?: () => Promise<LiteMigrationResult>;
   isDesktop: true;
   platform: string;
+  /** 主进程按 LC_ALL / LC_MESSAGES / LANG / app.getLocale() 解析出的系统语言（"zh-CN" | "en"）。 */
+  systemLocale?: string;
+  /** 通知主进程重建原生菜单/托盘语言。 */
+  setLanguage?: (language: "zh-CN" | "en") => void;
   /**
    * 发布渠道（"lite" | "latest"）。由 preload 根据启动参数判定，
    * 与 electron-builder publish.channel 对齐；旧版本 preload 不暴露此字段 → undefined。

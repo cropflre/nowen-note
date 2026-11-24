@@ -7,7 +7,8 @@ const http = require("http");
 const crypto = require("crypto");
 
 const { buildMenu, applyFormatState } = require("./menu");
-const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray");
+const { createTray, updateTrayMenu, destroyTray, markQuitting, getIsQuitting } = require("./tray");
+const { resolveSystemLocale, normalizeLocale, isChineseLocale } = require("./locale");
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { isMicrosoftStorePackage } = require("./storeChannel");
 const { initLogger, getLogDir } = require("./logger");
@@ -1898,6 +1899,77 @@ function registerHotUpdateIpc() {
   }
 }
 
+let currentLocale = null;
+
+function getSystemLocale() {
+  let appLocale = "";
+  try {
+    appLocale = typeof app.getLocale === "function" ? app.getLocale() : "";
+  } catch {
+    appLocale = "";
+  }
+  return resolveSystemLocale({ env: process.env, appLocale });
+}
+
+function getActiveLocale() {
+  return currentLocale || getSystemLocale();
+}
+
+function applyDockMenu(locale) {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const focusAndSend = (channel) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    }
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (mainWindow.webContents.isLoading()) {
+        mainWindow.webContents.once("did-finish-load", () => {
+          mainWindow.webContents.send(channel);
+        });
+      } else {
+        mainWindow.webContents.send(channel);
+      }
+    }
+  };
+  const zh = isChineseLocale(locale);
+  const dockMenu = Menu.buildFromTemplate([
+    {
+      label: zh ? "新建笔记" : "New Note",
+      click: () => focusAndSend("dock:new-note"),
+    },
+    {
+      label: zh ? "搜索笔记" : "Search Notes",
+      click: () => focusAndSend("dock:search"),
+    },
+  ]);
+  app.dock.setMenu(dockMenu);
+}
+
+function refreshNativeMenus() {
+  const locale = getActiveLocale();
+  buildMenu({
+    onCheckForUpdates: () => checkForUpdatesManually(),
+    openAboutWindow,
+    mode: currentMode,
+    liteOnly: isLiteOnlyBuild(),
+    locale,
+    onSwitchToLite: () => switchToLite(mainWindow),
+    onSwitchToFull: () => switchToFull(),
+    onChangeServer: () => changeRemoteServer(),
+  });
+  applyMenuBarPreference();
+  applyDockMenu(locale);
+  updateTrayMenu({ locale });
+}
+
+// Register before any BrowserWindow loads preload.js so renderer can read systemLocale synchronously.
+ipcMain.on("app:system-locale", (event) => {
+  event.returnValue = getSystemLocale();
+});
+
 function registerAppIpc() {
   ipcMain.removeHandler("client:http-json");
   ipcMain.handle("client:http-json", async (event, payload = {}) => {
@@ -2096,6 +2168,15 @@ function registerAppIpc() {
   ipcMain.handle("clipboard:wechat-articles", (event) => {
     if (assertMainWindowSender(event) || !mainWindow?.isFocused()) return "";
     return readWechatArticleClipboard(clipboard);
+  });
+
+  ipcMain.removeAllListeners("app:set-language");
+  ipcMain.on("app:set-language", (event, language) => {
+    if (assertMainWindowSender(event)) return;
+    const next = normalizeLocale(language);
+    if (!next || next === currentLocale) return;
+    currentLocale = next;
+    refreshNativeMenus();
   });
 
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
@@ -2778,11 +2859,13 @@ app.whenReady().then(async () => {
   }
 
   // 原生菜单（accelerator 同时担当全局快捷键）
+  const initialLocale = getActiveLocale();
   buildMenu({
     onCheckForUpdates: () => checkForUpdatesManually(),
     openAboutWindow,
     mode: currentMode,
     liteOnly: isLiteOnlyBuild(),
+    locale: initialLocale,
     onSwitchToLite: () => switchToLite(mainWindow),
     onSwitchToFull: () => switchToFull(),
     onChangeServer: () => changeRemoteServer(),
@@ -2792,39 +2875,7 @@ app.whenReady().then(async () => {
   // ---------- macOS Dock Quick Action（HIG：Dock 右键菜单） ----------
   // 用户未启动窗口时右键 Dock 即可快速进入关键操作。app.dock 仅存在于 darwin，
   // 其它平台跳过；点击会先确保主窗口可见并聚焦，再向 renderer 发送业务事件。
-  if (process.platform === "darwin" && app.dock) {
-    const focusAndSend = (channel) => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        // 窗口已销毁（例如最后一个窗口关闭后）：重建
-        createWindow();
-        // createWindow 是同步的，但实际 show 要等 ready-to-show；事件先落盘
-      }
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        // webContents 可能尚未 did-finish-load；对两种情况都覆盖
-        if (mainWindow.webContents.isLoading()) {
-          mainWindow.webContents.once("did-finish-load", () => {
-            mainWindow.webContents.send(channel);
-          });
-        } else {
-          mainWindow.webContents.send(channel);
-        }
-      }
-    };
-    const dockMenu = Menu.buildFromTemplate([
-      {
-        label: "新建笔记",
-        click: () => focusAndSend("dock:new-note"),
-      },
-      {
-        label: "搜索笔记",
-        click: () => focusAndSend("dock:search"),
-      },
-    ]);
-    app.dock.setMenu(dockMenu);
-  }
+  applyDockMenu(initialLocale);
 
   // 托盘
   createTray({
@@ -2836,6 +2887,7 @@ app.whenReady().then(async () => {
     },
     mode: currentMode,
     liteOnly: isLiteOnlyBuild(),
+    locale: initialLocale,
     onSwitchToLite: () => switchToLite(mainWindow),
     onSwitchToFull: () => switchToFull(),
     onChangeServer: () => changeRemoteServer(),

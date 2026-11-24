@@ -1313,10 +1313,13 @@ function AppearancePanel() {
             ] as const).map(lang => (
               <button
                 key={lang.code}
-                onClick={() => i18n.changeLanguage(lang.code)}
+                onClick={() => {
+                  try { localStorage.setItem("i18nextLng", lang.code); } catch {}
+                  void i18n.changeLanguage(lang.code);
+                }}
                 className={cn(
                   "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  i18n.language === lang.code
+                  (i18n.resolvedLanguage || i18n.language) === lang.code
                     ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
                     : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
                 )}

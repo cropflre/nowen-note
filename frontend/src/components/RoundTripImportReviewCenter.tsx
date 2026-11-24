@@ -30,8 +30,8 @@ import {
 } from "@/lib/roundTripImportReview";
 
 function isChineseLocale(): boolean {
-  if (typeof document === "undefined") return true;
-  const lang = document.documentElement.lang || navigator.language || "zh-CN";
+  if (typeof document === "undefined") return false;
+  const lang = document.documentElement.lang || navigator.language || "en";
   return lang.toLowerCase().startsWith("zh");
 }
 

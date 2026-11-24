@@ -118,7 +118,7 @@ export default function FullscreenImageViewer({
   onEdit,
 }: FullscreenImageViewerProps) {
   const { i18n } = useTranslation();
-  const english = i18n.language?.toLowerCase().startsWith("en");
+  const english = !(i18n.resolvedLanguage || i18n.language || "").toLowerCase().startsWith("zh");
   const gallery = useMemo<FullscreenImageItem[]>(() => {
     const valid = images?.filter((item) => !!item.src) || [];
     return valid.length ? valid : (src ? [{ src, alt }] : []);

@@ -29,6 +29,15 @@ const allowedChannels = new Set([
   "ugreen:auth-cancelled",
 ]);
 
+function readSystemLocale() {
+  try {
+    const locale = ipcRenderer.sendSync("app:system-locale");
+    return typeof locale === "string" && locale.trim() ? locale.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 contextBridge.exposeInMainWorld("nowenDesktop", {
   /**
    * 订阅主进程事件。返回反注册函数。
@@ -206,6 +215,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   /** 运行在 Electron 客户端的标识（前端用来条件渲染桌面专属 UI） */
   isDesktop: true,
   platform: process.platform,
+  systemLocale: readSystemLocale(),
+  setLanguage(language) {
+    if (language !== "zh-CN" && language !== "en") return;
+    ipcRenderer.send("app:set-language", language);
+  },
   /**
    * 通过主进程网络栈发送 JSON API 请求，避免 file:// renderer 的跨域预检
    * 被第三方反向代理拒绝。仅允许 http(s) /api 请求，主进程会再次校验。

@@ -319,9 +319,34 @@
         window.__NOWEN_BOOT_READY__ = false;
         window.__NOWEN_BOOT_FAILED__ = false;
 
-        var bootLanguage = navigator.language || "zh-CN";
-        try { bootLanguage = localStorage.getItem("i18nextLng") || bootLanguage; } catch (e) {}
-        var bootEnglish = /^en/i.test(bootLanguage);
+        var bootLanguage = "";
+        try { bootLanguage = localStorage.getItem("i18nextLng") || ""; } catch (e) {}
+        if (!bootLanguage && window.nowenDesktop && typeof window.nowenDesktop.systemLocale === "string") {
+          bootLanguage = window.nowenDesktop.systemLocale;
+        }
+        if (!bootLanguage && navigator.languages && navigator.languages.length > 0) {
+          bootLanguage = navigator.languages[0] || "";
+        }
+        if (!bootLanguage) {
+          bootLanguage = navigator.language || "en";
+        }
+        var bootChinese = /^zh(?:[-_.]|$)/i.test(String(bootLanguage).trim());
+        var bootEnglish = !bootChinese;
+        try { document.documentElement.lang = bootChinese ? "zh-CN" : "en"; } catch (e) {}
+        if (bootEnglish) {
+          window.addEventListener("DOMContentLoaded", function () {
+            if (window.__NOWEN_BOOT_READY__ || window.__NOWEN_BOOT_FAILED__) return;
+            var splash = document.getElementById("app-boot-splash");
+            if (!splash) return;
+            splash.setAttribute("aria-label", "Restoring workspace");
+            var subtitle = splash.querySelector(".app-boot-subtitle");
+            var reload = document.getElementById("app-boot-reload");
+            var copy = document.getElementById("app-boot-copy");
+            if (subtitle) subtitle.textContent = "Restoring your workspace…";
+            if (reload) reload.textContent = "Reload";
+            if (copy) copy.textContent = "Copy diagnostics";
+          }, { once: true });
+        }
 
         window.__NOWEN_REPORT_BOOT_STAGE__ = function (stage) {
           if (window.__NOWEN_BOOT_READY__ && stage !== "ready") return;
@@ -369,7 +394,9 @@
           var text = diagnosticText();
           var button = document.getElementById("app-boot-copy");
           var done = function (ok) {
-            if (button) button.textContent = ok ? "诊断信息已复制" : "复制失败，请截图";
+            if (button) button.textContent = ok
+              ? (bootEnglish ? "Diagnostics copied" : "诊断信息已复制")
+              : (bootEnglish ? "Copy failed, please screenshot" : "复制失败，请截图");
           };
           try {
             if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
@@ -398,11 +425,15 @@
             window.__NOWEN_BOOT_VISIBLE_AT__ = window.__NOWEN_BOOT_VISIBLE_AT__ || Date.now();
             splash.classList.remove("app-boot-splash--leaving");
             splash.classList.add("app-boot-splash--visible");
-            if (title) title.textContent = "应用启动失败";
+            if (title) title.textContent = bootEnglish ? "Failed to start application" : "应用启动失败";
             if (subtitle) {
               subtitle.textContent = code === "BOOT_TIMEOUT"
-                ? "应用未能在预期时间内完成启动。这可能是浏览器兼容性或启动阶段异常，并不等同于网络故障。"
-                : "检测到启动阶段异常。你可以重新加载，或复制诊断信息反馈给开发者。";
+                ? (bootEnglish
+                  ? "The application did not finish starting in time. This may be a browser compatibility or startup error rather than a network issue."
+                  : "应用未能在预期时间内完成启动。这可能是浏览器兼容性或启动阶段异常，并不等同于网络故障。")
+                : (bootEnglish
+                  ? "A startup error was detected. You can reload the page or copy diagnostics to report the issue."
+                  : "检测到启动阶段异常。你可以重新加载，或复制诊断信息反馈给开发者。");
             }
             if (spinner) spinner.style.display = "none";
             if (reload) {

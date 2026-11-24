@@ -365,7 +365,7 @@ export default function EditorImageTransformBridge() {
 /** Render beside the image actions, using the owning editor rather than global DOM discovery. */
 export function EditorImageTransformControls({ editor, mobile = false }: { editor: Editor; mobile?: boolean }) {
   const { i18n } = useTranslation();
-  const english = i18n.language?.toLowerCase().startsWith("en");
+  const english = !(i18n.resolvedLanguage || i18n.language || "").toLowerCase().startsWith("zh");
   const [, refresh] = useState(0);
   useEffect(() => {
     const update = () => refresh((value) => value + 1);

@@ -150,7 +150,7 @@ function createLiveButton(sourceButton: HTMLButtonElement): HTMLButtonElement {
   button.type = "button";
   button.dataset.nowenMarkdownLive = "1";
   button.className = sourceButton.className;
-  button.title = document.documentElement.lang?.toLowerCase().startsWith("en") ? "Live preview" : "实时预览";
+  button.title = document.documentElement.lang?.toLowerCase().startsWith("zh") ? "实时预览" : "Live preview";
   button.setAttribute("aria-label", button.title);
   const icon = document.createElement("span");
   icon.setAttribute("aria-hidden", "true");
