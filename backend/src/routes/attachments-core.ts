@@ -70,6 +70,7 @@ import {
   ensureAttachmentsDir as ensureStorageAttachmentsDir,
   getAttachmentStorageInfo,
   getAttachmentsDir as getStorageAttachmentsDir,
+  getLocalAttachmentPath,
   readObjectStorageConfigPublic,
   readAttachmentObject,
   testObjectStorageConfig,
@@ -377,6 +378,70 @@ export interface DeduplicatedAttachmentRow {
  *   - 新建 attachments.id，并绑定到当前 noteId；
  *   - 删除时依赖 path 引用计数兜底，最后一个引用消失才 unlink。
  */
+export interface ExistingDedupAttachmentRow extends ExistingAttachmentForDedup {
+  id: string;
+  noteId: string;
+}
+
+/**
+ * 同步校验本地附件路径是否指向真实存在且可读的普通文件。
+ * 供同步路径（如 extractInlineBase64Images）过滤空 path 或文件已丢失的历史记录。
+ */
+function isLocalAttachmentFileReadable(relPath: string | null | undefined): boolean {
+  if (typeof relPath !== "string" || !relPath.trim()) return false;
+  try {
+    return fs.statSync(getLocalAttachmentPath(relPath)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 在同 scope（userId + workspaceId）内查找可安全复用的 hash 去重源记录。
+ *
+ * 必须同时满足：
+ *   1. trashedAt IS NULL 且 path 非空；
+ *   2. 底层物理对象（本地文件或 S3 对象）真实存在。
+ *
+ * 当历史记录存在空 path（如两阶段同步未落盘）或底层文件缺失（如备份恢复缺失目录）时，
+ * 跳过该坏记录；若无任何有效候选则返回 undefined，调用方降级为正常写盘入库。
+ */
+export async function findExistingDedupAttachment(args: {
+  userId: string;
+  workspaceId: string | null;
+  hash: string;
+  preferNoteId?: string;
+}): Promise<ExistingDedupAttachmentRow | undefined> {
+  const db = getDb();
+  const orderClause = args.preferNoteId ? "ORDER BY CASE WHEN noteId = ? THEN 0 ELSE 1 END, id ASC" : "ORDER BY id ASC";
+  const sql = args.workspaceId
+    ? `SELECT id, noteId, path, mimeType, size, filename, hash FROM attachments
+        WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL
+          AND path IS NOT NULL AND TRIM(path) <> ''
+        ${orderClause}`
+    : `SELECT id, noteId, path, mimeType, size, filename, hash FROM attachments
+        WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL
+          AND path IS NOT NULL AND TRIM(path) <> ''
+        ${orderClause}`;
+  const params = args.workspaceId
+    ? (args.preferNoteId ? [args.userId, args.workspaceId, args.hash, args.preferNoteId] : [args.userId, args.workspaceId, args.hash])
+    : (args.preferNoteId ? [args.userId, args.hash, args.preferNoteId] : [args.userId, args.hash]);
+
+  const candidates = db.prepare(sql).all(...params) as ExistingDedupAttachmentRow[];
+  const checkedPaths = new Map<string, boolean>();
+  for (const candidate of candidates) {
+    const relPath = candidate.path?.trim();
+    if (!relPath) continue;
+    let exists = checkedPaths.get(relPath);
+    if (exists === undefined) {
+      exists = (await checkAttachmentObjectExists(relPath)).exists;
+      checkedPaths.set(relPath, exists);
+    }
+    if (exists) return candidate;
+  }
+  return undefined;
+}
+
 export function createDeduplicatedAttachmentRow(args: {
   id?: string;
   source: ExistingAttachmentForDedup;
@@ -387,9 +452,13 @@ export function createDeduplicatedAttachmentRow(args: {
   hash?: string | null;
   uploadSource?: string | null;
 }): DeduplicatedAttachmentRow {
+  const sourcePath = typeof args.source.path === "string" ? args.source.path.trim() : "";
+  if (!sourcePath) {
+    throw new Error("Cannot deduplicate attachment with empty storage path");
+  }
   const db = getDb();
   const id = args.id || uuid();
-  const filename = args.filename || args.source.filename || args.source.path || `${id}.bin`;
+  const filename = args.filename || args.source.filename || sourcePath || `${id}.bin`;
   const hash = args.hash ?? args.source.hash ?? null;
 
   if (args.uploadSource !== undefined) {
@@ -403,7 +472,7 @@ export function createDeduplicatedAttachmentRow(args: {
       filename,
       args.source.mimeType,
       args.source.size,
-      args.source.path,
+      sourcePath,
       args.workspaceId,
       hash,
       args.uploadSource,
@@ -419,7 +488,7 @@ export function createDeduplicatedAttachmentRow(args: {
       filename,
       args.source.mimeType,
       args.source.size,
-      args.source.path,
+      sourcePath,
       args.workspaceId,
       hash,
     );
@@ -428,7 +497,7 @@ export function createDeduplicatedAttachmentRow(args: {
   return {
     id,
     url: `/api/attachments/${id}`,
-    path: args.source.path,
+    path: sourcePath,
     filename,
     mimeType: args.source.mimeType,
     size: args.source.size,
@@ -817,19 +886,11 @@ app.post("/", async (c) => {
   // 范围"同 user 内"而非全局：避免跨用户 ACL 麻烦，删除时引用计数也只在
   // 自己的范围内有效（不会因为另一个用户的笔记还在引用就拒删自己的附件）。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-  const dedupRow = db
-    .prepare(
-      noteWorkspaceId
-        ? `SELECT id, path, mimeType, size, filename, hash FROM attachments
-            WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL LIMIT 1`
-        : `SELECT id, path, mimeType, size, filename, hash FROM attachments
-            WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL LIMIT 1`,
-    )
-    .get(
-      ...(noteWorkspaceId
-        ? [userId, noteWorkspaceId, sha256]
-        : [userId, sha256]),
-    ) as ExistingAttachmentForDedup | undefined;
+  const dedupRow = await findExistingDedupAttachment({
+    userId,
+    workspaceId: noteWorkspaceId,
+    hash: sha256,
+  });
 
   if (dedupRow) {
     // 旧附件可能只有通用 MIME，去重新记录按本次上传的真实媒体字节分类。
@@ -1030,12 +1091,17 @@ export function extractInlineBase64Images(
   );
   // v11 hash dedup 命中查询：与 POST /api/attachments 走同款"同 user + 同 workspace"
   // 范围。阶段 B 起，命中后复制一行新元数据绑定当前 noteId，但 path 仍共享老物理文件。
+  // 仅当候选记录 path 非空且本地物理文件真实存在时才复用，否则降级正常落盘。
   const dedupSelect = db.prepare(
     workspaceId
       ? `SELECT id, path, filename, mimeType, size, hash FROM attachments
-          WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL LIMIT 1`
+          WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL
+            AND path IS NOT NULL AND TRIM(path) <> ''
+          ORDER BY id ASC`
       : `SELECT id, path, filename, mimeType, size, hash FROM attachments
-          WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL LIMIT 1`,
+          WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL
+            AND path IS NOT NULL AND TRIM(path) <> ''
+          ORDER BY id ASC`,
   );
 
   const attachmentIds: string[] = [];
@@ -1056,11 +1122,12 @@ export function extractInlineBase64Images(
       return null;
     }
 
-    // hash dedup：先查命中，命中则不写盘，但复制新元数据行并返回新 id
+    // hash dedup：先查命中且本地文件真实存在，命中则不写盘，复制新元数据行并返回新 id
     const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
-    const hit = (workspaceId
-      ? dedupSelect.get(userId, workspaceId, sha256)
-      : dedupSelect.get(userId, sha256)) as ExistingAttachmentForDedup | undefined;
+    const candidates = (workspaceId
+      ? dedupSelect.all(userId, workspaceId, sha256)
+      : dedupSelect.all(userId, sha256)) as ExistingAttachmentForDedup[];
+    const hit = candidates.find((candidate) => isLocalAttachmentFileReadable(candidate.path));
     if (hit) {
       try {
         const clone = createDeduplicatedAttachmentRow({

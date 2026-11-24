@@ -1345,9 +1345,11 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     .prepare(
       scope.workspaceId
         ? `SELECT id, noteId, userId, workspaceId, uploadSource, mimeType, size, filename, path, folderId, createdAt FROM attachments
-            WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL LIMIT 1`
+            WHERE userId = ? AND workspaceId = ? AND hash = ? AND trashedAt IS NULL
+              AND path IS NOT NULL AND TRIM(path) <> '' LIMIT 1`
         : `SELECT id, noteId, userId, workspaceId, uploadSource, mimeType, size, filename, path, folderId, createdAt FROM attachments
-            WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL LIMIT 1`,
+            WHERE userId = ? AND workspaceId IS NULL AND hash = ? AND trashedAt IS NULL
+              AND path IS NOT NULL AND TRIM(path) <> '' LIMIT 1`,
     )
     .get(
       ...(scope.workspaceId

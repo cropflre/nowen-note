@@ -13,7 +13,7 @@ import {
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 import {
   createDeduplicatedAttachmentRow,
-  type ExistingAttachmentForDedup,
+  findExistingDedupAttachment,
 } from "../routes/attachments-core";
 import {
   isBlockedRemoteAddress,
@@ -267,17 +267,12 @@ export async function saveDownloadedRemoteImageForNote(args: {
   const uploadSource = (args.uploadSource || "remote-image").trim().slice(0, 64) || "remote-image";
   const db = getDb();
   const hash = crypto.createHash("sha256").update(args.downloaded.buffer).digest("hex");
-  const dedupRow = db.prepare(
-    args.workspaceId
-      ? `SELECT id, noteId, path, mimeType, size, filename, hash FROM attachments
-           WHERE userId = ? AND workspaceId = ? AND hash = ? ORDER BY CASE WHEN noteId = ? THEN 0 ELSE 1 END LIMIT 1`
-      : `SELECT id, noteId, path, mimeType, size, filename, hash FROM attachments
-           WHERE userId = ? AND workspaceId IS NULL AND hash = ? ORDER BY CASE WHEN noteId = ? THEN 0 ELSE 1 END LIMIT 1`,
-  ).get(
-    ...(args.workspaceId
-      ? [args.userId, args.workspaceId, hash, args.noteId]
-      : [args.userId, hash, args.noteId]),
-  ) as (ExistingAttachmentForDedup & { id: string; noteId: string }) | undefined;
+  const dedupRow = await findExistingDedupAttachment({
+    userId: args.userId,
+    workspaceId: args.workspaceId,
+    hash,
+    preferNoteId: args.noteId,
+  });
 
   if (dedupRow) {
     const row = dedupRow.noteId === args.noteId

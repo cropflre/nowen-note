@@ -632,6 +632,8 @@ export async function readAttachmentObject(relPath: string): Promise<Buffer | nu
 }
 
 export async function checkAttachmentObjectExists(relPath: string): Promise<{ exists: boolean; status?: number; error?: string }> {
+  // 空 key 既不是本地文件（指向 ATTACHMENTS_DIR 目录），在对象存储上也会落到桶根。
+  if (!relPath || !relPath.trim()) return { exists: false };
   const configurationIssue = getAttachmentStorageConfigurationIssue();
   if (configurationIssue) return { exists: false, error: configurationIssue };
   const cfg = getS3Config();
