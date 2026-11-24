@@ -225,6 +225,10 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
     const noteColumns = db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
     const hasThemeId = noteColumns.some((column) => column.name === "themeId");
     const hasColorMark = noteColumns.some((column) => column.name === "colorMark");
+    const hasNoteType = noteColumns.some((column) => column.name === "note_type");
+    const hasExcelDocuments = Boolean(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'excel_documents'").get(),
+    );
     const notePayload = (ref: string) => `json_object(
       'id', ${ref}.id,
       'notebookId', ${ref}.notebookId,
@@ -232,6 +236,9 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'content', ${ref}.content,
       'contentText', ${ref}.contentText,
       'contentFormat', ${ref}.contentFormat,
+      ${hasNoteType ? `'note_type', ${ref}.note_type,` : ""}
+      ${hasNoteType && hasExcelDocuments ? `'excelData', CASE WHEN ${ref}.note_type = 'excel' THEN (SELECT ed.data FROM excel_documents ed WHERE ed.noteId = ${ref}.id) ELSE NULL END,` : ""}
+      ${hasNoteType && hasExcelDocuments ? `'excelRevision', CASE WHEN ${ref}.note_type = 'excel' THEN (SELECT ed.revision FROM excel_documents ed WHERE ed.noteId = ${ref}.id) ELSE NULL END,` : ""}
       'isPinned', ${ref}.isPinned,
       'isFavorite', ${ref}.isFavorite,
       'isLocked', ${ref}.isLocked,

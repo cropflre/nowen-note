@@ -852,6 +852,8 @@ export interface SharedNoteContent {
   content: string;
   contentText: string;
   contentFormat?: string | null;
+  noteType?: string | null;
+  excelData?: string;
   permission: SharePermission;
   updatedAt: string;
   version?: number;

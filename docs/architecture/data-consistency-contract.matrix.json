@@ -29,6 +29,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "Sync V2 同步 Excel 保留 note_type 与工作簿快照，且拒绝损坏载荷" },
         { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary Outbox and first-sync upload carry file attachments (DCC-002)" },
         { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },

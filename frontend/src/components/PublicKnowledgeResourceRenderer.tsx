@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import TiptapEditor from "@/components/TiptapEditor";
+import ExcelWorkbookPreview from "@/components/ExcelWorkbookPreview";
 import { normalizeSheetData, sheetCellKey } from "@/lib/sheetModel";
 import { renderSharedMindMapSnapshot } from "@/lib/sharedMindMapSnapshots";
 import type { PublicKnowledgeResourceContent } from "@/lib/notebookPublicationApi";
@@ -64,6 +65,10 @@ export default function PublicKnowledgeResourceRenderer({
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
+  }
+
+  if (resource.resourceType === "excel") {
+    return <ExcelWorkbookPreview data={resource.data || "{}"} title={resource.title} />;
   }
 
   if (resource.resourceType === "sheet") {

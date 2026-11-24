@@ -15,6 +15,7 @@ import { normalizeDiaryFileAttachments } from "../lib/diary-file-attachments";
 import { registerRemoteAttachment } from './attachments';
 import { getActiveProfile } from './profile';
 import { EncryptedNotePayloadError, guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
+import { normalizeNoteType, upsertExcelDocumentFromSync } from "../services/excelData.js";
 
 /**
  * 把远端变更写入本地 SQLite。
@@ -203,50 +204,68 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
   }
   const p = item.payload || {};
   const hasThemeId = Object.prototype.hasOwnProperty.call(p, "themeId");
-  const write = () => withEncryptedBlockWrite(db, item.entityId, str(p.content, "{}"), str(p.contentFormat, "richtext"), () => db.prepare(`
-    INSERT INTO notes (
-      id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
-      isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
-      themeId, version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              COALESCE(?, datetime('now')), datetime('now'))
-    ON CONFLICT(id) DO UPDATE SET
-      notebookId = excluded.notebookId,
-      title = excluded.title,
-      content = excluded.content,
-      contentText = excluded.contentText,
-      contentFormat = excluded.contentFormat,
-      isPinned = excluded.isPinned,
-      isFavorite = excluded.isFavorite,
-      isLocked = excluded.isLocked,
-      isArchived = excluded.isArchived,
-      isTrashed = excluded.isTrashed,
-      trashedAt = excluded.trashedAt,
-      themeId = CASE WHEN ? THEN excluded.themeId ELSE notes.themeId END,
-      version = excluded.version,
-      sortOrder = excluded.sortOrder,
-      updatedAt = datetime('now')
-  `).run(
-    item.entityId,
-    userId,
-    str(p.notebookId),
-    workspaceId,
-    str(p.title, "无标题笔记"),
-    str(p.content, "{}"),
-    str(p.contentText),
-    str(p.contentFormat, "richtext"),
-    bit(p.isPinned),
-    bit(p.isFavorite),
-    bit(p.isLocked),
-    bit(p.isArchived),
-    bit(p.isTrashed),
-    p.trashedAt ?? null,
-    normalizeNoteThemeId(p.themeId),
-    Math.max(1, num(p.version, 1)),
-    num(p.sortOrder),
-    p.createdAt ?? null,
-    hasThemeId ? 1 : 0,
-  ), p.encryptedBlocksVersion);
+  const hasNoteType = Object.prototype.hasOwnProperty.call(p, "note_type") || Object.prototype.hasOwnProperty.call(p, "noteType");
+  const resolvedNoteType = normalizeNoteType(p.note_type ?? p.noteType, "normal");
+  const write = () => withEncryptedBlockWrite(db, item.entityId, str(p.content, "{}"), str(p.contentFormat, "richtext"), () => {
+    db.prepare(`
+      INSERT INTO notes (
+        id, userId, notebookId, workspaceId, title, content, contentText, contentFormat, note_type,
+        isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
+        themeId, version, sortOrder, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                COALESCE(?, datetime('now')), datetime('now'))
+      ON CONFLICT(id) DO UPDATE SET
+        notebookId = excluded.notebookId,
+        title = excluded.title,
+        content = excluded.content,
+        contentText = excluded.contentText,
+        contentFormat = excluded.contentFormat,
+        note_type = CASE WHEN ? THEN excluded.note_type ELSE notes.note_type END,
+        isPinned = excluded.isPinned,
+        isFavorite = excluded.isFavorite,
+        isLocked = excluded.isLocked,
+        isArchived = excluded.isArchived,
+        isTrashed = excluded.isTrashed,
+        trashedAt = excluded.trashedAt,
+        themeId = CASE WHEN ? THEN excluded.themeId ELSE notes.themeId END,
+        version = excluded.version,
+        sortOrder = excluded.sortOrder,
+        updatedAt = datetime('now')
+    `).run(
+      item.entityId,
+      userId,
+      str(p.notebookId),
+      workspaceId,
+      str(p.title, "无标题笔记"),
+      str(p.content, "{}"),
+      str(p.contentText),
+      str(p.contentFormat, "richtext"),
+      resolvedNoteType,
+      bit(p.isPinned),
+      bit(p.isFavorite),
+      bit(p.isLocked),
+      bit(p.isArchived),
+      bit(p.isTrashed),
+      p.trashedAt ?? null,
+      normalizeNoteThemeId(p.themeId),
+      Math.max(1, num(p.version, 1)),
+      num(p.sortOrder),
+      p.createdAt ?? null,
+      hasNoteType ? 1 : 0,
+      hasThemeId ? 1 : 0,
+    );
+    if (resolvedNoteType === "excel") {
+      upsertExcelDocumentFromSync(db, {
+        noteId: item.entityId,
+        userId,
+        workspaceId,
+        excelData: p.excelData,
+        excelRevision: p.excelRevision,
+        title: str(p.title, "无标题表格"),
+        strict: false,
+      });
+    }
+  }, p.encryptedBlocksVersion);
   // 新笔记或换了目录的笔记，若目标目录已删除（已删子树里的笔记），要让目录临时可用，
   // 笔记的知识树父节点才会与服务端一致；目录没变的更新不会重算树父节点，直接写。
   const placed = db.prepare("SELECT notebookId FROM notes WHERE id = ? AND workspaceId IS ?")

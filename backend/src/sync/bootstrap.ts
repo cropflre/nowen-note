@@ -1,4 +1,5 @@
 import { withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
+import { withExcelDocumentSupport } from "../services/excelData.js";
 import { createHash } from 'node:crypto';
 /**
  * Bootstrap / Reconcile：首次开启同步时的基线建立（阶段 D）。
@@ -272,7 +273,7 @@ export function readLocalState(
 
     case "note":
       return (db.prepare(`
-        SELECT id, notebookId, title, content, contentText, contentFormat,
+        SELECT id, notebookId, title, content, contentText, contentFormat, note_type,
                isPinned, isFavorite, isLocked, isArchived, isTrashed,
                trashedAt, themeId, sortOrder, version, createdAt
         FROM notes WHERE userId = ? AND workspaceId IS NULL
@@ -281,7 +282,7 @@ export function readLocalState(
         entityType: "note" as const,
         operation: "upsert" as const,
         entityId: String(r.id),
-        payload: withEncryptedBlocksSupport(r),
+        payload: withExcelDocumentSupport(db, withEncryptedBlocksSupport(r)),
       }));
 
     case "note_tag":

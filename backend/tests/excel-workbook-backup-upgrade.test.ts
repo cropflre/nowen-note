@@ -24,16 +24,16 @@ test("旧库升级只新增 excel_documents，不改动已有笔记和轻量表�
   db.prepare("UPDATE sheets SET data = ? WHERE noteId = ?")
     .run(JSON.stringify({ version: 1, rows: [{ id: "r1", height: 32 }], columns: [{ id: "c1", width: 120, title: "A", type: "text", align: "left" }], cells: { "r1:c1": "保留" } }), sheet.resourceId);
 
-  // 回到 1.6.2 基线的形态：没有 v148 台账，也没有 excel_documents 表。
+  // 回到 1.6.2 基线的形态：没有 v148/v149 台账，也没有 excel_documents 表。
   db.exec("DROP TABLE excel_documents");
-  db.prepare("DELETE FROM schema_migrations WHERE version = 148").run();
+  db.prepare("DELETE FROM schema_migrations WHERE version IN (148, 149)").run();
   const before = {
     notes: db.prepare("SELECT id, note_type, content, contentText, updatedAt FROM notes ORDER BY id").all(),
     sheets: db.prepare("SELECT * FROM sheets ORDER BY noteId").all(),
   };
 
-  assert.equal(runMigrations(db), 1);
-  assert.equal(CURRENT_SCHEMA_VERSION, 148);
+  assert.equal(runMigrations(db), 2);
+  assert.equal(CURRENT_SCHEMA_VERSION, 149);
   const columns = (db.prepare("PRAGMA table_info(excel_documents)").all() as Array<{ name: string }>).map((column) => column.name);
   assert.deepEqual(columns, ["noteId", "userId", "workspaceId", "data", "revision", "createdAt", "updatedAt"]);
   assert.deepEqual({

@@ -70,10 +70,15 @@ describe("note list create menu", () => {
     await act(async () => root.render(<KnowledgeTreeCreateDropdown menu={{ parentId: "folder", anchor: anchor.getBoundingClientRect() }} onClose={vi.fn()} onCreate={vi.fn()} onCreateFromTemplate={vi.fn()} onCreateEncrypted={vi.fn()} onImport={vi.fn()} />));
     expect(listMenu).toBe(document.querySelector('[role="menu"]')!.innerHTML);
   });
-  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["思维导图", "mindmap"], ["轻量表格", "sheet"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
+  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["思维导图", "mindmap"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
     await renderMenu(); await pick(label);
     expect(mock.create).toHaveBeenCalledWith(expect.objectContaining({ parentId: "folder", nodeType: kind }));
     expect(mock.actions.refreshNotebooks).toHaveBeenCalled();
+  });
+  it("hides the legacy lightweight sheet creation entry", async () => {
+    await renderMenu();
+    const labels = Array.from(document.querySelectorAll('[role="menuitem"]')).map((node) => node.textContent);
+    expect(labels).not.toContain("轻量表格");
   });
   it("resolves a selected notebook when no explicit tree parent is available", async () => {
     await renderMenu(undefined, true); await pick("Markdown 文档");

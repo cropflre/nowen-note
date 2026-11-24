@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrainCircuit, Copy, FileArchive, FileCode, FileSpreadsheet, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
+import { BrainCircuit, Copy, FileArchive, FileCode, FileSpreadsheet, FileText, FileType2, Folder, LayoutTemplate, Link2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import { duplicateKnowledgeTreeNoteAsChild, resolveDuplicableKnowledgeTreeNote } from "@/lib/knowledgeTreeDuplicateAsChild";
@@ -17,10 +17,8 @@ const CREATE_ITEMS = [
   { kind: "markdown", label: "Markdown 文档", icon: FileCode },
   { kind: "plaintext", label: "note.format.plainTextDocument", icon: FileText },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
-  { kind: "sheet", label: "轻量表格", icon: Table2 },
 ] as const;
-// 1.6.2 中 Excel 表格未接入同步与离线，仅在服务器显式开启时出现（来源：cropflre/nowen-note PR #802）。
-const EXCEL_CREATE_ITEM = { kind: "excel", label: "Excel 表格（预览）", icon: FileSpreadsheet } as const;
+const EXCEL_CREATE_ITEM = { kind: "excel", label: "Excel 表格", icon: FileSpreadsheet } as const;
 const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹" } as const;
 
 const IMPORT_ITEMS = [

@@ -1,4 +1,5 @@
 import type { Migration } from "./migrations.impl.js";
+import { installSyncOutboxCaptureTriggers } from "./syncOutboxCaptureMigration.js";
 
 /**
  * Excel 工作簿（Univer）快照的权威存储。思路来源：cropflre/nowen-note PR #802。
@@ -25,5 +26,21 @@ export const excelWorkbookDocumentsMigration: Migration = {
       CREATE INDEX IF NOT EXISTS idx_excel_documents_user ON excel_documents(userId, updatedAt DESC);
       CREATE INDEX IF NOT EXISTS idx_excel_documents_workspace ON excel_documents(workspaceId, updatedAt DESC);
     `);
+  },
+};
+
+/**
+ * v149：刷新 Sync V2 Outbox 笔记捕获触发器，使 notes 的变更载荷携带 note_type 与
+ * excel_documents 工作簿快照（excelData / excelRevision），补齐多端同步。
+ */
+export const excelSyncOutboxMigration: Migration = {
+  version: 149,
+  name: "excel-sync-outbox-note-type",
+  up: (db) => {
+    const hasOutbox = Boolean(
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_outbox'").get(),
+    );
+    if (!hasOutbox) return;
+    installSyncOutboxCaptureTriggers(db);
   },
 };

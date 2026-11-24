@@ -68,7 +68,7 @@ export interface PublicNotebookNode {
   depth: number;
 }
 
-export type PublicKnowledgeResourceType = "notebook" | "note" | "mindmap" | "sheet";
+export type PublicKnowledgeResourceType = "notebook" | "note" | "mindmap" | "sheet" | "excel";
 
 export interface PublicKnowledgeResourceSummary {
   nodeId: string;

@@ -363,6 +363,8 @@ export function createKnowledgeChild(input: {
           INSERT INTO excel_documents (noteId, userId, workspaceId, data)
           VALUES (?, ?, ?, ?)
         `).run(noteId, resourceOwnerUserId, normalizedWorkspaceId, JSON.stringify(createDefaultExcelWorkbook(title)));
+        // 在 excel_documents 写入后同事务触达 notes，确保 Sync V2 Outbox 捕获到完整初始工作簿快照。
+        db.prepare("UPDATE notes SET updatedAt = datetime('now') WHERE id = ?").run(noteId);
       }
       createdNode = nodeForResource(db, "note", noteId);
     }

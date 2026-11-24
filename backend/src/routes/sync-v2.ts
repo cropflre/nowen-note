@@ -1,5 +1,6 @@
 import { finishSyncNoteDeletions } from "../sync/noteDeletion";
 import { EncryptedNotePayloadError, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
+import { withExcelDocumentSupport } from "../services/excelData.js";
 import type Database from "better-sqlite3";
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
@@ -439,7 +440,10 @@ function snapshotPage(
   limit: number,
 ): Array<{ id: string; payload: Record<string, unknown>; cursor?: string }> {
   const map = (rows: Array<Record<string, unknown>>) =>
-    rows.map((row) => ({ id: String(row.id), payload: type === "note" ? withEncryptedBlocksSupport(row) : row }));
+    rows.map((row) => ({
+      id: String(row.id),
+      payload: type === "note" ? withExcelDocumentSupport(db, withEncryptedBlocksSupport(row)) : row,
+    }));
 
   switch (type) {
     case "attachment_organization":
@@ -485,7 +489,7 @@ function snapshotPage(
 
     case "note":
       return map(db.prepare(`
-        SELECT id, userId, notebookId, title, content, contentText, contentFormat,
+        SELECT id, userId, notebookId, title, content, contentText, contentFormat, note_type,
                isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
                themeId, version, sortOrder, createdAt, updatedAt, workspaceId
         FROM notes WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND id > ?
@@ -896,7 +900,7 @@ app.post("/push", async (c) => {
           ) as Record<string,unknown> | undefined;
           if (parsed.entityType === "note" && typeof serverPayload?.version === "number") {
             serverVersion=serverPayload.version;
-            serverPayload = withEncryptedBlocksSupport(serverPayload);
+            serverPayload = withExcelDocumentSupport(db, withEncryptedBlocksSupport(serverPayload));
           } else if (parsed.entityType === "note" && !serverPayload) {
             serverPayload = { id: parsed.entityId, __delete: true };
           }

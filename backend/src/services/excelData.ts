@@ -3,17 +3,100 @@
  * 思路来源：cropflre/nowen-note PR #802（serializeExcelText 采纳，校验与开关重写）。
  */
 
+import type Database from "better-sqlite3";
+
 /** 序列化后的快照上限；与前端导入上限对应，超出时明确拒绝而不是截断。 */
 export const EXCEL_MAX_DATA_BYTES = 10 * 1024 * 1024;
 const MAX_INDEX_TEXT_CHARS = 100_000;
 const MAX_SHEETS = 50;
+const VALID_NOTE_TYPES = new Set(["normal", "markdown", "plaintext", "word", "sheet", "excel"]);
 
 /**
- * 1.6.2 中 Excel 工作簿尚未接入 Sync V2、移动端离线和公开分享，默认不开放新建。
- * 运维显式设置 NOWEN_EXCEL_WORKBOOK=1 才允许创建；已有工作簿始终可读写，不让数据被锁死。
+ * Excel 工作簿默认开放新建；运维仍可通过 NOWEN_EXCEL_WORKBOOK=0 显式关闭新建入口，
+ * 已有工作簿始终可读写，不让数据被锁死。
  */
 export function isExcelWorkbookCreationEnabled(): boolean {
-  return process.env.NOWEN_EXCEL_WORKBOOK === "1";
+  return process.env.NOWEN_EXCEL_WORKBOOK !== "0";
+}
+
+export function normalizeNoteType(value: unknown, fallback = "normal"): string {
+  return typeof value === "string" && VALID_NOTE_TYPES.has(value) ? value : fallback;
+}
+
+export function withExcelDocumentSupport<T extends Record<string, unknown>>(
+  db: Database.Database,
+  payload: T,
+): T & { note_type?: string; excelData?: string; excelRevision?: number } {
+  const noteType = typeof payload.note_type === "string"
+    ? payload.note_type
+    : typeof payload.noteType === "string"
+      ? payload.noteType
+      : undefined;
+  if (noteType !== "excel" || typeof payload.id !== "string" || !payload.id) {
+    return payload;
+  }
+  const row = db.prepare("SELECT data, revision FROM excel_documents WHERE noteId = ?")
+    .get(payload.id) as { data: string; revision: number } | undefined;
+  if (!row) return { ...payload, note_type: "excel" };
+  return {
+    ...payload,
+    note_type: "excel",
+    excelData: row.data,
+    excelRevision: row.revision,
+  };
+}
+
+export function parseSyncedExcelPayload(raw: unknown): { data: Record<string, unknown>; json: string } | null {
+  if (typeof raw === "string") {
+    try {
+      return validateExcelData(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  return validateExcelData(raw);
+}
+
+export function upsertExcelDocumentFromSync(
+  db: Database.Database,
+  input: {
+    noteId: string;
+    userId: string;
+    workspaceId: string | null;
+    excelData: unknown;
+    excelRevision?: unknown;
+    title?: string;
+    strict?: boolean;
+  },
+): void {
+  const hasPayload = input.excelData !== undefined && input.excelData !== null && input.excelData !== "";
+  let validated = hasPayload ? parseSyncedExcelPayload(input.excelData) : null;
+  if (hasPayload && !validated) {
+    if (input.strict) {
+      throw new Error("INVALID_EXCEL_PAYLOAD");
+    }
+    return;
+  }
+  if (!validated) {
+    // 已有本地工作簿时绝不用空表覆盖；仅在首次创建且远端未携带快照时兜底默认工作簿。
+    const exists = db.prepare("SELECT 1 FROM excel_documents WHERE noteId = ?").get(input.noteId);
+    if (exists) return;
+    validated = validateExcelData(createDefaultExcelWorkbook(input.title || "无标题表格"));
+    if (!validated) return;
+  }
+  const rev = typeof input.excelRevision === "number" && Number.isInteger(input.excelRevision) && input.excelRevision >= 1
+    ? input.excelRevision
+    : 1;
+  db.prepare(`
+    INSERT INTO excel_documents (noteId, userId, workspaceId, data, revision, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, datetime('now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))
+    ON CONFLICT(noteId) DO UPDATE SET
+      userId = excluded.userId,
+      workspaceId = excluded.workspaceId,
+      data = excluded.data,
+      revision = MAX(excel_documents.revision + 1, excluded.revision),
+      updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+  `).run(input.noteId, input.userId, input.workspaceId, validated.json, rev);
 }
 
 export function createDefaultExcelWorkbook(title: string): Record<string, unknown> {

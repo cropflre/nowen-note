@@ -116,8 +116,9 @@ app.put(
         WHERE noteId = ? AND revision = ?
       `).run(validated.json, noteId, expected);
       if (result.changes === 0) return false;
-      // 检索文本与快照同事务提交：FTS / 向量 / AI / MCP 沿用 notes 上已有的权限链路。
-      db.prepare("UPDATE notes SET contentText = ?, updatedAt = datetime('now') WHERE id = ?")
+      // 检索文本、笔记版本号与快照同事务提交：
+      // FTS / 向量 / AI / MCP 沿用 notes 权限链路，同时触发 Sync V2 Outbox 与 Change Feed。
+      db.prepare("UPDATE notes SET contentText = ?, version = version + 1, updatedAt = datetime('now') WHERE id = ?")
         .run(serializeExcelText(validated.data), noteId);
       return true;
     });
