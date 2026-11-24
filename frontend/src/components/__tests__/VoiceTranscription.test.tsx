@@ -2,12 +2,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ settings: vi.fn(), transcribe: vi.fn() }));
-vi.mock("@/lib/api", () => ({ voiceApi: mocks }));
+const mocks = vi.hoisted(() => ({ settings: vi.fn(), test: vi.fn(), transcribe: vi.fn() }));
+vi.mock("@/lib/api", () => ({ voiceApi: mocks, getBaseUrl: () => "https://server/api" }));
 vi.mock("@/lib/toast", () => ({ toast: { error: vi.fn() } }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 import VoiceTranscription from "../VoiceTranscription";
 import { registerNativeAttachmentUrl, resetAttachmentAccessStateForTests } from "@/lib/noteAttachmentAccessBridge";
+import { getSpeechConnectionScope, refreshSpeechConnectionAfterSave, verifySpeechConnection } from "@/lib/speechConnection";
 
 const ID = "123e4567-e89b-42d3-a456-426614174216";
 describe("voice transcription attachment identity", () => {
@@ -16,11 +17,20 @@ describe("voice transcription attachment identity", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.clearAllMocks(); resetAttachmentAccessStateForTests();
+    localStorage.setItem("nowen-token", "voice-test-token");
     mocks.settings.mockResolvedValue({ configured: true });
+    mocks.test.mockResolvedValue({ success: true });
     mocks.transcribe.mockResolvedValue({ text: "转写内容" });
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount();
+      localStorage.removeItem("nowen-token");
+      window.dispatchEvent(new Event("nowen:token-changed"));
+    });
+    container.remove(); vi.unstubAllGlobals();
+  });
   async function renderAndTranscribe(src: string, attachmentId?: string) {
     const insert = vi.fn();
     await act(async () => root.render(<VoiceTranscription src={src} attachmentId={attachmentId} onInsert={insert} />));
@@ -37,6 +47,10 @@ describe("voice transcription attachment identity", () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "校订内容");
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    expect(container.querySelector("textarea")?.value).toBe("校订内容");
+    online.mockRestore();
     await act(async () => Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "voice.insert")!.click());
     expect(insert).toHaveBeenCalledWith("校订内容");
   });
@@ -53,5 +67,33 @@ describe("voice transcription attachment identity", () => {
     registerNativeAttachmentUrl(ID, src);
     await renderAndTranscribe(src);
     expect(mocks.transcribe).toHaveBeenCalledWith(ID);
+  });
+  it("hides transcription for an unconfigured or failed speech connection", async () => {
+    mocks.settings.mockResolvedValueOnce({ configured: false });
+    const render = () => root.render(<VoiceTranscription src="" attachmentId={ID} onInsert={vi.fn()} />);
+    await act(async () => render());
+    expect(container.querySelector("button")).toBeNull();
+    expect(mocks.test).not.toHaveBeenCalled();
+
+    mocks.test.mockRejectedValueOnce(new Error("provider unavailable"));
+    await act(async () => refreshSpeechConnectionAfterSave(getSpeechConnectionScope()));
+    expect(mocks.test).toHaveBeenCalledOnce();
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => { await verifySpeechConnection(getSpeechConnectionScope(), true); });
+    expect(container.querySelector("button")?.textContent).toBe("voice.transcribe");
+  });
+  it("shares a single verified connection between attachments and hides controls on logout", async () => {
+    await act(async () => root.render(<>
+      <VoiceTranscription src="" attachmentId={ID} onInsert={vi.fn()} />
+      <VoiceTranscription src="" attachmentId="second" onInsert={vi.fn()} />
+    </>));
+    expect(container.querySelectorAll("button")).toHaveLength(2);
+    expect(mocks.test).toHaveBeenCalledOnce();
+    await act(async () => {
+      localStorage.removeItem("nowen-token");
+      window.dispatchEvent(new Event("nowen:token-changed"));
+    });
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 });

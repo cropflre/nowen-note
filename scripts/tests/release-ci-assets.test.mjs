@@ -68,10 +68,8 @@ function fixture(settings = {}) {
         metadata("Nowen-Note", "latest-linux.yml", "x86_64.AppImage");
         fs.writeFileSync(path.join(dir, "Nowen-Note-1.5.2-amd64.deb"), "deb");
       } else {
-        for (const [prefix, channel] of [["Nowen-Note", "latest.yml"], ["Nowen-Note-Lite", "latest-lite.yml"]]) {
-          metadata(prefix, channel, "setup.exe");
-          fs.writeFileSync(path.join(dir, `${prefix}-1.5.2-portable.exe`), "portable");
-        }
+        metadata("Nowen-Note", "latest.yml", "setup.exe");
+        fs.writeFileSync(path.join(dir, "Nowen-Note-1.5.2-portable.exe"), "portable");
       }
       if (state.corrupt === platform) fs.writeFileSync(path.join(dir, platform === "mac" ? "Nowen-Note-1.5.2-arm64.zip" : platform === "linux" ? "Nowen-Note-1.5.2-x86_64.AppImage" : "Nowen-Note-1.5.2-setup.exe"), "corrupt");
       if (state.extra === platform) fs.writeFileSync(path.join(dir, "old-version.dmg"), "old");
@@ -99,13 +97,14 @@ function fixture(settings = {}) {
   return { state, client, verify };
 }
 
-test("GitHub collector verifies both architectures and Full/Lite, preserves other assets and returns a bound receipt", async () => {
+test("GitHub collector verifies both architectures and Windows, preserves other assets and returns a bound receipt", async () => {
   const f = fixture();
   const receipt = await collectRelease(options, f);
   assert.equal(f.state.uploads.length, 2);
   assert.ok(f.state.uploads[0].includes("Nowen-Note-1.5.2-x64.zip"));
   assert.ok(f.state.uploads[0].includes("Nowen-Note-1.5.2-arm64.dmg"));
-  assert.ok(f.state.uploads[1].includes("latest-lite.yml"));
+  assert.ok(f.state.uploads[1].includes("latest.yml"));
+  assert.ok(!f.state.uploads.flat().some((name) => /Lite|latest-lite/.test(name)));
   assert.equal(f.state.release.draft, true);
   assert.equal(f.state.release.assets[0].name, "Nowen-Note-1.5.2.apk");
   assert.equal(f.state.verified, 1);
@@ -142,7 +141,7 @@ test("all desktop platforms can be collected without local release assets", asyn
   const receipt = await collectRelease({ ...options, linux: true }, f);
   assert.equal(f.state.uploads.length, 3);
   assert.equal(f.state.verified, 1);
-  assert.equal(receipt.assets.length, 17);
+  assert.equal(receipt.assets.length, 13);
 });
 
 test("an invalid Release ID or a mismatched tag is rejected before any upload", async () => {

@@ -174,6 +174,8 @@ export function migrationSnapshot(job: JobRow) {
   counts.bytes = Number(counts.bytes) + Number((prepare("SELECT COALESCE(SUM(size), 0) AS bytes FROM migration_assets WHERE jobId = ?").get(job.id) as { bytes: number }).bytes);
   return {
     id: job.id, status: job.status, source: parse<Source>(job.sourceJson), name: job.name,
+    // Jobs started through an API token come from an AI assistant or another tool, never from this page.
+    preparedBy: job.tokenId ? "assistant" : "user",
     workspaceId: job.workspaceId, targetNotebookId: job.targetNotebookId, counts,
     previewDigest: job.previewDigest, warnings: parse<string[]>(job.warningsJson),
     rootNotebookId: job.rootNotebookId,

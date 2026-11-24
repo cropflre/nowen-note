@@ -1,4 +1,8 @@
 import { enPluginAppTranslations, zhCNPluginAppTranslations } from "../pluginAppTranslations";
+import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "../extensionCenterTranslations";
+import { enEditorActionTranslations, zhCNEditorActionTranslations } from "../editorActionTranslations";
+import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "../mcpConnectTranslations";
+import { enPreferencesTranslations, zhCNPreferencesTranslations } from "../preferencesTranslations";
 import i18n from "../index";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -156,7 +160,51 @@ describe("release i18n coverage", () => {
 
   it("keeps plugin app and inspector translations in parity", () => {
     expectPatchParity(zhCNPluginAppTranslations, enPluginAppTranslations, "pluginApps");
+    expectPatchParity(zhCNExtensionCenterTranslations, enExtensionCenterTranslations, "extensionCenter");
+    expectPatchParity(zhCNEditorActionTranslations, enEditorActionTranslations, "editorActions");
   });
+
+  it("keeps AI assistant connection and team-space authorization copy in parity", () => {
+    expectPatchParity(zhCNMcpConnectTranslations, enMcpConnectTranslations, "mcpConnect");
+    const source = readFileSync(join(process.cwd(), "src/components/settings/McpQuickConnect.tsx"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(source.match(/[㐀-鿿]/u), "McpQuickConnect must not hardcode Chinese UI copy").toBeNull();
+  });
+
+  it("keeps Preferences translations in parity", () => {
+    expectPatchParity(zhCNPreferencesTranslations, enPreferencesTranslations, "preferences");
+    expect(getPath(zh, "settings.preferences")).toBe("使用偏好");
+    expect(getPath(en, "settings.preferences")).toBe("Preferences");
+  });
+  it("rejects invalid values in the complete runtime resources", () => {
+    function invalidLeaves(value: unknown, path = ""): string[] {
+      if (typeof value === "string") return [];
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [path];
+      return Object.entries(value).flatMap(([key, child]) => invalidLeaves(child, path ? `${path}.${key}` : key));
+    }
+    expect(invalidLeaves(zh)).toEqual([]);
+    expect(invalidLeaves(en)).toEqual([]);
+  });
+
+  it("has no empty strings in the complete runtime resources", () => {
+    // These optional task actions deliberately suppress buttons; idle migration has no status message.
+    const intentionallyEmpty = new Set([
+      "migration.setup.status.idle",
+      "tasks.empty.no-dependencies.action",
+      "tasks.empty.no-projects.action",
+      "tasks.empty.no-reminders.action",
+      "tasks.empty.no-scheduled.action",
+      "tasks.empty.no-templates.action",
+    ]);
+    for (const [language, tree] of [["zh-CN", zh], ["en", en]] as const) {
+      expect(leafEntries(tree).filter(([path, value]) => !value.trim() && !intentionallyEmpty.has(path) && !(language === "en" && path === "noteList.calendarMonth")).map(([path]) => `${language}:${path}`)).toEqual([]);
+      // English calendar displays the month as a number after a slash and needs no suffix.
+      if (language === "en") expect(getPath(tree, "noteList.calendarMonth")).toBe("");
+      for (const path of intentionallyEmpty) expect(getPath(tree, path), `${language}:${path}`).toBe("");
+    }
+  });
+
   it("keeps the complete runtime translation trees in parity", () => {
     const zhEntries = leafEntries(zh);
     const enEntries = leafEntries(en);
@@ -193,6 +241,16 @@ describe("release i18n coverage", () => {
       "components/ShareModal.tsx",
       "components/CodeBlockView.tsx",
       "components/AIChatPanel.tsx",
+      "components/settings/preferences/PreferencesPanel.tsx",
+      "components/settings/preferences/PreferenceControls.tsx",
+      "components/settings/preferences/NavigationModuleSettings.tsx",
+      "components/settings/preferences/useDeviceLayoutPreferences.ts",
+      "components/settings/preferences/preferenceSearch.ts",
+      "components/settings/preferences/revealSettingsTarget.ts",
+      "components/settings/preferences/navigationModules.ts",
+      "components/settings/preferences/preferenceFeedback.ts",
+      "components/settings/AdminWebUiSetting.tsx",
+      "components/settings/AIMemoryArchiveSetting.tsx",
     ] as const;
     for (const path of criticalFiles) {
       const source = readFileSync(join(process.cwd(), "src", path), "utf8");

@@ -27,6 +27,7 @@ import { CalloutNodeView } from "./CalloutView";
 import type { CalloutType } from "./calloutTypes";
 import { Fragment } from "@tiptap/pm/model";
 import { CALLOUT_TYPE_META } from "./calloutTypes";
+import { createTextBoxDragPlugin, textBoxAttributes, textBoxNodeViewAttrs } from "./textBox";
 
 export type { CalloutType } from "./calloutTypes";
 export { CALLOUT_TYPE_META, CALLOUT_TYPE_ORDER as CALLOUT_TYPES } from "./calloutTypes";
@@ -66,6 +67,8 @@ const Callout = Node.create({
         // icon 直接作为 icon span 的文本渲染，不需要写进容器属性
         renderHTML: (attributes) => ({ "data-callout-icon": attributes.icon }),
       },
+      // 文本框（Issue #915）= 带 float / width 的高亮块，见 ./textBox.ts。
+      ...textBoxAttributes,
     };
   },
 
@@ -183,10 +186,15 @@ const Callout = Node.create({
     };
   },
 
+  addProseMirrorPlugins() {
+    return [createTextBoxDragPlugin()];
+  },
+
   addNodeView() {
     // 交互式视图：左上角 emoji 可点击 → 弹出样式选择器（换色），
     // 内容区仍是可编辑的 ProseMirror 内容（NodeViewContent）。
-    return ReactNodeViewRenderer(CalloutNodeView);
+    // 文本框在外层元素上浮动（ProseMirror 用外层元素计算光标与选中框）。
+    return ReactNodeViewRenderer(CalloutNodeView, { attrs: ({ node }) => textBoxNodeViewAttrs(node) });
   },
 });
 

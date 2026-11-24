@@ -10,6 +10,9 @@ on:
       - "Dockerfile"
       - "backend/src/mcp.ts"
       - "backend/tests/mcp-embedded.test.ts"
+      - "backend/tests/mcp-ai-archive.test.ts"
+      - "backend/src/routes/ai-memory.ts"
+      - "backend/src/services/aiMemoryService.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
       - "frontend/src/components/settings/McpQuickConnect.tsx"
@@ -29,8 +32,16 @@ on:
       - "backend/src/routes/attachment-folders.ts"
       - "backend/src/routes/attachment-trash.ts"
       - "backend/src/routes/tasks.ts"
+      - "backend/src/lib/taskRecurrenceDeletion.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/apiTokenNotebookAccess.ts"
+      - "backend/src/routes/tokens.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/search.ts"
+      - "backend/tests/mcp-team-space.test.ts"
+      - "backend/tests/mcp-task-delete.test.ts"
+      - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   pull_request:
     paths:
@@ -38,6 +49,9 @@ on:
       - "Dockerfile"
       - "backend/src/mcp.ts"
       - "backend/tests/mcp-embedded.test.ts"
+      - "backend/tests/mcp-ai-archive.test.ts"
+      - "backend/src/routes/ai-memory.ts"
+      - "backend/src/services/aiMemoryService.ts"
       - "frontend/src/components/settings/__tests__/McpConnectionPanel.test.tsx"
       - "frontend/src/components/settings/McpConnectionPanel.tsx"
       - "frontend/src/components/settings/McpQuickConnect.tsx"
@@ -57,8 +71,16 @@ on:
       - "backend/src/routes/attachment-folders.ts"
       - "backend/src/routes/attachment-trash.ts"
       - "backend/src/routes/tasks.ts"
+      - "backend/src/lib/taskRecurrenceDeletion.ts"
       - "backend/src/services/taskNoteSnapshot.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/services/apiTokenNotebookAccess.ts"
+      - "backend/src/routes/tokens.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/search.ts"
+      - "backend/tests/mcp-team-space.test.ts"
+      - "backend/tests/mcp-task-delete.test.ts"
+      - "frontend/src/i18n/mcpConnectTranslations.ts"
       - ".github/workflows/mcp-scope-and-tools-ci.yml"
   workflow_dispatch:
 
@@ -119,12 +141,22 @@ jobs:
           npm ci --prefix packages/nowen-mcp
           npm run build --prefix packages/nowen-mcp
       - name: Test embedded MCP identity and authorization
-        run: node --import tsx --test tests/mcp-embedded.test.ts
+        run: node --import tsx --test tests/mcp-embedded.test.ts tests/mcp-ai-archive.test.ts
         working-directory: backend
         env:
           NODE_ENV: test
       - name: Test PAT resource and task boundaries
         run: node --import tsx --test tests/api-token-resource-scope.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test team-space MCP grants through embedded HTTP and standalone stdio MCP
+        run: node --import tsx --test tests/mcp-team-space.test.ts
+        working-directory: backend
+        env:
+          NODE_ENV: test
+      - name: Test confirmed personal task deletion through embedded HTTP and standalone stdio MCP
+        run: node --import tsx --test tests/mcp-task-delete.test.ts tests/openapi-tasks.test.ts
         working-directory: backend
         env:
           NODE_ENV: test

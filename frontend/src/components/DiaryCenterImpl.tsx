@@ -18,9 +18,10 @@ import {
   Check,
   Search,
   Play,
+  Paperclip,
 } from "lucide-react";
 import { api, getCurrentWorkspace } from "@/lib/api";
-import { Diary, DiaryMediaItem, DiaryStats } from "@/types";
+import { Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryStats } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -36,6 +37,8 @@ import {
 } from "@/lib/diaryDraft";
 import SayCalendarView from "@/components/diary/SayCalendarView";
 import DiarySidebar from "@/components/diary/DiarySidebar";
+import DiaryAttachmentList, { type DiaryAttachmentViewItem } from "@/components/diary/DiaryAttachmentList";
+import { loadAttachmentUploadPolicy, validateAttachmentSize } from "@/lib/attachmentUploadPolicy";
 import { useApp } from "@/store/AppContext";
 import {
   localDateRangeToUtcSqlBounds,
@@ -151,7 +154,7 @@ function mediaTypeForFile(file: File): "image" | "video" | null {
   return null;
 }
 
-type DiaryMediaPickerSource = "image-library" | "camera" | "video-library" | "record";
+type DiaryMediaPickerSource = "image-library" | "camera" | "video-library" | "record" | "file";
 
 function normalizePickedMediaFile(file: File): File {
   if (file.type) return file;
@@ -183,8 +186,9 @@ function openDiaryMediaPicker(
   const input = document.createElement("input");
   const imageSource = source === "image-library" || source === "camera";
   input.type = "file";
-  input.accept = imageSource ? "image/*" : "video/*";
-  input.multiple = source === "image-library";
+  // file：任意文件附件，不限制类型（服务端负责拦截可执行/脚本类）。
+  if (source !== "file") input.accept = imageSource ? "image/*" : "video/*";
+  input.multiple = source === "image-library" || source === "file";
   if (source === "camera" || source === "record") input.setAttribute("capture", "environment");
   input.style.position = "fixed";
   input.style.left = "-9999px";
@@ -225,7 +229,8 @@ function uploadPendingDiaryMedia(
           ? {
               ...candidate,
               id: result.id,
-              type: result.type,
+              // 媒体上传不带 kind=file，服务端只会回 image / video
+              type: result.type === "file" ? candidate.type : result.type,
               mimeType: result.mimeType,
               status: "ready" as const,
               errorMessage: undefined,
@@ -246,6 +251,95 @@ function uploadPendingDiaryMedia(
       )));
       onError(error);
     });
+}
+
+// ---------------------------------------------------------------------------
+// 文件附件（Issue #928）：与图片/视频分开排队，不占 9 图 / 1 视频额度。
+// 同样"选好即上传、发布时绑定"，发布/保存时随 attachments 字段提交。
+// ---------------------------------------------------------------------------
+type PendingAttachment = DiaryAttachmentViewItem & { file?: File };
+
+function pendingAttachmentsFrom(items: DiaryAttachmentItem[] | undefined): PendingAttachment[] {
+  return (items || []).map((item) => ({ ...item, key: item.id, status: "ready" as const }));
+}
+
+function readyDiaryAttachments(items: PendingAttachment[]): DiaryAttachmentItem[] {
+  return items
+    .filter((item) => (item.status ?? "ready") === "ready" && item.id)
+    .map((item) => ({ id: item.id!, filename: item.filename, mimeType: item.mimeType, size: item.size }));
+}
+
+function newPendingAttachments(files: File[]): PendingAttachment[] {
+  return files.map((file) => ({
+    key: crypto.randomUUID(),
+    id: null,
+    filename: file.name || "attachment",
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    file,
+    status: "uploading" as const,
+  }));
+}
+
+/** 按服务端附件上限预检：超限文件直接提示并跳过，不必整份上传后才被拒绝。 */
+async function filterAttachmentFilesBySize(files: File[]): Promise<File[]> {
+  if (!files.length) return [];
+  const policy = await loadAttachmentUploadPolicy();
+  return files.filter((file) => {
+    const check = validateAttachmentSize(file.size, policy);
+    if (!check.ok) toast.error(`${file.name}: ${check.message}`);
+    return check.ok;
+  });
+}
+
+function uploadPendingDiaryAttachment(
+  item: PendingAttachment,
+  setItems: React.Dispatch<React.SetStateAction<PendingAttachment[]>>,
+  unsupportedMessage: string,
+  onError: (error: unknown) => void,
+): void {
+  if (!item.file) return;
+  const update = (patch: Partial<PendingAttachment>) => setItems((previous) => previous.map((candidate) => (
+    candidate.key === item.key ? { ...candidate, ...patch } : candidate
+  )));
+  update({ status: "uploading", errorMessage: undefined, retryable: undefined });
+  api.diaryImages.upload(item.file, { kind: "file" })
+    .then((result) => {
+      if (result.type !== "file") {
+        // 旧服务器不认识 kind=file：会把图片当媒体收下，发布时又忽略 attachments。
+        // 立即撤销这次上传，避免用户以为附件已随说说保存。
+        api.diaryImages.remove(result.id).catch(() => {});
+        throw Object.assign(new Error(unsupportedMessage), { retryable: false });
+      }
+      update({
+        id: result.id,
+        filename: result.filename || item.filename,
+        mimeType: result.mimeType || item.mimeType,
+        size: result.size,
+        status: "ready",
+        errorMessage: undefined,
+      });
+    })
+    .catch((error) => {
+      console.error("Diary attachment upload failed:", error);
+      // 过大（413）或类型被拦截（415）重试也不会成功，只留"移除"
+      const failure = error as { status?: unknown; retryable?: unknown };
+      const retryable = failure?.retryable !== false && failure?.status !== 413 && failure?.status !== 415;
+      update({ status: "error", errorMessage: error instanceof Error ? error.message : String(error), retryable });
+      onError(error);
+    });
+}
+
+/** 把拖入的文件分流：支持的图片/视频进媒体队列，其余作为文件附件。 */
+function splitDroppedFiles(files: File[]): { media: File[]; attachments: File[] } {
+  const media: File[] = [];
+  const attachments: File[] = [];
+  for (const file of files) {
+    const normalized = normalizePickedMediaFile(file);
+    if (mediaTypeForFile(normalized)) media.push(normalized);
+    else attachments.push(file);
+  }
+  return { media, attachments };
 }
 
 function MoreMediaMenu({
@@ -360,6 +454,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
   const pendingMediaRef = useRef<PendingMedia[]>([]);
   pendingMediaRef.current = pendingMedia;
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  pendingAttachmentsRef.current = pendingAttachments;
 
   // 草稿恢复：mount 时读取当前 workspace 草稿
   const [draftRestored, setDraftRestored] = useState(false);
@@ -385,7 +482,8 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         })),
       );
     }
-    if (draft.text || draft.mood || draft.media.length > 0) {
+    if (draft.attachments?.length) setPendingAttachments(pendingAttachmentsFrom(draft.attachments));
+    if (draft.text || draft.mood || draft.media.length > 0 || draft.attachments?.length) {
       setDraftRestored(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -399,7 +497,8 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       const readyMedia: DiaryDraftMedia[] = pendingMedia
         .filter((p) => p.status === "ready" && p.id)
         .map((p) => ({ id: p.id!, type: p.type, mimeType: p.mimeType }));
-      if (!text.trim() && !mood && readyMedia.length === 0) {
+      const draftAttachments = readyDiaryAttachments(pendingAttachments);
+      if (!text.trim() && !mood && readyMedia.length === 0 && draftAttachments.length === 0) {
         clearDiaryDraft();
       } else {
         saveDiaryDraft({
@@ -408,6 +507,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           text: text.trim(),
           mood,
           media: readyMedia,
+          attachments: draftAttachments,
           updatedAt: Date.now(),
         });
       }
@@ -416,7 +516,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, mood, pendingMedia]);
+  }, [text, mood, pendingMedia, pendingAttachments]);
 
   // 清空草稿并释放已上传未发布媒体
   const clearDraftAndMedia = useCallback(() => {
@@ -425,6 +525,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       .map((p) => p.id!);
     for (const id of readyIds) {
       api.diaryImages.remove(id).catch(() => {});
+    }
+    for (const attachment of readyDiaryAttachments(pendingAttachmentsRef.current)) {
+      api.diaryImages.remove(attachment.id).catch(() => {});
     }
     for (const item of pendingMediaRef.current) {
       if (item.previewUrl.startsWith("blob:")) {
@@ -435,6 +538,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     setText("");
     setMood("");
     setPendingMedia([]);
+    setPendingAttachments([]);
     setDraftRestored(false);
   }, []);
 
@@ -595,6 +699,48 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     }
   }, []);
 
+  const addAttachmentFiles = useCallback(async (files: File[]) => {
+    const accepted = await filterAttachmentFilesBySize(files);
+    if (!accepted.length) return;
+    const newItems = newPendingAttachments(accepted);
+    setPendingAttachments((prev) => [...prev, ...newItems]);
+    newItems.forEach((item) => uploadPendingDiaryAttachment(
+      item,
+      setPendingAttachments,
+      t("diary.attachment.serverUnsupported"),
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.attachment.uploadFailed")),
+    ));
+  }, [t]);
+
+  const retryAttachment = useCallback((target: DiaryAttachmentViewItem) => {
+    const item = pendingAttachmentsRef.current.find((candidate) => candidate.key === target.key);
+    if (!item?.file || item.status !== "error") return;
+    uploadPendingDiaryAttachment(
+      item,
+      setPendingAttachments,
+      t("diary.attachment.serverUnsupported"),
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.attachment.uploadFailed")),
+    );
+  }, [t]);
+
+  // 移除待发布附件：已上传成功的同时删除服务端悬空文件（与图片一致）
+  const removeAttachment = useCallback((target: DiaryAttachmentViewItem) => {
+    setPendingAttachments((prev) => prev.filter((item) => item.key !== target.key));
+    if (target.id && (target.status ?? "ready") === "ready") {
+      api.diaryImages.remove(target.id).catch(() => {
+        /* ignore：最坏情况是个孤儿，24h 后被清理 */
+      });
+    }
+  }, []);
+
+  const chooseAttachments = useCallback(() => {
+    openDiaryMediaPicker(
+      "file",
+      (files) => { void addAttachmentFiles(files); },
+      () => toast.error(t("diary.attachment.pickerFailed")),
+    );
+  }, [addAttachmentFiles, t]);
+
   // 粘贴：从剪贴板里抓出图片文件
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -638,10 +784,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     e.preventDefault();
     dragCounterRef.current = 0;
     setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files || []).filter((f) =>
-      f.type.startsWith("image/") || f.type.startsWith("video/"),
-    );
-    if (files.length) void addFiles(files);
+    // 支持的图片/视频照旧进媒体队列；PDF、Office、压缩包等其余文件作为附件
+    const { media, attachments } = splitDroppedFiles(Array.from(e.dataTransfer.files || []));
+    if (media.length) void addFiles(media);
+    if (attachments.length) void addAttachmentFiles(attachments);
   };
 
   const hasPendingUploads = pendingMedia.some((p) => p.status === "uploading");
@@ -650,13 +796,18 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     .filter((p) => p.status === "ready" && p.id)
     .map((p) => ({ id: p.id!, type: p.type }));
   const readyImageIds = readyMedia.filter((p) => p.type === "image").map((p) => p.id);
+  const hasPendingAttachmentUploads = pendingAttachments.some((p) => p.status === "uploading");
+  const hasErrorAttachments = pendingAttachments.some((p) => p.status === "error");
+  const readyAttachments = readyDiaryAttachments(pendingAttachments);
 
-  // 提交条件：内容/媒体至少一项，且没有上传中
+  // 提交条件：内容/媒体/附件至少一项，且没有上传中或上传失败的项
   const canSubmit =
     !posting &&
     !hasPendingUploads &&
     !hasErrorMedia &&
-    (text.trim().length > 0 || readyMedia.length > 0);
+    !hasPendingAttachmentUploads &&
+    !hasErrorAttachments &&
+    (text.trim().length > 0 || readyMedia.length > 0 || readyAttachments.length > 0);
 
   const handlePost = async () => {
     if (!canSubmit) return;
@@ -667,6 +818,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         mood,
         media: readyMedia,
         images: readyImageIds,
+        attachments: readyAttachments,
         createdAt: customDate
           ? localDateTimeInputToUtcIso(customDate) || undefined
           : undefined,
@@ -685,6 +837,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       setCustomDate("");
       setShowDatePicker(false);
       setPendingMedia([]);
+      setPendingAttachments([]);
       clearDiaryDraft();
       setDraftRestored(false);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -813,6 +966,13 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             ))}
           </div>
         )}
+
+        {/* 待发布文件附件 */}
+        <DiaryAttachmentList
+          items={pendingAttachments}
+          onRemove={removeAttachment}
+          onRetry={retryAttachment}
+        />
       </div>
 
       {/* 底部操作栏 */}
@@ -947,6 +1107,20 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
               </span>
             )}
           </button>
+          {/* 文件附件：不占图片/视频额度 */}
+          <button
+            type="button"
+            onClick={chooseAttachments}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+            title={t("diary.attachment.addTitle")}
+            aria-label={t("diary.attachment.addTitle")}
+          >
+            <Paperclip size={15} />
+            <span className="hidden sm:inline">{t("diary.attachment.add")}</span>
+            {pendingAttachments.length > 0 && (
+              <span className="text-[10px] text-tx-tertiary tabular-nums">{pendingAttachments.length}</span>
+            )}
+          </button>
           <MoreMediaMenu
             cameraDisabled={remainingImageSlots <= 0}
             videoDisabled={remainingVideoSlots <= 0}
@@ -982,6 +1156,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                 ? t("diary.waitingUpload")
                 : hasErrorMedia
                 ? t("diary.errorImagesHint")
+                : hasPendingAttachmentUploads
+                ? t("diary.attachment.waitingUpload")
+                : hasErrorAttachments
+                ? t("diary.attachment.errorHint")
                 : undefined
             }
           >
@@ -1196,9 +1374,30 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
   const media = diaryMediaFromItem(item);
   const imageIds = media.filter((x) => x.type === "image").map((x) => x.id);
   const videoItem = media.find((x) => x.type === "video");
+  const attachments = item.attachments || [];
+  const [deletingAttachment, setDeletingAttachment] = useState(false);
+  // 只剩一个附件且没有文字/媒体时不提供单独删除：删掉会变成空说说，应删除整条。
+  const canDeleteAttachment =
+    !deletingAttachment && (!!item.contentText?.trim() || media.length > 0 || attachments.length > 1);
   // 工作区下展示发布者；个人空间下省略（一定是自己）。
   const showCreator =
     !!item.creatorName && getCurrentWorkspace() !== "personal";
+
+  const handleDeleteAttachment = async (target: DiaryAttachmentViewItem) => {
+    if (deletingAttachment) return;
+    if (!window.confirm(t("diary.attachment.confirmDelete", { name: target.filename }))) return;
+    setDeletingAttachment(true);
+    try {
+      const updated = await api.updateDiary(item.id, {
+        attachments: attachments.filter((attachment) => attachment.id !== target.id),
+      });
+      onUpdate(updated);
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : t("diary.attachment.deleteFailed"));
+    } finally {
+      setDeletingAttachment(false);
+    }
+  };
 
   const handleDelete = () => {
     if (!showConfirm) {
@@ -1244,6 +1443,13 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
               <ImageGrid ids={imageIds} onOpen={setLightboxIdx} />
             )}
             {videoItem && <VideoBlock id={videoItem.id} />}
+
+            {/* 文件附件：预览 / 打开 / 下载 / 删除 */}
+            <DiaryAttachmentList
+              items={attachments.map((attachment) => ({ ...attachment, key: attachment.id }))}
+              onRemove={canDeleteAttachment ? (target) => { void handleDeleteAttachment(target); } : undefined}
+              removeMode="delete"
+            />
 
             {/* 底部元信息 */}
             <div className="flex items-center justify-between mt-3 pt-2 border-t border-app-border/40">
@@ -1357,6 +1563,10 @@ function DiaryEditor({
   );
   const imagesRef = useRef<PendingMedia[]>([]);
   imagesRef.current = images;
+  // 文件附件与媒体分开编辑；已发布的附件初始化为 ready（移除在保存时由后端按差集删除）
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(() => pendingAttachmentsFrom(item.attachments));
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
+  attachmentsRef.current = attachments;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
 
@@ -1519,18 +1729,76 @@ function DiaryEditor({
     }
   }, []);
 
+  const addAttachmentFiles = useCallback(async (files: File[]) => {
+    const accepted = await filterAttachmentFilesBySize(files);
+    if (!accepted.length) return;
+    const newItems = newPendingAttachments(accepted);
+    setAttachments((prev) => [...prev, ...newItems]);
+    newItems.forEach((pending) => uploadPendingDiaryAttachment(
+      pending,
+      setAttachments,
+      t("diary.attachment.serverUnsupported"),
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.attachment.uploadFailed")),
+    ));
+  }, [t]);
+
+  const retryAttachment = useCallback((target: DiaryAttachmentViewItem) => {
+    const pending = attachmentsRef.current.find((candidate) => candidate.key === target.key);
+    if (!pending?.file || pending.status !== "error") return;
+    uploadPendingDiaryAttachment(
+      pending,
+      setAttachments,
+      t("diary.attachment.serverUnsupported"),
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.attachment.uploadFailed")),
+    );
+  }, [t]);
+
+  // 仅本地移除；已发布附件的真正删除（连同磁盘文件）由后端在保存时按差集处理
+  const removeAttachment = useCallback((target: DiaryAttachmentViewItem) => {
+    setAttachments((prev) => prev.filter((pending) => pending.key !== target.key));
+  }, []);
+
+  const chooseAttachments = useCallback(() => {
+    openDiaryMediaPicker(
+      "file",
+      (files) => { void addAttachmentFiles(files); },
+      () => toast.error(t("diary.attachment.pickerFailed")),
+    );
+  }, [addAttachmentFiles, t]);
+
+  // 编辑时也支持把文件拖进来：图片/视频进媒体，其余作为附件
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    const { media, attachments: droppedAttachments } = splitDroppedFiles(Array.from(e.dataTransfer.files || []));
+    if (media.length) void addFiles(media);
+    if (droppedAttachments.length) void addAttachmentFiles(droppedAttachments);
+  };
+
   const hasPendingUploads = images.some((p) => p.status === "uploading");
   const hasErrorImages = images.some((p) => p.status === "error");
   const readyMedia = images
     .filter((p) => p.status === "ready" && p.id)
     .map((p) => ({ id: p.id!, type: p.type }));
   const readyImageIds = readyMedia.filter((p) => p.type === "image").map((p) => p.id);
+  const hasPendingAttachmentUploads = attachments.some((p) => p.status === "uploading");
+  const hasErrorAttachments = attachments.some((p) => p.status === "error");
+  const readyAttachments = readyDiaryAttachments(attachments);
+  // 附件列表没变时不提交 attachments：避免用旧列表覆盖其他设备刚添加的附件。
+  const attachmentsChanged =
+    readyAttachments.map((attachment) => attachment.id).join("\n")
+    !== (item.attachments || []).map((attachment) => attachment.id).join("\n");
 
   const canSave =
     !saving &&
     !hasPendingUploads &&
     !hasErrorImages &&
-    (text.trim().length > 0 || readyMedia.length > 0);
+    !hasPendingAttachmentUploads &&
+    !hasErrorAttachments &&
+    (text.trim().length > 0 || readyMedia.length > 0 || readyAttachments.length > 0);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -1541,6 +1809,7 @@ function DiaryEditor({
         mood,
         media: readyMedia,
         images: readyImageIds,
+        ...(attachmentsChanged ? { attachments: readyAttachments } : {}),
         createdAt: createdAt
           ? localDateTimeInputToUtcIso(createdAt) || undefined
           : undefined,
@@ -1577,6 +1846,8 @@ function DiaryEditor({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
       className="bg-app-surface/60 backdrop-blur-sm rounded-2xl border border-accent-primary/40 ring-1 ring-accent-primary/20 shadow-sm"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <div className="p-4 pb-2">
         <div className="flex items-center gap-1.5 mb-2 text-[11px] text-accent-primary">
@@ -1652,6 +1923,13 @@ function DiaryEditor({
             ))}
           </div>
         )}
+
+        {/* 文件附件 */}
+        <DiaryAttachmentList
+          items={attachments}
+          onRemove={removeAttachment}
+          onRetry={retryAttachment}
+        />
       </div>
 
       {/* 底部操作栏 */}
@@ -1777,6 +2055,21 @@ function DiaryEditor({
             )}
           </button>
 
+          {/* 文件附件 */}
+          <button
+            type="button"
+            onClick={chooseAttachments}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+            title={t("diary.attachment.addTitle")}
+            aria-label={t("diary.attachment.addTitle")}
+          >
+            <Paperclip size={15} />
+            <span className="hidden sm:inline">{t("diary.attachment.add")}</span>
+            {attachments.length > 0 && (
+              <span className="text-[10px] text-tx-tertiary tabular-nums">{attachments.length}</span>
+            )}
+          </button>
+
           <MoreMediaMenu
             cameraDisabled={remainingSlots <= 0}
             videoDisabled={remainingVideoSlots <= 0}
@@ -1812,6 +2105,10 @@ function DiaryEditor({
                 ? t("diary.waitingUpload")
                 : hasErrorImages
                 ? t("diary.errorImagesHint")
+                : hasPendingAttachmentUploads
+                ? t("diary.attachment.waitingUpload")
+                : hasErrorAttachments
+                ? t("diary.attachment.errorHint")
                 : undefined
             }
           >

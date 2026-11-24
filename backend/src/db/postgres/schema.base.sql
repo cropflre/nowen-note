@@ -672,6 +672,7 @@ CREATE TABLE IF NOT EXISTS diaries (
     mood TEXT DEFAULT '',
     images TEXT NOT NULL DEFAULT '[]',
     media TEXT NOT NULL DEFAULT '[]',
+    attachments TEXT NOT NULL DEFAULT '[]',
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "workspaceId" TEXT
 );
@@ -687,7 +688,9 @@ CREATE TABLE IF NOT EXISTS diary_attachments (
     size INTEGER NOT NULL,
     path TEXT NOT NULL,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "workspaceId" TEXT
+    "workspaceId" TEXT,
+    kind TEXT NOT NULL DEFAULT 'media',
+    filename TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_diary_attachments_diary ON diary_attachments("diaryId");

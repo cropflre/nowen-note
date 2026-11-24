@@ -10,7 +10,8 @@ describe("knowledge tree inline create contract", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
     expect(panel).toContain('startInlineCreate(node, "note")');
     expect(panel).toContain('data-knowledge-tree-inline-create=""');
-    expect(panel).toContain('title="新建文档"');
+    expect(panel).toContain('title={t("auditI18n.newDocument")}');
+    expect(JSON.parse(source("../../i18n/locales/zh-CN.json")).auditI18n.newDocument).toBe("新建文档");
     expect(panel).not.toContain('title: parent ? `在“${parent.title}”下新建`');
   });
 

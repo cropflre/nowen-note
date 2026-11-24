@@ -19,12 +19,16 @@
  *   - 这里 diaryId 允许 NULL（先上传后绑定），attachments 的 noteId 是 NOT NULL
  *   - 这里没有 ACL 中间件，因为说说本来就是个人空间产物（无协作 / 分享）
  *   - 文件落盘复用同一个 ATTACHMENTS_DIR（共用磁盘目录但各自管自己的 DB 表）
+ *
+ * 文件附件（Issue #928）：上传时带 kind=file，行上记 kind='file' 与原始文件名；
+ * 发布/编辑时走 attachments 字段，与 images/media 分开存放，不占 9 图 / 1 视频额度。
  */
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import crypto from "crypto";
 import {
+  encodeContentDispositionFilename,
   ensureAttachmentsDir,
   MIME_TO_EXT,
 } from "./attachments";
@@ -42,6 +46,13 @@ import {
 } from "../middleware/acl";
 import { diaryAttachmentsRepository } from "../repositories";
 import { normalizeUtcDateBound, normalizeUtcInputToSql } from "../lib/utc-time";
+import { normalizeDiaryFileAttachments, type DiaryFileAttachment } from "../lib/diary-file-attachments";
+import {
+  getTaskAttachmentExtension,
+  getTaskAttachmentMaxSizeBytes,
+  isBlockedTaskAttachment,
+  shouldInlineTaskAttachment,
+} from "../lib/task-attachment-policy";
 
 const diary = new Hono();
 
@@ -133,6 +144,8 @@ interface DiaryRow {
   mood: string;
   images: string;
   media?: string;
+  /** 文件附件 JSON：[{ id, filename, mimeType, size }]。 */
+  attachments?: string;
   createdAt: string;
   /**
    * creatorName：工作区下展示"谁发的说说"。LEFT JOIN 取自 users.username，
@@ -193,9 +206,24 @@ function rowToDiary(row: DiaryRow) {
     mood: row.mood,
     images,
     media,
+    attachments: normalizeDiaryFileAttachments(row.attachments),
     createdAt: row.createdAt,
     creatorName: row.creatorName ?? null,
   };
+}
+
+/** 请求里的附件：接受 id 字符串或带 id 的对象（客户端回传上传结果），去重保序。 */
+function requestedAttachmentIds(raw: unknown[]): string[] {
+  const ids: string[] = [];
+  for (const entry of raw) {
+    const id = typeof entry === "string"
+      ? entry
+      : entry && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string"
+        ? (entry as { id: string }).id
+        : "";
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
 
 function normalizeRequestedMedia(body: any): { media: DiaryMediaItem[]; usedMedia: boolean; error?: string; status?: 400 } {
@@ -243,6 +271,56 @@ function mediaImages(media: DiaryMediaItem[]): string[] {
   return media.filter((x) => x.type === "image").map((x) => x.id);
 }
 
+/**
+ * 读取可绑定到说说的上传：编辑时允许已属于该说说的项或本人的悬空上传；
+ * 发布时只允许本人的悬空上传。kind 区分图片/视频与文件附件，两者不可互换
+ * （否则以文件身份上传的大图能绕过图片 10MB 限制进入九宫格）。
+ */
+function selectBindableUploads<T>(
+  columns: string,
+  kind: "media" | "file",
+  ids: string[],
+  userId: string,
+  diaryId: string | null,
+  personalOnly: boolean,
+): T[] {
+  const db = getDb();
+  const placeholders = ids.map(() => "?").join(",");
+  return (diaryId
+    ? db
+        .prepare(
+          `SELECT ${columns} FROM diary_attachments
+            WHERE id IN (${placeholders})
+              AND kind = ?
+              AND (diaryId = ? OR (userId = ? AND diaryId IS NULL))`,
+        )
+        .all(...ids, kind, diaryId, userId)
+    : db
+        .prepare(
+          `SELECT ${columns} FROM diary_attachments
+            WHERE id IN (${placeholders})
+              AND kind = ?
+              AND userId = ?
+              AND diaryId IS NULL
+              AND (? = 0 OR workspaceId IS NULL)`,
+        )
+        .all(...ids, kind, userId, personalOnly ? 1 : 0)) as T[];
+}
+
+function getValidDiaryFiles(
+  ids: string[],
+  userId: string,
+  diaryId: string | null,
+  personalOnly = false,
+): DiaryFileAttachment[] {
+  if (!ids.length) return [];
+  const rows = selectBindableUploads<{ id: string; filename: string | null; mimeType: string; size: number }>(
+    "id, filename, mimeType, size", "file", ids, userId, diaryId, personalOnly,
+  );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return normalizeDiaryFileAttachments(ids.map((id) => byId.get(id)).filter(Boolean));
+}
+
 function getValidDiaryMedia(
   ids: string[],
   userId: string,
@@ -250,25 +328,9 @@ function getValidDiaryMedia(
   personalOnly = false,
 ): DiaryMediaItem[] {
   if (!ids.length) return [];
-  const db = getDb();
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = diaryId
-    ? db
-        .prepare(
-          `SELECT id, mimeType FROM diary_attachments
-            WHERE id IN (${placeholders})
-              AND (diaryId = ? OR (userId = ? AND diaryId IS NULL))`,
-        )
-        .all(...ids, diaryId, userId) as { id: string; mimeType: string }[]
-    : db
-        .prepare(
-          `SELECT id, mimeType FROM diary_attachments
-            WHERE id IN (${placeholders})
-              AND userId = ?
-              AND diaryId IS NULL
-              AND (? = 0 OR workspaceId IS NULL)`,
-        )
-        .all(...ids, userId, personalOnly ? 1 : 0) as { id: string; mimeType: string }[];
+  const rows = selectBindableUploads<{ id: string; mimeType: string }>(
+    "id, mimeType", "media", ids, userId, diaryId, personalOnly,
+  );
   const byId = new Map(rows.map((r) => [r.id, mediaTypeFromMime(r.mimeType)]));
   return ids
     .map((id) => {
@@ -283,23 +345,25 @@ function getValidDiaryMedia(
 //   外键 ON DELETE CASCADE 只清 DB 行，磁盘文件需要手动收拾，否则积累孤儿。
 //   返回真正 unlink 成功的文件数（仅用于日志）。
 // ---------------------------------------------------------------------------
-async function deleteDiaryMediaFilesByIds(ids: string[]): Promise<number> {
-  if (!ids.length) return 0;
-  const db = getDb();
+function listDiaryAttachmentPaths(ids: string[]): string[] {
+  if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(",");
-  let rows: { path: string }[] = [];
   try {
-    rows = db
+    return (getDb()
       .prepare(`SELECT path FROM diary_attachments WHERE id IN (${placeholders})`)
-      .all(...ids) as { path: string }[];
+      .all(...ids) as { path: string }[])
+      .map((row) => row?.path)
+      .filter((value): value is string => !!value);
   } catch {
-    return 0;
+    return [];
   }
+}
+
+async function deleteDiaryAttachmentFiles(paths: string[]): Promise<number> {
   let removed = 0;
-  for (const r of rows) {
-    if (!r?.path) continue;
+  for (const filePath of paths) {
     try {
-      await deleteAttachmentObject(r.path);
+      await deleteAttachmentObject(filePath);
       removed++;
     } catch {
       /* 单个失败不阻塞批量 */
@@ -308,14 +372,19 @@ async function deleteDiaryMediaFilesByIds(ids: string[]): Promise<number> {
   return removed;
 }
 
+async function deleteDiaryMediaFilesByIds(ids: string[]): Promise<number> {
+  return deleteDiaryAttachmentFiles(listDiaryAttachmentPaths(ids));
+}
+
 // ===========================================================================
 // 说说基础接口
 // ===========================================================================
 
 /**
  * 发布一条说说
- *   body: { contentText: string, mood?: string, images?: string[], media?: DiaryMediaItem[] }
+ *   body: { contentText: string, mood?: string, images?: string[], media?: DiaryMediaItem[], attachments?: Array<string | { id }> }
  *   query: workspaceId?  (personal / <uuid>，省略即个人空间)
+ *   - attachments 是以 kind=file 上传的文件附件 id，与 media 分开计数与存放；
  *   - images 是先通过 POST /api/diary/attachments 上传得到的 uuid 数组；
  *     这里把它们的 diaryId 字段 UPDATE 为新 diary.id，完成"绑定"；同时
  *     把 diary_attachments.workspaceId 对齐到目标工作区（Y2：便于按工作区
@@ -341,10 +410,11 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
   const requested = normalizeRequestedMedia(body);
   if (requested.error) return c.json({ error: requested.error }, requested.status || 400);
   const requestedMedia = requested.media;
+  const requestedFileIds = Array.isArray(body?.attachments) ? requestedAttachmentIds(body.attachments) : [];
 
-  // 内容与媒体至少一项非空（纯图片 / 纯视频说说也允许）
+  // 内容、媒体与文件附件至少一项非空（纯图片 / 纯视频 / 纯附件说说也允许）
   const hasText = typeof contentText === "string" && contentText.trim().length > 0;
-  if (!hasText && requestedMedia.length === 0) {
+  if (!hasText && requestedMedia.length === 0 && requestedFileIds.length === 0) {
     return c.json({ error: "Content or media required" }, 400);
   }
 
@@ -371,12 +441,16 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
   if (checked.error) return c.json({ error: checked.error }, checked.status || 400);
   const media = checked.media;
   const images = mediaImages(media);
+  const attachments = getValidDiaryFiles(requestedFileIds, userId, null, personalOnly);
+  if (attachments.length !== requestedFileIds.length) {
+    return c.json({ error: "附件不存在或已被使用" }, 400);
+  }
 
-  // 把整批写入放进事务：要么 diary 行 + 图片 attach 一起成功，要么全部回滚
+  // 把整批写入放进事务：要么 diary 行 + 媒体/附件 attach 一起成功，要么全部回滚
   const tx = db.transaction(() => {
     if (customCreatedAt) {
       db.prepare(
-        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media, attachments, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         id,
         userId,
@@ -385,11 +459,12 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
         typeof mood === "string" ? mood : "",
         JSON.stringify(images),
         JSON.stringify(media),
+        JSON.stringify(attachments),
         customCreatedAt,
       );
     } else {
       db.prepare(
-        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(
         id,
         userId,
@@ -398,15 +473,16 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
         typeof mood === "string" ? mood : "",
         JSON.stringify(images),
         JSON.stringify(media),
+        JSON.stringify(attachments),
       );
     }
 
-    if (media.length > 0) {
-      // 只 attach 真正"属于本人 + 仍悬空"的媒体，杜绝越权 / 重复绑定。
+    const boundIds = [...media.map((x) => x.id), ...attachments.map((x) => x.id)];
+    if (boundIds.length > 0) {
+      // 只 attach 真正"属于本人 + 仍悬空"的媒体/附件，杜绝越权 / 重复绑定。
       // Y2: 同时把 diary_attachments.workspaceId 对齐到目标 scope，保持附件
       //     与说说的工作区归属一致（便于按工作区统计磁盘占用、清理）。
-      const mediaIds = media.map((x) => x.id);
-      const placeholders = mediaIds.map(() => "?").join(",");
+      const placeholders = boundIds.map(() => "?").join(",");
       const upd = db.prepare(
         `UPDATE diary_attachments
             SET diaryId = ?, workspaceId = ?
@@ -415,8 +491,8 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
             AND diaryId IS NULL
             AND (? = 0 OR workspaceId IS NULL)`,
       );
-      const { changes } = upd.run(id, scope.workspaceId, ...mediaIds, userId, personalOnly ? 1 : 0);
-      if (personalOnly && changes !== mediaIds.length) {
+      const { changes } = upd.run(id, scope.workspaceId, ...boundIds, userId, personalOnly ? 1 : 0);
+      if (personalOnly && changes !== boundIds.length) {
         throw new Error("媒体附件已被使用或已移出个人空间");
       }
     }
@@ -497,7 +573,8 @@ function buildDiaryFilterWhere(opts: {
     sql += " AND (diaries.media LIKE ? OR (diaries.images IS NOT NULL AND diaries.images != '[]'))";
     args.push('%"type":"image"%');
   } else if (mt === "text") {
-    sql += " AND (diaries.media IS NULL OR diaries.media = '[]') AND (diaries.images IS NULL OR diaries.images = '[]')";
+    sql += " AND (diaries.media IS NULL OR diaries.media = '[]') AND (diaries.images IS NULL OR diaries.images = '[]')"
+      + " AND (diaries.attachments IS NULL OR diaries.attachments = '[]')";
   }
   if (opts.mood) {
     sql += " AND diaries.mood = ?";
@@ -572,7 +649,7 @@ diary.get("/timeline", requireWorkspaceFeature("diaries"), (c) => {
 /**
  * 编辑一条说说
  *   PUT /api/diary/:id
- *   body: { contentText?: string, mood?: string, images?: string[] }
+ *   body: { contentText?: string, mood?: string, images?: string[], media?: DiaryMediaItem[], attachments?: Array<string | { id }> }
  *
  * 鉴权：复用 canManageResource —— 个人说说仅作者本人；工作区说说允许
  *        作者本人 + 该工作区 admin/owner（与 DELETE 同口径）。
@@ -584,8 +661,11 @@ diary.get("/timeline", requireWorkspaceFeature("diaries"), (c) => {
  *       移除：把"属于本人 + 当前 attach 到该 diary 但不在新列表里"的图片
  *             连同磁盘文件一并删除（与 DELETE 整条说说同口径）。
  *     这样既保证存量图片不被反复改写，也避免漏删导致磁盘孤儿；
- *   - 与 POST 一样：text 与 images 至少一项非空，纯空说说不允许保存；
- *   - 整批写入放进事务，部分失败整体回滚，避免出现"图片删了但 diary 没改"的中间态。
+ *   - 文件附件（attachments 字段）同样按差集处理，但与媒体各管各的：只传 media
+ *     不会删除附件，只传 attachments 也不会动图片/视频；
+ *   - 与 POST 一样：text、媒体、附件至少一项非空，纯空说说不允许保存；
+ *   - 整批写入放进事务，部分失败整体回滚；被移除项的磁盘文件在事务提交后才删除，
+ *     避免出现"文件删了但 diary 没改"的中间态。
  */
 diary.put("/:id", (c) => {
   return (async () => {
@@ -621,17 +701,20 @@ diary.put("/:id", (c) => {
     const mediaProvided = Array.isArray(body.media) || Array.isArray(body.images);
     const requested = mediaProvided ? normalizeRequestedMedia(body) : null;
     if (requested?.error) return c.json({ error: requested.error }, requested.status || 400);
+    const requestedFileIds = Array.isArray(body.attachments) ? requestedAttachmentIds(body.attachments) : null;
 
     const currentMedia = (() => {
       const parsed = parseDiaryMedia(row.media);
       if (parsed.length > 0) return parsed;
       return parseDiaryImages(row.images).map((mediaId) => ({ id: mediaId, type: "image" as const }));
     })();
+    const currentFiles = normalizeDiaryFileAttachments(row.attachments);
 
-    // 计算合并后的最终值（仅用来做"text 和 media 至少一项非空"校验）
+    // 计算合并后的最终值（仅用来做"text、media、附件至少一项非空"校验）
     const finalText = newContentText !== undefined ? newContentText : row.contentText;
     const finalMediaPreview = requested ? requested.media : currentMedia;
-    if (!finalText && finalMediaPreview.length === 0) {
+    const finalFileCount = requestedFileIds ? requestedFileIds.length : currentFiles.length;
+    if (!finalText && finalMediaPreview.length === 0 && finalFileCount === 0) {
       return c.json({ error: "Content or media required" }, 400);
     }
 
@@ -640,7 +723,8 @@ diary.put("/:id", (c) => {
       newContentText === undefined &&
       newMood === undefined &&
       newCreatedAt === undefined &&
-      !mediaProvided
+      !mediaProvided &&
+      !requestedFileIds
     ) {
       return c.json(rowToDiary(row));
     }
@@ -659,26 +743,40 @@ diary.put("/:id", (c) => {
       finalMediaOrder = checked.media;
 
       const currentRows = db
-        .prepare("SELECT id FROM diary_attachments WHERE diaryId = ?")
+        .prepare("SELECT id FROM diary_attachments WHERE diaryId = ? AND kind = 'media'")
         .all(id) as { id: string }[];
       const currentIds = new Set(currentRows.map((r) => r.id));
       const targetIds = new Set(finalMediaOrder.map((x) => x.id));
       toUnlinkIds = [...currentIds].filter((x) => !targetIds.has(x));
     }
 
-    if (toUnlinkIds.length > 0) {
-      await deleteDiaryMediaFilesByIds(toUnlinkIds);
+    // 准备附件差集（仅当调用方显式传入 attachments 时才处理）
+    let finalFiles: DiaryFileAttachment[] = [];
+    if (requestedFileIds) {
+      finalFiles = getValidDiaryFiles(requestedFileIds, userId, id);
+      if (finalFiles.length !== requestedFileIds.length) {
+        return c.json({ error: "附件不存在或已被使用" }, 400);
+      }
+      const targetFileIds = new Set(requestedFileIds);
+      const currentFileRows = db
+        .prepare("SELECT id FROM diary_attachments WHERE diaryId = ? AND kind = 'file'")
+        .all(id) as { id: string }[];
+      toUnlinkIds.push(...currentFileRows.map((r) => r.id).filter((x) => !targetFileIds.has(x)));
     }
 
+    // 先记下被移除项的文件路径；DB 行在事务里删除，磁盘文件等事务提交后再删。
+    const unlinkPaths = listDiaryAttachmentPaths(toUnlinkIds);
+
     const tx = db.transaction(() => {
-      // 1) 处理媒体：删除被移除项的 DB 行，再 attach 新媒体
+      if (toUnlinkIds.length > 0) {
+        const ph = toUnlinkIds.map(() => "?").join(",");
+        db.prepare(
+          `DELETE FROM diary_attachments WHERE id IN (${ph}) AND diaryId = ?`,
+        ).run(...toUnlinkIds, id);
+      }
+
+      // 1) 处理媒体：attach 新媒体
       if (requested) {
-        if (toUnlinkIds.length > 0) {
-          const ph = toUnlinkIds.map(() => "?").join(",");
-          db.prepare(
-            `DELETE FROM diary_attachments WHERE id IN (${ph}) AND diaryId = ?`,
-          ).run(...toUnlinkIds, id);
-        }
         // attach 新增的悬空媒体到该 diary（顺序保留交给最后一步覆写 media 字段）
         const newOnes = finalMediaOrder
           .map((x) => x.id)
@@ -692,6 +790,23 @@ diary.put("/:id", (c) => {
                 AND userId = ?
                 AND (diaryId IS NULL OR diaryId = ?)`,
           ).run(id, row.workspaceId, ...newOnes, userId, id);
+        }
+      }
+
+      // 1b) 处理附件：attach 新增的悬空附件
+      if (requestedFileIds) {
+        const newFiles = finalFiles
+          .map((x) => x.id)
+          .filter((x) => !currentFiles.some((file) => file.id === x));
+        if (newFiles.length > 0) {
+          const ph = newFiles.map(() => "?").join(",");
+          db.prepare(
+            `UPDATE diary_attachments
+                SET diaryId = ?, workspaceId = ?
+              WHERE id IN (${ph})
+                AND userId = ?
+                AND (diaryId IS NULL OR diaryId = ?)`,
+          ).run(id, row.workspaceId, ...newFiles, userId, id);
         }
       }
 
@@ -716,6 +831,10 @@ diary.put("/:id", (c) => {
         updates.push("media = ?");
         args.push(JSON.stringify(finalMediaOrder));
       }
+      if (requestedFileIds) {
+        updates.push("attachments = ?");
+        args.push(JSON.stringify(finalFiles));
+      }
       if (updates.length > 0) {
         args.push(id);
         db.prepare(
@@ -729,6 +848,7 @@ diary.put("/:id", (c) => {
     } catch (err: any) {
       return c.json({ error: `保存失败：${err?.message || err}` }, 500);
     }
+    await deleteDiaryAttachmentFiles(unlinkPaths);
 
     // 返回更新后的整条记录（顺手 LEFT JOIN 取 creatorName 保持契约一致）
     const updated = db
@@ -823,13 +943,16 @@ diary.get("/stats", requireWorkspaceFeature("diaries"), (c) => {
 // ===========================================================================
 
 /**
- * 上传一个说说媒体附件。
+ * 上传一个说说媒体或文件附件。
  *   POST /api/diary/attachments
  *   query: workspaceId?  (personal / <uuid>)
- *   multipart: file
+ *   multipart: file, kind?（'file' = 文件附件；缺省 = 图片/视频）
  *
  * 此时返回的附件 diaryId 是 NULL，等用户实际点"发布"时 POST /api/diary
- * 再带上 images: [id...] 完成绑定（见上面 diary.post 注释）。
+ * 再带上 media / attachments 完成绑定（见上面 diary.post 注释）。
+ *
+ * kind=file 的策略与任务附件一致：大小上限 MAX_ATTACHMENT_SIZE_MB（默认 100MB），
+ * 拦截可执行、脚本以及会在浏览器里执行的类型（HTML / SVG / JS 等）。
  *
  * Y2:
  *   - 上传时即记录目标 workspaceId（若指定工作区且为成员）；diary 发布时若
@@ -855,23 +978,40 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
     return c.json({ error: "file 字段缺失或非文件" }, 400);
   }
 
-  const mime = (file.type || "application/octet-stream").toLowerCase();
-  const mediaType = mediaTypeFromMime(mime);
-  if (!mediaType) {
-    return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
-  }
+  const kind: "media" | "file" = body.kind === "file" ? "file" : "media";
+  let mime: string;
+  let mediaType: DiaryMediaType | null = null;
+  let ext: string;
+  if (kind === "file") {
+    mime = (file.type || "application/octet-stream").toLowerCase().split(";")[0].trim() || "application/octet-stream";
+    const maxSize = getTaskAttachmentMaxSizeBytes();
+    if (file.size > maxSize) {
+      return c.json({ error: `文件过大（最大 ${Math.floor(maxSize / 1024 / 1024)}MB）` }, 413);
+    }
+    if (isBlockedTaskAttachment(file.name || "", mime)) {
+      return c.json({ error: "出于安全原因，不支持上传可执行或脚本类文件" }, 415);
+    }
+    ext = getTaskAttachmentExtension(file.name || "", mime);
+  } else {
+    mime = (file.type || "application/octet-stream").toLowerCase();
+    mediaType = mediaTypeFromMime(mime);
+    if (!mediaType) {
+      return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
+    }
 
-  const sizeLimit = mediaType === "video" ? MAX_DIARY_VIDEO_SIZE : MAX_DIARY_IMAGE_SIZE;
-  if (file.size > sizeLimit) {
-    return c.json(
-      {
-        error:
-          mediaType === "video"
-            ? `视频过大（最大 ${MAX_DIARY_VIDEO_SIZE / 1024 / 1024}MB）`
-            : `图片过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）`,
-      },
-      413,
-    );
+    const sizeLimit = mediaType === "video" ? MAX_DIARY_VIDEO_SIZE : MAX_DIARY_IMAGE_SIZE;
+    if (file.size > sizeLimit) {
+      return c.json(
+        {
+          error:
+            mediaType === "video"
+              ? `视频过大（最大 ${MAX_DIARY_VIDEO_SIZE / 1024 / 1024}MB）`
+              : `图片过大（最大 ${MAX_DIARY_IMAGE_SIZE / 1024 / 1024}MB）`,
+        },
+        413,
+      );
+    }
+    ext = MIME_TO_EXT[mime] || DIARY_VIDEO_MIME_TO_EXT[mime] || "bin";
   }
 
   // 单用户当前悬空附件数限制：防止恶意客户端只上传不发布把磁盘怼爆。
@@ -887,8 +1027,8 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
 
   ensureAttachmentsDir();
   const id = crypto.randomUUID();
-  const ext = MIME_TO_EXT[mime] || DIARY_VIDEO_MIME_TO_EXT[mime] || "bin";
   const filename = `${id}.${ext}`;
+  const displayName = file.name || filename;
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -899,9 +1039,9 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
 
   try {
     db.prepare(
-      `INSERT INTO diary_attachments (id, diaryId, userId, workspaceId, mimeType, size, path)
-       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
-    ).run(id, userId, scope.workspaceId, mime, file.size, filename);
+      `INSERT INTO diary_attachments (id, diaryId, userId, workspaceId, mimeType, size, path, kind, filename)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, userId, scope.workspaceId, mime, file.size, filename, kind, kind === "file" ? displayName : null);
   } catch (err: any) {
     try {
       await deleteAttachmentObject(filename);
@@ -917,8 +1057,8 @@ diary.post("/attachments", requireWorkspaceFeature("diaries"), async (c) => {
       url: `/api/diary/attachments/${id}`,
       mimeType: mime,
       size: file.size,
-      filename: file.name || filename,
-      type: mediaType,
+      filename: displayName,
+      type: kind === "file" ? "file" : mediaType,
     },
     201,
   );
@@ -959,27 +1099,40 @@ diary.delete("/attachments/:id", async (c) => {
 // ===========================================================================
 
 /**
- * 下载一个说说媒体附件。授权模型同 attachments.handleDownloadAttachment：
+ * 下载一个说说媒体或文件附件。授权模型同 attachments.handleDownloadAttachment：
  *   - id 是 uuid，不可枚举即天然权限；
  *   - <img> 标签拿不到 Authorization header 所以不能走 JWT；
- *   - 浏览器可以走长缓存（uuid 文件名不可变）。
+ *   - 图片/视频媒体可以走长缓存（uuid 文件名不可变）；文件附件按任务附件策略私有缓存。
  */
 export async function handleDownloadDiaryImage(c: Context): Promise<Response> {
   const id = c.req.param("id");
   const db = getDb();
   const row = db
-    .prepare("SELECT id, mimeType, path FROM diary_attachments WHERE id = ?")
-    .get(id) as { id: string; mimeType: string; path: string } | undefined;
+    .prepare("SELECT id, mimeType, path, kind, filename FROM diary_attachments WHERE id = ?")
+    .get(id) as { id: string; mimeType: string; path: string; kind: string | null; filename: string | null } | undefined;
   if (!row) return c.json({ error: "媒体不存在" }, 404);
 
+  // 文件附件沿用任务附件的响应策略：私有缓存 + nosniff；只有图片/PDF/音视频/安全文本
+  // 内联展示，其余类型或 ?download=1 按附件下载并带上原始文件名。图片/视频媒体不变。
+  const isFile = row.kind === "file";
   const isVideo = row.mimeType.startsWith("video/");
-  const cacheHeaders: Record<string, string> = {
-    "Content-Type": row.mimeType || "application/octet-stream",
-    "Cache-Control": "public, max-age=31536000, immutable",
-  };
+  const supportsRange = isVideo || (isFile && row.mimeType.startsWith("audio/"));
+  const cacheHeaders: Record<string, string> = isFile
+    ? {
+        "Content-Type": row.mimeType || "application/octet-stream",
+        "Cache-Control": "private, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+      }
+    : {
+        "Content-Type": row.mimeType || "application/octet-stream",
+        "Cache-Control": "public, max-age=31536000, immutable",
+      };
+  if (isFile && (c.req.query("download") === "1" || !shouldInlineTaskAttachment(row.mimeType))) {
+    cacheHeaders["Content-Disposition"] = encodeContentDispositionFilename(row.filename || "attachment");
+  }
 
-  // 非视频文件（图片等）：保持原逻辑，完整读取返回
-  if (!isVideo) {
+  // 非音视频文件（图片、文档等）：保持原逻辑，完整读取返回
+  if (!supportsRange) {
     const buffer = await readAttachmentObject(row.path);
     if (!buffer) {
       return c.json({ error: "media file missing" }, 404);
@@ -987,7 +1140,7 @@ export async function handleDownloadDiaryImage(c: Context): Promise<Response> {
     return new Response(new Uint8Array(buffer), { headers: cacheHeaders });
   }
 
-  // 视频文件：支持 Range 请求
+  // 视频（以及音频附件）：支持 Range 请求，Safari / iOS 播放依赖它
   const size = await getAttachmentSize(row.path);
   if (size === null || size <= 0) {
     return c.json({ error: "media file missing" }, 404);

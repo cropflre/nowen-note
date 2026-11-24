@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export type NowenPluginErrorCode = "CAPTURE_EXTRACTION_FAILED" | "CAPTURE_FETCH_FAILED" | "CAPTURE_TOO_LARGE" | "CAPTURE_URL_DENIED" | "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DATA_BACKUP_MISSING" | "PLUGIN_DATA_CONFLICT" | "PLUGIN_DATA_DISABLED" | "PLUGIN_DATA_INVALID" | "PLUGIN_DATA_QUOTA_EXCEEDED" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
+export type NowenPluginErrorCode = "CAPTURE_EXTRACTION_FAILED" | "CAPTURE_FETCH_FAILED" | "CAPTURE_TOO_LARGE" | "CAPTURE_URL_DENIED" | "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DATA_BACKUP_MISSING" | "PLUGIN_DATA_CONFLICT" | "PLUGIN_DATA_DISABLED" | "PLUGIN_DATA_INVALID" | "PLUGIN_DATA_QUOTA_EXCEEDED" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_EDITOR_ACTIONS_DISABLED" | "PLUGIN_EDITOR_ACTION_BUSY" | "PLUGIN_EDITOR_ACTION_INVALID_RESULT" | "PLUGIN_EDITOR_ACTION_NOT_FOUND" | "PLUGIN_EDITOR_ACTION_UNSUPPORTED" | "PLUGIN_EDITOR_AI_FAILED" | "PLUGIN_EDITOR_AI_NOT_CONFIGURED" | "PLUGIN_EDITOR_NOTE_FORBIDDEN" | "PLUGIN_EDITOR_NOTE_PROTECTED" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
 
 export interface NowenPluginErrorMetadata {
   code: NowenPluginErrorCode;
@@ -179,6 +179,60 @@ export const NOWEN_PLUGIN_ERROR_CATALOG: readonly NowenPluginErrorMetadata[] = d
     "category": "runtime",
     "retryable": false,
     "description": "Declarative extensions cannot execute actions"
+  },
+  {
+    "code": "PLUGIN_EDITOR_ACTIONS_DISABLED",
+    "category": "feature-gate",
+    "retryable": false,
+    "description": "Editor actions are disabled by the host"
+  },
+  {
+    "code": "PLUGIN_EDITOR_ACTION_BUSY",
+    "category": "budget",
+    "retryable": true,
+    "description": "Too many editor actions are running for this user"
+  },
+  {
+    "code": "PLUGIN_EDITOR_ACTION_INVALID_RESULT",
+    "category": "contract",
+    "retryable": false,
+    "description": "The editor action returned an invalid or oversized result"
+  },
+  {
+    "code": "PLUGIN_EDITOR_ACTION_NOT_FOUND",
+    "category": "resource",
+    "retryable": false,
+    "description": "The editor action is not declared by an enabled plugin"
+  },
+  {
+    "code": "PLUGIN_EDITOR_ACTION_UNSUPPORTED",
+    "category": "contract",
+    "retryable": false,
+    "description": "The editor action does not support this editor or selection"
+  },
+  {
+    "code": "PLUGIN_EDITOR_AI_FAILED",
+    "category": "runtime",
+    "retryable": true,
+    "description": "The AI model request for a prompt editor action failed"
+  },
+  {
+    "code": "PLUGIN_EDITOR_AI_NOT_CONFIGURED",
+    "category": "feature-gate",
+    "retryable": false,
+    "description": "Prompt editor actions need an enabled and configured AI model"
+  },
+  {
+    "code": "PLUGIN_EDITOR_NOTE_FORBIDDEN",
+    "category": "permission",
+    "retryable": false,
+    "description": "The current user cannot run this editor action on the note"
+  },
+  {
+    "code": "PLUGIN_EDITOR_NOTE_PROTECTED",
+    "category": "permission",
+    "retryable": false,
+    "description": "Locked, encrypted or password-protected content is never sent to editor actions"
   },
   {
     "code": "PLUGIN_ERROR",

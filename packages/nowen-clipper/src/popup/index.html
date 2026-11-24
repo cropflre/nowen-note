@@ -26,6 +26,31 @@
       </div>
 
       <main id="main" class="hidden">
+        <section id="ai-conversation-panel" class="card ai-conversation-panel hidden" aria-labelledby="ai-capture-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="ai-capture-heading">保存这段 AI 对话 · <span id="ai-provider"></span></h2>
+              <p>页面上的「存到 Nowen」按钮也能保存。</p>
+            </div>
+          </div>
+          <p class="hint">整段对话存进个人空间的「AI 对话」笔记本（没有会自动创建），之后的新消息会自动跟着存。</p>
+          <button id="ai-quick-save" class="btn primary" type="button">存到 Nowen</button>
+          <p id="ai-capture-status" class="hint" role="status" aria-live="polite">还没有保存这段对话。</p>
+          <a id="ai-note-link" class="note-link hidden" target="_blank" rel="noopener noreferrer">打开 Nowen 归档笔记 ↗</a>
+          <label class="check-option">
+            <input id="ai-page-button" type="checkbox" checked />
+            <span>在页面上显示「存到 Nowen」按钮</span>
+          </label>
+          <details>
+            <summary>自动保存与暂存</summary>
+            <div class="ai-action-list">
+              <button class="text-button" type="button" data-ai-action="pause">停止自动保存这段对话</button>
+              <button class="text-button" type="button" data-ai-action="retry">重试当前账号待同步项</button>
+              <button class="text-button" type="button" data-ai-action="clear">清空当前账号暂存队列</button>
+            </div>
+            <p class="hint">正文只发给你登录的 Nowen 服务器。发不出去的内容先暂存在本机，最多 40 项 / 3 MiB，重试最多 8 次、7 天，超限后保留内容并停止自动重试。暂存不等于备份，也没有加密。</p>
+          </details>
+        </section>
         <section class="card mode-card">
           <label class="field-label" for="clip-mode">采集方式</label>
           <select id="clip-mode" class="control mode-select">

@@ -23,6 +23,7 @@ vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: mocks.state }),
 }));
 
+import i18n from "@/i18n";
 import PluginPromptPicker from "../PluginPromptPicker";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -39,7 +40,8 @@ describe("PluginPromptPicker", () => {
   let host: HTMLDivElement;
   let root: Root;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
     mocks.contributions.mockResolvedValue([{
       pluginId: "nowenlab.productivity-pack",
@@ -68,7 +70,7 @@ describe("PluginPromptPicker", () => {
     await flushEffects();
 
     const trigger = Array.from(host.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("Prompt Pack"));
+      .find((button) => button.textContent?.includes("提示词包"));
     expect(trigger).toBeDefined();
     await act(async () => trigger!.click());
 

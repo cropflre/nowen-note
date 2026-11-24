@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildEditedImageAttrs,
   buildReplacedImageAttrs,
+  getImageCopyOrigin,
   getImageCopySource,
   getImageDownloadFilename,
   getImageToolbarPosition,
@@ -60,6 +61,31 @@ describe("imageToolbar", () => {
     expect(getImageCopySource({ src: "api/attachments/image-id" }, "https://note.example.com/")).toBe(
       "https://note.example.com/api/attachments/image-id",
     );
+  });
+
+  it("never builds the copied image address from a native client's own page origin", () => {
+    // 手机 App 的页面源是 https://localhost，指向的是手机自己，别的设备打不开。
+    const phoneWithServer = getImageCopyOrigin("https://nas.example.com:5678", "https://localhost", true);
+    expect(getImageCopySource({ src: "/api/attachments/image-id" }, phoneWithServer)).toBe(
+      "https://nas.example.com:5678/api/attachments/image-id",
+    );
+    // 客户端没有服务器地址时保留相对路径，而不是拼出 https://localhost/...
+    expect(getImageCopySource({ src: "/api/attachments/image-id" }, getImageCopyOrigin("", "https://localhost", true))).toBe(
+      "/api/attachments/image-id",
+    );
+    expect(getImageCopySource({ src: "/api/attachments/image-id" }, getImageCopyOrigin("", "file://", true))).toBe(
+      "/api/attachments/image-id",
+    );
+  });
+
+  it("keeps using the page origin in the browser and the proxy sub-path when one is deployed", () => {
+    expect(getImageCopyOrigin("", "https://note.example.com", false)).toBe("https://note.example.com");
+    expect(
+      getImageCopySource(
+        { src: "/api/attachments/image-id" },
+        getImageCopyOrigin("https://note.example.com/nowen", "https://note.example.com", false),
+      ),
+    ).toBe("https://note.example.com/nowen/api/attachments/image-id");
   });
 
   it("keeps already absolute image src unchanged when copying", () => {

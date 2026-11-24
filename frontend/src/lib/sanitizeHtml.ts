@@ -119,7 +119,8 @@ export function sanitizeForPaste(html: string): string {
 export function sanitizeForShare(html: string): string {
   return DOMPurify.sanitize(html, {
     ...BASE_CONFIG,
-    ADD_ATTR: ["style"],
+    // open：折叠块（<details>）保持作者保存的展开状态。
+    ADD_ATTR: ["style", "open"],
     FORBID_TAGS: ["form", "input", "textarea", "select", "button", "style"],
   }) as string;
 }

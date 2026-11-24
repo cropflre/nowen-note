@@ -1,4 +1,6 @@
 import { agentP2Migration } from "./agentP2Migration.js";
+import { aiMemoryMigration } from "./aiMemoryMigration.js";
+import { diaryFileAttachmentsMigration } from "./diaryFileAttachmentsMigration.js";
 import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
 import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
@@ -461,6 +463,8 @@ export const MIGRATIONS: Migration[] = [
   agentP2Migration,
   encryptedJsonEvaluationMigration,
   sharedAIProfilesMigration,
+  aiMemoryMigration,
+  diaryFileAttachmentsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

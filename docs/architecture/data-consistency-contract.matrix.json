@@ -7,7 +7,9 @@
       "title": "已同步的声明必须有服务端版本确认",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-001 archive receipts are idempotent and require persisted matching operations"},
         { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
+        { "file": "backend/tests/agent.test.ts", "case": "DCC-001: rich-text Agent receipts allow declaration defaults and still verify the saved edit" },
         { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
         {
@@ -26,6 +28,11 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary Outbox and first-sync upload carry file attachments (DCC-002)" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },
+        { "file": "frontend/src/components/__tests__/KnowledgeTreeInlineRename.test.tsx", "case": "DCC-002: failed template rename preserves the typed name for retry and the created document" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-002 archive note projection enters existing Sync V2 outbox in the same transaction"},
         { "file": "backend/tests/migration-restart.test.ts", "case": "DCC-002: a killed migration worker resumes after reopening without duplicate notes or lost Outbox" },
         { "file": "backend/tests/sync-v2-engine.test.ts", "case": "DCC-002: Migration Hub final bodies converge across push batches without self-conflicts" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
@@ -100,6 +107,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "AI import cancellation preserves completed work and retry resumes only unsaved records"},
         { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
         { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
         { "file": "backend/tests/migration-service.test.ts", "case": "partial failures retry only failed items and persist successful mappings" },
@@ -169,6 +177,9 @@
       "status": "covered",
       "checks": [
         { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 earlier history loaded later is prepended in order without changing saved messages"},
+        {"file": "backend/tests/mcp-ai-archive.test.ts", "case": "DCC-004: a stale revision from MCP is refused without overwriting the archive"},
         { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },
@@ -252,6 +263,7 @@
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: replaying the whole snapshot after a reset is idempotent and records no bogus conflicts" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the NAS snapshot delivers every parent before its children, across page boundaries and for any page size" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: Windows first download from a NAS-shaped database converges exactly for random ids and any page size" },
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: child-first downloads followed by folder expansion never flatten the desktop, NAS or second device" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: a nested delete on the NAS reaches a synced device in either id order without tripping the parent guard" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" }
@@ -262,12 +274,39 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: journal restoration requires identity and keeps other accounts and workspace journals isolated" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: a password protected journal archive stays locked before and after deletion" },
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder editors list workspace templates and create complete independent notes in inherited targets" },
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: template use rejects readonly, unrelated, deleted and mismatched targets without writing notes" },
+        { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder sharing does not grant template management or private personal templates and revocation takes effect immediately" },
+        { "file": "frontend/src/lib/__tests__/noteTemplatesApi.test.ts", "case": "rejects a delayed template response after switching accounts (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/registrationError.test.ts", "case": "DCC-006: a rejected registration preserves the server error and existing account tokens" },
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: template management visibility persists per account and rejects invalid or unauthenticated writes" },
         { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
+        { "file": "frontend/src/components/__tests__/ExtensionPackageInstall.test.tsx", "case": "DCC-006: refuses to upload a package if the active account or server changes during confirmation" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: MCP connection expiry persists permanent and custom grants without allowing PAT self-management" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: restricted MCP grants support multiple selected notebooks without widening user or task access" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: token notebook options group spaces and cap read-only team roles" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: token creation only delegates the caller's current team permission" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: an editor reads, searches and edits only the selected team notebooks" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: team knowledge-tree reads and writes stay inside one granted team" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: cross-space notebook creation and note moves are rejected" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: backlinks, link resolution, graph and attachments do not leak ungranted notes" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: read-only roles cannot write even with a forged write grant" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: removal, downgrade and owner/admin bypasses take effect on the next request" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: cross-user and cross-team grants are denied" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: standalone stdio MCP uses the same server-side team grants" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: revoked, expired and deleted team tokens stop immediately" },
+        { "file": "backend/tests/mcp-team-space.test.ts", "case": "DCC-006: token audit logs record space and result without credentials or note bodies" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: MCP task update rejects extra fields before changing the task" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: task deletion stays inside the token owner's personal tasks, write scope and write-enabled connections" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-006: standalone stdio MCP with a notebook whitelist deletes only confirmed personal tasks" },
+        { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: groups personal, shared and team notebooks without mixing same-name notebooks" },
+        { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: preselects only the user's own personal notebooks" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-006 deleted archive listings still enforce projection protection and the current token notebook grant"},
+        {"file": "backend/tests/mcp-ai-archive.test.ts", "case": "DCC-006: embedded MCP saves and reads AI archives only within the token's notebook grants and assistant sources"},
         { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
@@ -279,6 +318,7 @@
         { "file": "backend/tests/agent.test.ts", "case": "editor rejects foreign, deleted and malformed Skills before creating runs or calling models (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
         { "file": "backend/tests/shared-chat-selection.test.ts", "case": "DCC-006: revoked authorization rejects stale calls without falling back to personal credentials" },
+        { "file": "backend/tests/ai-connection-test.test.ts", "case": "DCC-006: availability and settings preserve an inactive user's legacy provider across re-enabling AI" },
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-006: server/account changes discard late directory responses and reject old model handles" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "rejects a delayed response after switching account (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: explicit desktop logout survives reopening a completed local copy" },
@@ -338,7 +378,8 @@
           "case": "insertion rejects foreign files, cross-space reuse, read-only and trashed targets without writes"
         },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: a completed desktop migration replaces NAS auth with local credentials and address" },
-        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" }
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" },
+        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" }
       ]
     },
     {
@@ -346,7 +387,17 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary pushed by sync binds its uploaded media and files so orphan cleanup keeps them (DCC-007)" },
+        { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary upserts without an attachments field keep existing attachments on server and local apply (DCC-007)" },
+        { "file": "backend/tests/diary-file-attachments.test.ts", "case": "editing media keeps attachments; only attachments explicitly removed are deleted" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "native diary pulls keep local attachments when an older server payload has no attachments field" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: opening a trashed journal restores its identity and content without duplicate dates" },
+        { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-007: restoring a journal under a deleted archive leaves unrelated siblings in trash" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-007: embedded MCP requires current confirmed deletion and retains notes in the recycle bin" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-007: MCP task deletion previews the whole subtree and deletes only after a confirmed, current preview" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-007: API token task deletion without a current preview and confirmation leaves the task untouched" },
+        { "file": "backend/tests/mcp-task-delete.test.ts", "case": "DCC-007: series deletion removes every occurrence and stops the series from regenerating" },
+        {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-007 permanent notebook deletion removes its archive graph and preserves a moved edited projection"},
         { "file": "backend/tests/migration-service.test.ts", "case": "safe undo refuses edited results and soft-deletes only an unchanged migration tree" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
@@ -417,7 +468,9 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-007: pushing a deleted subtree parent-first, and renaming a folder under the hidden root container, are accepted with every link kept" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: server push mode refuses an unresolved parent and never touches a notebook that belongs to another user" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a same-name tag seeded on the Windows install is merged into the server's tag and keeps every note association" },
-        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" }
+        { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "transferring a user with nested, trashed and workspace notebooks moves the content and its tree" },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" }
       ]
     },
     {
@@ -425,6 +478,7 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "DCC-008 native archive export and reimport preserve structured evidence and timestamps"},
         { "file": "backend/tests/migration-service.test.ts", "case": "a failed partial source scan cannot be previewed as a complete import (DCC-008)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "rolls back structure, history and the backup if apply cannot finish" },
         { "file": "backend/tests/sync-v2-knowledge-tree-repair.test.ts", "case": "tree repair previews and atomically converges 18 structural conflicts without rewriting business resources" },
@@ -459,7 +513,8 @@
         {
           "file": "backend/tests/asset-organization.test.ts",
           "case": "migration is idempotent, relation constraints reject cross-scope rows and snapshots retain metadata"
-        }
+        },
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" }
       ]
     },
     {
@@ -467,6 +522,7 @@
       "title": "Android Native 关闭同步后重启仍保留未发出修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-009: opening a schema 13 database adds diary attachments in place without touching diaries or pending mutations" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "uses the offline blob in original mode without network access (DCC-009)" },
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-009: stopping sync or disabling AI prevents remote model access without changing local data" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "does not contact a server in Native local-only mode (DCC-009)" },
@@ -680,6 +736,20 @@
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeWritesBridge.test.ts", "case": "does not treat a trash authorization rejection as an offline read" },
         { "file": "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts", "case": "opens an explicitly restored ordinary personal body before the server acknowledges its folder restore" },
         { "file": "backend/tests/knowledge-tree-root-documents.test.ts", "case": "moving folders and documents into root documents retains hidden containers" }
+      ]
+    },
+    {
+      "id": "DCC-013",
+      "title": "Hot-update rollback never lets older code read or write a newer local database",
+      "status": "covered",
+      "checks": [
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-013: a database newer than this code is refused without writes and reported for the guard page" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: a newer local database boots into the guard page instead of the application" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: a bundle that cannot open the database is never confirmed, so the plugin rolls it back" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: the guard page only offers safe recovery and may retry a blocked newer bundle" },
+        { "file": "frontend/src/components/__tests__/HotUpdateDatabaseGuard.test.tsx", "case": "DCC-013: without a usable newer bundle the guard keeps the data untouched and does not restart" },
+        { "file": "backend/tests/database-startup-compatibility.test.ts", "case": "DCC-008: a newer database is rejected before baseline DDL or vacuum can modify it" },
+        { "file": "frontend/src/components/__tests__/DesktopHotUpdate.test.tsx", "case": "DCC-013: restarting into a desktop hot update first saves editors and waits like the full installer" }
       ]
     }
   ]

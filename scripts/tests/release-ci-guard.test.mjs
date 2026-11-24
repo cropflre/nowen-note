@@ -111,7 +111,7 @@ test("an API failure cannot be mistaken for a release without Windows candidates
   assert.doesNotMatch(result.stdout, /发布成功/);
 });
 
-const githubArgs = ["--target", "pc,lite", "--desktop-build", "github", "--no-pull", "-v", "1.5.2"];
+const githubArgs = ["--target", "pc", "--desktop-build", "github", "--no-pull", "-v", "1.5.2"];
 
 test("real legacy flow creates an empty Draft and delegates all desktop packaging without local toolchains", { skip: process.platform === "win32" }, async (t) => {
   const result = await runGuard(t, { args: githubArgs, realLegacy: true });
@@ -138,7 +138,7 @@ test("GitHub linux-app selects Linux only and preserves an existing Draft", { sk
   assert.doesNotMatch(result.calls, /"create"|"upload"|--draft=false/);
 });
 
-for (const args of [["--target", "pc", "--pc-platform", "win"], ["--target", "lite"]]) {
+for (const args of [["--target", "pc", "--pc-platform", "win"]]) {
   test(`Windows-only CI selection works without local builds: ${args.join(" ")}`, { skip: process.platform === "win32" }, async (t) => {
     const result = await runGuard(t, { args: [...githubArgs, ...args], realLegacy: true });
     assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -155,6 +155,7 @@ for (const [args, expected] of [
   [["--desktop-build", "unknown"], /只能是 local \/ github/],
   [["--pc-platform", ",,,", "--target", "pc"], /至少包含一个平台/],
   [["--pc-platform", "win,linux"], /需要同时包含 macOS/],
+  [["--target", "lite"], /--target 未知值: lite/],
 ]) {
   test(`unsupported GitHub packaging options fail before any release mutation: ${args.join(" ")}`, { skip: process.platform === "win32" }, async (t) => {
     const result = await runGuard(t, { args: [...githubArgs, ...args], realLegacy: true });

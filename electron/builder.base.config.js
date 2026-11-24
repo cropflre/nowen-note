@@ -315,6 +315,7 @@ const LINUX_HOMEPAGE =
 //   - sqlite-vec / sqlite-vec-{platform}-{arch}  平台二进制 .so/.dll/.dylib
 //   - bonjour-service           涉及 multicast-dns 的动态行为，传递依赖较深
 //   - quickjs-emscripten        Sandbox 子进程运行时动态加载 JS/WASM 解释器
+//   - unpdf                     PDF 附件文本提取，后端运行时 await import("unpdf")
 // 其他业务依赖已全部 inline 进 bundle，运行时不再需要。
 //
 // 我们用"白名单顶层目录"的方式精准保留这些包及其运行时传递依赖。
@@ -342,6 +343,8 @@ const BACKEND_KEEP_PACKAGES = [
   "quickjs-emscripten",
   "quickjs-emscripten-core",
   "@jitl",                 // 整个 scope（WASM variants + FFI types）
+  // PDF 附件文本提取：纯 ESM、零依赖；peer 依赖 @napi-rs/canvas 只用于把页面渲染成图片，提取文字用不到。
+  "unpdf",
   // HEIF 解码和兼容预览的运行时依赖。
   "libheif-js",
   "ffmpeg-static",
@@ -390,12 +393,48 @@ function buildBackendNodeModulesFilter() {
   rules.push("!better-sqlite3/deps/**");
   rules.push("!better-sqlite3/docs/**");
   rules.push("!better-sqlite3/benchmark/**");
+  // 为 Electron 重新编译时 node-gyp 会在 build/ 留下 .o/.obj/.a/.lib/.pdb/.iobj 和 sqlite3.c 副本
+  // （Windows 约 60MB）；运行时 bindings 只加载 build/Release/better_sqlite3.node。
+  rules.push("!better-sqlite3/build/**");
+  rules.push("better-sqlite3/build/Release/better_sqlite3.node");
   return rules;
+}
+
+// mac 两个架构依次用同一份 node_modules 打包；Linux 的锁文件没记录 libc，glibc 与 musl
+// 两份 libvips 都会被装上。按本次打包的目标只保留对应的 sharp 原生包（各约 16MB）。
+function pruneForeignSharpPackages(backendNodeModules, platform, arch) {
+  const scope = path.join(backendNodeModules, "@img");
+  if (!fs.existsSync(scope)) return;
+  const keep = new Set([`sharp-${platform}-${arch}`, `sharp-libvips-${platform}-${arch}`]);
+  for (const name of fs.readdirSync(scope)) {
+    if (/^sharp-(libvips-)?(darwin|linux|linuxmusl|win32|wasm32)\b/.test(name) && !keep.has(name)) {
+      fs.rmSync(path.join(scope, name), { recursive: true, force: true });
+    }
+  }
+}
+
+// ===== 热更新信任锚点 =====
+// 桌面壳指纹和签名公钥写进 app.asar 里 package.json 的 nowenHotUpdate 字段，
+// 由 electron/hot-update/loader.js 启动时读取；热更新包改不到 app.asar。
+// 指纹从 git 提交计算，与发版流水线的 hot job 一致。见 docs/architecture/hot-update.md。
+function resolveHotUpdateAnchors() {
+  const root = path.resolve(__dirname, "..");
+  const runtime = JSON.parse(
+    require("child_process").execFileSync(
+      process.execPath,
+      [path.join(root, "scripts/hot-update/runtime-fingerprint.mjs"), "--repo", root],
+      { encoding: "utf8" },
+    ),
+  );
+  // 列表第一把是当前签名用的公钥。
+  const active = (JSON.parse(fs.readFileSync(path.join(root, "hot-update/public-keys.json"), "utf8")).keys || [])[0];
+  return { runtimeVersion: runtime.desktop, publicKey: active?.pem || "", keyId: active?.id || "" };
 }
 
 module.exports = {
   appId: "com.nowen.note",
   productName: "Nowen Note",
+  extraMetadata: { nowenHotUpdate: resolveHotUpdateAnchors() },
   // 打包前自动校验原生模块，避免漏跑 rebuild:native 导致安装后崩溃
   beforeBuild(context) {
     checkNativeModule();
@@ -408,9 +447,12 @@ module.exports = {
     return true; // 返回 true 表示继续打包
   },
   afterPack(context) {
-    if (context.electronPlatformName !== "darwin") return;
     const arch = require("builder-util").Arch[context.arch];
-    const resources = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources");
+    const resources = context.electronPlatformName === "darwin"
+      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources")
+      : path.join(context.appOutDir, "resources");
+    pruneForeignSharpPackages(path.join(resources, "backend/node_modules"), context.electronPlatformName, arch);
+    if (context.electronPlatformName !== "darwin") return;
     verifyMacSharp(path.join(resources, "backend/node_modules"), arch);
     verifyMacFfmpeg(path.join(resources, "backend/node_modules/ffmpeg-static/ffmpeg"), arch);
   },
@@ -421,17 +463,13 @@ module.exports = {
   },
   // 仅打包中英两种语言；默认会有 100+ 种 locale，约占 36MB
   electronLanguages: ["en-US", "zh-CN"],
+  // bzip2 比默认的 zlib 小约 6%，只在首次拖进“应用程序”时多几秒解压，不影响启动。
+  dmg: { format: "UDBZ" },
   // GitHub Releases 作为自动更新 feed
   // 发布时需设置 GH_TOKEN 环境变量；私有仓库需 private: true
   //
-  // Channel 策略：
-  //   full 版发布走 electron-builder 默认的 "latest" channel（latest.yml），
-  //   lite 版在 builder.lite.config.js 显式声明 channel: "lite"（latest-lite.yml）。
-  //   两者完整互不影响：
-  //     - full 客户端只从 latest*.yml 拉取 → 永远收不到 lite 增量
-  //     - lite 客户端只从 latest-lite*.yml 拉取 → 永远收不到 full 增量
-  //   这样即便同一 GitHub Release 同时上传了 full + lite 二进制，自动更新
-  //   也不会出现"full 安装包被误升级成 lite"的灾难。
+  // Channel 策略：走 electron-builder 默认的 "latest" channel（latest*.yml）。
+  // 不再发布 Lite 版；已安装的旧 Lite 客户端只读 latest-lite*.yml，不会被升级成完整版。
   publish: [
     {
       provider: "github",
@@ -444,7 +482,6 @@ module.exports = {
   files: [
     "electron/**/*",
     "!electron/builder.config.js",
-    "!electron/builder.lite.config.js",
     "!electron/node/**/*",
     // package.json 用于 electron-builder 读取 dependencies 并自动收集运行时依赖
     "package.json",

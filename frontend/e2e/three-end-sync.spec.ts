@@ -282,7 +282,7 @@ test("Web 与 PC 同时连续输入：两端正文一致，双方输入都不丢
   await waitForText(webSource, fromPc, 25000);
   await waitForText(pcSource, fromWeb, 25000);
   // innerText 里混着 y-codemirror 的协作光标装饰（对端用户名 + 零宽占位符），比较正文前剔除。
-  const normalize = (raw: string) => raw.replace(/\s+/g, "").replaceAll(USERNAME, "").replace(/[⁠​﻿]/g, "");
+  const normalize = (raw: string) => raw.replace(/\s+/g, "").replaceAll(USERNAME, "").replace(/[\u2060\u200b\ufeff]/g, "");
   const webText = normalize(await webSource.innerText());
   const pcText = normalize(await pcSource.innerText());
   expect(webText).toBe(pcText);

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Cloud, Plus, Pencil, Trash2, Loader2, X, TestTube2,
   Upload, Copy, CheckCircle2, XCircle, ExternalLink, Info,
@@ -573,6 +574,7 @@ function TargetForm({
   onSubmit: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -690,7 +692,7 @@ function TargetForm({
 
         {/* Path Prefix */}
         <div>
-          <label className="block text-xs text-tx-tertiary mb-1">Path Prefix</label>
+          <label className="block text-xs text-tx-tertiary mb-1">{t("auditI18n.pathPrefix")}</label>
           <input
             type="text"
             value={form.pathPrefix}

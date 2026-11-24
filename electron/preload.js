@@ -23,6 +23,8 @@ const allowedChannels = new Set([
   "file:open",
   // 自动更新状态
   "updater:status",
+  // 热更新状态
+  "hot-update:status",
   "ugreen:gateway-ready",
   "ugreen:auth-cancelled",
 ]);
@@ -61,6 +63,15 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   /** 下载完成后由用户触发安装 */
   quitAndInstall() {
     return ipcRenderer.invoke("updater:quit-and-install");
+  },
+
+  /** 热更新：只能查询状态、触发检查、确认就绪、请求重启，地址和公钥都由主进程固定 */
+  hotUpdate: {
+    status: () => ipcRenderer.invoke("hot-update:status"),
+    check: () => ipcRenderer.invoke("hot-update:check"),
+    apply: () => ipcRenderer.invoke("hot-update:apply"),
+    ready: () => ipcRenderer.invoke("hot-update:ready"),
+    setAutoDownload: (enabled) => ipcRenderer.invoke("hot-update:set-auto-download", enabled === true),
   },
 
   /** 获取 app 基本信息（版本号等） */

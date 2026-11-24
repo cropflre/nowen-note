@@ -2,12 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { fetchWebUiEnabled } from "@/lib/webUiAccess";
 import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, Sparkles } from "lucide-react";
+import { Archive, Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
 import { useViewSwitchFade } from "@/hooks/useViewSwitchFade";
 import { MOTION_DURATION, MOTION_EASE, MOTION_SPRING, overlayMotion } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
+import AIMemoryCenter from "@/components/AIMemoryCenter";
+import { openAIMemory } from "@/lib/aiMemory";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
@@ -62,6 +65,9 @@ import {
   shortcutMatchesEvent,
 } from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
+import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
+import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
+import NoteCardTouchSelectionGuard from "@/components/NoteCardTouchSelectionGuard";
 import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
@@ -390,6 +396,7 @@ function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
   const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
@@ -497,7 +504,13 @@ function AppLayout() {
   const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
-  const isAIChatView = state.viewMode === "ai-chat";
+  const isAIChatView = aiAvailable && state.viewMode === "ai-chat";
+  useEffect(() => {
+    if (state.viewMode === "ai-chat" && !aiAvailable) {
+      actions.setViewMode("all");
+      actions.setMobileView("list");
+    }
+  }, [actions, aiAvailable, state.viewMode]);
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
@@ -567,6 +580,7 @@ function AppLayout() {
    */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"extensions" | undefined>(undefined);
   useEffect(() => {
     const onOpen = () => setCommandPaletteOpen(true);
     window.addEventListener("nowen:open-command-palette", onOpen);
@@ -574,7 +588,10 @@ function AppLayout() {
   }, []);
 
   useEffect(() => {
-    const onOpen = () => setSettingsOpen(true);
+    const onOpen = (event: Event) => {
+      setSettingsTab((event as CustomEvent<{ tab?: string } | null>).detail?.tab === "extensions" ? "extensions" : undefined);
+      setSettingsOpen(true);
+    };
     window.addEventListener("nowen:open-settings", onOpen);
     return () => window.removeEventListener("nowen:open-settings", onOpen);
   }, []);
@@ -929,7 +946,7 @@ function AppLayout() {
 
       {/* ===== 主内容区 ===== */}
       {state.viewMode === "plugin-apps" ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} manage={pluginAppRoute.manage} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} discover={pluginAppRoute.discover} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
       ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
@@ -1047,6 +1064,8 @@ function AppLayout() {
         </div>
       )}
 
+      {aiAvailable && <AICollaborationCenter />}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <AIMemoryCenter />}
       <CommentManagementCenter onOpenComment={handleOpenComment} />
       <NotificationCenter onUnreadChange={setNotificationCount} onOpenComment={handleOpenComment} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
 
@@ -1058,8 +1077,15 @@ function AppLayout() {
         onClose={() => setCommandPaletteOpen(false)}
       />
 
+      {/* 快捷键运行时与帮助中心要常驻：构建里 CommandPalette 是关闭时不渲染的懒加载壳，
+          挂在它里面会让自定义键位、帮助和工具栏快捷键提示全部失效。 */}
+      <ShortcutRuntimeBridge />
+      <ShortcutHelpCenter />
+      {/* 同理：手机长按笔记卡片的选字守卫原本也挂在命令面板里，构建中从未生效。 */}
+      <NoteCardTouchSelectionGuard />
+
       <AnimatePresence>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && <SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
       </AnimatePresence>
 
       {/* 无 UI 的网络探活、离线队列重放与同步后数据刷新 */}
@@ -1081,6 +1107,7 @@ function MobileTopBar() {
   const { t } = useTranslation();
   const actions = useAppActions();
   const { siteConfig } = useSiteSettings();
+  const aiAvailable = useAIConnectionAvailable();
   return (
     <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
       <button
@@ -1090,7 +1117,8 @@ function MobileTopBar() {
         <Menu size={24} />
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
-      <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
+      {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
     </header>
   );
 }
@@ -1568,7 +1596,6 @@ function AuthGate() {
   return (
     <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
-      <AICollaborationCenter />
       <SidebarSearchExperienceBridge />
       {user && <WechatClipboardBridge key={`${getServerUrl() || "local"}:${user.id}`} />}
       <TooltipProvider>

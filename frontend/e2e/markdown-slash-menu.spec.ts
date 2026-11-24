@@ -263,12 +263,8 @@ for (const width of [1440, 390]) {
       await page.getByPlaceholder("admin", { exact: true }).fill("rich_slash_user");
       await page.locator("input[type=password]").fill(password);
       await page.locator("button[type=submit]").click();
-      if (process.env.SLASH_TEST_DEV === "1") {
-        // StrictMode cancels the welcome-note effect before it writes its marker.
-        await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
-      } else {
-        await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("nowen:onboarding-welcome-opened:v1:")))).toBe(true);
-      }
+      // Onboarding is gated on the server now (no local marker), so wait for the signed-in shell instead.
+      await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
       await page.goto(`${server}/notes/${note.id}`);
       const editor = page.locator(".tiptap[contenteditable=true]").filter({ visible: true });
       await expect(editor).toBeVisible();
@@ -391,7 +387,7 @@ for (const width of [1440, 320, 390]) {
     await page.getByPlaceholder("admin", { exact: true }).fill("slash_user");
     await page.locator("input[type=password]").fill(password);
     await page.locator("button[type=submit]").click();
-    await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("nowen:onboarding-welcome-opened:v1:")))).toBe(true);
+    await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
     await page.goto(`${server}/notes/${note.id}`);
     await page.setViewportSize({ width, height: 852 });
     const editor = page.locator(".cm-editor .cm-content").filter({ visible: true });
@@ -475,8 +471,11 @@ for (const width of [1440, 390]) {
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:open-settings")));
         const settings = page.locator('[data-swipe-blocker="settings-modal"]');
         await expect(settings).toBeVisible();
-        await settings.getByRole("button", { name: "开关", exact: true }).filter({ visible: true }).click();
-        const checkbox = settings.getByRole("checkbox", { name: /^代码块自动换行/ });
+        await settings.getByRole("button", { name: "使用偏好", exact: true }).filter({ visible: true }).click();
+        const search = settings.getByRole("searchbox", { name: "搜索使用偏好" });
+        await search.fill("代码块自动换行");
+        await search.press("Enter");
+        const checkbox = settings.getByRole("switch", { name: "代码块自动换行", exact: true });
         await checkbox.setChecked(enabled);
         await expect.poll(async () => (await (await page.request.get(`${server}/api/user-preferences`, { headers })).json()).codeBlockWordWrap).toBe(enabled);
         await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:close-settings")));

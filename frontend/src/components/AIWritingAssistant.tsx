@@ -7,7 +7,7 @@ import {
   Sparkles, PenLine, RefreshCw, Shrink, Expand, Languages,
   FileText, HelpCircle, Wrench, Copy, Check, X, Loader2,
   ArrowRight, Replace, ChevronDown, Code2, LetterText, MessageSquarePlus, Send,
-  BookmarkPlus, Trash2, Pencil
+  BookmarkPlus, Trash2, Pencil, AlertTriangle
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
@@ -17,6 +17,7 @@ import { getAIWritingAssistantLayout } from "@/lib/aiWritingAssistantLayout";
 import { extractFinalAnswer } from "@/lib/aiOutput";
 import { buildAiContext } from "@/lib/aiContextBuilder";
 import { toast } from "@/lib/toast";
+import type { AIApplyFailure, AIApplyOutcome } from "@/hooks/useAIAssistantAnchor";
 import {
   projectMarkdownForUser,
   restoreInternalMarkdownMarkers,
@@ -37,11 +38,18 @@ interface SavedPrompt {
 interface AIWritingAssistantProps {
   selectedText: string;
   fullText: string;
-  onInsert: (text: string) => void;
-  onReplace: (text: string) => void;
+  /** Anything but "applied" means the note was left untouched; the panel then stays open so the result can be copied. */
+  onInsert: (text: string) => AIApplyOutcome;
+  onReplace: (text: string) => AIApplyOutcome;
   onClose: () => void;
   position?: { top: number; left: number };
 }
+
+const APPLY_FAILURE_MESSAGES: Record<AIApplyFailure, string> = {
+  conflict: "ai.applyConflict",
+  encrypted: "ai.applyEncrypted",
+  tooLarge: "ai.applyTooLarge",
+};
 
 export default function AIWritingAssistant({
   selectedText,
@@ -56,6 +64,7 @@ export default function AIWritingAssistant({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [applyFailure, setApplyFailure] = useState<AIApplyFailure | null>(null);
   const [currentAction, setCurrentAction] = useState<AIAction | null>(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customPrompt, setCustomPrompt] = useState("");
@@ -127,6 +136,7 @@ export default function AIWritingAssistant({
     setCurrentAction(action);
     setResult("");
     setError("");
+    setApplyFailure(null);
     setIsLoading(true);
     setShowCustomInput(false);
 
@@ -275,14 +285,18 @@ export default function AIWritingAssistant({
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // The panel only closes once the note really changed; a refusal keeps it open for copying the result.
+  const finishApply = (outcome: AIApplyOutcome) => {
+    if (outcome === "applied") onClose();
+    else setApplyFailure(outcome);
+  };
+
   const handleInsert = () => {
-    onInsert(markAiMarkdown(visibleResult, provenanceRef.current || createAiProvenance(), t("ai.generatedLabel")));
-    onClose();
+    finishApply(onInsert(markAiMarkdown(visibleResult, provenanceRef.current || createAiProvenance(), t("ai.generatedLabel"))));
   };
 
   const handleReplace = () => {
-    onReplace(markAiMarkdown(restoreInternalMarkdownMarkers(selectedText, visibleResult), provenanceRef.current || createAiProvenance(), t("ai.generatedLabel")));
-    onClose();
+    finishApply(onReplace(markAiMarkdown(restoreInternalMarkdownMarkers(selectedText, visibleResult), provenanceRef.current || createAiProvenance(), t("ai.generatedLabel"))));
   };
 
   if (typeof document === "undefined") return null;
@@ -512,6 +526,16 @@ export default function AIWritingAssistant({
         </div>
       )}
 
+      {/* 写入被拒绝：笔记没有被修改，面板保留以便复制结果 */}
+      {applyFailure && (
+        <div role="alert" className="shrink-0 px-3 pb-2">
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-2 text-xs leading-relaxed text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>{t(APPLY_FAILURE_MESSAGES[applyFailure])}</span>
+          </div>
+        </div>
+      )}
+
       {/* 底部操作栏 */}
       {(result && !isLoading) && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
@@ -538,7 +562,7 @@ export default function AIWritingAssistant({
           </button>
           <div className="flex-1" />
           <button
-            onClick={() => { setResult(""); setError(""); setCurrentAction(null); setShowCustomInput(false); setCustomPrompt(""); setSavedPromptName(""); setEditingId(null); setSaveHint(null); }}
+            onClick={() => { setResult(""); setError(""); setApplyFailure(null); setCurrentAction(null); setShowCustomInput(false); setCustomPrompt(""); setSavedPromptName(""); setEditingId(null); setSaveHint(null); }}
             className="p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-400 transition-colors"
             title={t("ai.retry")}
           >

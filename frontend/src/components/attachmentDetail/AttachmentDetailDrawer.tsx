@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import { copyText } from "@/lib/clipboard";
+import { createStableFileShareUrl } from "@/lib/fileShareClipboard";
 import { downloadAttachment } from "@/lib/downloadFile";
 import {
   formatImageHostSnippet,
@@ -46,8 +47,6 @@ import {
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
 import AttachmentPreview from "@/components/attachmentPreview/AttachmentPreview";
-import { useSiteSettings } from "@/hooks/useSiteSettings";
-import { buildPublicAttachmentUrl } from "@/lib/publicAttachmentUrl";
 import FileMoveDialog from "@/components/FileMoveDialog";
 
 function humanSize(bytes: number): string {
@@ -104,6 +103,8 @@ export interface AttachmentDetailDrawerProps {
   onAfterDelete?: (id: string) => void;
   onAfterRename?: (id: string, newFilename: string) => void;
   onAfterMove?: (id: string, folderId: string | null, folderName: string | null) => void;
+  /** Called after a public link was copied or external access was toggled. */
+  onAfterLinkChange?: (id: string) => void;
   showDelete?: boolean;
   isImageHostMode?: boolean;
   extraHeaderActions?: React.ReactNode;
@@ -117,6 +118,7 @@ export default function AttachmentDetailDrawer({
   onAfterDelete,
   onAfterRename,
   onAfterMove,
+  onAfterLinkChange,
   onAfterOrganize,
   onOpenAttachment,
   onFindSimilar,
@@ -127,7 +129,6 @@ export default function AttachmentDetailDrawer({
   embedded = false,
 }: AttachmentDetailDrawerProps) {
   const { t } = useTranslation();
-  const { siteConfig } = useSiteSettings();
   const [detail, setDetail] = useState<FileDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const reqIdRef = useRef(0);
@@ -163,6 +164,9 @@ export default function AttachmentDetailDrawer({
   const [renameSubmitting, setRenameSubmitting] = useState(false);
   const [moving, setMoving] = useState(false);
   const [accessSubmitting, setAccessSubmitting] = useState(false);
+  // Only the server-issued stable link is ever shown; the 12-hour runtime URL never is.
+  const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [copyingFormat, setCopyingFormat] = useState<ImageHostFormat | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(() => (
     typeof window !== "undefined" ? window.matchMedia("(max-width: 639px)").matches : false
@@ -184,6 +188,8 @@ export default function AttachmentDetailDrawer({
     setRenameSubmitting(false);
     setMoving(false);
     setAccessSubmitting(false);
+    setPublicLink(null);
+    setCopyingFormat(null);
     setExpanded(false);
     setMobileShareOpen(isImageHostMode);
     setMobileInfoOpen(false);
@@ -230,21 +236,32 @@ export default function AttachmentDetailDrawer({
 
   const copySnippet = useCallback(
     async (format: ImageHostFormat) => {
-      if (!detail || detail.externalAccessEnabled === false) return;
-      const resolved = resolveAttachmentUrl(detail.url);
-      const full = buildPublicAttachmentUrl(resolved, {
-        filePublicOrigin: siteConfig.filePublicOrigin,
-        publicWebOrigin: siteConfig.publicWebOrigin,
-      });
-      const snippet = formatImageHostSnippet(format, full, detail.filename);
-      const ok = await copyText(snippet);
-      if (ok) {
-        toast.success(t("attachmentDetail.copiedFormat", { format: imageHostFormatLabel(format) }));
-      } else {
-        toast.error(t("attachmentDetail.copyFailed"));
+      if (!detail || detail.externalAccessEnabled === false || copyingFormat) return;
+      const currentId = detail.id;
+      const filename = detail.filename;
+      const requestId = reqIdRef.current;
+      setCopyingFormat(format);
+      try {
+        // Copy only the server-issued stable link; never a runtime signed URL or a private fallback.
+        const url = await createStableFileShareUrl(currentId);
+        if (reqIdRef.current !== requestId) return;
+        if (!/^https?:\/\//i.test(url)) {
+          toast.error(t("attachmentDetail.copyFailed"));
+          return;
+        }
+        setPublicLink(url);
+        onAfterLinkChange?.(currentId);
+        const copied = await copyText(formatImageHostSnippet(format, url, filename));
+        if (reqIdRef.current !== requestId) return;
+        if (copied) toast.success(t("attachmentDetail.copiedFormat", { format: imageHostFormatLabel(format) }));
+        else toast.error(t("attachmentDetail.copyFailed"));
+      } catch (err: unknown) {
+        if (reqIdRef.current === requestId) toast.error(err instanceof Error && err.message ? err.message : t("attachmentDetail.copyFailed"));
+      } finally {
+        if (reqIdRef.current === requestId) setCopyingFormat(null);
       }
     },
-    [detail, siteConfig.filePublicOrigin, siteConfig.publicWebOrigin, t],
+    [copyingFormat, detail, onAfterLinkChange, t],
   );
 
   const toggleExternalAccess = async () => {
@@ -256,7 +273,10 @@ export default function AttachmentDetailDrawer({
       const res = await api.files.setExternalAccess(currentId, detail.externalAccessEnabled === false);
       if (reqIdRef.current !== requestId) return;
       setDetail((prev) => prev?.id === currentId ? { ...prev, externalAccessEnabled: res.externalAccessEnabled } : prev);
+      // Turning access off revokes the link and turning it back on never revives it.
+      setPublicLink(null);
       toast.success(t(res.externalAccessEnabled ? "fileManager.externalEnabled" : "fileManager.externalDisabled"));
+      onAfterLinkChange?.(currentId);
     } catch (err: unknown) {
       if (reqIdRef.current === requestId) toast.error(err instanceof Error ? err.message : t("fileManager.accessFailed"));
     } finally {
@@ -305,7 +325,7 @@ export default function AttachmentDetailDrawer({
     (detail as (FileDetail & { isAutoCleanupProtected?: boolean }) | null)?.isAutoCleanupProtected,
   );
 
-  const renderShareBody = (fullUrl: string) => (
+  const renderShareBody = () => (
     <>
       {detail?.canManage && detail.externalAccessEnabled !== undefined && (
         <label className="flex items-center gap-2 text-xs text-tx-primary">
@@ -317,19 +337,24 @@ export default function AttachmentDetailDrawer({
       {detail?.externalAccessEnabled === false ? (
         <p className="text-xs text-tx-secondary">{t("fileManager.externalDisabled")}</p>
       ) : <>
-        <input
-          type="text"
-          readOnly
-          value={fullUrl}
-          onFocus={(e) => e.currentTarget.select()}
-          className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary overflow-x-auto"
-        />
+        {publicLink ? (
+          <input
+            type="text"
+            readOnly
+            aria-label={t("attachmentDetail.shareLink")}
+            value={publicLink}
+            onFocus={(e) => e.currentTarget.select()}
+            className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary overflow-x-auto"
+          />
+        ) : (
+          <p className="text-[11px] leading-4 text-tx-secondary">{t("attachmentDetail.publicLinkHint")}</p>
+        )}
         <div className="flex flex-wrap gap-1.5">
           {(["url", "markdown", "html"] as ImageHostFormat[]).map((fmt) => (
             <button
               key={fmt}
-              disabled={accessSubmitting}
-              onClick={() => copySnippet(fmt)}
+              disabled={accessSubmitting || copyingFormat !== null}
+              onClick={() => void copySnippet(fmt)}
               className={cn(
                 "px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition-colors",
                 isImageHostMode
@@ -337,7 +362,7 @@ export default function AttachmentDetailDrawer({
                   : "bg-app-surface border border-app-border hover:bg-app-hover text-tx-primary",
               )}
             >
-              <Copy size={11} />
+              {copyingFormat === fmt ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
               {t("attachmentDetail.copyFormat", { format: imageHostFormatLabel(fmt) })}
             </button>
           ))}
@@ -535,13 +560,6 @@ export default function AttachmentDetailDrawer({
               )}
 
               {(() => {
-                const fullUrl = buildPublicAttachmentUrl(
-                  resolveAttachmentUrl(detail.url),
-                  {
-                    filePublicOrigin: siteConfig.filePublicOrigin,
-                    publicWebOrigin: siteConfig.publicWebOrigin,
-                  },
-                );
                 if (isMobile || embedded) {
                   return (
                     <div
@@ -584,7 +602,7 @@ export default function AttachmentDetailDrawer({
                       </button>
                       {mobileShareOpen && (
                         <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2.5">
-                          {renderShareBody(fullUrl)}
+                          {renderShareBody()}
                         </div>
                       )}
                     </div>
@@ -616,7 +634,7 @@ export default function AttachmentDetailDrawer({
                         {t(detail.externalAccessEnabled === false ? "fileManager.externalDisabled" : "attachmentDetail.publicAccess")}
                       </span>
                     </div>
-                    {renderShareBody(fullUrl)}
+                    {renderShareBody()}
                   </div>
                 );
               })()}

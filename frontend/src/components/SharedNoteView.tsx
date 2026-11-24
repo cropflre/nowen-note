@@ -23,6 +23,8 @@ import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { remarkPreserveLineBreaks } from "@/lib/markdownLineBreaks";
 import { normalizeIndentValue } from "@/lib/indentValue";
+import { renderSharedRichBlock } from "@/lib/sharedRichBlocks";
+import "./sharedRichBlocks.css";
 import type { FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import {
   hydrateSharedMindMapPlaceholders,
@@ -1930,6 +1932,12 @@ function renderNode(node: any): string {
     }
     case "blockquote":
       return `<blockquote${renderSharedIndentAttribute(node)}>${renderChildren(node)}</blockquote>`;
+    // 高亮块（含文本框）、分栏、折叠块：以前落到 default，只剩里面的段落。
+    case "callout":
+    case "column_container":
+    case "column":
+    case "details":
+      return renderSharedRichBlock(node, renderChildren) ?? renderChildren(node);
     case "horizontalRule":
       return "<hr />";
     case "image": {

@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { Server } from "node:net";
+import { createServer } from "node:http";
+import { Server, type AddressInfo } from "node:net";
 
 const directory = path.resolve(process.env.V3_BROWSER_PROFILE || "");
 if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith("nowen-v3-browser-")) throw new Error("An isolated V3 profile is required");
@@ -17,6 +18,62 @@ async function start() {
   const { getDb } = await import("../src/db/schema.js");
   const { default: bcrypt } = await import("bcryptjs");
   getDb().prepare("INSERT OR IGNORE INTO users(id,username,passwordHash,role) VALUES ('v3-browser-admin','v3_browser',?,'admin')").run(await bcrypt.hash("v3-browser-test-password", 10));
+  if (process.env.V3_BROWSER_REGISTRY_FIXTURE === "1") {
+    // Extension Center acceptance: an ordinary member plus a signed Registry served in-process.
+    // Only the byte transport is replaced; signatures, digests, installer and policy stay real.
+    getDb().prepare("INSERT OR IGNORE INTO users(id,username,passwordHash,role) VALUES ('v3-browser-member','v3_member',?,'user')").run(await bcrypt.hash("v3-member-test-password", 10));
+    const [{ createSignedRegistryFixture }, { getPluginService }] = await Promise.all([import("./helpers/signedRegistryFixture.js"), import("../src/plugins/pluginService.js")]);
+    const fixture = await createSignedRegistryFixture();
+    await fixture.addExtension({ id: "fixture.writer", name: "Fixture Writer", description: "Markdown writing helpers from a signed test registry", category: "editor", keywords: ["markdown"], versions: [{ version: "1.0.0", permissions: ["notes:read"] }] });
+    await fixture.addExtension({ id: "fixture.tampered", name: "Tampered Package", description: "Serves bytes that do not match the signed digest", category: "productivity", versions: [{ version: "1.0.0" }] });
+    fixture.tamperArtifact("fixture.tampered", "1.0.0");
+    fixture.publish();
+    const service = getPluginService();
+    service.ecosystem.transport = fixture.transport;
+    service.ecosystem.upsertSource({ id: fixture.sourceId, name: "Fixture Registry", indexUrl: fixture.indexUrl, registryKeyId: fixture.registryKeyId, registryPublicKey: fixture.registryPublicKey });
+  }
+  if (process.env.V3_BROWSER_AI_FIXTURE === "1") {
+    // The real connection test reaches a deterministic model inside the disposable fixture.
+    const provider = createServer((request, response) => {
+      request.resume();
+      if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+        response.writeHead(404).end();
+        return;
+      }
+      response.writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ choices: [{ message: { content: "Hello from fixture" } }] }));
+    });
+    await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+    const port = (provider.address() as AddressInfo).port;
+    const { setUserAISettings } = await import("../src/services/user-ai-settings.js");
+    setUserAISettings("v3-browser-admin", [
+      { key: "ai_provider", value: "openai" },
+      { key: "ai_api_url", value: `http://127.0.0.1:${port}/v1` },
+      { key: "ai_api_key", value: "fixture" },
+      { key: "ai_model", value: "fixture" },
+    ]);
+    // Editor action acceptance: a deterministic stand-in for the user's AI model. Only the model call
+    // is replaced; the editor action route, plugin checks and note ACL stay real.
+    const { editorActionDeps } = await import("../src/plugins/editorActions.js");
+    editorActionDeps.settings = () => ({ ai_provider: "openai", ai_api_url: "https://ai.fixture.invalid/v1", ai_api_key: "fixture", ai_model: "fixture" }) as unknown as ReturnType<typeof editorActionDeps.settings>;
+    editorActionDeps.ai = async (_settings, messages) => {
+      await new Promise((resolve) => setTimeout(resolve, Number(process.env.V3_BROWSER_AI_DELAY_MS || 1500)));
+      const content = String(messages.at(-1)?.content || "");
+      return `Polished: ${content.slice(content.indexOf("\n\n") + 2)}`;
+    };
+    // Create-app acceptance: the same stand-in drafts a Studio blueprint. The route, schema validation,
+    // rate limit and the rule that a model may never drop or retype a saved field stay real.
+    const { personalStudioAIDeps } = await import("../src/plugins/personalStudioAI.js");
+    personalStudioAIDeps.settings = () => ({ ai_provider: "openai", ai_api_url: "https://ai.fixture.invalid/v1", ai_api_key: "fixture", ai_model: "fixture" }) as unknown as ReturnType<typeof personalStudioAIDeps.settings>;
+    personalStudioAIDeps.complete = async (_settings, messages) => {
+      await new Promise((resolve) => setTimeout(resolve, Number(process.env.V3_BROWSER_AI_DELAY_MS || 1500)));
+      const { instruction, existingSchema } = JSON.parse(String(messages.at(-1)?.content || "{}")) as { instruction: string; existingSchema: { name: string; fields: Array<{ id: string; label: string; type: string }> } | null };
+      const fields = existingSchema?.fields ?? [{ id: "title", label: "Item", type: "text" }];
+      const owner = /owner|负责人/i.test(instruction) && !fields.some((field) => field.id === "owner") ? [{ id: "owner", label: "Owner", type: "text" }] : [];
+      const done = /done|status|完成/i.test(instruction) && !fields.some((field) => field.type === "checkbox") ? [{ id: "done", label: "Done", type: "checkbox" }] : [];
+      return JSON.stringify({ schemaVersion: 1, name: existingSchema?.name ?? "Project board", description: instruction.slice(0, 200), layout: "board", fields: [...fields, ...owner, ...done] });
+    };
+  }
   // Serve the same production frontend and authentication routes, with a disposable DB only.
   process.env.NODE_ENV = "production";
   const listen = Server.prototype.listen;

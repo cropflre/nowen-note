@@ -111,6 +111,28 @@ function noteContentToHtml(rawContent: string, contentText: string): string {
   return src;
 }
 
+/**
+ * markdownToHtml 的任务项只有 data-checked，没有 Tiptap 任务项的
+ * `<label><input type="checkbox"></label><div>…</div>` 结构，而导出样式按后者排版。
+ * 补齐该结构，Markdown 笔记导出才有复选框，并与富文本笔记一致。
+ */
+function addTaskItemCheckboxes(html: string): string {
+  if (!html.includes('data-type="taskItem"')) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll('li[data-type="taskItem"]').forEach((item) => {
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    if (item.getAttribute("data-checked") === "true") checkbox.setAttribute("checked", "checked");
+    const label = document.createElement("label");
+    label.append(checkbox, document.createElement("span"));
+    const body = document.createElement("div");
+    body.append(...Array.from(item.childNodes));
+    item.append(label, body);
+  });
+  return template.innerHTML;
+}
+
 export function noteContentToExportHtml(
   rawContent: string,
   contentText: string,
@@ -120,7 +142,7 @@ export function noteContentToExportHtml(
   const source = rawContent || contentText || "";
   const detected = detectFormat(source);
   if (contentFormat === "markdown" || detected === "md") {
-    return markdownToHtml(source);
+    return addTaskItemCheckboxes(markdownToHtml(source));
   }
   return noteContentToHtml(rawContent, contentText);
 }
@@ -1582,6 +1604,9 @@ export async function buildPrintableHtml(note: {
     .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }
+    /* 文本框（带 float 的高亮块，浮动样式写在内联 style）：只让段落和标题环绕，其他块从文本框下方开始 */
+    .content div[data-type="callout"][data-float] ~ :not(p, h1, h2, h3, h4, h5, h6) { clear: both; }
+    .content::after { content: ""; display: block; clear: both; }
     @media print {
       .page { padding: 24px 28px; max-width: 100%; }
       a { color: inherit; text-decoration: none; }

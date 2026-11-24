@@ -14,6 +14,8 @@ import { SyncError } from "../src/sync/errors";
 import { SYNC_ENTITY_TYPES } from "../src/sync/types";
 import { runChangeFeedSuppressed } from "../src/sync/suppression";
 import { runWithOutboxSuppressed } from "../src/sync/context";
+import { readLocalState } from "../src/sync/bootstrap";
+import { diaryAttachmentsRepository } from "../src/repositories";
 
 /**
  * 阶段 J：task / task_reminder / diary / mindmap 完整 Local-first 链路
@@ -525,6 +527,101 @@ test("diary 同 ID 幂等 upsert，不产生冲突", () => {
   const row = db().prepare("SELECT contentText FROM diaries WHERE id = ?")
     .get(id) as { contentText: string };
   assert.equal(row.contentText, "第二版");
+});
+
+test("diary Outbox and first-sync upload carry file attachments (DCC-002)", () => {
+  resetAll();
+  enableSync();
+  const id = randomUUID();
+  const attachments = [{ id: "outbox-file", filename: "合同.pdf", mimeType: "application/pdf", size: 12 }];
+  db().prepare(`
+    INSERT INTO diaries (id, userId, contentText, attachments, createdAt)
+    VALUES (?, ?, '附件说说', ?, datetime('now'))
+  `).run(id, USER_ID, JSON.stringify(attachments));
+
+  const payload = JSON.parse(outboxFor("diary")[0].payload as string);
+  assert.deepEqual(JSON.parse(payload.attachments), attachments);
+  const local = readLocalState(db(), USER_ID, "diary").find((item) => item.entityId === id);
+  assert.deepEqual(JSON.parse(String(local?.payload.attachments)), attachments);
+});
+
+test("diary pushed by sync binds its uploaded media and files so orphan cleanup keeps them (DCC-007)", () => {
+  resetAll();
+  db().exec("DELETE FROM diary_attachments");
+  db().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES ('diary-sync-other', 'diary-sync-other', 'x')").run();
+  const insert = db().prepare(`
+    INSERT INTO diary_attachments (id, diaryId, userId, mimeType, size, path, kind, filename, createdAt)
+    VALUES (?, NULL, ?, ?, 1, ?, ?, ?, datetime('now', '-2 days'))
+  `);
+  insert.run("sync-media", USER_ID, "image/png", "sync-media.png", "media", null);
+  insert.run("sync-file", USER_ID, "application/pdf", "sync-file.pdf", "file", "合同.pdf");
+  insert.run("sync-foreign", "diary-sync-other", "application/pdf", "sync-foreign.pdf", "file", "别人的.pdf");
+
+  const id = randomUUID();
+  applyMutation(db(), {
+    mutationId: randomUUID(),
+    entityType: "diary",
+    entityId: id,
+    operation: "upsert",
+    userId: USER_ID,
+    deviceId: "android-1",
+    payload: {
+      contentText: "手机上发的说说",
+      images: ["sync-media"],
+      media: [{ id: "sync-media", type: "image" }],
+      attachments: [
+        { id: "sync-file", filename: "合同.pdf", mimeType: "application/pdf", size: 1 },
+        { id: "sync-foreign", filename: "别人的.pdf", mimeType: "application/pdf", size: 1 },
+      ],
+    },
+  });
+
+  const boundTo = (attachmentId: string) => (db()
+    .prepare("SELECT diaryId FROM diary_attachments WHERE id = ?")
+    .get(attachmentId) as { diaryId: string | null }).diaryId;
+  assert.equal(boundTo("sync-media"), id);
+  assert.equal(boundTo("sync-file"), id);
+  assert.equal(boundTo("sync-foreign"), null, "不得绑定其他用户上传的附件");
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  assert.deepEqual(diaryAttachmentsRepository.listExpiredOrphans(cutoff), ["sync-foreign"]);
+});
+
+test("diary upserts without an attachments field keep existing attachments on server and local apply (DCC-007)", () => {
+  resetAll();
+  const id = randomUUID();
+  const attachments = [{ id: "keep-file", filename: "周记.pdf", mimeType: "application/pdf", size: 9 }];
+  const push = (payload: Record<string, unknown>) => applyMutation(db(), {
+    mutationId: randomUUID(),
+    entityType: "diary",
+    entityId: id,
+    operation: "upsert",
+    userId: USER_ID,
+    deviceId: "dev-1",
+    payload,
+  });
+  const read = (diaryId: string) => db()
+    .prepare("SELECT contentText, attachments FROM diaries WHERE id = ?")
+    .get(diaryId) as { contentText: string; attachments: string };
+
+  push({ contentText: "第一版", attachments });
+  push({ contentText: "旧客户端只改了文字" });
+  assert.equal(read(id).contentText, "旧客户端只改了文字");
+  assert.deepEqual(JSON.parse(read(id).attachments), attachments);
+  push({ contentText: "用户删掉了附件", attachments: [] });
+  assert.deepEqual(JSON.parse(read(id).attachments), []);
+
+  const localId = randomUUID();
+  const pull = (payload: Record<string, unknown>) => runWithOutboxSuppressed(() => {
+    runChangeFeedSuppressed(db(), () => {
+      applyRemoteChanges(db(), [
+        { entityType: "diary", entityId: localId, operation: "upsert", payload },
+      ], { userId: USER_ID });
+    });
+  });
+  pull({ contentText: "远端第一版", attachments: JSON.stringify(attachments) });
+  pull({ contentText: "旧服务端没有附件字段" });
+  assert.equal(read(localId).contentText, "旧服务端没有附件字段");
+  assert.deepEqual(JSON.parse(read(localId).attachments), attachments);
 });
 
 // ===========================================================================

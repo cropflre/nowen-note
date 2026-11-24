@@ -116,7 +116,7 @@ function validateHostContract(value) {
 }
 
 function validateContributionContract(value) {
-  requireExactKeys(value, ["contractVersion", "namespaceTemplate", "runtimes", "types", "noteTheme", "noteTemplate", "promptPack", "uiComponent"], "Contribution 根对象");
+  requireExactKeys(value, ["contractVersion", "namespaceTemplate", "runtimes", "types", "noteTheme", "noteTemplate", "promptPack", "uiComponent", "editorAction"], "Contribution 根对象");
   if (!Number.isInteger(value.contractVersion) || value.contractVersion < 1) fail("Contribution contractVersion 必须是正整数");
   uniqueStrings(value.runtimes, "Contribution runtimes", CONTRIBUTION_RUNTIMES);
   if (value.namespaceTemplate !== "<pluginId>/<contributionId>") fail("Contribution namespaceTemplate 无效");
@@ -131,7 +131,7 @@ function validateContributionContract(value) {
     if (entry.declarative === true && !runtimes.has("declarative")) fail(`${entry.id} 标记 declarative 但未开放 declarative runtime`);
     if (entry.declarative !== true && entry.declarative !== false) fail(`${entry.id}.declarative 必须是 boolean`);
   }
-  for (const required of ["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks", "uiComponents"]) {
+  for (const required of ["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks", "uiComponents", "editorActions"]) {
     if (!ids.has(required)) fail(`缺少 Contribution type ${required}`);
   }
   requireExactKeys(value.noteTheme, ["schemaVersion", "bases", "editableTokens", "maxThemesPerPlugin"], "noteTheme contribution");
@@ -143,6 +143,16 @@ function validateContributionContract(value) {
   uniqueStrings(value.uiComponent.kinds, "uiComponent.kinds");
   uniqueStrings(value.uiComponent.slots, "uiComponent.slots");
   uniqueStrings(value.uiComponent.actions, "uiComponent.actions");
+  requireExactKeys(value.editorAction, ["schemaVersion", "placements", "editors", "selectionModes", "resultModes", "icons", "maxActionsPerPlugin", "maxInputBytes", "maxResultBytes"], "editorAction contribution");
+  uniqueStrings(value.editorAction.placements, "editorAction.placements", new Set(["editor.slash", "editor.selection", "editor.toolbar.actions"]));
+  uniqueStrings(value.editorAction.editors, "editorAction.editors", new Set(["tiptap", "markdown"]));
+  uniqueStrings(value.editorAction.selectionModes, "editorAction.selectionModes", new Set(["none", "text", "optional-text"]));
+  uniqueStrings(value.editorAction.resultModes, "editorAction.resultModes", new Set(["none", "insert", "replace-selection", "open-preview"]));
+  uniqueStrings(value.editorAction.icons, "editorAction.icons");
+  for (const key of ["schemaVersion", "maxActionsPerPlugin", "maxInputBytes", "maxResultBytes"]) {
+    if (!Number.isInteger(value.editorAction[key]) || value.editorAction[key] < 1) fail(`editorAction.${key} 必须是正整数`);
+  }
+  if (value.editorAction.maxInputBytes > HOST_CALL_ARGS_BYTES || value.editorAction.maxResultBytes > HOST_CALL_RESULT_BYTES) fail("editorAction 文本上限不能超过 Host 调用预算");
   return { ...value, types: [...value.types].sort((a, b) => compareCodePoints(a.id, b.id)) };
 }
 
@@ -225,7 +235,7 @@ function renderSdkHost(host) {
 
 function renderContributions(contributions) {
   const ids = contributions.types.map((entry) => entry.id);
-  return `${generatedHeader(["packages/nowen-plugin-sdk/contribution-contract.json"])}${deepFreezeSource()}\nexport type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";\nexport type PluginContributionType = ${ids.map((id) => JSON.stringify(id)).join(" | ")};\n\nexport interface PluginContributionContractEntry {\n  id: PluginContributionType;\n  since: string;\n  runtimes: readonly PluginContributionRuntime[];\n  declarative: boolean;\n  description: string;\n}\n\nexport const CONTRIBUTION_CONTRACT_VERSION = ${contributions.contractVersion} as const;\nexport const CONTRIBUTION_NAMESPACE_TEMPLATE = ${JSON.stringify(contributions.namespaceTemplate)} as const;\nexport const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze(${JSON.stringify(contributions.types, null, 2)});\nexport const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTheme, null, 2)} as const);\nexport const NOTE_TEMPLATE_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTemplate, null, 2)} as const);\nexport const PROMPT_PACK_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.promptPack, null, 2)} as const);\nexport const UI_COMPONENT_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.uiComponent, null, 2)} as const);\n`;
+  return `${generatedHeader(["packages/nowen-plugin-sdk/contribution-contract.json"])}${deepFreezeSource()}\nexport type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";\nexport type PluginContributionType = ${ids.map((id) => JSON.stringify(id)).join(" | ")};\n\nexport interface PluginContributionContractEntry {\n  id: PluginContributionType;\n  since: string;\n  runtimes: readonly PluginContributionRuntime[];\n  declarative: boolean;\n  description: string;\n}\n\nexport const CONTRIBUTION_CONTRACT_VERSION = ${contributions.contractVersion} as const;\nexport const CONTRIBUTION_NAMESPACE_TEMPLATE = ${JSON.stringify(contributions.namespaceTemplate)} as const;\nexport const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze(${JSON.stringify(contributions.types, null, 2)});\nexport const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTheme, null, 2)} as const);\nexport const NOTE_TEMPLATE_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTemplate, null, 2)} as const);\nexport const PROMPT_PACK_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.promptPack, null, 2)} as const);\nexport const UI_COMPONENT_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.uiComponent, null, 2)} as const);\nexport const EDITOR_ACTION_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.editorAction, null, 2)} as const);\n`;
 }
 
 function renderErrors(errors) {
@@ -245,7 +255,7 @@ function renderHostMarkdown(host) {
 
 function renderContributionMarkdown(contributions) {
   const rows = contributions.types.map((entry) => `| \`${entry.id}\` | ${entry.since} | ${entry.declarative ? "是" : "否"} | ${entry.runtimes.map((runtime) => `\`${runtime}\``).join(", ")} | ${entry.description} |`);
-  return `<!-- 此文件由 scripts/generate-plugin-host-api.mjs 生成，请勿手动修改。 -->\n# Contribution 合同\n\n合同版本：${contributions.contractVersion}\n\n运行时键统一为 \`${contributions.namespaceTemplate}\`。声明式 Contribution 由 Host 渲染和执行，不授予任意 React、DOM、CSS 或 Node Runtime。\n\n| 类型 | Since | 声明式 | Runtime | 说明 |\n| --- | --- | --- | --- | --- |\n${rows.join("\n")}\n\nNote Theme 最大数量：${contributions.noteTheme.maxThemesPerPlugin}；Note Template 最大正文：${contributions.noteTemplate.maxBodyBytes} 字节；Prompt 最大正文：${contributions.promptPack.maxPromptBytes} 字节。\n`;
+  return `<!-- 此文件由 scripts/generate-plugin-host-api.mjs 生成，请勿手动修改。 -->\n# Contribution 合同\n\n合同版本：${contributions.contractVersion}\n\n运行时键统一为 \`${contributions.namespaceTemplate}\`。声明式 Contribution 由 Host 渲染和执行，不授予任意 React、DOM、CSS 或 Node Runtime。\n\n| 类型 | Since | 声明式 | Runtime | 说明 |\n| --- | --- | --- | --- | --- |\n${rows.join("\n")}\n\nNote Theme 最大数量：${contributions.noteTheme.maxThemesPerPlugin}；Note Template 最大正文：${contributions.noteTemplate.maxBodyBytes} 字节；Prompt 最大正文：${contributions.promptPack.maxPromptBytes} 字节；Editor Action 每插件最多 ${contributions.editorAction.maxActionsPerPlugin} 个，选区最大 ${contributions.editorAction.maxInputBytes} 字节，结果最大 ${contributions.editorAction.maxResultBytes} 字节。\n`;
 }
 
 function buildCatalog(host, contributions, errors) {

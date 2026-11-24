@@ -30,16 +30,13 @@ function metadata(names: string[], embedded = false) {
 }
 async function sources(dir: string, platform: string) {
   await mkdir(join(dir, "dist-electron"));
-  await mkdir(join(dir, "dist-electron-lite"));
-  const full = join(dir, "dist-electron"), lite = join(dir, "dist-electron-lite");
+  const full = join(dir, "dist-electron");
   const prefix = "Nowen-Note-" + version;
   const save = async (path: string, name: string, value = fake(name)) => writeFile(join(path, name), value);
   if (platform === "windows") {
-    const setup = prefix + "-setup.exe", liteSetup = "Nowen-Note-Lite-" + version + "-setup.exe";
+    const setup = prefix + "-setup.exe";
     for (const name of [setup, prefix + "-portable.exe", setup + ".blockmap"]) await save(full, name);
     await save(full, "latest.yml", metadata([setup]));
-    for (const name of [liteSetup, "Nowen-Note-Lite-" + version + "-portable.exe", liteSetup + ".blockmap"]) await save(lite, name);
-    await save(lite, "latest-lite.yml", metadata([liteSetup]));
   } else if (platform === "macos") {
     const intel = prefix + "-x64.dmg", arm = prefix + "-arm64.dmg";
     for (const name of [intel, arm, prefix + "-x64.zip", prefix + "-arm64.zip"]) await save(full, name);
@@ -56,7 +53,7 @@ test("candidate workflow is dispatch-only, three-platform, unsigned and no relea
   assert.equal(workflow.concurrency["cancel-in-progress"], false);
   assert.match(workflow.jobs.build.strategy.matrix.platform, /fromJSON/);
   assert.match(workflow.jobs.build.strategy.matrix.platform, /windows.*macos.*linux/);
-  assert.deepEqual(workflow.jobs.build.needs, ["validate", "contracts"]);
+  assert.deepEqual(workflow.jobs.build.needs, ["validate", "contracts", "ffmpeg"]);
   const raw = JSON.stringify(workflow);
   assert.doesNotMatch(raw, /gh release|git push|docker push|release-legacy|TestFlight/i);
   assert.match(raw, /candidate-evidence/);
@@ -65,7 +62,7 @@ test("candidate workflow is dispatch-only, three-platform, unsigned and no relea
   for (const step of workflow.jobs.build.steps.filter((step: any) => step.env?.CSC_LINK)) assert.match(step.env.CSC_LINK, /inputs.mac_signing/);
   const steps = Object.values(workflow.jobs).flatMap((job: any) => job.steps) as any[];
   const builders = steps.filter((step) => step.run?.includes("electron-builder"));
-  assert.equal(builders.length, 5);
+  assert.equal(builders.length, 4);
   for (const step of builders) assert.match(step.run, /--publish never/);
   for (const step of steps.filter((step) => step.uses?.startsWith("actions/checkout"))) {
     assert.equal(step.with.ref, "${{ inputs.commit_sha }}");
@@ -80,7 +77,7 @@ test("candidate identity rejects partial releases, shell-like inputs and missing
     { platform: "ios" }, { runId: 0 }, { runAttempt: -1 }, { requestId: "not-a-uuid" },
   ]) assert.throws(() => candidateInput({ ...identity("windows"), ...bad }));
 });
-for (const [platform, count] of [["windows", 8], ["macos", 5], ["linux", 3]] as const) {
+for (const [platform, count] of [["windows", 4], ["macos", 5], ["linux", 3]] as const) {
   test(platform + " stages verified updater metadata with separate nonpublishing evidence", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nowen-rc-candidate-test-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
@@ -101,11 +98,11 @@ for (const [platform, count] of [["windows", 8], ["macos", 5], ["linux", 3]] as 
     await assert.rejects(stageCandidate(dir, selected), /EEXIST/);
   });
 }
-test("missing Windows Lite binary fails without leaving staged release candidates", async (t) => {
+test("missing Windows binary fails without leaving staged release candidates", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "nowen-rc-candidate-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await sources(dir, "windows");
-  await rm(join(dir, "dist-electron-lite", "Nowen-Note-Lite-" + version + "-setup.exe"));
+  await rm(join(dir, "dist-electron", "Nowen-Note-" + version + "-setup.exe"));
   await assert.rejects(stageCandidate(dir, identity("windows")));
   assert.deepEqual(await readdir(join(dir, "rc-candidate")), []);
 });

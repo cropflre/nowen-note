@@ -1,5 +1,6 @@
 import "../lib/sw-polyfill";
 import "./index";
+import "../ai-conversations/background";
 
 import { getConfig, isConfigured, setAccountState } from "../lib/storage";
 import {

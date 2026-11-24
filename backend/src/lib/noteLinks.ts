@@ -60,7 +60,7 @@ function isMarkdownStandaloneBlock(line: string): boolean {
   return (
     /^\s{0,3}#{1,6}\s+/.test(line) ||
     /^\s*[-*+]\s+\[[ xX]\]\s+/.test(line) ||
-    /^\s*(?:[-*+]|\d+\.)\s+/.test(line) ||
+    /^\s*(?:[-*+]|\d+[.)])\s+/.test(line) ||
     /^\s{0,3}>\s?/.test(line) ||
     /^\s*(```+|~~~+)/.test(line)
   );

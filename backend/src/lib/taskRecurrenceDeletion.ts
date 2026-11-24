@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { SyncError } from "../sync/errors.js";
-import { generateNextRepeatedTask, taskRecurrenceScope } from "./taskRecurrence.js";
+import { generateNextRepeatedTask, taskRecurrenceScope, taskRecurrenceState } from "./taskRecurrence.js";
 export { guardTaskRecurrenceWrite, taskRecurrenceState } from "./taskRecurrence.js";
 
 export type TaskRemovalMode = "single" | "stop" | "series";
@@ -22,6 +23,22 @@ export function taskRemovalRows(db: Database.Database, task: TaskScope, mode: Ta
     pending.push(...db.prepare("SELECT * FROM tasks WHERE parentId=?").all(row.id));
   }
   return [...rows.values()];
+}
+/**
+ * What a single/series deletion would remove, with a fingerprint the deleting caller
+ * echoes back: any later edit, new subtask or new occurrence changes the revision.
+ */
+export function taskDeletionPlan(db: Database.Database, task: TaskScope & Record<string, any>, mode: "single" | "series",
+  rows: any[] = taskRemovalRows(db,task,mode)) {
+  // Mirrors removeTaskOccurrences: deleting one unfinished occurrence may queue the next one.
+  const mayGenerateNextOccurrence = mode === "single" && !task.isCompleted && Boolean(task.repeatRule)
+    && task.repeatRule !== "none" && !task.repeatNextGeneratedId && !taskRecurrenceState(db,task);
+  const fingerprint = rows
+    .map(row => [row.id, row.parentId ?? null, row.title, row.isCompleted, row.archivedAt ?? null, row.repeatRule ?? null, row.updatedAt])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const revision = createHash("sha256")
+    .update(JSON.stringify([mode, task.id, mayGenerateNextOccurrence, fingerprint])).digest("hex");
+  return { rows: [...rows.filter(row => row.id === task.id), ...rows.filter(row => row.id !== task.id)], mayGenerateNextOccurrence, revision };
 }
 /** Caller holds the transaction and authorizes every affected row before writing. */
 export function removeTaskOccurrences(db: Database.Database, task: TaskScope, mode: TaskRemovalMode, generateNext = true): string[] {

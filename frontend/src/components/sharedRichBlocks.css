@@ -1,0 +1,75 @@
+/* 分享页只读渲染的高亮块、文本框、分栏和折叠块（结构与编辑器静态 HTML 一致，见 lib/sharedRichBlocks.ts）。
+   配色与编辑器 dragHandle.css 保持一致。 */
+
+.shared-note-content div[data-type="callout"] {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+.shared-note-content div[data-type="callout"] .prosemirror-callout-content > :first-child { margin-top: 0; }
+.shared-note-content div[data-type="callout"] .prosemirror-callout-content > :last-child { margin-bottom: 0; }
+
+.shared-note-content div[data-type="callout"][data-callout-type="gray"]   { background-color: #f7f8fa; border-color: rgba(0, 0, 0, 0.10); }
+.shared-note-content div[data-type="callout"][data-callout-type="blue"]   { background-color: #eef3fb; border-color: rgba(59, 130, 246, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="cyan"]   { background-color: #e6f7fa; border-color: rgba(6, 182, 212, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="green"]  { background-color: #e8f6ee; border-color: rgba(34, 197, 94, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="yellow"] { background-color: #fdf6e3; border-color: rgba(245, 158, 11, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="orange"] { background-color: #fef3e6; border-color: rgba(249, 115, 22, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="red"]    { background-color: #fdeeee; border-color: rgba(239, 68, 68, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="pink"]   { background-color: #fef0f3; border-color: rgba(236, 72, 153, 0.20); }
+.shared-note-content div[data-type="callout"][data-callout-type="purple"] { background-color: #f3f0fc; border-color: rgba(139, 92, 246, 0.20); }
+
+.dark .shared-note-content div[data-type="callout"][data-callout-type="gray"]   { background-color: rgba(150, 150, 150, 0.16); border-color: rgba(255, 255, 255, 0.08); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="blue"]   { background-color: rgba(59, 130, 246, 0.16); border-color: rgba(59, 130, 246, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="cyan"]   { background-color: rgba(6, 182, 212, 0.16); border-color: rgba(6, 182, 212, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="green"]  { background-color: rgba(34, 197, 94, 0.16); border-color: rgba(34, 197, 94, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="yellow"] { background-color: rgba(245, 158, 11, 0.16); border-color: rgba(245, 158, 11, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="orange"] { background-color: rgba(249, 115, 22, 0.16); border-color: rgba(249, 115, 22, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="red"]    { background-color: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="pink"]   { background-color: rgba(236, 72, 153, 0.16); border-color: rgba(236, 72, 153, 0.25); }
+.dark .shared-note-content div[data-type="callout"][data-callout-type="purple"] { background-color: rgba(139, 92, 246, 0.16); border-color: rgba(139, 92, 246, 0.25); }
+
+/* 文本框：浮动和宽度写在内联样式里；只让段落和标题环绕，其他块从文本框下方开始 */
+.shared-note-content div[data-type="callout"][data-float] ~ :not(p, h1, h2, h3, h4, h5, h6) { clear: both; }
+.shared-note-content::after { content: ""; display: block; clear: both; }
+
+.shared-note-content .prosemirror-column-container {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+}
+.shared-note-content .prosemirror-column {
+  flex: 1 1 0;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+.dark .shared-note-content .prosemirror-column { border-color: rgba(255, 255, 255, 0.12); }
+.shared-note-content .prosemirror-column > :first-child { margin-top: 0; }
+.shared-note-content .prosemirror-column > :last-child { margin-bottom: 0; }
+
+.shared-note-content details[data-type="details"] {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+.dark .shared-note-content details[data-type="details"] { border-color: rgba(255, 255, 255, 0.12); }
+.shared-note-content details[data-type="details"] > summary { cursor: pointer; font-weight: 600; }
+.shared-note-content details[data-type="details"] > [data-type="detailsContent"] > :first-child { margin-top: 8px; }
+.shared-note-content details[data-type="details"] > [data-type="detailsContent"] > :last-child { margin-bottom: 0; }
+
+/* 手机宽度：文本框不浮动、分栏竖排（覆盖内联样式） */
+@media (max-width: 767px) {
+  .shared-note-content div[data-type="callout"][data-float] {
+    float: none !important;
+    width: auto !important;
+    margin: 12px 0 !important;
+  }
+  .shared-note-content .prosemirror-column-container { flex-direction: column; }
+  .shared-note-content .prosemirror-column { width: 100% !important; flex: auto !important; }
+}

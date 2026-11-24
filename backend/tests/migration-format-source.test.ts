@@ -60,6 +60,62 @@ test("Markdown + local images ZIP produces stable NMF paths, hashes, directories
   });
 });
 
+test("Obsidian vaults keep embedded images and note links, read front matter and leave code and settings alone", async () => {
+  const zip = new JSZip();
+  zip.file("Vault/Daily/2024-01-01.md", [
+    "---", "title: New year", "tags: [daily, \"#journal\"]", "created: 2024-01-01 08:00:00Z", "updated: 2024-01-02T09:30+08:00", "---",
+    "# Heading", "![[Pasted image.png]]", "![[photo.png|300]]", "See [[Projects/Plan|the plan]] and [[Plan#Goals]].",
+    "Missing [[Nowhere]] and ![[missing.png]].", "Inline `![[Pasted image.png]]` stays.", "```js", "const link = \"[[Plan]]\";", "```", "",
+  ].join("\n"));
+  zip.file("Vault/attachments/Pasted image.png", png);
+  zip.file("Vault/photo.png", png);
+  zip.file("Vault/Projects/Plan.md", "---\ncreated: 2024-03-01 10:00\n---\n# Plan\n## Goals\n");
+  zip.file("Vault/.obsidian/workspace.json", "{}");
+  zip.file("Vault/.obsidian/plugins/x/main.js", "alert(1)");
+  zip.file("Vault/.trash/Deleted.md", "# Deleted");
+  zip.file("Vault/.DS_Store", "x");
+  await withArchive(zip, async (input, notes) => {
+    const result = await stageMigrationFile(input);
+    assert.deepEqual(notes.map((note) => note.source.sourceId), ["Vault/Daily/2024-01-01.md", "Vault/Projects/Plan.md"]);
+    const [daily, plan] = notes;
+    assert.equal(daily.title, "New year");
+    assert.deepEqual(daily.tags, ["daily", "journal"]);
+    assert.equal(daily.createdAt, "2024-01-01T08:00:00.000Z");
+    assert.equal(daily.updatedAt, "2024-01-02T01:30:00.000Z");
+    // Embeds become standard images, links point at the imported note; everything else is untouched.
+    assert.match(daily.content, /!\[Pasted image\.png\]\(<\.\.\/attachments\/Pasted image\.png>\)/);
+    assert.match(daily.content, /!\[photo\.png\]\(<\.\.\/photo\.png>\)/);
+    assert.match(daily.content, /See \[the plan\]\(<\.\.\/Projects\/Plan\.md>\) and \[Plan > Goals\]\(<\.\.\/Projects\/Plan\.md>\)\./);
+    assert.match(daily.content, /Missing \[\[Nowhere\]\] and !\[\[missing\.png\]\]\./);
+    assert.match(daily.content, /Inline `!\[\[Pasted image\.png\]\]` stays\./);
+    assert.match(daily.content, /const link = "\[\[Plan\]\]";/);
+    assert.ok(daily.content.startsWith("---\ntitle: New year\n"), "front matter stays in the note");
+    assert.deepEqual(daily.attachments.map((asset: any) => [asset.originalPath, asset.sha256]), [["../attachments/Pasted image.png", hash(png)], ["../photo.png", hash(png)]]);
+    assert.deepEqual(daily.links, [{ href: "../Projects/Plan.md", targetSourceId: "Vault/Projects/Plan.md" }]);
+    // A time without an offset would be a guess, so it is not used.
+    assert.equal(plan.title, "Plan");
+    assert.equal(plan.createdAt, undefined);
+    assert.ok(result.warnings.some((warning) => warning.startsWith("UNRESOLVED_RELATIVE_REFERENCES")), "a missing embedded image is reported");
+    assert.ok(!result.warnings.some((warning) => warning.startsWith("UNSUPPORTED_FILES_SKIPPED")), "app settings are not reported as skipped content");
+  });
+});
+
+test("Logseq settings, backups and recycled pages are not imported as notes", async () => {
+  const zip = new JSZip();
+  zip.file("logseq/config.edn", "{}");
+  zip.file("logseq/custom.css", "body{}");
+  zip.file("logseq/bak/pages/Home/2024.md", "- old copy");
+  zip.file("pages/Home.md", "- [[Ideas]]");
+  zip.file("pages/Ideas.md", "- idea");
+  zip.file("journals/2024_01_01.md", "- today");
+  await withArchive(zip, async (input, notes) => {
+    const result = await stageMigrationFile(input);
+    assert.deepEqual(notes.map((note) => note.source.sourceId), ["journals/2024_01_01.md", "pages/Home.md", "pages/Ideas.md"]);
+    assert.equal(notes[1].content, "- [Ideas](<Ideas.md>)");
+    assert.ok(!result.warnings.some((warning) => warning.startsWith("UNSUPPORTED_FILES_SKIPPED")));
+  });
+});
+
 test("NMF offline package validates body and asset hashes before emitting any note", async () => {
   const body = "<h1>Hello</h1><script>steal()</script><img src=\"../assets/image.png\" onerror=\"steal()\">";
   const manifest = nmfManifestSchema.parse({ format: "nowen-migration", schemaVersion: 1, source,

@@ -21,6 +21,16 @@ export const personalAIRequestSchema = z.object({
   spec: z.unknown().optional(),
 }).strict();
 export interface PersonalAIRequest { instruction: string; spec?: unknown }
+/** Seam for the disposable browser acceptance server: only the model and its settings can be replaced. */
+export const personalStudioAIDeps = { manualEnabled: isManualAIEnabled, settings: getUserAISettings, complete: callAIChat };
+export type PersonalAIUnavailableCode = "STUDIO_AI_UNAVAILABLE" | "STUDIO_AI_NOT_CONFIGURED";
+/** Why Studio AI cannot run for this user, or null when it can. Never exposes the settings themselves. */
+export function personalAIUnavailableCode(userId: string): PersonalAIUnavailableCode | null {
+  if (!personalStudioAIDeps.manualEnabled(userId)) return "STUDIO_AI_UNAVAILABLE";
+  const settings = personalStudioAIDeps.settings(userId);
+  if (!settings.ai_api_url || !settings.ai_model || (!settings.ai_api_key && !["ollama", "lmstudio"].includes(settings.ai_provider))) return "STUDIO_AI_NOT_CONFIGURED";
+  return null;
+}
 const active = new Set<string>();
 const attempts = new Map<string, { count: number; resetAt: number }>();
 function fail(code: string): never { throw Object.assign(new Error(code), { code }); }
@@ -75,12 +85,12 @@ export function buildStudioAIChatMessages(instruction: string, source?: Personal
 export async function previewPersonalAIApp(
   userId: string,
   request: PersonalAIRequest,
-  complete: typeof callAIChat = callAIChat,
+  complete: typeof callAIChat = personalStudioAIDeps.complete,
 ): Promise<PersonalAppSpec> {
   if (!userId.trim()) fail("RESOURCE_FORBIDDEN");
-  if (!isManualAIEnabled(userId)) fail("STUDIO_AI_UNAVAILABLE");
-  const settings = getUserAISettings(userId);
-  if (!settings.ai_api_url || !settings.ai_model || (!settings.ai_api_key && !["ollama", "lmstudio"].includes(settings.ai_provider))) fail("STUDIO_AI_NOT_CONFIGURED");
+  const unavailable = personalAIUnavailableCode(userId);
+  if (unavailable) fail(unavailable);
+  const settings = personalStudioAIDeps.settings(userId);
   const checked = personalAIRequestSchema.safeParse(request);
   if (!checked.success) fail("STUDIO_AI_INVALID_INPUT");
   const instruction = checked.data.instruction;

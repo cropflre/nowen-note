@@ -16,6 +16,7 @@
 
 import { extractArticle, extractSelection, extractSimplified, extractFullPage } from "../lib/extractor";
 import { installContentScriptListener } from "../lib/content-script-runtime";
+import { installAICaptureRuntime } from "../ai-conversations/capture";
 import type {
   ContentScriptPingRequest,
   ContentScriptPingResponse,
@@ -147,6 +148,11 @@ import type {
   }
 
   installContentScriptListener(win, chrome.runtime as any, CONTENT_SCRIPT_VERSION, messageHandler as any);
+
+  // Separate grant-controlled lifecycle; reinjection also releases the previous observer.
+  const previousAI = win.__nowenAICaptureCleanup;
+  if (typeof previousAI === "function") previousAI();
+  win.__nowenAICaptureCleanup = installAICaptureRuntime(document, window);
 
   console.log(`[nowen-clipper content] v${CONTENT_SCRIPT_VERSION} 已注册 at`, location.href);
 })();

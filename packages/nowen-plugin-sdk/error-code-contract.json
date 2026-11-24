@@ -35,6 +35,15 @@
     {"code":"PLUGIN_DATA_CONFLICT","category":"validation","retryable":false,"description":"Record, schema or snapshot changed; reload before retrying"},
     {"code":"PLUGIN_DATA_QUOTA_EXCEEDED","category":"validation","retryable":false,"description":"Plugin data capacity or record budget exceeded"},
     {"code":"PLUGIN_DATA_DISABLED","category":"validation","retryable":false,"description":"Structured plugin data is disabled"},
-    {"code":"PLUGIN_DATA_BACKUP_MISSING","category":"validation","retryable":false,"description":"No collection migration snapshot is available"}
+    {"code":"PLUGIN_DATA_BACKUP_MISSING","category":"validation","retryable":false,"description":"No collection migration snapshot is available"},
+    {"code":"PLUGIN_EDITOR_ACTIONS_DISABLED","category":"feature-gate","retryable":false,"description":"Editor actions are disabled by the host"},
+    {"code":"PLUGIN_EDITOR_ACTION_NOT_FOUND","category":"resource","retryable":false,"description":"The editor action is not declared by an enabled plugin"},
+    {"code":"PLUGIN_EDITOR_ACTION_UNSUPPORTED","category":"contract","retryable":false,"description":"The editor action does not support this editor or selection"},
+    {"code":"PLUGIN_EDITOR_NOTE_FORBIDDEN","category":"permission","retryable":false,"description":"The current user cannot run this editor action on the note"},
+    {"code":"PLUGIN_EDITOR_NOTE_PROTECTED","category":"permission","retryable":false,"description":"Locked, encrypted or password-protected content is never sent to editor actions"},
+    {"code":"PLUGIN_EDITOR_ACTION_INVALID_RESULT","category":"contract","retryable":false,"description":"The editor action returned an invalid or oversized result"},
+    {"code":"PLUGIN_EDITOR_AI_NOT_CONFIGURED","category":"feature-gate","retryable":false,"description":"Prompt editor actions need an enabled and configured AI model"},
+    {"code":"PLUGIN_EDITOR_ACTION_BUSY","category":"budget","retryable":true,"description":"Too many editor actions are running for this user"},
+    {"code":"PLUGIN_EDITOR_AI_FAILED","category":"runtime","retryable":true,"description":"The AI model request for a prompt editor action failed"}
   ]
 }

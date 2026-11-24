@@ -260,6 +260,36 @@ export class NowenApiClient {
     return action === "status" ? this.request(base) : this.request(`${base}/${action}`, { method: "POST", body: {} });
   }
 
+  // ==================== AI 对话归档 ====================
+
+  aiArchiveCapabilities(): Promise<any> {
+    return this.request("/api/ai-memory/capabilities");
+  }
+
+  aiArchiveSources(): Promise<{ items: any[] }> {
+    return this.request("/api/ai-memory/sources");
+  }
+
+  aiArchiveSource(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/sources/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveConversations(query: { sourceId?: string; externalConversationId?: string; q?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+    return this.request("/api/ai-memory/conversations", { query });
+  }
+
+  aiArchiveConversation(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveMessages(id: string): Promise<{ items: any[] }> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}/messages`);
+  }
+
+  aiArchiveIngest(body: unknown): Promise<any> {
+    return this.request("/api/ai-memory/conversations/ingest", { method: "POST", body });
+  }
+
   /** Caller must enforce stdio-only access before accepting a user-authorized local path. */
   async uploadMigrationFile(id: string, params: { filePath: string; filename?: string; assetPath?: string; sha256?: string }): Promise<any> {
     await this.ensureAuth();
@@ -301,17 +331,18 @@ export class NowenApiClient {
 
   // ==================== 笔记本 ====================
 
-  /** 获取所有笔记本 */
-  async listNotebooks(): Promise<any[]> {
-    return this.request("/api/notebooks");
+  /** 获取笔记本；restricted Token 返回全部授权笔记本（含团队），可按 workspaceId 过滤。 */
+  async listNotebooks(workspaceId?: string): Promise<any[]> {
+    return this.request("/api/notebooks", { query: { workspaceId } });
   }
 
-  /** 创建笔记本 */
+  /** 创建笔记本；子笔记本必须与父笔记本同一空间（workspaceId 取自父笔记本）。 */
   async createNotebook(params: {
     name: string;
     parentId?: string;
     icon?: string;
     color?: string;
+    workspaceId?: string | null;
   }): Promise<any> {
     return this.request("/api/notebooks", { method: "POST", body: params });
   }
@@ -333,9 +364,10 @@ export class NowenApiClient {
 
   // ==================== 笔记 ====================
 
-  /** 获取笔记列表 */
+  /** 获取笔记列表；workspaceId 为 personal 或团队 ID，不传时由服务端按 Token 授权范围决定。 */
   async listNotes(params?: {
     notebookId?: string;
+    workspaceId?: string;
     isFavorite?: string;
     isTrashed?: string;
     tagId?: string;
@@ -392,36 +424,37 @@ export class NowenApiClient {
     });
   }
 
+  /** 目录写入都带上节点所在空间；后端会复核节点、父节点与该空间及 Token 授权一致。 */
   async createKnowledgeNode(params: {
     parentId: string | null; title: string; nodeType: "folder" | "markdown";
-  }): Promise<any> {
+  }, workspaceId = "personal"): Promise<any> {
     return this.request("/api/knowledge-tree/nodes", {
-      method: "POST", query: { workspaceId: "personal" }, body: params,
+      method: "POST", query: { workspaceId }, body: params,
     });
   }
 
   /** 版本预条件由后端 PAT 中间件在业务写入前验证。 */
-  async renameKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async renameKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
-      method: "PATCH", query: { workspaceId: "personal" }, body: payload,
+      method: "PATCH", query: { workspaceId }, body: payload,
     });
   }
 
-  async moveKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async moveKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/move`, {
-      method: "PUT", query: { workspaceId: "personal" }, body: payload,
+      method: "PUT", query: { workspaceId }, body: payload,
     });
   }
 
-  async trashKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async trashKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
-      method: "DELETE", query: { workspaceId: "personal", mode: "subtree" }, body: payload,
+      method: "DELETE", query: { workspaceId, mode: "subtree" }, body: payload,
     });
   }
 
-  async restoreKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async restoreKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/restore`, {
-      method: "POST", query: { workspaceId: "personal" }, body: payload,
+      method: "POST", query: { workspaceId }, body: payload,
     });
   }
 
@@ -548,6 +581,20 @@ export class NowenApiClient {
     });
   }
 
+  /** 删除预览：返回会被删除的全部任务和 revision，不修改数据。 */
+  async previewTaskDeletion(taskId: string, mode: "single" | "series"): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/deletion-preview`, { query: { mode } });
+  }
+
+  /** 永久删除个人任务（任务没有回收站）；服务端按预览 revision 校验，任务树有变化即拒绝。 */
+  async deleteTask(taskId: string, mode: "single" | "series", expectedRevision: string): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+      query: { mode },
+      body: { expectedRevision, confirmation: "DELETE_TASK" },
+    });
+  }
+
   /** MCP Token 的项目操作仅支持本人个人空间。 */
   async listTaskProjects(): Promise<any[]> {
     return this.request("/api/task-projects", { query: { workspaceId: "personal" } });
@@ -637,9 +684,9 @@ export class NowenApiClient {
 
   // ==================== 搜索 ====================
 
-  /** 全文搜索笔记 */
-  async search(q: string): Promise<any[]> {
-    return this.request("/api/search", { query: { q } });
+  /** 全文搜索笔记；不传 workspaceId 时 restricted Token 在全部授权笔记本内检索。 */
+  async search(q: string, workspaceId?: string): Promise<any[]> {
+    return this.request("/api/search", { query: { q, workspaceId } });
   }
 
   // ==================== 附件 / 文件 ====================

@@ -373,8 +373,12 @@ app.post("/cleanup-orphans", (c) => {
   let dbOrphanBytes = 0;
 
   if (dryRun) {
-    // 只统计将要回收的字节数（不区分 DB 行是否真的有物理文件——多数情况是有的）
-    for (const r of dbOrphanRows) dbOrphanBytes += r.size || 0;
+    // 预览与真实清理用同一套跳过规则，并如实计数；字节按登记大小估算。
+    for (const r of dbOrphanRows) {
+      if (attachmentDeletionRisk(r.id)) continue;
+      dbOrphansRemoved++;
+      dbOrphanBytes += r.size || 0;
+    }
   } else if (dbOrphanRows.length > 0) {
     // 阶段 B 后多条附件行可能共享同一 path。先删 DB 行；只有当本批删除集合以外
     // 没有任何行继续引用该 path 时，才 unlink 物理文件，避免误删活附件。
@@ -462,7 +466,11 @@ app.post("/cleanup-orphans", (c) => {
   let contentOrphanBytes = 0;
 
   if (dryRun) {
-    for (const r of contentOrphanRows) contentOrphanBytes += r.size || 0;
+    for (const r of contentOrphanRows) {
+      if (attachmentDeletionRisk(r.id)) continue;
+      contentOrphansRemoved++;
+      contentOrphanBytes += r.size || 0;
+    }
   } else if (contentOrphanRows.length > 0) {
     const orphanIds = new Set(contentOrphanRows.map((r) => r.id));
     const pathToRows = new Map<string, typeof contentOrphanRows>();

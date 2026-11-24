@@ -1,6 +1,6 @@
 import { readAiProvenance } from "@/lib/aiContentProvenance";
 import { AiProvenanceMark } from "@/components/extensions/AiProvenanceMark";
-﻿import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
+import { applyAgentTiptapChanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -49,6 +49,7 @@ import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 // 之所以从 @tiptap/extension-table 解构里去掉 TableRow，是因为下面要用扩展过的版本，
 // 同名导出会冲突。行高语义为"min-height"——内容超出仍会撑开。
 import { TableRowResizable } from "./extensions/TableRowResizable";
+import { AlignmentShortcuts } from "./extensions/AlignmentShortcuts";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
 import {
@@ -77,7 +78,8 @@ import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, ti
 import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
-import { api, resolveAttachmentUrl } from "@/lib/api";
+import { api, getServerUrl, resolveAttachmentUrl } from "@/lib/api";
+import { isNativeClientRuntime } from "@/lib/serverUrl";
 import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
 import { resolvePhotoUploadMime } from "@/lib/photoUploadMime";
 import {
@@ -88,6 +90,7 @@ import {
 import {
   buildEditedImageAttrs,
   buildReplacedImageAttrs,
+  getImageCopyOrigin,
   getImageCopySource,
   getImageDownloadFilename,
   getImageToolbarPosition,
@@ -109,6 +112,7 @@ import {
   shouldLocalizeUrl,
 } from "@/lib/remoteImageLocalizer";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   normalizeTiptapAttachmentSources,
   reportTransientNoteImageSource,
@@ -158,8 +162,12 @@ import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
+import { shouldHandleFormatEvent } from "@/lib/formatEventTarget";
 import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
+import { useTiptapEditorActions } from "@/components/editor-actions/tiptapEditorActions";
+import { useAIAssistantAnchor, type AIApplyOutcome } from "@/hooks/useAIAssistantAnchor";
+import { createTiptapEditorActionAdapter } from "@/lib/editorActions/tiptapAdapter";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
@@ -181,6 +189,7 @@ import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
 import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
 import { IndentExtension } from "@/lib/codeBlockIndent";
+import { insertTabSpaces, removeTabSpaces } from "@/lib/richTextTabSpaces";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
@@ -664,7 +673,8 @@ const BlockIdExtension = Extension.create({
 
 /**
  * 键盘扩展：
- *   - Tab / Shift-Tab：智能缩进 —— 代码块内插空格；列表内 sink/lift；表格内由 tiptap-table 处理；其余调块级 indent。
+ *   - Tab / Shift-Tab：智能缩进 —— 代码块内插空格；列表内 sink/lift；表格内由 tiptap-table 处理；
+ *     正文无选区时插入/删除 4 个空格；其余调块级 indent。
  *   - Mod-s：立即保存（由外部通过 ref 注入 flush 函数）。
  */
 function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void>) {
@@ -738,6 +748,13 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
             : editor.chain().focus().liftListItem("listItem").run();
           if (changed) normalizeAdjacentLists(editor);
           return true;
+        }
+
+        // 正文无选区时：Tab 插入 4 个空格，Shift+Tab 删除（Issue #915）。
+        // 有选区、或 Shift+Tab 没有可删的空格时，仍按块级视觉缩进处理。
+        if (editor.isEditable) {
+          const tabSpaces = delta === 1 ? insertTabSpaces : removeTabSpaces;
+          if (tabSpaces(editor.state, editor.view.dispatch)) return true;
         }
 
         // 仅普通块级内容使用视觉缩进。
@@ -1453,6 +1470,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
+  const aiAvailable = useAIConnectionAvailable();
+  useEffect(() => {
+    if (!aiAvailable) setShowAI(false);
+  }, [aiAvailable]);
+  // 助手打开时记下选区：结果回来后只往这段原文写入，笔记或原文变了就拒绝（见 useAIAssistantAnchor）。
+  const { capture: captureAIAnchor, apply: applyAIAnchor } = useAIAssistantAnchor(showAI, note.id);
   // 附件详情：内联可预览附件进入右侧抽屉；桌面本地办公附件优先交给系统程序打开。
   // 采用 attachmentId 走 api.files.get 拿完整详情（包含外链分享 / 重命名 / 引用列表），
   // 与文件管理抽屉体验一致。
@@ -1762,7 +1785,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         underline: false,
         // 行内代码（inline code）使用 StarterKit 默认实现：
         //   - 反引号 `text` 触发 input rule 自动转 code mark
-        //   - 快捷键 Mod-E（StarterKit 默认）切换
+        //   - 快捷键 Mod-Shift-E 切换（StarterKit 默认的 Mod-E 由 AlignmentShortcuts 改为居中）
         //   - Markdown 序列化为 `text`
         // 之前显式置 false 是为了配合 codeBlock 一起关，但代码里 IPC "code" 分支、
         // editor.isActive("code")、工具栏按钮都依赖这个 mark，缺失会导致空跑。
@@ -1888,6 +1911,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
+      AlignmentShortcuts,
       IndentExtension,
       LineHeightExtension,
       BlockIdExtension, // BLOCK-ID-01: heading blockId 稳定生成
@@ -3660,7 +3684,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   const handleCopySelectedImageSrc = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const origin = getImageCopyOrigin(
+      getServerUrl(),
+      typeof window !== "undefined" ? window.location.origin : "",
+      isNativeClientRuntime(),
+    );
     const src = getImageCopySource(attrs ?? {}, origin);
     if (!src) return;
     const ok = await copyText(src);
@@ -4374,6 +4402,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
    *   { mark: "bold" | "italic" | "underline" | "strike" | "code" }
    *   { node: "heading", level: 1..6 }
    *   { node: "paragraph" }
+   *   { align: "left" | "center" }（ShortcutRuntimeBridge 的 Ctrl/Cmd+L、Ctrl/Cmd+E）
    *
    * 为什么直接监听 window 事件（而不是通过 ref 暴露 runFormat）：
    *   - editor 是 TiptapEditor 闭包内变量，穿 ref 会污染 NoteEditorHandle 合约；
@@ -4390,8 +4419,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<FormatMenuPayload>).detail;
       if (!detail || editor.isDestroyed) return;
+      // 分屏时另一个编辑器有焦点就不处理，见 shouldHandleFormatEvent。
+      if (!shouldHandleFormatEvent(editor.view.dom)) return;
 
       const chain = editor.chain().focus();
+      if (detail.align === "left" || detail.align === "center") {
+        chain.setTextAlign(detail.align).run();
+        return;
+      }
       if (detail.mark) {
         switch (detail.mark) {
           case "bold":      chain.toggleBold().run();      break;
@@ -4947,7 +4982,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [editor]);
 
   const openAIAssistant = useCallback(() => {
-    if (!editor) return;
+    if (!aiAvailable || !editor) return;
     const { from, to } = editor.state.selection;
 
     // ⚠️ 关键修复：不要用 doc.textBetween(from, to) ——它只提取 text 节点的
@@ -4980,8 +5015,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const coords = editor.view.coordsAtPos(from);
     // The shared assistant clamps the anchor to the visual viewport.
     setAiPosition({ top: coords.top + 28, left: coords.left });
+    captureAIAnchor((getNoteId) => createTiptapEditorActionAdapter(editor, getNoteId));
     setShowAI(true);
-  }, [editor]);
+  }, [aiAvailable, captureAIAnchor, editor]);
 
   const openTaskCapture = useCallback(() => {
     if (!editor) return;
@@ -5077,17 +5113,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
   }, [editable, editor, isGuest, showPasteToast, t]);
 
-  const handleAIInsert = useCallback((text: string) => {
-    if (!editor) return;
-    const { to } = editor.state.selection;
-    insertWithMarkdownDetect(text, to, to);
-  }, [editor, insertWithMarkdownDetect]);
+  // 写入位置来自打开助手时记下的锚点，而不是此刻的选区；锚点失效时什么都不写。
+  const handleAIInsert = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("insert", ({ to }) => insertWithMarkdownDetect(text, to, to))
+  ), [applyAIAnchor, insertWithMarkdownDetect]);
 
-  const handleAIReplace = useCallback((text: string) => {
-    if (!editor) return;
-    const { from, to } = editor.state.selection;
-    insertWithMarkdownDetect(text, from, to);
-  }, [editor, insertWithMarkdownDetect]);
+  const handleAIReplace = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("replace", ({ from, to }) => insertWithMarkdownDetect(text, from, to))
+  ), [applyAIAnchor, insertWithMarkdownDetect]);
+
+  // Plugin editor actions (contract v5): slash items, toolbar/selection menus and the preview host.
+  const editorActions = useTiptapEditorActions(editor, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed), aiAvailable });
 
   // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
   const scrollContainerRef = useRef<HTMLElement | null>(null);
@@ -5718,6 +5754,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
+            {editorActions.menu("editor.toolbar.actions", { iconSize })}
           </>
         )}
       </div>
@@ -5933,9 +5970,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
-                <Sparkles size={14} className="text-violet-500" />
-              </ToolbarButton>
+              {aiAvailable && (
+                <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
+                  <Sparkles size={14} className="text-violet-500" />
+                </ToolbarButton>
+              )}
+              {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
         </div>
@@ -6719,7 +6759,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined)}
+        items={[...getDefaultSlashCommands(t, handleImageUpload, aiAvailable && !isGuest ? openAIAssistant : undefined, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined), ...editorActions.slashItems]}
       />
 
       <AttachmentLibraryPicker
@@ -6790,7 +6830,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* AI Writing Assistant */}
       <AnimatePresence>
-        {showAI && (
+        {aiAvailable && showAI && (
           <AIWritingAssistant
             selectedText={aiSelectedText}
             // fullText 作为上下文传给 AI（截前 2000 字），同样用 Markdown
@@ -6813,6 +6853,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           />
         )}
       </AnimatePresence>
+      {editorActions.host}
 
       {/* 移动端工具栏已迁移到主 Toolbar 之后，参考下方 mobileToolbarItems 渲染处 */}
     </div>

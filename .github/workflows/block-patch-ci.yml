@@ -163,6 +163,7 @@ jobs:
           tests/block-patch-list-structure-route.test.ts
           tests/block-patch-incremental-index.test.ts
           tests/block-patch-mixed-index.test.ts
+          tests/note-blocks-markdown-structures.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
 

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "keys": [
+    {
+      "id": "b990fb1fbb5232c1",
+      "createdAt": "2026-11-23",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAo54hB0dr1RnT10lLkHJB\n+5QQPrlKWw184llEKnYgVi4Ap/ps8zSS0VuASPpk0/Kx7ABTHO3e6fexBr9JBLL3\nAJRkABhYGv+FneBMJ1mgNYxxYKzFp61NKxHPAQKDVvNMmXzugqx2AZLR4spJnZnk\niNkuSpKh6iDlzYcQOPeCQbJN6kaCO+YFcUSS4Mmge+u6chztipy6X+wHZts/9EQ/\nsfUgHV4mzTuJWrpKLzLmAnrdBwHR4e2zwIipENTbOuzi5xbSCoZ0W01I/5WHO+xJ\nSUiwjtNpr4znNMtxQ4dVFIE3/J928COO8xJD3rzaMwoE6t6Liqs525y9qfV6AxAL\nNLz1v9MWso6mwQ1gGBuHXdthv1u5SYBEykKLiLkcIfcue7+eFQli2WCH0KlHV609\nAIooDX5JZnMl3rvF6jRIpcXOzbrm8AZqbc2AYP3Ty/DGlyLiOKlnnz0yzhLac6pb\nstytYsNHEdjEGfUs3L/jpyvvRe0lBKO6uF9r/IuAkekZAgMBAAE=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

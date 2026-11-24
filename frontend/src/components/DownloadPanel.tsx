@@ -200,7 +200,6 @@ export default function DownloadPanel() {
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("");
-  const [tag, setTag] = useState<string>("");
   const [htmlUrl, setHtmlUrl] = useState<string>("");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [reloadTick, setReloadTick] = useState(0);
@@ -230,7 +229,6 @@ export default function DownloadPanel() {
         const releaseTag = r.tag || (r.version ? `v${r.version}` : "");
         const visible = preferCorrectedFpk((r.assets || []).filter((a) => isUserDownloadAsset(a.name)));
         setVersion(r.version);
-        setTag(releaseTag);
         setHtmlUrl(r.htmlUrl);
         setAssets(visible.map(a => ({
           name: a.name,

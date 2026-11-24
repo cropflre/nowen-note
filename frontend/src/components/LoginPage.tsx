@@ -1,18 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, BookOpen, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
+import { BookOpen, Eye, EyeOff, Info, Loader2, Lock, Mail, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   clearServerUrl,
+  discoverNowenApiPath,
   fetchRegisterConfig,
   getServerUrl,
   registerAccount,
+  resolveWebSocketPathAfterLogin,
   setServerUrl,
-  testServerConnection,
-  type ServerProbeResult,
 } from "@/lib/api";
 import { buildServerUrl, getResolvedApiBaseUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
-import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
+import { fetchLoginRequest, LOGIN_ATTEMPT_TIMEOUT_MS, submitPasswordLogin } from "@/lib/loginRequest";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
@@ -45,6 +45,8 @@ interface LoginPageProps {
 
 type Mode = "login" | "register";
 type LoginStep = "password" | "twoFactor";
+/** 失败提示旁的唯一操作：连接故障重试，或打开原地址完成代理网关验证。 */
+type FailureAction = "retry" | "openWeb";
 
 function isMobileNativeClientRuntime(): boolean {
   try {
@@ -62,6 +64,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const serverProbeEpochRef = useRef(0);
+  const submitInFlightRef = useRef(false);
 
   useKeyboardLayout();
   const { height: keyboardHeight } = useKeyboardVisible();
@@ -74,8 +77,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     port: "",
     path: "",
   });
-  const [serverStatus, setServerStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
-  const [serverNotice, setServerNotice] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -93,9 +94,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [rememberMe, setRememberMe] = useState(isClientMode);
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState<{ message: string; action?: FailureAction } | null>(null);
+  const error = failure?.message ?? "";
+  const setError = useCallback((message: string, action?: FailureAction) => {
+    setFailure(message ? { message, action } : null);
+  }, []);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);
-  const [registerConfigRetry, setRegisterConfigRetry] = useState(0);
+  const [registerConfigRefresh, setRegisterConfigRefresh] = useState(0);
   const [localLoginHint, setLocalLoginHint] = useState<DesktopLocalLoginHint | null>(null);
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
   const pendingUgreenLoginRef = useRef(false);
@@ -130,7 +135,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
       pendingUgreenLoginRef.current = false;
       setIsAuthorizingUgreen(false);
-      setServerStatus("ok");
       setServerUrl(ready.serverUrl);
       localStorage.setItem("nowen-server-url-last", ready.serverUrl);
       setError("");
@@ -140,20 +144,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       if (!pendingUgreenLoginRef.current) return;
       pendingUgreenLoginRef.current = false;
       setIsAuthorizingUgreen(false);
-      setServerStatus("fail");
       setError(t("auth.ugreenAccess.cancelled"));
     });
     return () => {
       stopReady?.();
       stopCancelled?.();
     };
-  }, [t]);
+  }, [setError, t]);
 
   const handleHistoryReauth = (account: AccountLoginHistoryItem, message?: string) => {
     pendingReauthRef.current = { serverUrl: account.serverUrl, username: account.username };
     setServerParts(parseServerUrl(account.serverUrl));
     setServerUrl(account.serverUrl);
-    setServerStatus("ok");
+    setRegisterConfigRefresh((n) => n + 1);
     setUsername(account.username);
     setPassword("");
     setMode("login");
@@ -175,7 +178,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     const saved = getServerUrl() || localStorage.getItem("nowen-server-url-last") || "";
     if (saved) {
       setServerParts(parseServerUrl(saved));
-      setServerStatus("ok");
+      setRegisterConfigRefresh((n) => n + 1);
       return;
     }
     const isElectron = !!(window as any).nowenDesktop?.isDesktop;
@@ -191,11 +194,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     pendingReauthRef.current = pending;
     setServerParts(parseServerUrl(pending.serverUrl));
     setServerUrl(pending.serverUrl);
-    setServerStatus("ok");
+    setRegisterConfigRefresh((n) => n + 1);
     setUsername(pending.username);
     setMode("login");
     setError(t("auth.loginHistory.sessionExpired"));
-  }, [isClientMode, t]);
+  }, [isClientMode, setError, t]);
 
   useEffect(() => {
     if (!isClientMode) return;
@@ -226,7 +229,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       if (saved.serverUrl) {
         setServerParts(parseServerUrl(saved.serverUrl));
         setServerUrl(saved.serverUrl);
-        setServerStatus("ok");
+        setRegisterConfigRefresh((n) => n + 1);
       }
       if (saved.username) setUsername(saved.username);
       if (saved.password) setPassword(saved.password);
@@ -252,7 +255,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       }
     });
     return () => { cancelled = true; };
-  }, [isClientMode, serverStatus, registerConfigRetry]);
+  }, [isClientMode, registerConfigRefresh]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -281,74 +284,54 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   }, []);
 
   const submitDisabled = useMemo(() => {
-    if (isLoading || isAuthorizingUgreen || serverStatus === "checking") return true;
+    if (isLoading || isAuthorizingUgreen) return true;
     if (isTwoFactorStep) return false;
     // 绿联远程域名需要先在绿联网关页面完成认证；本地表单账号不会提交给网关。
     if (!isRegister && isMobileUgreenAddress) return false;
     if (!username.trim() || !password) return true;
-    if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, serverParts.host, serverStatus, username]);
+  }, [confirmPassword, isAuthorizingUgreen, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, username]);
 
-  const serverStatusIcon = () => {
-    if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
-    if (serverStatus === "ok") return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-    if (serverStatus === "fail") return <AlertCircle className="w-4 h-4 text-red-500" />;
-    return null;
-  };
-
-  const serverProbeError = (url: string, result: ServerProbeResult) => {
-    const diagnostic = result.diagnostic;
-    let reason = diagnostic
-      ? t(`auth.connectionIssues.${diagnostic.kind}`)
-      : result.error || t("server.connectFailed");
-    if (diagnostic?.expiresAt) reason += t("auth.connectionIssues.expiresAt", { date: new Date(diagnostic.expiresAt).toLocaleString() });
-    if (diagnostic?.kind === "certificateNotYetValid" && diagnostic.validFrom) {
-      reason += t("auth.connectionIssues.validFrom", { date: new Date(diagnostic.validFrom).toLocaleString() });
-    }
-    return t("auth.serverProbeFailed", { target: safeLoginRequestTarget(url), reason });
-  };
-
-  const handleServerBlur = async (resolved: ServerAddressParts) => {
+  // 失焦只读取该服务器的注册开关，不做连接探测；提交登录不等待它。
+  const handleServerBlur = (resolved: ServerAddressParts) => {
     if (!isClientMode) return;
-    const epoch = ++serverProbeEpochRef.current;
     const url = buildServerUrl(resolved);
-    if (!url) return;
-    // UGREENlink 的远程 Docker 域名会先跳转到网关认证页，不能按普通 API 健康检查判失败。
-    if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
-      setServerStatus("ok");
-      setServerUrl(url);
-      localStorage.setItem("nowen-server-url-last", url);
-      return;
-    }
-    setServerStatus("checking");
-    setServerNotice("");
+    if (!url || (isNativeMobileClient && isUgreenRemoteAccessUrl(url))) return;
+    const epoch = ++serverProbeEpochRef.current;
+    fetchRegisterConfig(url).then((cfg) => {
+      if (epoch !== serverProbeEpochRef.current) return;
+      const info = cfg as { allowRegistration: boolean; hasUsers?: boolean; userCount?: number };
+      setAllowRegistration(info.allowRegistration);
+      setHasUsers(!!info.hasUsers || Number(info.userCount || 0) > 0);
+    }).catch(() => {});
+  };
+
+  const commitServerUrl = (url: string) => {
+    if (!isClientMode || !url) return;
+    setServerUrl(url);
+    localStorage.setItem("nowen-server-url-last", url);
+  };
+
+  const retryAfterFailure = () => {
     setError("");
-    const result = await testServerConnection(url);
-    if (epoch !== serverProbeEpochRef.current) return;
-    setServerStatus(result.ok ? "ok" : "fail");
-    if (result.ok) {
-      const notices = [
-        t("server.connectionDiagnostics", {
-          apiPath: result.apiPath,
-          websocketPath: result.websocketPath,
-          mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
-        }),
-        result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
-          ? t("server.proxyCompatibilityEnabled", {
-            apiPath: result.proxyRewrittenApiPath || result.apiPath,
-            websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
-          })
-          : "",
-        result.websocketOk === false ? t("server.websocketUnavailable") : "",
-      ].filter(Boolean);
-      setServerNotice(notices.join(" "));
-      setServerUrl(url);
-      localStorage.setItem("nowen-server-url-last", url);
-      fetchRegisterConfig(url).then((cfg) => setAllowRegistration(cfg.allowRegistration)).catch(() => {});
-    } else {
-      setError(serverProbeError(url, result));
+    setServiceUnavailable(false);
+    setRegisterConfigRefresh((n) => n + 1);
+    if (!submitDisabled) formRef.current?.requestSubmit();
+  };
+
+  const openServerInBrowser = async () => {
+    const url = isClientMode ? buildServerUrl(serverParts) : (getServerUrl() || window.location.origin);
+    if (!url) return;
+    try {
+      if (isNativeMobileClient) {
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url });
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch (openError) {
+      console.warn("[login] failed to open server address", openError instanceof Error ? openError.name : "unknown");
     }
   };
 
@@ -364,65 +347,31 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       if (isNativeMobileClient) {
         pendingUgreenLoginRef.current = false;
         setIsAuthorizingUgreen(false);
-        setServerStatus("ok");
       }
     } catch (openError) {
       console.error("[login] failed to open UGREEN authentication", openError);
       pendingUgreenLoginRef.current = false;
       setIsAuthorizingUgreen(false);
-      setServerStatus("fail");
       setError(t("auth.ugreenAccess.openFailed"));
     }
   };
 
+  /** 只解析用户选定的入口，不做提交前的健康检查或 WebSocket 探测。 */
   const resolveBaseUrl = async (): Promise<string | null> => {
     if (!isClientMode) return getServerUrl();
-    const epoch = ++serverProbeEpochRef.current;
+    serverProbeEpochRef.current += 1;
     const url = buildServerUrl(serverParts);
     if (!url) {
-      setError(t("auth.serverRequired"));
+      setError(t("auth.serverAddressInvalid"));
       return null;
     }
     // Android 原生 HTTP 无法完成绿联网关的交互式 302 认证。
     // 对可信 UGREENlink 域名直接打开远程 Web 工作台，且不发送 Nowen 账号密码。
     if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
-      setServerStatus("ok");
-      setServerUrl(url);
-      localStorage.setItem("nowen-server-url-last", url);
+      commitServerUrl(url);
       await beginUgreenAuthorization(url);
       return null;
     }
-    setServerStatus("checking");
-    setServerNotice("");
-    const result = await testServerConnection(url);
-    if (epoch !== serverProbeEpochRef.current) return null;
-    if (!result.ok) {
-      if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
-        await beginUgreenAuthorization(url);
-        return null;
-      }
-      setServerStatus("fail");
-      setError(serverProbeError(url, result));
-      return null;
-    }
-    setServerStatus("ok");
-    const notices = [
-      t("server.connectionDiagnostics", {
-        apiPath: result.apiPath,
-        websocketPath: result.websocketPath,
-        mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
-      }),
-      result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
-        ? t("server.proxyCompatibilityEnabled", {
-          apiPath: result.proxyRewrittenApiPath || result.apiPath,
-          websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
-        })
-        : "",
-      result.websocketOk === false ? t("server.websocketUnavailable") : "",
-    ].filter(Boolean);
-    setServerNotice(notices.join(" "));
-    setServerUrl(url);
-    localStorage.setItem("nowen-server-url-last", url);
     return url;
   };
 
@@ -460,7 +409,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setMode("login");
     setLoginStep("password");
     setServerParts(parseServerUrl(localLoginHint.serverUrl));
-    setServerStatus("ok");
+    setRegisterConfigRefresh((n) => n + 1);
     setServerUrl(localLoginHint.serverUrl);
     localStorage.setItem("nowen-server-url-last", localLoginHint.serverUrl);
     setUsername(localLoginHint.username);
@@ -474,8 +423,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     (onAccountLogin || onLogin)(token, switchedUser);
   };
 
+  const completeLogin = async (baseUrl: string, data: { token: string; refreshToken?: string; user: AuthUser }, loginUsername: string) => {
+    commitServerUrl(baseUrl);
+    await persistRememberedLogin(baseUrl);
+    storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+    await completeLocalLoginHintIfMatched(baseUrl, data.user?.username || loginUsername);
+    // WebSocket 放到登录后在后台确认；异常由工作台里的实时连接状态提示，不阻塞进入。
+    if (isClientMode) void resolveWebSocketPathAfterLogin(baseUrl).catch(() => false);
+    onLogin(data.token, data.user);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 同一时间只允许一个登录请求，避免连点或回车触发并发提交。
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setError("");
     setServiceUnavailable(false);
     setIsLoading(true);
@@ -496,6 +458,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           setError(t("auth.passwordMismatch"));
           return;
         }
+        // 注册前在同一入口下确认可用的 Nowen API 路径（无凭据）。
+        if (isClientMode && !(await discoverNowenApiPath(baseUrl).catch(() => null))) {
+          setError(t("auth.serverUnreachable"), "retry");
+          return;
+        }
         let data: Awaited<ReturnType<typeof registerAccount>>;
         try {
           data = await registerAccount({
@@ -505,78 +472,62 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             displayName: displayName.trim() || undefined,
           }, baseUrl || undefined);
         } catch (err: any) {
-          if (!isClientMode && (err?.name === "TypeError" || err?.status >= 500)) setServiceUnavailable(true);
+          if (err?.name === "TypeError" || err?.status >= 500) setError(t("auth.serverUnreachable"), "retry");
           else setError(err?.status >= 400 && err?.status < 500 ? err.message || t("auth.registerFailed") : t("auth.registerFailed"));
           return;
         }
+        commitServerUrl(baseUrl);
         storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
         await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
         onLogin(data.token, data.user);
         return;
       }
 
-      const loginUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/login`;
       const { getDeviceId } = await import("@/lib/deviceId");
-      const target = safeLoginRequestTarget(loginUrl);
-      let res: Response;
-      try {
-        res = await fetch(loginUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
-        });
-      } catch {
-        console.error("[login] no HTTP response");
-        if (isClientMode) setError(t("auth.loginNoResponse", { target }));
-        else setServiceUnavailable(true);
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (!isClientMode) {
-          if (res.status >= 500) setServiceUnavailable(true);
-          else setError(data.error || t("auth.loginFailed"));
+      const result = await submitPasswordLogin({
+        serverUrl: baseUrl,
+        credentials: { username: username.trim(), password, deviceId: getDeviceId() },
+        retryWithoutResponse: isClientMode,
+      });
+
+      switch (result.kind) {
+        case "success":
+          await completeLogin(baseUrl, result, username.trim());
           return;
-        }
-        setError(t("auth.loginHttpError", {
-          status: res.status,
-          target,
-          reason: data.error || t("auth.loginFailed"),
-        }));
+        case "twoFactor":
+          setTwoFactorTicket(result.ticket);
+          setTwoFactorUsername(result.username || username.trim());
+          setTwoFactorBaseUrl(baseUrl);
+          setTwoFactorCode("");
+          setLoginStep("twoFactor");
+          return;
+        case "invalidCredentials":
+          setError(t("auth.invalidCredentials"));
+          return;
+        case "refused":
+          // 锁定、限流、禁用等由服务端给出带时长的具体提示。
+          setError(result.message || t("auth.loginFailed"));
+          return;
+      }
+      // 绿联桌面端继续走已有的网关授权窗口，授权完成后自动重新提交。
+      if (isDesktopClient && isUgreenRemoteAccessUrl(baseUrl)) {
+        await beginUgreenAuthorization(baseUrl);
         return;
       }
-
-      const requiresTwoFactor = data.requires2FA || data.requiresTwoFactor || data.twoFactorRequired;
-      if (requiresTwoFactor && data.ticket) {
-        setTwoFactorTicket(data.ticket);
-        setTwoFactorUsername(data.username || username.trim());
-        setTwoFactorBaseUrl(baseUrl || "");
-        setTwoFactorCode("");
-        setLoginStep("twoFactor");
-        setError("");
-        return;
-      }
-
-      if (!data.token || !data.user) {
-        setError(t("auth.loginFailed"));
-        return;
-      }
-
-      await persistRememberedLogin(baseUrl || "");
-      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
-      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
-      onLogin(data.token, data.user);
+      if (result.kind === "gateway") setError(t("auth.gatewayVerificationRequired"), "openWeb");
+      else setError(t("auth.serverUnreachable"), "retry");
     } catch (err: any) {
       console.error("[login] setup or session failed", { name: err?.name || "unknown" });
-      if (!isClientMode && (err?.name === "TypeError" || err?.status >= 500)) setServiceUnavailable(true);
-      else setError(t("auth.loginSessionError"));
+      setError(t("auth.loginSessionError"));
     } finally {
       setIsLoading(false);
+      submitInFlightRef.current = false;
     }
   };
 
   const handleTwoFactorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInFlightRef.current) return;
     if (!twoFactorTicket) {
       setLoginStep("password");
       setError(t("auth.twoFactor.ticketExpired"));
@@ -587,6 +538,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return;
     }
 
+    submitInFlightRef.current = true;
     setIsLoading(true);
     setError("");
     setServiceUnavailable(false);
@@ -595,7 +547,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : getServerUrl());
       const verifyUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`;
       const { getDeviceId } = await import("@/lib/deviceId");
-      const res = await fetch(verifyUrl, {
+      const init: RequestInit = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -603,14 +555,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           code: twoFactorCode.trim(),
           deviceId: getDeviceId(),
         }),
-      });
+        redirect: "manual",
+      };
+      let res: Response;
+      try {
+        // 客户端偶发第一次请求无响应，自动补发一次；网页端同源请求不补发。
+        res = isClientMode
+          ? await fetchLoginRequest(verifyUrl, init, { timeoutMs: LOGIN_ATTEMPT_TIMEOUT_MS })
+          : await fetch(verifyUrl, init);
+      } catch {
+        setError(t("auth.serverUnreachable"), "retry");
+        return;
+      }
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        if (!isClientMode && res.status >= 500) {
-          setServiceUnavailable(true);
-          return;
-        }
         if (data.code === "TFA_TICKET_EXPIRED") {
           setLoginStep("password");
           setTwoFactorTicket("");
@@ -623,6 +582,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           setError(t("auth.twoFactor.verifyFailed"));
           return;
         }
+        if (res.status >= 500 || typeof data.error !== "string") {
+          setError(t("auth.serverUnreachable"), "retry");
+          return;
+        }
         setError(data.error || t("auth.twoFactor.verifyFailed"));
         return;
       }
@@ -632,15 +595,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         return;
       }
 
-      await persistRememberedLogin(baseUrl || "");
-      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
-      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || twoFactorUsername || username.trim());
-      onLogin(data.token, data.user);
-    } catch (err: any) {
-      if (!isClientMode) setServiceUnavailable(true);
-      else setError(err?.message || t("auth.networkError"));
+      await completeLogin(baseUrl || "", data, twoFactorUsername || username.trim());
+    } catch (err) {
+      console.error("[login] two-factor session failed", { name: err instanceof Error ? err.name : "unknown" });
+      setError(t("auth.loginSessionError"));
     } finally {
       setIsLoading(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -656,8 +617,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     clearServerUrl();
     clearAuthTokens();
     setServerParts({ protocol: "http", host: "", port: "", path: "" });
-    setServerStatus("idle");
-    setServerNotice("");
     setUsername("");
     setPassword("");
     setConfirmPassword("");
@@ -685,13 +644,32 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setTwoFactorCode("");
   };
 
+  // 每次失败只显示一条简短提示；网页端首次加载失败也在这里提示重试。
+  const failureMessage = error || (!isClientMode && serviceUnavailable ? t("auth.serverUnreachable") : "");
+  const failureAction = error ? failure?.action : serviceUnavailable ? "retry" : undefined;
+  const failureNotice = failureMessage ? (
+    <div role="alert" data-login-failure className="flex items-start gap-2 text-sm leading-5 text-zinc-600 dark:text-zinc-300">
+      <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden="true" />
+      <p className="min-w-0 flex-1 break-words">{failureMessage}</p>
+      {failureAction && (
+        <button
+          type="button"
+          onClick={failureAction === "retry" ? retryAfterFailure : () => void openServerInBrowser()}
+          className="flex-shrink-0 font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+        >
+          {failureAction === "retry" ? t("auth.retryConnection") : t("auth.openInBrowser")}
+        </button>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div
       ref={scrollContainerRef}
-      className="flex flex-col items-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden"
+      // 高度必须用类：旧版 WebView 不认识 dvh，会直接丢掉内联值，index.css 的 vh 回退只能作用于类。
+      // 一旦没有高度上限，页面无法滚动，表单较长时「登录工作台」按钮会被挤出屏幕。
+      className="flex flex-col items-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden min-h-[100dvh] max-h-[100dvh]"
       style={{
-        minHeight: "100dvh",
-        maxHeight: "100dvh",
         paddingTop: "var(--safe-area-top)",
         paddingBottom: `calc(var(--safe-area-bottom) + ${keyboardHeight}px)`,
       }}
@@ -799,19 +777,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             )}
           </AnimatePresence>
 
-          {!isClientMode && serviceUnavailable && (
-            <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400">
-              <p>{t("auth.serviceUnavailable")}</p>
-              <button type="button" onClick={() => {
-                setError("");
-                setServiceUnavailable(false);
-                setRegisterConfigRetry((attempt) => attempt + 1);
-              }} className="mt-2 font-medium underline underline-offset-2">
-                {t("auth.retryConnection")}
-              </button>
-            </div>
-          )}
-
           <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
             {isTwoFactorStep ? (
               <>
@@ -833,14 +798,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.twoFactor.codeHint")}</p>
                 </div>
 
-                <AnimatePresence>
-                  {error && (
-                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                      <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {failureNotice}
 
                 <button
                   type="submit"
@@ -869,31 +827,14 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     onChange={(next) => {
                       serverProbeEpochRef.current += 1;
                       setServerParts(next);
-                      if (serverStatus === "fail") setError("");
-                      if (serverStatus !== "idle") setServerStatus("idle");
-                      if (serverNotice) setServerNotice("");
+                      if (failure?.action) setError("");
                     }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
                     disabled={isLoading}
                     accent="indigo"
-                    rightSlot={serverStatusIcon()}
                   />
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
-                  <button
-                    type="button"
-                    disabled={!serverParts.host || serverStatus === "checking" || isLoading}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void handleServerBlur(serverParts)}
-                    className="text-xs text-indigo-600 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400 dark:hover:text-indigo-300"
-                  >
-                    {t("auth.recheckConnection")}
-                  </button>
-                  {serverNotice && (
-                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
-                      {serverNotice}
-                    </p>
-                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -999,14 +940,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               </label>
             )}
 
-            <AnimatePresence>
-              {error && (
-                <motion.div role={isClientMode ? "alert" : undefined} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                  <p className="min-w-0 break-words text-sm text-red-600 dark:text-red-400">{error}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {failureNotice}
 
             {isAuthorizingUgreen && (
               <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300">
@@ -1019,7 +953,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               disabled={submitDisabled}
               className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
             >
-              {isLoading || isAuthorizingUgreen
+              {isLoading && !isRegister && !isAuthorizingUgreen
+                ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t("auth.signingIn")}</>
+                : isLoading || isAuthorizingUgreen
                 ? <Loader2 className="w-4 h-4 animate-spin" />
                 : isRegister
                   ? t("auth.registerButton")

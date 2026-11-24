@@ -46,6 +46,9 @@ export interface CallAIOptions {
   response_format?: { type: "json_object" };
 }
 
+// Reasoning and the visible answer share the output budget, even for short tasks.
+export const AI_SHORT_TASK_MAX_TOKENS = 4096;
+
 const FINAL_MARKER_RE = /(?:^|\n)\s*(最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]\s*/gi;
 const QUOTE_RE = /^[\s"'"'"''''「」『』《》#*`\-\:：]+|[\s"'"'"''''「」『』《》#*`\-\:：。.!！?？]+$/g;
 
@@ -249,7 +252,13 @@ export async function callAIChat(
   const res = await requestAIChat(settings, messages, options);
   settings = responseSettings.get(res) || settings;
   if (!res.ok) throw new Error(`AI 服务错误 (${settings.ai_provider}): ${res.status} ${await res.text()}`);
-  return normalizeAiAssistantMessage(await readAIResponse(res));
+  const data = await readAIResponse(res);
+  const text = normalizeAiAssistantMessage(data);
+  const choice = Array.isArray(data.choices) ? data.choices[0] : undefined;
+  if (!text && (choice?.finish_reason === "length" || data.stop_reason === "max_tokens")) {
+    throw new Error("模型输出已达到 token 上限，但未返回可展示文本（推理过程可能已耗尽预算）。请降低模型推理强度或更换模型后重试。");
+  }
+  return text;
 }
 
 /** Text deltas only; thinking and tool-use blocks are never exposed as final text. */

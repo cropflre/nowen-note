@@ -4,13 +4,14 @@ vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
 }));
 
-// Connection probing has its own integration suite; these cases exercise the
-// token/credential transitions after the target server has been validated.
+// Switching no longer probes /health first; compatible-path discovery is only
+// used when /me returns a non-Nowen response and is stubbed per case here.
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/api")>(),
-  testServerConnection: vi.fn(async () => ({ ok: true })),
+  discoverNowenApiPath: vi.fn(async () => null),
 }));
 
+import { discoverNowenApiPath } from "@/lib/api";
 import { switchAccountLogin } from "@/lib/accountLoginSwitch";
 import type { AccountLoginHistoryItem } from "@/lib/accountLoginHistory";
 import { isMobileAccountLoginRequested, isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
@@ -168,6 +169,38 @@ describe("账号历史切换", () => {
     expect(localStorage.getItem("nowen-token")).toBe("fresh-token");
   });
 
+  it("用已保存密码重新登录时第一次没有响应，自动补发一次", async () => {
+    installDesktopHistory("revoked-token", {
+      serverUrl: account.serverUrl,
+      username: account.username,
+      password: "remembered-secret",
+      hasPassword: true,
+      autoLogin: false,
+    });
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: "SESSION_REVOKED",
+        error: "该会话已被下线",
+      }), { status: 401, headers: { "Content-Type": "application/json" } }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        token: "fresh-token",
+        user: { id: "user-1", username: "alice", displayName: "Alice" },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const result = await switchAccountLogin(account);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy).toHaveBeenNthCalledWith(3,
+      "https://notes.example.com/api/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result.status).toBe("switched");
+    expect(localStorage.getItem("nowen-token")).toBe("fresh-token");
+    warnLog.mockRestore();
+  });
+
   it("已标记需重登的历史账号可直接使用匹配的已保存密码", async () => {
     installDesktopHistory("", {
       serverUrl: account.serverUrl,
@@ -189,5 +222,37 @@ describe("账号历史切换", () => {
 
     expect(result.status).toBe("switched");
     expect(localStorage.getItem("nowen-token")).toBe("fresh-token");
+  });
+  it("不先探测 /health；/me 返回代理页面时在同一入口发现兼容路径后再校验", async () => {
+    vi.mocked(discoverNowenApiPath).mockResolvedValueOnce({
+      mode: "public-prefix",
+      serverBaseUrl: "https://notes.example.com",
+      apiBaseUrl: "https://notes.example.com/public/api",
+      apiPath: "/public/api",
+      websocketUrl: "wss://notes.example.com/public/ws",
+      websocketPath: "/public/ws",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("<html>Lucky</html>", { status: 200, headers: { "Content-Type": "text/html" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "user-1", username: "alice" }), { status: 200 }));
+
+    const result = await switchAccountLogin(account);
+
+    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+      "https://notes.example.com/api/me",
+      "https://notes.example.com/public/api/me",
+    ]);
+    expect(discoverNowenApiPath).toHaveBeenCalledWith(account.serverUrl, "https://notes.example.com/api");
+    expect(result.status).toBe("switched");
+  });
+
+  it("/me 返回代理页面且找不到 Nowen 路径时保持当前会话不变", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<html>gateway</html>", { status: 200 }));
+
+    const result = await switchAccountLogin(account);
+
+    expect(result.status).toBe("network_error");
+    expect(localStorage.getItem("nowen-token")).toBe("current-token");
+    expect(localStorage.getItem("nowen-server-url")).toBe("https://current.example.com");
   });
 });

@@ -5,7 +5,7 @@ import { getDb } from "../db/schema.js";
 import { AppError } from "../lib/app-error.js";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
 import { userAISettingsRepository } from "../repositories/userAISettingsRepository.js";
-import { callAIChat, sanitizeError } from "../services/ai-client.js";
+import { AI_SHORT_TASK_MAX_TOKENS, callAIChat, sanitizeError } from "../services/ai-client.js";
 import { redactAICredentials } from "../services/ai-provider-config.js";
 import {
   ACTIVE_SHARED_AI_KEY, activateSharedAIProfile, deleteSharedAIProfile, getSharedAIProfile,
@@ -35,13 +35,17 @@ app.onError((error, c) => {
 
 app.get("/profiles/available", async (c) => {
   const userId = c.req.header("X-User-Id")!;
-  const personal = ensureAIProfiles(userId);
+  const activeOnly = c.req.query("activeOnly") === "1";
+  const personal = ensureAIProfiles(userId, !activeOnly);
   const sharedProfiles = listSharedAIProfiles(userId);
-  const remote = c.req.header("X-Nowen-Shared-Directory") === "local"
+  const activeSharedId = () => userAISettingsRepository.get(userId, ACTIVE_SHARED_AI_KEY)?.value || "";
+  const localOnly = c.req.header("X-Nowen-Shared-Directory") === "local"
+    || (activeOnly && !getRemoteSharedSelectionId(activeSharedId()));
+  const remote = localOnly
     ? { profiles: [] }
     : await listRemoteSharedProfiles(userId);
   const shared = [...sharedProfiles, ...remote.profiles];
-  const raw = userAISettingsRepository.get(userId, ACTIVE_SHARED_AI_KEY)?.value || "";
+  const raw = activeSharedId();
   const sharedId = getRemoteSharedSelectionId(raw) || raw;
   return c.json({
     personalProfiles: personal.profiles.map(publicAIProfile), sharedProfiles: shared,
@@ -89,7 +93,7 @@ app.post("/shared-profiles/:id/test", async (c) => {
   const profile = getSharedAIProfile(c.req.param("id"));
   if (!profile) throw new SharedAIProfileError("AI_SHARED_PROFILE_NOT_FOUND", "共享配置不存在", 404);
   try {
-    await callAIChat(sharedProfileSettings(profile), [{ role: "user", content: "Hi" }], { max_tokens: 16, timeout_ms: 20_000 });
+    await callAIChat(sharedProfileSettings(profile), [{ role: "user", content: "Hi" }], { max_tokens: AI_SHORT_TASK_MAX_TOKENS, timeout_ms: 20_000 });
     return c.json({ success: true, message: "连接成功" });
   } catch (error) {
     return c.json({ success: false, code: "AI_UPSTREAM_ERROR", error: sanitizeError(redactAICredentials(

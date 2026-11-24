@@ -1,4 +1,5 @@
 import { enMigrationTranslations, zhCNMigrationTranslations } from "./migrationTranslations";
+import { enAIMemoryTranslations, zhCNAIMemoryTranslations } from "./aiMemoryTranslations";
 import { enAssetAITranslations, zhCNAssetAITranslations } from "./assetAITranslations";
 import { enAICollaborationTranslations, zhCNAICollaborationTranslations } from "./aiCollaborationTranslations";
 import { enAssetReliabilityTranslations, zhCNAssetReliabilityTranslations } from "./assetReliabilityTranslations";
@@ -57,7 +58,11 @@ import { enTaskComposerTranslations, zhCNTaskComposerTranslations } from "./task
 import { enFileExplorerTranslations, zhCNFileExplorerTranslations } from "./fileExplorerTranslations";
 import { enTaskRemovalTranslations, zhCNTaskRemovalTranslations } from "./taskRemovalTranslations";
 import { enPluginAppTranslations, zhCNPluginAppTranslations } from "./pluginAppTranslations";
+import { enExtensionCenterTranslations, zhCNExtensionCenterTranslations } from "./extensionCenterTranslations";
+import { enEditorActionTranslations, zhCNEditorActionTranslations } from "./editorActionTranslations";
 import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
+import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "./mcpConnectTranslations";
+import { enPreferencesTranslations, zhCNPreferencesTranslations } from "./preferencesTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
@@ -99,8 +104,13 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNAICollaborationTranslations,
   zhCNTaskRemovalTranslations,
   zhCNPluginAppTranslations,
+  zhCNExtensionCenterTranslations,
+  zhCNEditorActionTranslations,
   zhCNAutomationTranslations,
   zhCNMigrationTranslations,
+  zhCNAIMemoryTranslations,
+  zhCNMcpConnectTranslations,
+  zhCNPreferencesTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -127,8 +137,13 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enAICollaborationTranslations,
   enTaskRemovalTranslations,
   enPluginAppTranslations,
+  enExtensionCenterTranslations,
+  enEditorActionTranslations,
   enAutomationTranslations,
   enMigrationTranslations,
+  enAIMemoryTranslations,
+  enMcpConnectTranslations,
+  enPreferencesTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

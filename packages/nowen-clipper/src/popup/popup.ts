@@ -11,6 +11,7 @@ import {
 } from "../lib/storage";
 import { listNotebooks, listWorkspaces, type NotebookSummary, type WorkspaceSummary } from "../lib/api";
 import { describeRuntimeMessageError } from "../lib/runtime-message-error";
+import { initAIConversationPanel } from "../ai-conversations/popup";
 import type {
   AIEnhanceMode,
   AIEnhanceTasks,
@@ -66,6 +67,7 @@ async function init() {
   byId("page-title").setAttribute("title", pageTitle);
 
   await loadLocations();
+  initAIConversationPanel(activeTab);
   bindEvents();
   updateModeUi();
 }

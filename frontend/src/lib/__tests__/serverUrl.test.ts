@@ -5,6 +5,7 @@ import {
   inferBrowserServerBaseUrl,
   isLanServerHostname,
   isLoopbackServerHostname,
+  isUnencryptedRemoteServerUrl,
   isValidServerUrl,
   normalizeServerBaseUrl,
   parseServerUrl,
@@ -345,6 +346,34 @@ describe("IPv6 server URL support", () => {
     expect(isLanServerHostname("note.nowen.cn")).toBe(false);
     expect(isLanServerHostname("8.8.8.8")).toBe(false);
     expect(isLanServerHostname("240e:1234::1")).toBe(false);
+  });
+});
+
+// =====================================================================
+//  isUnencryptedRemoteServerUrl
+// =====================================================================
+describe("isUnencryptedRemoteServerUrl", () => {
+  it.each([
+    "http://192.168.1.10:3001",
+    "http://nas:3001",
+    "http://note.example.com/nowen",
+    "http://[240e:3a1:4c8f::1]:3001",
+  ])("明文 HTTP 连到其他设备：%s", (url) => {
+    expect(isUnencryptedRemoteServerUrl(url)).toBe(true);
+  });
+
+  it.each([
+    "https://note.example.com",
+    "https://192.168.1.10",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://[::1]:3001",
+    "http://nowen.localhost:5173",
+    "",
+    null,
+    "192.168.1.10:3001",
+  ])("加密、本机或无法解析的地址不算：%s", (url) => {
+    expect(isUnencryptedRemoteServerUrl(url)).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmbeddedMcpStatus } from "@/lib/api";
+import i18n from "@/i18n";
 
 const mocks = vi.hoisted(() => ({ scope: "user-a", current: vi.fn(), notebooks: vi.fn(), list: vi.fn(), enable: vi.fn(), create: vi.fn(), revoke: vi.fn(), probe: vi.fn(), copy: vi.fn(), changed: vi.fn() }));
 vi.mock("@/lib/offlineScope", () => ({ getOfflineQueueStorageKey: () => mocks.scope }));
@@ -35,7 +36,8 @@ const toggleBook = async (name: string) => { await act(async () => {
   label.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
 }); };
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.resetAllMocks(); mocks.scope = "user-a";
   mocks.current.mockReturnValue(true);
@@ -94,7 +96,7 @@ describe("simple AI connection flow", () => {
     await setExpiry(""); await click("连接");
     expect(mocks.create.mock.calls[0][0].expiresInDays).toBeUndefined();
   });
-  it("starts with all notebooks selected and keeps the primary flow free of credential fields", async () => {
+  it("starts with all personal notebooks selected and keeps the primary flow free of credential fields", async () => {
     await render();
     expect(host.querySelector('input[type="password"]')).toBeNull();
     expect(button("连接").disabled).toBe(false);
@@ -104,10 +106,10 @@ describe("simple AI connection flow", () => {
     expect(host.querySelectorAll("select")).toHaveLength(1);
     expect([...host.querySelectorAll("optgroup")].map(group => group.label)).toEqual(["国内助手", "其他助手"]);
     expect(host.textContent).not.toMatch(/高级设置|访问令牌|完整配置|MCP|JSON/);
-    await toggleBook("全部笔记");
+    await toggleBook("个人空间");
     expect(button("连接").disabled).toBe(true);
     expect(boxes.every(node => !node.checked)).toBe(true);
-    await toggleBook("全部笔记");
+    await toggleBook("个人空间");
     expect(button("连接").disabled).toBe(false);
     expect(boxes.every(node => node.checked)).toBe(true);
   });
@@ -256,6 +258,108 @@ describe("simple AI connection flow", () => {
     expect(button("复制给 Claude Code")).toBeUndefined();
     expect(button("连接")).toBeDefined();
   });
+  describe("team spaces", () => {
+    const teamBooks = [
+      { id: "mine", name: "我的笔记", parentId: null, canWrite: true, workspaceId: null, workspaceName: null, shared: false },
+      { id: "shared", name: "他人共享", parentId: null, canWrite: false, workspaceId: null, workspaceName: null, shared: true },
+      { id: "docs", name: "项目文档", parentId: null, canWrite: true, workspaceId: "ws-prod", workspaceName: "产品研发团队" },
+      { id: "spec", name: "技术方案", parentId: "docs", canWrite: true, workspaceId: "ws-prod", workspaceName: "产品研发团队" },
+      { id: "ops", name: "运营资料", parentId: null, canWrite: false, workspaceId: "ws-ops", workspaceName: "运营团队" },
+    ];
+    const group = (name: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${name}"]`)!;
+    const expand = async (name: string) => { await act(async () => {
+      group(name).querySelector<HTMLButtonElement>("button[aria-expanded]")!.click();
+    }); };
+    const checked = () => [...host.querySelectorAll<HTMLInputElement>('label input[type="checkbox"]')]
+      .filter(input => input.checked && !input.getAttribute("aria-label")).map(input => input.closest("label")!.querySelector("span")!.textContent);
+
+    it("groups notebooks by space and only preselects the user's personal notebooks", async () => {
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      await render();
+      expect([...host.querySelectorAll('[role="group"]')].map(node => node.getAttribute("aria-label")))
+        .toEqual(["个人空间", "与我共享", "产品研发团队", "运营团队"]);
+      expect(host.textContent).toContain("团队空间");
+      expect(group("产品研发团队").querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
+      expect(group("产品研发团队").textContent).not.toContain("项目文档");
+      expect(group("运营团队").textContent).toContain("只读");
+      expect(checked()).toEqual(["我的笔记"]);
+      expect(host.textContent).not.toContain("AI 助手将可以访问你选中的团队笔记");
+      await expand("产品研发团队");
+      expect(group("产品研发团队").textContent).toContain("项目文档");
+      expect(group("产品研发团队").textContent).toContain("可编辑");
+      await click("连接");
+      expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ notebooks: [{ id: "mine", canWrite: true }], writable: true }), expect.any(AbortSignal));
+    });
+
+    it("selects one team notebook, warns once and passes exactly that grant", async () => {
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      await render();
+      await expand("产品研发团队");
+      await toggleBook("项目文档");
+      expect(host.querySelector('[role="note"]')!.textContent).toBe("AI 助手将可以访问你选中的团队笔记。请确认团队内容允许接入该助手。");
+      const all = group("产品研发团队").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      expect(all.indeterminate).toBe(true);
+      await click("连接");
+      expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+        writable: true, notebooks: [{ id: "mine", canWrite: true }, { id: "docs", canWrite: true }],
+      }), expect.any(AbortSignal));
+    });
+
+    it("selects or clears a whole team without touching other spaces", async () => {
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      await render();
+      await toggleBook("产品研发团队");
+      await expand("产品研发团队");
+      expect(checked()).toEqual(["我的笔记", "项目文档", "技术方案"]);
+      expect(group("产品研发团队").textContent).toContain("已选 2/2");
+      await toggleBook("产品研发团队");
+      expect(checked()).toEqual(["我的笔记"]);
+    });
+
+    it("labels an all read-only selection as a read-only connection and does not request write access", async () => {
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      await render({ ...status, allowWrite: false, canManage: false });
+      expect(button("连接").disabled).toBe(true);
+      await toggleBook("个人空间");
+      await toggleBook("运营团队");
+      expect(host.textContent).toContain("只读连接：你对所选笔记本只有查看权限");
+      expect(host.textContent).not.toContain("请联系管理员");
+      expect(button("连接").disabled).toBe(false);
+      await click("连接");
+      expect(mocks.enable).not.toHaveBeenCalled();
+      expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ writable: false, notebooks: [{ id: "ops", canWrite: false }] }), expect.any(AbortSignal));
+      expect(host.textContent).toContain("只读连接");
+      expect(host.textContent).toContain("准备好了");
+    });
+
+    it("shows the server error and no success state when creating the team grant fails", async () => {
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      const { McpConnectionError } = await import("@/lib/mcpConnections");
+      mocks.create.mockRejectedValueOnce(new McpConnectionError("forbidden", "当前账号没有连接权限，请联系管理员"));
+      await render();
+      await toggleBook("产品研发团队");
+      await click("连接");
+      expect(host.querySelector('[role="alert"]')!.textContent).toBe("当前账号没有连接权限，请联系管理员");
+      expect(mocks.probe).not.toHaveBeenCalled();
+      expect(host.textContent).not.toContain("准备好了");
+      expect(button("复制给 Claude Code")).toBeUndefined();
+      expect(button("连接").disabled).toBe(false);
+    });
+
+    it("renders the grouped picker and warnings in English", async () => {
+      await i18n.changeLanguage("en");
+      mocks.notebooks.mockResolvedValue({ notebooks: teamBooks });
+      await render();
+      await toggleBook("产品研发团队");
+      expect(host.textContent).toContain("Choose the notes the AI assistant can access");
+      expect(host.textContent).toContain("Personal space");
+      expect(host.textContent).toContain("Team spaces");
+      expect(host.textContent).toContain("The AI assistant will be able to access the team notes you selected.");
+      expect(button("Connect")).toBeDefined();
+      expect(host.textContent).not.toMatch(/个人空间|团队空间|连接 AI 助手|只读/);
+    });
+  });
+
   it("does not continue a late setup after its account panel is unmounted", async () => {
     let finish!: (value: unknown) => void;
     mocks.create.mockImplementation(() => new Promise(resolve => { finish = resolve; }));

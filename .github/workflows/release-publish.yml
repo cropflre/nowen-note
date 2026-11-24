@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 60
     outputs:
       channels: ${{ steps.channels.outputs.channels }}
+      r2_downloads: ${{ steps.r2.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
@@ -47,6 +48,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: node scripts/release-cloud-ci.mjs verify
         env: *publish-inputs
+      - name: Check the required targets for the R2 installer mirror
+        id: r2
+        run: |
+          enabled=$(jq '.targets | contains(["windows", "macos", "linux", "android", "fpk", "clipper"])' verified-release.json)
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
   docker:
     needs: verify
     if: contains(fromJSON(needs.verify.outputs.channels), 'docker')
@@ -99,8 +105,7 @@ jobs:
       - run: node scripts/release-cloud-publish.mjs github
         env: *publish-inputs
   gitee:
-    # Sync metadata after the R2 mirror finishes, even when its optional upload fails.
-    # In that case, Gitee metadata retains verified GitHub official links.
+    # Gitee retains verified GitHub links when the optional installer mirror is skipped or fails.
     needs: [verify, github, r2-downloads]
     if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
     uses: ./.github/workflows/sync-gitee-release.yml
@@ -109,8 +114,16 @@ jobs:
     secrets: inherit
   r2-downloads:
     needs: [verify, github]
-    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
+    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' && needs.verify.outputs.r2_downloads == 'true' }}
     uses: ./.github/workflows/sync-r2-release.yml
+    with:
+      tag: v${{ inputs.version }}
+    secrets: inherit
+  r2-hot-update:
+    # 只在 Release 里带有热更新产物时才有动作；渠道地址只会向前移动。
+    needs: [verify, github]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && needs.github.result == 'success' }}
+    uses: ./.github/workflows/sync-r2-hot-update.yml
     with:
       tag: v${{ inputs.version }}
     secrets: inherit

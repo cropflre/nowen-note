@@ -67,5 +67,12 @@ test("R2 workflow is invoked from formal release publisher without blocking GitH
   assert.equal(publication.jobs["r2-downloads"].uses, "./.github/workflows/sync-r2-release.yml");
   assert.ok(publication.jobs["r2-downloads"].with.tag.includes("inputs.version"));
   assert.equal(publication.jobs["r2-downloads"].secrets, "inherit");
+  const verify = publication.jobs.verify;
+  const r2 = verify.steps.find((step) => step.id === "r2");
+  assert.equal(verify.outputs.r2_downloads, "${{ steps.r2.outputs.enabled }}");
+  assert.match(r2.run, /contains\(\["windows", "macos", "linux", "android", "fpk", "clipper"\]\)/);
+  assert.match(r2.run, /verified-release\.json/);
+  assert.match(publication.jobs["r2-downloads"].if, /needs\.verify\.outputs\.r2_downloads == 'true'/);
+  assert.doesNotMatch(publication.jobs["r2-hot-update"].if, /r2_downloads/);
   assert.equal(publication.jobs.github.environment, "release-github");
 });

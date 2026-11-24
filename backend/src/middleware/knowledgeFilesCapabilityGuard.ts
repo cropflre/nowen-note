@@ -4,6 +4,8 @@ import type { Context, Next } from "hono";
 import { getDb } from "../db/schema.js";
 import { fileExplorerFilters } from "../services/file-explorer-filters.js";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url.js";
+import { attachmentExternalAccessStates } from "../services/attachment-link-policy.js";
+import { activeStableFileShareAttachmentIds } from "../services/file-shares.js";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
@@ -407,9 +409,15 @@ function visibleFileList(c: Context, userId: string) {
   const visibleRows = filterOrganizedAssets(rows.filter((row) => permissions(row).canView), parseAssetFilters(c.req.query()), userId);
   const start = (page - 1) * pageSize;
   const pageRows = visibleRows.slice(start, start + pageSize);
+  const pageIds = pageRows.map((row) => row.id);
+  const externalAccess = attachmentExternalAccessStates(pageIds);
+  // Only the caller's own active links count; another member's share is never revealed.
+  const publicLinks = activeStableFileShareAttachmentIds(pageIds, userId);
   const items = pageRows.map((row) => {
     const output = toFileOut(row);
     output.canManage = permissions(row).canWrite;
+    output.externalAccessEnabled = externalAccess.get(row.id) !== false;
+    output.publicLinkActive = output.externalAccessEnabled === true && publicLinks.has(row.id);
     if (permissions(row).canDownload) return { ...output, downloadAllowed: true };
     delete output.url;
     delete output.thumbnailUrl;

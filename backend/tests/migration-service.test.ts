@@ -65,6 +65,7 @@ async function request(id: string, suffix: string, body: unknown = {}, headers: 
 test("migration operation and item retries are idempotent and cross-user reads are denied", async () => {
   const input = { operationId: crypto.randomUUID(), source, name: "Idempotency" };
   const job = service.createMigration(owner, input);
+  assert.equal(job.preparedBy, "user");
   assert.equal(service.createMigration(owner, input).id, job.id);
   assert.throws(() => service.createMigration(owner, { ...input, name: "Changed" }), { code: "MIGRATION_OPERATION_CONFLICT" });
   assert.throws(() => service.getMigration(other, job.id), { code: "MIGRATION_NOT_FOUND" });
@@ -197,6 +198,9 @@ test("token scopes, target grants and live revocation apply across the migration
   const tree = await import("../src/services/knowledgeTree"); const target = tree.createKnowledgeChild({ actorUserId: owner.userId, workspaceId: null, parentId: null, nodeType: "folder", title: "Token target", db });
   db.prepare("INSERT INTO api_token_resources(id,tokenId,resourceId,permission,includeDescendants) VALUES (?,?,?,'write',1)").run(crypto.randomUUID(), tokenId, target.resourceId);
   const job = service.createMigration(actor, { operationId: crypto.randomUUID(), source, targetNotebookId: target.resourceId });
+  // The page can tell an assistant's job apart without ever seeing the token.
+  assert.equal(job.preparedBy, "assistant");
+  assert.equal(JSON.stringify(service.getMigration(owner, job.id)).includes(tokenId), false);
   await service.stageMigrationItems(actor, job.id, [note("token-note")]);
   const preview = await service.previewMigration(actor, job.id);
   assert.throws(() => service.approveMigration(actor, job.id, preview.previewDigest!, "human-session"), { code: "MIGRATION_HUMAN_APPROVAL_REQUIRED" });

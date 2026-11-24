@@ -9,6 +9,7 @@ import {
 
 const apiSource = fs.readFileSync(path.resolve(__dirname, "../api.impl.ts"), "utf8");
 const loginSource = fs.readFileSync(path.resolve(__dirname, "../../components/LoginPage.tsx"), "utf8");
+const loginRequestSource = fs.readFileSync(path.resolve(__dirname, "../loginRequest.ts"), "utf8");
 const backendSource = fs.readFileSync(path.resolve(__dirname, "../../../../backend/src/index.ts"), "utf8");
 const realtimeServerSource = fs.readFileSync(path.resolve(__dirname, "../../../../backend/src/services/realtime.ts"), "utf8");
 const electronSetupSource = fs.readFileSync(path.resolve(__dirname, "../../../../electron/setupWindow.js"), "utf8");
@@ -84,11 +85,11 @@ describe("#771 connection probe integration contract", () => {
     expect(apiSource).toContain("websocketOk,");
   });
 
-  it("uses the resolved API path for login instead of rebuilding /api manually", () => {
-    expect(loginSource).toContain("const result = await testServerConnection(url)");
+  it("logs in through the resolved API path and probes compatibility paths only after a non-Nowen response", () => {
+    expect(loginRequestSource).toContain("getResolvedApiBaseUrl(options.serverUrl)");
+    expect(loginRequestSource).toContain("discoverNowenApiPath(options.serverUrl, firstApiBaseUrl)");
     expect(loginSource).toContain("getResolvedApiBaseUrl(baseUrl)");
-    expect(loginSource).toContain("server.proxyCompatibilityEnabled");
-    expect(loginSource).toContain("server.websocketUnavailable");
+    expect(loginSource).not.toContain("testServerConnection");
   });
 });
 

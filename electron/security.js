@@ -157,7 +157,40 @@ function isAllowedMainWindowNavigation(targetUrl, currentUrl) {
   }
 }
 
+// One-use V3 plugin UI document: <server>/api/plugin-ui-v3/<64 hex ticket>.
+const PLUGIN_UI_DOCUMENT_PATH = /\/api\/plugin-ui-v3\/[a-f0-9]{64}$/;
+
+function isPluginUiDocumentUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    return (url.protocol === "http:" || url.protocol === "https:") && PLUGIN_UI_DOCUMENT_PATH.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 插件界面 iframe 只能停留在宿主给它的一次性文档上。
+ * 桌面端页面来自 file://，meta CSP 的 frame-src 放行任意 http/https，
+ * 插件脚本若让自己的 frame 跳走，就能把数据带到别的站点。只有宿主页面可以替换这个 frame。
+ */
+function shouldBlockPluginFrameNavigation({ isMainFrame, frameUrl, initiatorIsHost }) {
+  return !isMainFrame && isPluginUiDocumentUrl(frameUrl) && !initiatorIsHost;
+}
+
+function attachPluginFrameGuard(webContents, onBlocked = () => {}) {
+  webContents.on("will-frame-navigate", (details) => {
+    const host = webContents.mainFrame;
+    const initiatorIsHost = Boolean(details.initiator && host && details.initiator.frameTreeNodeId === host.frameTreeNodeId);
+    if (!shouldBlockPluginFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url, initiatorIsHost })) return;
+    details.preventDefault();
+    onBlocked();
+  });
+}
+
 module.exports = {
+  attachPluginFrameGuard,
+  shouldBlockPluginFrameNavigation,
   isAllowedExternalUrl,
   isAllowedUgreenRemoteUrl,
   isAllowedMainWindowNavigation,

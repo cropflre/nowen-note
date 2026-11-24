@@ -1,7 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 import KnowledgeTreeDrawer from "@/components/KnowledgeTreeDrawer";
-import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
-import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { usesFunctionalNoteList } from "@/lib/unifiedTreeOnlyLayout";
 
@@ -217,61 +215,6 @@ export default function MobileDrawerUxBridge() {
   }, [actions]);
 
   useEffect(() => {
-    // Android/iOS browsers may begin a native text selection just before dispatching the
-    // long-press contextmenu event. NoteList deliberately does not preventDefault touchstart/
-    // touchmove because those events also power scrolling, pull-to-refresh and touch sorting.
-    // Instead, remember only the card that received the current touch and cancel `selectstart`
-    // for that card. Mouse selection on desktop remains untouched.
-    let activeTouchCard: HTMLElement | null = null;
-    let releaseTimer: number | null = null;
-
-    const clearReleaseTimer = () => {
-      if (releaseTimer == null) return;
-      window.clearTimeout(releaseTimer);
-      releaseTimer = null;
-    };
-
-    const handleTouchStart = (event: TouchEvent) => {
-      clearReleaseTimer();
-      activeTouchCard = getNoteCardSelectionRoot(event.target);
-    };
-
-    const handleSelectStart = (event: Event) => {
-      if (!shouldSuppressNoteCardSelection(event.target, activeTouchCard)) return;
-      event.preventDefault();
-    };
-
-    const handleContextMenu = (event: MouseEvent) => {
-      if (!shouldSuppressNoteCardSelection(event.target, activeTouchCard)) return;
-      // Defensive cleanup for WebViews that created a range before honoring selectstart.
-      window.getSelection()?.removeAllRanges();
-    };
-
-    const scheduleTouchRelease = () => {
-      clearReleaseTimer();
-      releaseTimer = window.setTimeout(() => {
-        activeTouchCard = null;
-        releaseTimer = null;
-      }, MOBILE_NOTE_CARD_TOUCH_RELEASE_DELAY_MS);
-    };
-
-    document.addEventListener("touchstart", handleTouchStart, true);
-    document.addEventListener("selectstart", handleSelectStart, true);
-    document.addEventListener("contextmenu", handleContextMenu, true);
-    document.addEventListener("touchend", scheduleTouchRelease, true);
-    document.addEventListener("touchcancel", scheduleTouchRelease, true);
-
-    return () => {
-      document.removeEventListener("touchstart", handleTouchStart, true);
-      document.removeEventListener("selectstart", handleSelectStart, true);
-      document.removeEventListener("contextmenu", handleContextMenu, true);
-      document.removeEventListener("touchend", scheduleTouchRelease, true);
-      document.removeEventListener("touchcancel", scheduleTouchRelease, true);
-      clearReleaseTimer();
-    };
-  }, []);
-
-  useEffect(() => {
     const annotate = () => annotateMobileDrawerControls(document);
     annotate();
 
@@ -285,8 +228,6 @@ export default function MobileDrawerUxBridge() {
       <style data-mobile-drawer-ux="">{ANDROID_DRAWER_SAFE_AREA_CSS}</style>
       <style data-note-workspace-layout-controls="">{LEGACY_NOTE_LIST_CONTROL_CSS}</style>
       <KnowledgeTreeDrawer />
-      <ShortcutHelpCenter />
-      <ShortcutRuntimeBridge />
     </>
   );
 }

@@ -8,9 +8,9 @@ export const MCP_CLIENT_NAMES: Record<McpClient, string> = {
   "kimi-code": "Kimi Code", "qwen-code": "Qwen Code（千问）",
   "claude-code": "Claude Code", cursor: "Cursor", codex: "Codex",
 };
-export const MCP_CLIENT_GROUPS: { label: string; clients: McpClient[] }[] = [
-  { label: "国内助手", clients: ["workbuddy", "codebuddy", "trae-cn", "qoder", "kimi-code", "qwen-code"] },
-  { label: "其他助手", clients: ["claude-code", "cursor", "codex"] },
+export const MCP_CLIENT_GROUPS: { id: "domestic" | "other"; label: string; clients: McpClient[] }[] = [
+  { id: "domestic", label: "国内助手", clients: ["workbuddy", "codebuddy", "trae-cn", "qoder", "kimi-code", "qwen-code"] },
+  { id: "other", label: "其他助手", clients: ["claude-code", "cursor", "codex"] },
 ];
 const clientLocations: Record<McpClient, string> = {
   workbuddy: "~/.workbuddy/mcp.json",
@@ -21,10 +21,73 @@ const clientLocations: Record<McpClient, string> = {
   "qwen-code": "~/.qwen/settings.json",
   "claude-code": "Claude Code 的用户级 MCP 配置", cursor: "~/.cursor/mcp.json", codex: "~/.codex/config.toml",
 };
-export interface McpNotebookOption { id: string; name: string; parentId: string | null; canWrite: boolean }
+export interface McpNotebookOption {
+  id: string; name: string; parentId: string | null; canWrite: boolean;
+  /** 团队笔记本的工作区；个人空间与他人共享给我的笔记本为 null。 */
+  workspaceId?: string | null; workspaceName?: string | null; shared?: boolean;
+}
 export interface SavedMcpConnection { id: string; name: string; expiresAt: string | null; revokedAt: string | null }
 export interface McpConnection {
   id: string; token: string; url: string; client: McpClient; writable: boolean; expiresAt: string | null;
+}
+
+/** 消息保留中文便于日志排查；界面按 code 取多语言文案。 */
+export type McpConnectionErrorCode =
+  | "accountChanged" | "sessionExpired" | "forbidden" | "unavailable" | "invalidAddress" | "probeFailed"
+  | "notNowen" | "toolsMissing" | "grantCheckFailed" | "noNotebook" | "invalidExpiry" | "credentialMissing";
+export class McpConnectionError extends Error {
+  constructor(readonly code: McpConnectionErrorCode, message: string) {
+    super(message);
+    this.name = "McpConnectionError";
+  }
+}
+
+export type McpNotebookSpaceKind = "personal" | "shared" | "workspace";
+export interface McpNotebookSpace {
+  /** personal、shared 或工作区 ID。 */
+  key: string;
+  kind: McpNotebookSpaceKind;
+  workspaceName: string | null;
+  /** 按父子顺序展开的笔记本，depth 用于缩进。 */
+  notebooks: Array<McpNotebookOption & { depth: number }>;
+}
+
+function spaceKey(option: McpNotebookOption): string {
+  return option.workspaceId || (option.shared ? "shared" : "personal");
+}
+
+/** 按「个人空间 / 与我共享 / 各团队」分组，组内保持服务端顺序并按父子关系缩进。 */
+export function groupMcpNotebookOptions(options: McpNotebookOption[]): McpNotebookSpace[] {
+  const groups = new Map<string, McpNotebookOption[]>();
+  for (const option of options) groups.set(spaceKey(option), [...(groups.get(spaceKey(option)) || []), option]);
+  const spaces = Array.from(groups, ([key, members]): McpNotebookSpace => {
+    const ids = new Set(members.map((option) => option.id));
+    const children = new Map<string | null, McpNotebookOption[]>();
+    for (const option of members) {
+      // 父笔记本不可授权（或不在同组）时，子笔记本作为该组的顶层显示。
+      const parent = option.parentId && ids.has(option.parentId) ? option.parentId : null;
+      children.set(parent, [...(children.get(parent) || []), option]);
+    }
+    const ordered: McpNotebookSpace["notebooks"] = [];
+    const visit = (parent: string | null, depth: number) => {
+      for (const option of children.get(parent) || []) {
+        if (ordered.some((item) => item.id === option.id)) continue;
+        ordered.push({ ...option, depth });
+        visit(option.id, depth + 1);
+      }
+    };
+    visit(null, 0);
+    const kind: McpNotebookSpaceKind = key === "personal" ? "personal" : key === "shared" ? "shared" : "workspace";
+    return { key, kind, workspaceName: kind === "workspace" ? members[0].workspaceName || null : null, notebooks: ordered };
+  });
+  const rank = { personal: 0, shared: 1, workspace: 2 };
+  return spaces.sort((a, b) => rank[a.kind] - rank[b.kind]
+    || (a.workspaceName || a.key).localeCompare(b.workspaceName || b.key));
+}
+
+/** 最小权限：默认只选中本人个人空间的笔记本，团队与共享笔记本必须主动勾选。 */
+export function defaultMcpNotebookSelection(options: McpNotebookOption[]): string[] {
+  return options.filter((option) => spaceKey(option) === "personal").map((option) => option.id);
 }
 
 export function isValidMcpExpiryDays(days?: number): boolean {
@@ -35,7 +98,7 @@ export function isValidMcpExpiryDays(days?: number): boolean {
 function endpoint(value: string): string {
   const url = new URL(value);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash
-      || !url.pathname.endsWith("/mcp")) throw new Error("连接地址有误，请联系管理员检查");
+      || !url.pathname.endsWith("/mcp")) throw new McpConnectionError("invalidAddress", "连接地址有误，请联系管理员检查");
   return url.href;
 }
 
@@ -76,7 +139,7 @@ export function buildMcpAgentInstructions(connection: McpConnection): string {
     "如果已有同名但地址不同的连接，请先询问我，不要覆盖。",
     "配置包含专属授权，只保存到本机私有配置，不写入项目、版本库或日志，也不要在回复中复述密钥。", "",
     buildMcpClientConfig(connection), "",
-    "完成后请实际连接 MCP 并调用 nowen_list_notebooks，只列出可访问的笔记本名称。若当前环境不能修改配置或加载 MCP，请明确说明，不能声称已连接。",
+    "完成后请实际连接 MCP 并调用 nowen_list_notebooks，只列出可访问的笔记本名称和所属空间（团队笔记本按 workspaceId 区分）。若当前环境不能修改配置或加载 MCP，请明确说明，不能声称已连接。",
   ].join("\n");
 }
 
@@ -86,7 +149,7 @@ export function createMcpConnectionSession() {
   const scope = getOfflineQueueStorageKey();
   const current = () => scope === getOfflineQueueStorageKey() && apiBase === getBaseUrl();
   const check = (signal?: AbortSignal) => {
-    if (!current()) throw new Error("账号或服务器已切换，请重新创建连接");
+    if (!current()) throw new McpConnectionError("accountChanged", "账号或服务器已切换，请重新创建连接");
     signal?.throwIfAborted();
   };
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -99,7 +162,11 @@ export function createMcpConnectionSession() {
     check(init.signal ?? undefined);
     const body = await response.json();
     check(init.signal ?? undefined);
-    if (!response.ok) throw new Error(response.status === 401 ? "登录已失效，请重新登录" : response.status === 403 ? "当前账号没有连接权限，请联系管理员" : "暂时无法连接，请稍后重试");
+    if (!response.ok) {
+      throw response.status === 401 ? new McpConnectionError("sessionExpired", "登录已失效，请重新登录")
+        : response.status === 403 ? new McpConnectionError("forbidden", "当前账号没有连接权限，请联系管理员")
+          : new McpConnectionError("unavailable", "暂时无法连接，请稍后重试");
+    }
     return body as T;
   }
   async function probe(connection: McpConnection, signal: AbortSignal): Promise<void> {
@@ -114,15 +181,15 @@ export function createMcpConnectionSession() {
       check(signal);
       const body = await response.json();
       check(signal);
-      if (!response.ok || body.error) throw new Error("连接检测失败，请检查服务地址或授权后重试");
+      if (!response.ok || body.error) throw new McpConnectionError("probeFailed", "连接检测失败，请检查服务地址或授权后重试");
       return body.result;
     };
     const initialized = await call("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "nowen-quick-connect", version: "1" } }, 1);
-    if (initialized?.serverInfo?.name !== "nowen-note") throw new Error("这个地址不是 Nowen Note MCP 服务");
+    if (initialized?.serverInfo?.name !== "nowen-note") throw new McpConnectionError("notNowen", "这个地址不是 Nowen Note MCP 服务");
     const listing = await call("tools/list", {}, 2);
-    if (!listing?.tools?.some((tool: { name: string }) => tool.name === "nowen_list_notebooks")) throw new Error("服务尚未提供笔记工具");
+    if (!listing?.tools?.some((tool: { name: string }) => tool.name === "nowen_list_notebooks")) throw new McpConnectionError("toolsMissing", "服务尚未提供笔记工具");
     const result = await call("tools/call", { name: "nowen_list_notebooks", arguments: {} }, 3);
-    if (!Array.isArray(result?.content) || result.isError) throw new Error("笔记本授权检测未通过，请检查所选范围");
+    if (!Array.isArray(result?.content) || result.isError) throw new McpConnectionError("grantCheckFailed", "笔记本授权检测未通过，请检查所选范围");
   }
   return {
     current,
@@ -136,8 +203,8 @@ export function createMcpConnectionSession() {
       request<EmbeddedMcpStatus>("/mcp", { method: "PUT", body: JSON.stringify(settings), signal }),
     create: async (input: { client: McpClient; notebooks: Pick<McpNotebookOption, "id" | "canWrite">[]; writable: boolean; url: string; expiresInDays?: number }, signal?: AbortSignal): Promise<McpConnection> => {
       const url = endpoint(input.url);
-      if (!input.notebooks.length) throw new Error("请至少选择一个笔记本");
-      if (!isValidMcpExpiryDays(input.expiresInDays)) throw new Error("有效期请填写有效的正整数天数，留空为永久");
+      if (!input.notebooks.length) throw new McpConnectionError("noNotebook", "请至少选择一个笔记本");
+      if (!isValidMcpExpiryDays(input.expiresInDays)) throw new McpConnectionError("invalidExpiry", "有效期请填写有效的正整数天数，留空为永久");
       const notebooks = [...new Map(input.notebooks.map(book => [book.id, book])).values()];
       const created = await request<{ id: string; token: string; expiresAt: string | null }>("/tokens", {
         method: "POST", signal, body: JSON.stringify({
@@ -147,7 +214,7 @@ export function createMcpConnectionSession() {
           notebookResources: notebooks.map(book => ({ notebookId: book.id, permission: input.writable && book.canWrite ? "write" : "read", includeDescendants: false })),
         }),
       });
-      if (!created.id || !created.token?.startsWith("nkn_")) throw new Error("未能获取连接授权，请在授权管理中检查后重试");
+      if (!created.id || !created.token?.startsWith("nkn_")) throw new McpConnectionError("credentialMissing", "未能获取连接授权，请在授权管理中检查后重试");
       return { id: created.id, token: created.token, expiresAt: created.expiresAt, url, client: input.client, writable: input.writable };
     },
     revoke: async (id: string, signal?: AbortSignal) => {

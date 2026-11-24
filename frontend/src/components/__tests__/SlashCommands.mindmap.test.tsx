@@ -100,3 +100,13 @@ describe("mind map foolproof insertion command", () => {
     }
   });
 });
+
+it("offers the AI slash command only when an assistant is available", () => {
+  const t = (key: string) => key;
+  const openAssistant = vi.fn();
+  expect(getDefaultSlashCommands(t).some(({ id }) => id === "ai")).toBe(false);
+  const ai = getDefaultSlashCommands(t, undefined, openAssistant).find(({ id }) => id === "ai");
+  expect(ai?.label).toBe("slash.ai");
+  ai?.action({} as Editor);
+  expect(openAssistant).toHaveBeenCalledOnce();
+});

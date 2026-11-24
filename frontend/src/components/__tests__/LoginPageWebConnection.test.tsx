@@ -20,6 +20,8 @@ vi.mock("@/lib/api", () => ({
   registerAccount: vi.fn(),
   setServerUrl: vi.fn(),
   testServerConnection: vi.fn(),
+  discoverNowenApiPath: vi.fn(async () => null),
+  resolveWebSocketPathAfterLogin: vi.fn(async () => true),
 }));
 
 describe("Web 登录自动连接当前站点", () => {
@@ -114,7 +116,7 @@ describe("Web 登录自动连接当前站点", () => {
     await renderPage();
     await fillRegistration();
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serviceUnavailable");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serverUnreachable");
     expect(host.textContent).not.toContain("auth.loginSessionError");
     expect(onLogin).not.toHaveBeenCalled();
   });
@@ -175,39 +177,41 @@ describe("Web 登录自动连接当前站点", () => {
     expect(onLogin).toHaveBeenCalledWith("registered", expect.any(Object));
   });
 
-  it("服务不可用时提供简洁提示和重试，保留已填账号", async () => {
+  it("服务不可用时提供简洁提示和重试，保留已填账号并重新提交", async () => {
     await renderPage();
     await fillCredentials();
     vi.mocked(fetch).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serviceUnavailable");
-    expect(host.textContent).not.toContain("auth.loginNoResponse");
+    expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serverUnreachable");
+    // 网页端同源请求不自动补发。
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(host.querySelector<HTMLInputElement>('input[autocomplete="username"]')?.value).toBe("alice");
     await act(async () => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "auth.retryConnection")!.click());
     expect(fetchRegisterConfig).toHaveBeenCalledTimes(2);
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.querySelector<HTMLInputElement>('input[autocomplete="username"]')?.value).toBe("alice");
-    await submit();
     expect(onLogin).toHaveBeenCalledTimes(1);
   });
 
   it("初次连接失败也展示重试入口", async () => {
     vi.mocked(fetchRegisterConfig).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await renderPage();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serviceUnavailable");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serverUnreachable");
     await act(async () => Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "auth.retryConnection")!.click());
     expect(host.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it("HTTP 503 显示服务重试，HTTP 401 显示账号错误", async () => {
+  it("HTTP 503 显示服务重试，Nowen 401 显示账号错误", async () => {
     await renderPage();
     await fillCredentials();
     vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 503 }));
     await submit();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serviceUnavailable");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.serverUnreachable");
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ error: "账号或密码错误" }), { status: 401 }));
     await submit();
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.textContent).toContain("账号或密码错误");
-    expect(host.textContent).not.toContain("auth.loginHttpError");
+    expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.invalidCredentials");
+    expect(host.querySelector('[role="alert"] button')).toBeNull();
+    expect(host.textContent).not.toContain("503");
   });
 });

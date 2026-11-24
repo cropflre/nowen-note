@@ -83,6 +83,22 @@ export function isLoopbackServerHostname(hostname: string): boolean {
   return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
 }
 
+/**
+ * 目标是明文 HTTP 且不在本机时返回 true：密码、登录令牌和笔记正文都会以明文经过网络。
+ * 本机回环地址（含 *.localhost）的流量不离开设备，不算在内。
+ */
+export function isUnencryptedRemoteServerUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "http:") return false;
+    const host = removeIpv6Brackets(hostname).toLowerCase();
+    return !isLoopbackServerHostname(host) && !host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
 /** 判断显式主机名是否属于本机或局域网；公共域名/IP 不应触发 mDNS 发现。 */
 export function isLanServerHostname(hostname: string): boolean {
   const normalized = removeIpv6Brackets(hostname).trim().replace(/\.$/, "").toLowerCase();
@@ -231,7 +247,7 @@ export function inferBrowserServerBaseUrl(
   const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
     || pathname.match(/\/issues(?:\/[A-Za-z0-9-]+)?$/)?.[0]
     || pathname.match(/\/apps\/[a-z0-9]+(?:[.-][a-z0-9]+)+\/[a-z][a-z0-9-]{0,63}$/)?.[0]
-    || pathname.match(/\/apps\/(?:studio\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|personal\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|studio|dashboard|manage)$/)?.[0]
+    || pathname.match(/\/apps\/(?:studio\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|personal\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|studio|dashboard|manage|discover)$/)?.[0]
     || (!locationLike.pathname.endsWith("/") ? pathname.match(/\/apps$/)?.[0] : "")
     || pathname.match(/\/(?:notes|mindmaps|sheets)(?:\/[^/]+)?$/i)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]

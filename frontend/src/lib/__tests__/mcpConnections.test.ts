@@ -4,7 +4,10 @@ const mocks = vi.hoisted(() => ({ apiBase: "https://note.test/api", scope: "serv
 vi.mock("../api", () => ({ getBaseUrl: () => mocks.apiBase }));
 vi.mock("../offlineScope", () => ({ getOfflineQueueStorageKey: () => mocks.scope }));
 vi.mock("../authSession", () => ({ getAccessToken: () => "login-session", fetchWithAuthRefresh: mocks.request }));
-import { buildCursorInstallLink, buildMcpAgentInstructions, buildMcpClientConfig, buildMcpInstallLink, createMcpConnectionSession, type McpConnection } from "../mcpConnections";
+import {
+  buildCursorInstallLink, buildMcpAgentInstructions, buildMcpClientConfig, buildMcpInstallLink, createMcpConnectionSession,
+  defaultMcpNotebookSelection, groupMcpNotebookOptions, McpConnectionError, type McpConnection, type McpNotebookOption,
+} from "../mcpConnections";
 
 const connection: McpConnection = { id: "grant-a", token: "nkn_private-a", url: "https://note.test/mcp", client: "claude-code", writable: false, expiresAt: null };
 beforeEach(() => { vi.resetAllMocks(); mocks.apiBase = "https://note.test/api"; mocks.scope = "server:user-a"; });
@@ -174,5 +177,45 @@ describe("AI connection handoff", () => {
     vi.stubGlobal("fetch", http);
     try { await expect(createMcpConnectionSession().probe(connection, new AbortController().signal)).rejects.toThrow("授权检测未通过"); }
     finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe("team-space notebook authorization options", () => {
+  const options: McpNotebookOption[] = [
+    { id: "ops", name: "运营资料", parentId: null, canWrite: false, workspaceId: "ws-ops", workspaceName: "运营团队" },
+    { id: "spec", name: "技术方案", parentId: "docs", canWrite: true, workspaceId: "ws-prod", workspaceName: "产品研发团队" },
+    { id: "mine-child", name: "工作记录", parentId: "mine", canWrite: true, workspaceId: null },
+    { id: "docs", name: "项目文档", parentId: null, canWrite: true, workspaceId: "ws-prod", workspaceName: "产品研发团队" },
+    { id: "mine", name: "我的笔记", parentId: null, canWrite: true, workspaceId: null },
+    { id: "shared", name: "项目文档", parentId: "hidden-parent", canWrite: false, workspaceId: null, shared: true },
+    { id: "orphan", name: "子目录", parentId: "not-authorized", canWrite: true, workspaceId: "ws-prod", workspaceName: "产品研发团队" },
+  ];
+
+  it("DCC-006: groups personal, shared and team notebooks without mixing same-name notebooks", () => {
+    const spaces = groupMcpNotebookOptions(options);
+    expect(spaces.map(space => [space.kind, space.key, space.workspaceName])).toEqual([
+      ["personal", "personal", null],
+      ["shared", "shared", null],
+      ["workspace", "ws-prod", "产品研发团队"],
+      ["workspace", "ws-ops", "运营团队"],
+    ]);
+    expect(spaces[0].notebooks.map(book => [book.id, book.depth])).toEqual([["mine", 0], ["mine-child", 1]]);
+    expect(spaces[1].notebooks.map(book => [book.id, book.depth])).toEqual([["shared", 0]]);
+    // 子笔记本紧跟父笔记本；父笔记本不可授权时子笔记本提升为组内顶层。
+    expect(spaces[2].notebooks.map(book => [book.id, book.depth])).toEqual([["docs", 0], ["spec", 1], ["orphan", 0]]);
+    expect(spaces.flatMap(space => space.notebooks).filter(book => book.name === "项目文档").map(book => book.id)).toEqual(["shared", "docs"]);
+  });
+
+  it("DCC-006: preselects only the user's own personal notebooks", () => {
+    expect(defaultMcpNotebookSelection(options).sort()).toEqual(["mine", "mine-child"]);
+    expect(defaultMcpNotebookSelection(options.filter(book => book.workspaceId))).toEqual([]);
+  });
+
+  it("returns a translatable error code while keeping the diagnostic message", async () => {
+    const error = await createMcpConnectionSession().create({ client: "codex", notebooks: [], writable: false, url: connection.url })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(McpConnectionError);
+    expect((error as McpConnectionError).code).toBe("noNotebook");
+    expect((error as Error).message).toContain("至少选择");
   });
 });

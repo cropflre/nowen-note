@@ -9,7 +9,7 @@ afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMock
 describe("V3 app navigation and account-local pins", () => {
   it("keeps app management routes distinct from server proxy prefixes", () => {
     expect(inferBrowserServerBaseUrl({ protocol: "https:", origin: "https://notes.example", pathname: "/apps/manage" })).toBe("");
-    for (const route of ["/apps/studio", "/apps/studio/01234567-89ab-cdef-0123-456789abcdef", "/apps/personal/01234567-89ab-cdef-0123-456789abcdef"]) {
+    for (const route of ["/apps/studio", "/apps/discover", "/apps/studio/01234567-89ab-cdef-0123-456789abcdef", "/apps/personal/01234567-89ab-cdef-0123-456789abcdef"]) {
       expect(inferBrowserServerBaseUrl({ protocol: "https:", origin: "https://notes.example", pathname: route })).toBe("");
       expect(inferBrowserServerBaseUrl({ protocol: "https:", origin: "https://notes.example", pathname: "/nowen" + route })).toBe("https://notes.example/nowen");
       expect(resolveCurrentAppPathname("https://notes.example/nowen" + route)).toBe(route);
@@ -22,6 +22,8 @@ describe("V3 app navigation and account-local pins", () => {
   it("accepts only namespaced app routes without encoded or core-route overrides", () => {
     expect(parsePluginAppPath("/apps").matched).toBe(true);
     expect(parsePluginAppPath("/apps/manage")).toEqual({ matched: true, manage: true });
+    expect(parsePluginAppPath("/apps/discover")).toEqual({ matched: true, discover: true });
+    expect(parsePluginAppPath("/apps/discover/nowenlab.hello")).toEqual({ matched: false });
     expect(parsePluginAppPath("/apps/studio")).toEqual({ matched: true, studio: true });
     expect(parsePluginAppPath("/apps/personal/01234567-89ab-cdef-0123-456789abcdef")).toEqual({ matched: true, personalId: "01234567-89ab-cdef-0123-456789abcdef" });
     expect(parsePluginAppPath("/apps/studio/01234567-89ab-cdef-0123-456789abcdef")).toEqual({ matched: true, studio: true, studioId: "01234567-89ab-cdef-0123-456789abcdef" });

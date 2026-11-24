@@ -78,7 +78,6 @@ module.exports = {
   files: [
     ...(Array.isArray(base.files) ? base.files : []),
     "!electron/builder.base.config.js",
-    "!electron/builder.lite.base.config.js",
   ],
   win: {
     ...(base.win || {}),

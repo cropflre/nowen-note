@@ -42,7 +42,7 @@ describe("数据管理目标入口", () => {
     await mount();
     const locationRow = Array.from(host.querySelectorAll("dt")).find((node) => node.textContent === "备份位置")!;
     expect(locationRow.nextElementSibling?.textContent).toBe(location);
-    for (const action of ["立即备份", "恢复数据", "导入与迁移", "导出数据"]) expect(button(action)).toBeDefined();
+    for (const action of ["立即备份", "恢复数据", "导入笔记", "导出数据"]) expect(button(action)).toBeDefined();
     await click("恢复数据");
     const restoreRow = Array.from(host.querySelectorAll("button")).find((node) => node.textContent === "恢复数据" && node.parentElement?.textContent?.includes("完整备份"))!;
     expect(restoreRow.parentElement?.textContent).toContain(location);

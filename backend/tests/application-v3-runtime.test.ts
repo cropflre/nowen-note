@@ -43,9 +43,18 @@ test("V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revo
   assert.equal((await app.request("/api" + a.documentPath)).status, 403);
   const documentResponse = await app.request("/api" + a.documentPath, { headers: { "Sec-Fetch-Dest": "iframe" } });
   assert.equal(documentResponse.status, 200); assert.ok(documentResponse.headers.get("Content-Security-Policy")!.includes("sandbox allow-scripts"));
+  // A web session's document is framed by the same origin only.
+  assert.match(documentResponse.headers.get("Content-Security-Policy")!, /; frame-ancestors 'self'$/);
+  assert.equal(documentResponse.headers.get("X-Frame-Options"), "SAMEORIGIN");
   const document = await documentResponse.text();
   assert.ok(document.includes("Content-Security-Policy")); assert.ok(document.includes("data:text/javascript;base64,")); assert.ok(!document.includes("test-session"));
   assert.equal((await app.request("/api" + a.documentPath, { headers: { "Sec-Fetch-Dest": "iframe" } })).status, 404);
+  // The desktop shell loads its UI from file://; only a desktop session's document may be framed there.
+  const desktop = await (await request("apps/nowenlab.hello-app/home/session", { platform: "desktop" })).json() as any;
+  const desktopDocument = await app.request("/api" + desktop.documentPath, { headers: { "Sec-Fetch-Dest": "iframe" } });
+  assert.equal(desktopDocument.status, 200);
+  assert.match(desktopDocument.headers.get("Content-Security-Policy")!, /^sandbox allow-scripts; .*; frame-ancestors 'self' file:$/);
+  assert.equal(desktopDocument.headers.get("X-Frame-Options"), null);
   assert.equal((await call(a, "storage.set", { key: "message", value: "persisted" })).status, 200);
   assert.equal((await (await call(a, "storage.get", { key: "message" })).json() as any).data, "persisted");
   assert.equal((await (await call(otherUser, "storage.get", { key: "message" }, "v3-user")).json() as any).data, null);

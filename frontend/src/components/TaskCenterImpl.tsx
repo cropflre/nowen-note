@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { Portal as TooltipPortal } from "@radix-ui/react-tooltip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,7 @@ function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> 
 export default function TaskCenter() {
   const { t } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
+  const aiAvailable = useAIConnectionAvailable();
 
   type CenterMode = "inbox" | "tasks" | "my-day" | "planner" | "habits" | "stats";
   type HabitListMode = "active" | "archived" | "all";
@@ -121,6 +123,9 @@ export default function TaskCenter() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showTaskComposer, setShowTaskComposer] = useState(false);
+  useEffect(() => {
+    if (!aiAvailable) setShowTaskComposer(false);
+  }, [aiAvailable]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
 
@@ -1222,7 +1227,7 @@ export default function TaskCenter() {
           {centerMode === "tasks" && (
             <>
               {/* Mobile project trigger */}
-              <button type="button" onClick={() => setShowTaskComposer(true)} className="flex shrink-0 items-center gap-1 rounded-full bg-accent-primary/10 px-3 py-1.5 text-xs text-accent-primary"><Sparkles size={14} />{t("taskComposer.entry")}</button>
+              {aiAvailable && <button type="button" onClick={() => setShowTaskComposer(true)} className="flex shrink-0 items-center gap-1 rounded-full bg-accent-primary/10 px-3 py-1.5 text-xs text-accent-primary"><Sparkles size={14} />{t("taskComposer.entry")}</button>}
               <button type="button" onClick={openTaskDataTransfer} className="flex shrink-0 items-center gap-1 rounded-full bg-app-hover/50 px-3 py-1.5 text-xs text-tx-secondary"><Download size={14} />{t("tasks.report.open")}</button>
               <MobileProjectTrigger
                 selectedProjectId={selectedProjectId}
@@ -1302,7 +1307,7 @@ export default function TaskCenter() {
                     <ClipboardPlus size={14} />
                     {t("tasks.quickCaptureToInbox", { defaultValue: "快速捕获" })}
                   </button>
-                  <button type="button" onClick={() => setShowTaskComposer(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-app-border px-3 py-1.5 text-xs text-accent-primary hover:bg-app-hover"><Sparkles size={14} />{t("taskComposer.entry")}</button>
+                  {aiAvailable && <button type="button" onClick={() => setShowTaskComposer(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-app-border px-3 py-1.5 text-xs text-accent-primary hover:bg-app-hover"><Sparkles size={14} />{t("taskComposer.entry")}</button>}
                   <button type="button" onClick={openTaskDataTransfer} className="inline-flex items-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover"><Download size={14} />{t("tasks.report.open")}</button>
                   <label className="flex items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2 py-1 text-xs text-tx-secondary">
                     <span className="text-tx-tertiary">{t("tasks.view", { defaultValue: "视图" })}</span>
@@ -1749,7 +1754,7 @@ export default function TaskCenter() {
       )}
 
       {/* Right: Detail Panel — direct flex sibling, no AnimatePresence to avoid layout gap */}
-      {showTaskComposer && <React.Suspense fallback={null}><TaskComposer projects={projects} initialProjectId={selectedProjectId} onClose={() => setShowTaskComposer(false)} onCreated={() => { void loadTasks(); void refreshCounts(); }} onView={selectTaskFilter} /></React.Suspense>}
+      {aiAvailable && showTaskComposer && <React.Suspense fallback={null}><TaskComposer projects={projects} initialProjectId={selectedProjectId} onClose={() => setShowTaskComposer(false)} onCreated={() => { void loadTasks(); void refreshCounts(); }} onView={selectTaskFilter} /></React.Suspense>}
       {centerMode === "tasks" && selectedTask && (
         <TaskDetailPanel
           key={selectedTask.id}

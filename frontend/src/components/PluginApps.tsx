@@ -1,28 +1,32 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Blocks, Pin, PinOff } from "lucide-react";
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Blocks } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppActions } from "@/store/AppContext";
 import { usePluginApps } from "@/hooks/usePluginApps";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
-import { loadPluginAppPins, savePluginAppPins } from "@/lib/pluginApps";
 import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
-import PluginDashboard from "./PluginDashboard";
-import PluginDataActions from "./PluginDataActions";
-import PluginManagementPanel from "./PluginManagementPanel";
-import { PersonalStudio, PersonalStudioRuntime, PersonalStudioLibrary } from "./PersonalStudio";
+// Loaded on demand: the navigation rail imports this module, the workbench is only needed on /apps/dashboard.
+const PluginDashboard = lazy(() => import("./PluginDashboard"));
+import { PersonalStudio, PersonalStudioRuntime } from "./PersonalStudio";
+import { ExtensionCenterLayout } from "./extension-center/ExtensionCenterLayout";
+import ExtensionDiscover from "./extension-center/ExtensionDiscover";
+import MyPlugins from "./extension-center/MyPlugins";
 
 export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
-  const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
+  const { enabled, centerEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const actions = useAppActions();
-  if (!enabled) return null;
+  if (!centerEnabled) return null;
   const open = (path: string) => { pushAppPathState(path); actions.setMobileSidebar(false); };
+  // One entry for the whole Extension Center. The workbench is its "Dashboard" tab, so it has no second rail entry:
+  // two entries opening the same page under the same title made users ask what the difference was.
   return <>
-    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(dashboardEnabled ? [{ runtimeId: "dashboard", title: t("pluginApps.dashboard"), route: "/apps/dashboard" }] : []), ...pages.filter(pinned)].map(page => (
+    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(enabled ? pages.filter(pinned) : [])].map(page => (
       <button key={page.runtimeId} data-mobile-drawer-rail-item="" type="button" title={page.title} aria-label={page.title} onClick={() => open(page.route)} className="flex w-10 min-h-10 flex-col items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover">
         <Blocks size={17} />{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
       </button>
@@ -33,6 +37,9 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
 export function PluginAppFrame({ page, compact = false, inspector, workspaceId }: { page: PluginAppPage; compact?: boolean; inspector?: PluginInspectorContext; workspaceId?: string }) {
   const { t } = useTranslation();
   const actions = useAppActions();
+  const aiAvailable = useAIConnectionAvailable();
+  const aiAvailableRef = useRef(aiAvailable);
+  aiAvailableRef.current = aiAvailable;
   const frame = useRef<HTMLIFrameElement>(null);
   const connection = useRef<ReturnType<typeof connectPluginAppFrame> | undefined>(undefined);
   const activeSession = useRef<PluginAppSession | null>(null);
@@ -98,6 +105,7 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
       if (response.pluginId !== current.pluginId || response.instanceId !== current.instanceId || response.requestId !== message.requestId || response.protocol !== "nowen.plugin-ui.v3" || response.kind !== "response") throw new Error("PLUGIN_UI_INVALID_RESPONSE");
       if (message.method === "navigation.open" && response.ok) {
         const target = (response.data as { target?: string })?.target;
+        if (target === "ai-chat" && !aiAvailableRef.current) return response;
         if (["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"].includes(target || "")) {
           replaceAppPathState("/"); actions.setViewMode(target as ViewMode); actions.setMobileView("list");
           const noteId = (response.data as { noteId?: string }).noteId;
@@ -116,26 +124,26 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
   </div>;
 }
 
-export default function PluginApps({ pluginId, pageId, dashboard = false, manage = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; manage?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
-  const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
+export default function PluginApps({ pluginId, pageId, dashboard = false, discover = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; discover?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
+  const { enabled, centerEnabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
-  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} />;
-  if (studio) return <PersonalStudio key={studioId || "new"} appId={studioId} />;
-  if (dashboard) return <PluginDashboard />;
+  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} dashboardEnabled={dashboardEnabled} />;
+  // Creating an app is a section of the Extension Center; editing an existing one keeps its full-width page.
+  if (studio && !studioId) return <ExtensionCenterLayout section="create" dashboardEnabled={dashboardEnabled}><PersonalStudio key="new" /></ExtensionCenterLayout>;
+  if (studio) return <PersonalStudio key={studioId} appId={studioId} />;
+  if (dashboard) return <ExtensionCenterLayout section="dashboard" dashboardEnabled={dashboardEnabled}>
+    <Suspense fallback={<p role="status" className="text-sm text-tx-tertiary">{t("pluginApps.loading")}</p>}><PluginDashboard /></Suspense>
+  </ExtensionCenterLayout>;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
-  return <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>
-    <nav aria-label={t("pluginApps.sections")} className="mb-5 flex flex-wrap gap-2">
-      {[{ title: t("pluginApps.myApps"), route: "/apps", active: !manage }, { title: t("pluginApps.manage"), route: "/apps/manage", active: manage }].map(item => <button key={item.route} type="button" aria-current={item.active ? "page" : undefined} onClick={() => pushAppPathState(item.route)} className={`rounded-lg border border-app-border px-3 py-2 text-sm ${item.active ? "bg-accent-primary/10 text-accent-primary" : "hover:bg-app-hover"}`}>{item.title}</button>)}
-      {dashboardEnabled && <button className="rounded-lg border border-app-border px-3 py-2 text-sm hover:bg-app-hover" onClick={() => pushAppPathState("/apps/dashboard")}>{t("pluginApps.dashboard")}</button>}
-    </nav>
-    {manage ? enabled ? <PluginManagementPanel /> : <p>{t("pluginApps.unavailable")}</p> : <>
-    <PersonalStudioLibrary />
-    <h2 className="my-4 text-sm font-semibold text-tx-secondary">{t("pluginApps.installedExtensions", "已安装的扩展应用")}</h2>
-    {!enabled || pages.length === 0 || pluginId ? <p>{t(pluginId ? "pluginApps.unavailable" : "pluginApps.empty")}</p> : <ul className="space-y-3">{pages.map(page => <li key={page.runtimeId} className="flex items-center justify-between gap-4 rounded-lg border border-app-border p-4">
-      <div className="min-w-0"><button aria-label={page.title} className="mb-2 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button><PluginDataActions pluginId={page.pluginId} /></div>
-      <button aria-label={t(pinned(page) ? "pluginApps.unpin" : "pluginApps.pin")} onClick={() => { const pins = loadPluginAppPins(); savePluginAppPins(pinned(page) ? pins.filter(id => id !== page.runtimeId) : [...pins, page.runtimeId]); }}>{pinned(page) ? <PinOff size={18} /> : <Pin size={18} />}</button>
-    </li>)}</ul>}
-    </>}
-  </div>;
+  const unavailable = <p className="text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>;
+  if (discover) return centerEnabled
+    ? <ExtensionDiscover dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} />
+    : <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>{unavailable}</ExtensionCenterLayout>;
+  // "/apps" and the legacy "/apps/manage" both show the unified "Mine" list.
+  if (!centerEnabled) return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardEnabled}>
+    {pluginId && <p role="alert" className="mb-4 text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>}
+    {unavailable}
+  </ExtensionCenterLayout>;
+  return <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} pages={pages} pinned={pinned} unavailableApp={!!pluginId} />;
 }

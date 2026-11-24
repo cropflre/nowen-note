@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { api, getBaseUrl } from "@/lib/api";
 import { confirm } from "@/components/ui/confirm";
 import { toast } from "@/lib/toast";
@@ -24,6 +25,8 @@ type ResourcePermission = "read" | "write";
 interface NotebookResource {
   notebookId: string;
   notebookName?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
   permission: ResourcePermission;
   includeDescendants: boolean;
 }
@@ -33,7 +36,15 @@ interface NotebookOption {
   name: string;
   parentId: string | null;
   workspaceId: string | null;
+  workspaceName?: string | null;
+  shared?: boolean;
   canWrite: boolean;
+}
+
+/** 同名笔记本可能分属个人空间、他人共享和不同团队，选项旁始终标出所属空间。 */
+function notebookSpaceLabel(t: TFunction, option: Pick<NotebookOption, "workspaceId" | "workspaceName" | "shared">): string {
+  if (option.workspaceId) return option.workspaceName || t("mcpConnect.spaces.teams");
+  return t(option.shared ? "mcpConnect.spaces.shared" : "mcpConnect.spaces.personal");
 }
 
 interface ApiTokenListItem {
@@ -82,7 +93,7 @@ function formatDate(value: string | null): string {
 function scopeLabel(scope: string): string {
   const labels: Record<string, string> = {
     "tasks:read": "读取个人任务",
-    "tasks:write": "创建和更新个人任务",
+    "tasks:write": "创建、更新和删除个人任务",
     "diary:publish": "发布个人说说及上传媒体",
     "automations:read": "读取个人自动化工作流",
     "automations:write": "管理个人自动化工作流",
@@ -321,6 +332,7 @@ function TokenRow({
                 <span key={resource.notebookId} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200">
                   <FolderTree className="h-3 w-3" />
                   {resource.notebookName || resource.notebookId}
+                  {resource.workspaceId ? ` · ${resource.workspaceName || t("mcpConnect.spaces.teams")}` : ""}
                   · {resource.permission === "write" ? "读写" : "只读"}
                   {resource.includeDescendants ? " · 含子笔记本" : ""}
                 </span>
@@ -369,6 +381,7 @@ function TokenDialog({
   onClose: () => void;
   onSubmit: (value: TokenFormValue) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState<TokenFormValue>(initial);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -457,6 +470,7 @@ function TokenDialog({
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => toggleNotebook(option)} className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${resource ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"}`}>{resource && <Check className="h-3 w-3" />}</button>
                       <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">{option.name}</span>
+                      <span className="max-w-[40%] shrink-0 truncate text-[11px] text-zinc-400" title={notebookSpaceLabel(t, option)}>{notebookSpaceLabel(t, option)}</span>
                       {resource && <select value={resource.permission} onChange={(event) => patchResource(option.id, { permission: event.target.value as ResourcePermission })} className="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] dark:border-zinc-700 dark:bg-zinc-900">
                         <option value="read">只读</option>
                         {option.canWrite && <option value="write">读写</option>}

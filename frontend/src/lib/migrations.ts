@@ -11,6 +11,8 @@ export interface MigrationJob {
   id: string;
   name: string;
   source: { platform: string; exportId: string };
+  /** "assistant" when an AI assistant or another tool prepared the job through an API token. */
+  preparedBy?: "user" | "assistant";
   workspaceId: string | null;
   targetNotebookId?: string | null;
   status: MigrationStatus;

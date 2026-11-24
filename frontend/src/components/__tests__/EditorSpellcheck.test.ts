@@ -19,9 +19,7 @@ const markdownEditorSource = readFileSync(
 
 describe("spellcheck", () => {
   it("disables spellcheck globally for every shared frontend client", () => {
-    expect(frontendIndexSource).toContain(
-      '<html lang="zh-CN" class="dark" spellcheck="false">',
-    );
+    expect(frontendIndexSource).toMatch(/<html\b[^>]*\sspellcheck="false"[^>]*>/i);
   });
 
   it("disables spellcheck for the rich text title and document body", () => {

@@ -2,7 +2,7 @@
  * blockMenuActions —— 统一块菜单的编辑器命令层。
  *
  * 这些函数操作「当前块」（位置由激活时的 from 决定），与 SlashCommands 的插入命令解耦：
- *  - convertBlock   把当前块转化为 正文/标题/列表/引用/代码块/高亮/折叠块/分栏
+ *  - convertBlock   把当前块转化为 正文/标题/列表/引用/代码块/高亮/文本框/折叠块/分栏
  *  - deleteBlock    删除当前块（保证父容器非空，避免 schema 非法）
  *  - cutBlock       复制文本到剪贴板并删除当前块
  *  - addBelowBlock  在当前块下方插入空段落，返回新位置
@@ -17,6 +17,7 @@ import { TextSelection, Selection } from "@tiptap/pm/state";
 import { Slice, Fragment } from "@tiptap/pm/model";
 import { copyText } from "@/lib/clipboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
+import { isTextBox, TEXT_BOX_DEFAULT_ATTRS } from "./extensions/textBox";
 
 export type BlockTypeName =
   | "paragraph"
@@ -27,6 +28,7 @@ export type BlockTypeName =
   | "blockquote"
   | "codeBlock"
   | "callout"
+  | "textBox"
   | "details"
   | "columns";
 
@@ -193,9 +195,21 @@ export function convertBlock(editor: Editor, target: BlockTarget, from: number):
     info = { ...info, node: child, start: info.start + 1, end: info.start + 1 + child.nodeSize, depth: info.depth + 1, typeName: child.type.name };
   }
   if (target.type === "columns" && info.inColumn) return false;
+  // 文本框就是带 float 的高亮块（Issue #915），两者互转只改布局属性。
+  if ((target.type === "textBox" || target.type === "callout") && info.node.type.name === "callout") {
+    const toTextBox = target.type === "textBox";
+    if (isTextBox(info.node) === toTextBox) return false;
+    const attrs = toTextBox
+      ? { ...info.node.attrs, float: TEXT_BOX_DEFAULT_ATTRS.float, width: TEXT_BOX_DEFAULT_ATTRS.width }
+      : { ...info.node.attrs, float: null, width: null };
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(info.start, undefined, attrs));
+    return true;
+  }
   const $from = editor.state.doc.resolve(from);
   for (let depth = $from.depth; depth > 0; depth--) {
-    if ($from.node(depth).type.name === target.type && (target.type === "callout" || target.type === "details")) return false;
+    const ancestor = $from.node(depth).type.name;
+    if (ancestor === target.type && (target.type === "callout" || target.type === "details")) return false;
+    if (ancestor === "callout" && target.type === "textBox") return false;
   }
   const { node, start, end } = info;
   const { state, view } = editor;
@@ -245,6 +259,9 @@ export function convertBlock(editor: Editor, target: BlockTarget, from: number):
     const type = schema.nodes[target.type];
     if (!type) return false;
     replacement = [type.create({}, blocks)];
+  } else if (target.type === "textBox") {
+    if (!schema.nodes.callout) return false;
+    replacement = [schema.nodes.callout.create({ ...TEXT_BOX_DEFAULT_ATTRS }, blocks)];
   } else if (target.type === "details") {
     if (sameType) return false;
     if (!schema.nodes.details) return false;
@@ -476,6 +493,7 @@ export type AddBelowType =
   | "codeBlock"
   | "details"
   | "callout"
+  | "textBox"
   | "columns"
   | "table"
   | "math"
@@ -526,6 +544,8 @@ function buildBelowNode(
     }
     case "callout":
       return schema.nodes["callout"].create({ type: "blue" }, [paragraph()]);
+    case "textBox":
+      return schema.nodes["callout"].create({ ...TEXT_BOX_DEFAULT_ATTRS }, [paragraph()]);
     case "columns": {
       const col = schema.nodes["column"];
       return schema.nodes["column_container"].create(

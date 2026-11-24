@@ -9,6 +9,7 @@ import ImageClipboardBridge from "./ImageClipboardBridge";
 import MarkdownMobileViewControlsBridge from "./MarkdownMobileViewControlsBridge";
 import DesktopUpdateCenter from "./DesktopUpdateCenter";
 import DockerUpdateCenter from "./DockerUpdateCenter";
+import AndroidHotUpdateCenter from "./AndroidHotUpdateCenter";
 import TwoFactorLoginChallengeCenter from "./TwoFactorLoginChallengeCenter";
 import AndroidShareImportCenter from "./AndroidShareImportCenter";
 import DeferredGlobalFeatureCentersMount from "./DeferredGlobalFeatureCentersMount";
@@ -38,6 +39,7 @@ export default function GlobalBridges() {
       <MarkdownMobileViewControlsBridge />
       <DesktopUpdateCenter />
       <DockerUpdateCenter />
+      <AndroidHotUpdateCenter />
       <TwoFactorLoginChallengeCenter />
       <AndroidShareImportCenter />
       <DeferredGlobalFeatureCentersMount />

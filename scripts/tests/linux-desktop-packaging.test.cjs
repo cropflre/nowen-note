@@ -16,11 +16,6 @@ const variants = [
     keywords: "note;markdown;editor;nowen;",
     startupWMClass: "Nowen Note",
   },
-  {
-    config: require(path.join(root, "electron/builder.lite.config.js")),
-    keywords: "note;markdown;editor;nowen;lite;",
-    startupWMClass: "Nowen Note Lite",
-  },
 ];
 
 function desktopHelper(startupWMClass) {
@@ -66,7 +61,7 @@ test("Linux desktop metadata matches electron-builder 25's flat format", async (
   }
 });
 
-test("electron-builder resolves all standard Linux icons for Full and Lite", async (t) => {
+test("electron-builder resolves all standard Linux icons", async (t) => {
   const output = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-linux-icon-resolve-"));
   t.after(() => fs.rmSync(output, { recursive: true, force: true }));
   for (const { config } of variants) {
@@ -102,7 +97,7 @@ async function extractedPackage(t, variant = variants[0]) {
   return { directory, desktopPath };
 }
 
-test("package validator accepts Full and Lite desktop entries with installed theme icons", async (t) => {
+test("package validator accepts the desktop entry with installed theme icons", async (t) => {
   for (const variant of variants) {
     const { directory } = await extractedPackage(t, variant);
     assert.equal(verifyExtractedDesktopPackage(directory).iconName, "nowen-note");

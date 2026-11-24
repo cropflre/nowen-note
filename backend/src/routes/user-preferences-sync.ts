@@ -44,6 +44,7 @@ export interface SyncedUserPreferences {
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
+  showTemplateManagement: boolean;
 }
 
 type PreferenceKey = keyof SyncedUserPreferences;
@@ -92,6 +93,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,
   showNoteListDividers: false,
+  showTemplateManagement: true,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
@@ -138,6 +140,7 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "noteListTitleOnly":
     case "journalLockOnEntry":
     case "showNoteListDividers":
+    case "showTemplateManagement":
     case "codeBlockWordWrap":
       return (typeof value === "boolean" ? value : fallback) as SyncedUserPreferences[K];
     case "hiddenNavigationModules":

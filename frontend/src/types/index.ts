@@ -339,6 +339,8 @@ export interface FileItem {
   folderName: string | null;
   /** Serving-instance policy; authenticated runtime URLs retain normal ACL checks. */
   externalAccessEnabled?: boolean;
+  /** List only: the current user already has an active public link for this file. */
+  publicLinkActive?: boolean;
   canManage?: boolean;
   primaryNote: {
     id: string;
@@ -721,6 +723,14 @@ export interface DiaryMediaItem {
   size?: number;
 }
 
+/** 说说文件附件（PDF、Office、压缩包等），与图片/视频分开存放。 */
+export interface DiaryAttachmentItem {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface Diary {
   id: string;
   userId: string;
@@ -732,6 +742,8 @@ export interface Diary {
   images: string[];
   /** 已绑定的说说媒体。旧数据可能为空，此时前端用 images 兜底。 */
   media: DiaryMediaItem[];
+  /** 文件附件，不占 9 图 / 1 视频额度。旧服务器不返回该字段。 */
+  attachments?: DiaryAttachmentItem[];
   createdAt: string;
   /** 创建者用户名；后端 LEFT JOIN users 返回，工作区视图下用于展示"谁发的"。 */
   creatorName?: string | null;

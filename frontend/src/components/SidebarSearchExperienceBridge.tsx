@@ -101,6 +101,7 @@ function collectSortSlots(): HTMLElement[] {
   const inputs = Array.from(document.querySelectorAll<HTMLInputElement>(KNOWLEDGE_TREE_FILTER_SELECTOR));
 
   for (const input of inputs) {
+    if (input.closest("[data-mobile-sidebar-search-slot]")) continue;
     const filterSurface = input.parentElement;
     const toolbar = filterSurface?.parentElement;
     if (!(filterSurface instanceof HTMLElement) || !(toolbar instanceof HTMLElement)) continue;

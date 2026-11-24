@@ -11,6 +11,7 @@ import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 import { normalizeNoteColorMark } from "../lib/noteColorMark";
+import { normalizeDiaryFileAttachments } from "../lib/diary-file-attachments";
 import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
 import { SERVER_PUSH_MODE, applyNotebookUpserts, withNotebookLive } from "./notebookApply";
 
@@ -564,7 +565,7 @@ function applyTaskReminder(db: Database.Database, input: ApplyMutationInput): nu
  * 表里只有 createdAt 没有 updatedAt —— 这类内容发布后极少修改。
  * 因此用幂等 upsert 而不做冲突检测：同 ID 就是同一条记录。
  *
- * images / media 是 JSON 数组字符串，元素指向 diary_attachments。
+ * images / media / attachments 是 JSON 数组字符串，元素指向 diary_attachments。
  * 那些附件的二进制走独立通道（与 attachments 同理），
  * 此处只同步引用关系。
  */
@@ -590,26 +591,75 @@ function applyDiary(db: Database.Database, input: ApplyMutationInput): number | 
     }
     return Array.isArray(value) ? JSON.stringify(value) : "[]";
   };
+  // 旧客户端的载荷没有 attachments 字段：保留已有附件，普通编辑不能把附件清空。
+  const attachmentsProvided = Object.prototype.hasOwnProperty.call(p, "attachments");
+  const attachments = normalizeDiaryFileAttachments(p.attachments);
+  const images = asJsonArray(p.images);
+  const media = asJsonArray(p.media);
 
   db.prepare(`
-    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt, workspaceId)
-    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, attachments, createdAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       contentText = excluded.contentText,
       mood = excluded.mood,
       images = excluded.images,
-      media = excluded.media
+      media = excluded.media,
+      attachments = CASE WHEN ? = 1 THEN excluded.attachments ELSE diaries.attachments END
   `).run(
     input.entityId,
     input.userId,
     typeof p.contentText === "string" ? p.contentText : "",
     typeof p.mood === "string" ? p.mood : "",
-    asJsonArray(p.images),
-    asJsonArray(p.media),
+    images,
+    media,
+    JSON.stringify(attachments),
     typeof p.createdAt === "string" ? p.createdAt : null,
     workspaceIdOf(input),
+    attachmentsProvided ? 1 : 0,
   );
+  bindSyncedDiaryUploads(db, input, syncedDiaryMediaIds(images, media), attachments.map((item) => item.id));
   return null;
+}
+
+function syncedDiaryMediaIds(images: string, media: string): string[] {
+  const ids = new Set<string>();
+  for (const item of JSON.parse(media) as unknown[]) {
+    if (item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string") {
+      ids.add((item as { id: string }).id);
+    }
+  }
+  for (const item of JSON.parse(images) as unknown[]) {
+    if (typeof item === "string") ids.add(item);
+  }
+  return [...ids];
+}
+
+/**
+ * Android 等 Local-first 客户端先把媒体/附件直传服务端（此时 diaryId 为 NULL），
+ * 说说本身再经 Sync V2 推送。这里把载荷引用的、属于推送者且仍悬空的上传绑定到
+ * 这条说说；否则 24h 孤儿清理会把它们当成没发布的上传删掉。
+ * 图片/视频只绑 kind='media'，文件附件只绑 kind='file'，与 REST 发布同口径。
+ */
+function bindSyncedDiaryUploads(
+  db: Database.Database,
+  input: ApplyMutationInput,
+  mediaIds: string[],
+  fileIds: string[],
+): void {
+  const bind = (ids: string[], kind: "media" | "file") => {
+    if (ids.length === 0) return;
+    db.prepare(`
+      UPDATE diary_attachments
+         SET diaryId = ?, workspaceId = ?
+       WHERE id IN (${ids.map(() => "?").join(",")})
+         AND userId = ?
+         AND diaryId IS NULL
+         AND kind = ?
+    `).run(input.entityId, workspaceIdOf(input), ...ids, input.userId, kind);
+  };
+  bind(mediaIds, "media");
+  bind(fileIds, "file");
 }
 
 /**

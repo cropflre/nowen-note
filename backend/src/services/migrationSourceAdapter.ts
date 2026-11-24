@@ -8,6 +8,7 @@ import { sanitizeForImport } from "../lib/sanitizeHtml";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, nmfManifestSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat";
 import { createNotionMigrationContext } from "./migrationNotionAdapter";
 import { isSiyuanMigration, stageSiyuanMigration } from "./migrationSiyuanAdapter";
+import { convertWikiLinks, isIgnoredMigrationPath, readFrontMatter } from "./migrationMarkdownSources";
 import { MIGRATION_SOURCE_ADAPTER_API_VERSION, normalizeMigrationSource, type MigrationSourceAdapterContext } from "./migrationSourceAdapters";
 
 const unzipper = require("unzipper");
@@ -116,7 +117,7 @@ async function preflightZip(filePath: string): Promise<void> {
   } finally { await handle.close(); }
 }
 
-async function extractArchive(filePath: string, destination: string, budget: number, assertActive?: () => void): Promise<Map<string, StagedFile>> {
+export async function extractArchive(filePath: string, destination: string, budget: number, assertActive?: () => void): Promise<Map<string, StagedFile>> {
   await preflightZip(filePath);
   const directory = await unzipper.Open.file(filePath) as { files: ZipEntry[] };
   if (directory.files.length > MIGRATION_LIMITS.files) return fail("MIGRATION_ARCHIVE_LIMIT");
@@ -263,7 +264,8 @@ export async function stageMigrationFile(input: {
       throw error;
     }
   };
-  const notes = [...files.keys()].filter(noteExtension).filter((name) => !/^(?:__MACOSX|assets|attachments)\//i.test(name)).sort();
+  const notes = [...files.keys()].filter(noteExtension)
+    .filter((name) => !/^(?:__MACOSX|assets|attachments)\//i.test(name) && !isIgnoredMigrationPath(name, files)).sort();
   let notion: ReturnType<typeof createNotionMigrationContext> | undefined;
   const matchesNotion = () => {
     try { notion = createNotionMigrationContext({ notePaths: notes, csvPaths: [...files.keys()].filter((name) => /\.csv$/i.test(name)), source: input.source, readText: context.readText }); }
@@ -277,14 +279,23 @@ export async function stageMigrationFile(input: {
       if (notes.some((name) => !/\.(?:txt|html?)$/i.test(name))) return fail("MIGRATION_HUAWEI_FORMAT_UNSUPPORTED");
       warnings.add("HUAWEI_EXPORT_LIMITS; 仅导入已导出的 TXT/HTML 和本地资源；原始时间、标签、手写、语音结构及云端备份不恢复");
     }
-    for (const name of files.keys()) {
-      if (!noteExtension(name) && !supportedAssets[path.extname(name).toLowerCase()]) warnings.add("UNSUPPORTED_FILES_SKIPPED; scripts, macros, databases and unknown files are not imported");
+    // App settings, trash and OS metadata are neither notes nor attachments, and are not reported as skipped content.
+    const visible = new Map([...files].filter(([name]) => !isIgnoredMigrationPath(name, files)));
+    const isAsset = (name: string) => Boolean(supportedAssets[path.extname(name).toLowerCase()]);
+    const isImage = (name: string) => (supportedAssets[path.extname(name).toLowerCase()] || "").startsWith("image/");
+    for (const name of visible.keys()) {
+      if (!noteExtension(name) && !isAsset(name)) warnings.add("UNSUPPORTED_FILES_SKIPPED; scripts, macros, databases and unknown files are not imported");
       if (/\.csv$/i.test(name)) warnings.add("CSV_DATABASE_NOT_CONVERTED; export database pages as Markdown or HTML");
     }
     for (const name of notes) {
       const format = formatFor(name);
       const rawContent = readText(files.get(name)!, MIGRATION_LIMITS.contentBytes);
-      const content = format === "html" ? sanitizeMigrationHtml(rawContent) : rawContent;
+      // Plain Markdown folders (Obsidian, Joplin, Logseq): follow [[links]] and ![[embeds]], read front matter.
+      const plainMarkdown = format === "markdown" && !notion;
+      const wiki = plainMarkdown ? convertWikiLinks(name, rawContent, visible, isAsset, isImage) : null;
+      if (wiki?.unresolvedEmbeds) warnings.add("UNRESOLVED_RELATIVE_REFERENCES; original links are preserved");
+      const frontMatter = plainMarkdown ? readFrontMatter(rawContent) : null;
+      const content = format === "html" ? sanitizeMigrationHtml(rawContent) : wiki ? wiki.content : rawContent;
       if (format === "html") warnings.add("HTML_SANITIZED; unsupported styles, scripts and embedded components are removed");
       const attachments: NmfNote["attachments"] = [];
       const links: NmfNote["links"] = [];
@@ -301,9 +312,11 @@ export async function stageMigrationFile(input: {
       }
       const titleMatch = format === "html" ? /<title[^>]*>([^<]+)<\/title>/i.exec(rawContent) : /^#\s+(.+)$/m.exec(content);
       const note: NmfNote = { schemaVersion: 1, source: { ...input.source, sourceId: name },
-        title: (titleMatch?.[1]?.trim() || path.posix.basename(name).replace(/\.[^.]+$/, "")).slice(0, 500),
+        title: (frontMatter?.title || titleMatch?.[1]?.trim() || path.posix.basename(name).replace(/\.[^.]+$/, "")).slice(0, 500),
         path: path.posix.dirname(name) === "." ? [] : path.posix.dirname(name).split("/"),
-        contentFormat: format, content, attachments, links, tags: [], metadata: {} };
+        contentFormat: format, content, attachments, links, tags: frontMatter?.tags || [], metadata: {},
+        ...(frontMatter?.createdAt ? { createdAt: frontMatter.createdAt } : {}),
+        ...(frontMatter?.updatedAt ? { updatedAt: frontMatter.updatedAt } : {}) };
       await context.onNote(nmfNoteSchema.parse(notion ? notion.decorate(name, note) : note));
     }
     notion?.warnings.forEach((warning) => warnings.add(warning));

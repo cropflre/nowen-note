@@ -249,7 +249,7 @@ async function rebuildEmbeddingIndex(): Promise<void> {
   throw new Error(body?.error || `Request failed: ${response.status}`);
 }
 
-export default function EmbeddingSettingsPanel() {
+export default function EmbeddingSettingsPanel({ showIndexControls = true }: { showIndexControls?: boolean } = {}) {
   const copy = useMemo(getCopy, []);
   const [draft, setDraft] = useState<EmbeddingDraft>(EMPTY_DRAFT);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
@@ -319,10 +319,10 @@ export default function EmbeddingSettingsPanel() {
 
   const queuedJobs = (status?.index.pending || 0) + (status?.index.processing || 0);
   useEffect(() => {
-    if (queuedJobs <= 0) return;
+    if (!showIndexControls || queuedJobs <= 0) return;
     const timer = window.setInterval(() => void refreshStatus(true), 5_000);
     return () => window.clearInterval(timer);
-  }, [queuedJobs, refreshStatus]);
+  }, [queuedJobs, refreshStatus, showIndexControls]);
 
   const selectedProfile = profiles.find((profile) => profile.id === draft.profileId) || null;
   const profileMissing = draft.source === "profile" && !!draft.profileId && !selectedProfile;
@@ -499,7 +499,7 @@ export default function EmbeddingSettingsPanel() {
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-zinc-500 dark:text-zinc-400">{copy.description}</p>
         </div>
-        <button
+        {showIndexControls && <button
           type="button"
           onClick={() => void refreshStatus()}
           disabled={statusLoading || busy}
@@ -508,7 +508,7 @@ export default function EmbeddingSettingsPanel() {
         >
           {statusLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           <span className="hidden sm:inline">{copy.refresh}</span>
-        </button>
+        </button>}
       </div>
 
       {loading ? (
@@ -721,7 +721,7 @@ export default function EmbeddingSettingsPanel() {
             </label>
           </details>
 
-          <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {showIndexControls && <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
               <div className="text-[11px] text-zinc-500">{copy.notes}</div>
               <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -752,7 +752,7 @@ export default function EmbeddingSettingsPanel() {
                 {index?.vectorDimension ? ` · ${index.vectorDimension} ${copy.dimension}` : ""}
               </div>
             </div>
-          </div>
+          </div>}
 
           {(status?.embedding?.error || profileMissing) && (
             <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
@@ -760,19 +760,19 @@ export default function EmbeddingSettingsPanel() {
               <span>{status?.embedding?.error || copy.profileMissingWarning}</span>
             </div>
           )}
-          {index?.configured && vectorState !== "ready" && (
+          {showIndexControls && index?.configured && vectorState !== "ready" && (
              <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
                {vectorState === "initializing" ? copy.initializingHint : copy.extensionFailureHint}
              </p>
            )}
-           <EmbeddingIndexFailureDetails
+           {showIndexControls && <EmbeddingIndexFailureDetails
              failed={index?.failed || 0}
              onRetried={async (count) => {
                await refreshStatus(true);
                setMessage({ type: "success", text: copy.retried(count) });
              }}
-           />
-           <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>
+           />}
+           {showIndexControls && <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>}
 
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
             <button
@@ -784,7 +784,7 @@ export default function EmbeddingSettingsPanel() {
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               {saving ? copy.saving : copy.save}
             </button>
-            <button
+            {showIndexControls && <button
               type="button"
               onClick={() => void rebuildIndex()}
               disabled={busy || !index?.configured}
@@ -792,7 +792,7 @@ export default function EmbeddingSettingsPanel() {
             >
               {rebuilding ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
               {rebuilding ? copy.rebuilding : copy.rebuild}
-            </button>
+            </button>}
 
             {message && (
               <span className={cn(

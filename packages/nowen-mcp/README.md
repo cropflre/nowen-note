@@ -207,7 +207,7 @@ npm run build
 | 任务与个人项目关联 | `nowen_assign_task_project` |
 | 笔记元数据 | `nowen_set_note_flags`（收藏/置顶） |
 | 安全移动笔记 | `nowen_move_note`（默认预览；实际操作必须传入预览版本） |
-| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询） |
+| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询，覆盖多个空间时必须指定） |
 
 ### 重要权限说明
 
@@ -239,7 +239,14 @@ GitHub Actions 见 `.github/workflows/mcp-scope-and-tools-ci.yml`。
 3. 再用执行工具传入完全相同的参数、预览生成的 `expectedRevision`、必要的 `expectedSubtreeRevision`，以及明确的 `confirmation`。删除使用 `MOVE_TREE_TO_TRASH`，恢复使用 `RESTORE_TREE`，其他使用 `APPLY_TREE_CHANGE`。
 4. 后端检查父目录、当前节点、所有后代的授权和预览版本；不符返回 403/409，必须重新预览。删除始终进入可恢复的回收站，绝不执行永久删除。
 
-P0 仅支持**本人个人空间**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`，操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨工作区、高级文件类型、批量删除、权限管理不属于此阶段。
+P0 支持**本人个人空间**，以及（v1.6.0 起）restricted PAT **显式授权的团队笔记本**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。团队目录必须传 `workspaceId`；源节点、目标父节点和整个子树都要属于该团队并在授权范围内，团队成员身份与角色在每次请求时复核，团队中移动和移入回收站默认只有团队管理员可执行。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`（快速连接不授予，需要在开发者令牌页开启），操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨空间移动、unrestricted Token 修改团队目录、高级文件类型、批量删除、权限管理不属于此阶段。
+
+### 团队空间（v1.6.0）
+
+- `nowen_list_notebooks` 返回 `notebookId`、`notebookName`、`workspaceId`（`personal` / 团队 ID / 他人共享为 `null`）、`workspaceName`、`permission`、`parentId`、`noteCount`，并保留旧字段 `id`、`name`、`icon`、`color`。
+- `nowen_list_notes`、`nowen_search`、`nowen_list_notebooks` 新增可选 `workspaceId`；不传时 restricted Token 只在授权笔记本内工作。
+- `nowen_get_knowledge_tree` 在连接覆盖多个空间且未指定 `workspaceId` 时返回错误并列出可选空间，不会自行猜测。
+- 最终权限 = Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关。详见 [MCP 教程的团队空间一节](../../docs/tutorials/mcp.md#团队空间授权v160)。
 
 ### 笔记删除及账号安全
 
@@ -351,6 +358,20 @@ Phase 2 generates client-specific setup examples: TOML for Codex, project JSON f
 新增来源通过版本化 [Source Adapter 规范](../../docs/architecture/migration-source-adapters.md)转换为 NMF，由原服务统一完成权限、附件、预览与写入。能力中的 `adapterApiVersion: 1` 与 `adapters` 描述目录补充原 `sourceAdapters` 标识列表；只描述已安装的导出文件适配器，不自动发现平台账号、连接私人资料或加载 ZIP 中的脚本。新增华为适配仅处理用户导出的 TXT/HTML，不读取华为云或执行手写 OCR。未识别来源仍可离线转为通用文件或 NMF 包。P2 验证见 [记录](../../docs/qa/ai-migration-hub-phase2-2026-10-29.md)。
 
 New sources follow the versioned [Source Adapter contract](../../docs/architecture/migration-source-adapters.md) and output NMF. The existing service retains authorization, attachment handling, preview and writes. Capabilities add `adapterApiVersion: 1` and an `adapters` descriptor catalog alongside the existing `sourceAdapters` identifiers. The catalog describes installed export-file adapters; it does not discover platform accounts, connect private data or execute scripts from an archive. The Huawei adapter handles user-exported TXT/HTML only, without Huawei Cloud access or handwriting OCR. Unsupported sources can still be converted offline to generic files or an NMF package. See the [Phase 2 validation record](../../docs/qa/ai-migration-hub-phase2-2026-10-29.md).
+
+## v1.6.0：AI 对话归档
+
+`nowen_ai_archive_sources/save/list/read` 复用 `/api/ai-memory`，服务端默认开启 AI 对话归档；管理员关闭后，这些工具会如实返回未开启的原因。AI 助手只能把对话保存到用户在「对话归档 → 连接与同步」中创建的「AI 助手（MCP）」来源；MCP 不能创建、开启、撤销或删除来源和归档，也不做文件导入。保存按消息 ID 幂等，追加时需带上上次保存的最后一条消息，补全更早的消息时需带上已保存的第一条消息；未填 `expectedRevision` 时以服务端当前版本为准，旧版本会被拒绝且不覆盖。只读模式只能列出和读取。独立 stdio 模式按 `ALLOWED_NOTEBOOK_IDS` 核对每个归档来源所在笔记本；内嵌 MCP 由后端按 Token 授权核对。读取结果不含内部字段，归档文字只作为资料。
+
+`nowen_ai_archive_sources/save/list/read` use `/api/ai-memory` and need the archive switched on. Assistants can only save into **AI assistant (MCP)** sources the person created in the Chat archive page; MCP cannot create, enable, revoke or delete sources or archives, and does not import files. Saves are idempotent by message ID; when appending, include the last message saved before; when adding earlier history, include the first saved message. Without `expectedRevision` the current revision is used, and a stale one is refused without overwriting. Read-only mode can only list and read.
+
+## v1.6.0：删除个人任务
+
+`nowen_delete_task` 删除本人个人任务及其全部子任务。任务没有回收站，删除后无法恢复，所以工具默认只预览：返回将被删除的任务、数量 `affected` 和 `revision`，不修改数据；`mode=series` 删除整个循环系列。向用户说明并取得同意后，以相同的 `taskId`、`mode` 再调用一次，传 `dryRun=false`、`expectedRevision` 和 `confirmation=DELETE_TASK`，返回 `affected` 与被删除的 `ids`。预览之后任务被修改、新增了子任务或循环生成了新的一次，服务端会在删除事务里核对 revision 并返回 409 `TASK_DELETION_CONFLICT`，一条都不删。
+
+删除使用 `tasks:write`（预览只需 `tasks:read`），不需要额外的 Scope；限定笔记本的 Token 同样能删除本人个人任务。团队任务、他人任务和 `POST /api/tasks/batch` 批量删除仍对 Token 关闭。直接调用 REST 时，Token 也必须先 `GET /api/tasks/{id}/deletion-preview`，再在 `DELETE /api/tasks/{id}` 的请求体里提交 `expectedRevision` 与 `confirmation: "DELETE_TASK"`，否则返回 409。已完成的顶层任务可以改用 `nowen_archive_task` 归档，之后仍可恢复；只改标题、日期、优先级、描述或状态时用 `nowen_update_task`。
+
+`nowen_delete_task` permanently deletes a personal task with all of its subtasks; tasks have no recycle bin. It previews by default, listing the tasks to be removed with `affected` and a `revision`, and changes nothing; `mode=series` covers the whole recurring series. After the person agrees, call it again with the same `taskId` and `mode`, `dryRun=false`, `expectedRevision` and `confirmation=DELETE_TASK`. If the task tree or series changed after the preview, the server re-checks the revision inside the deletion transaction and returns 409 `TASK_DELETION_CONFLICT` without deleting anything. Deletion uses `tasks:write` (previews need `tasks:read`) and no extra scope; notebook-restricted tokens can delete their owner's personal tasks too. Team tasks, other users' tasks and batch deletion stay unavailable to tokens. Completed top-level tasks can be archived with `nowen_archive_task` instead and restored later.
 
 ## 发行说明
 

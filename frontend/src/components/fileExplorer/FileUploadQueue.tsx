@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
 import { humanFileSize } from "@/lib/fileExplorerModel";
 import type { useFileUploadQueue } from "@/hooks/useFileUploadQueue";
+import type { FileItem } from "@/types";
 
-export default function FileUploadQueue({ queue, onView, onMove }: {
+export default function FileUploadQueue({ queue, onView, onMove, onCopyLink }: {
   queue: ReturnType<typeof useFileUploadQueue>;
   onView: (id: string) => void;
   onMove: (id: string) => void;
+  /** Image hosting: copy the uploaded file's public link straight from the queue. */
+  onCopyLink?: (file: FileItem) => void;
 }) {
   const { t } = useTranslation();
   if (!queue.tasks.length) return null;
@@ -32,6 +35,7 @@ export default function FileUploadQueue({ queue, onView, onMove }: {
           {task.status === "uploading" && task.progress !== null && <span>{Math.floor(task.progress)}%</span>}
           {["waiting", "uploading"].includes(task.status) && <button disabled={task.status === "uploading" && !queue.canCancelActive} onClick={() => queue.cancel(task.id)} className="text-tx-secondary disabled:opacity-40">{t("common.cancel")}</button>}
           {task.status === "failed" && <button onClick={() => queue.retry(task.id)} className="text-accent-primary">{t("fileExplorer.retry")}</button>}
+          {onCopyLink && task.result && ["success", "existing"].includes(task.status) && <button onClick={() => onCopyLink(task.result!)} className="text-accent-primary">{t("fileExplorer.imageHost.copyLink")}</button>}
         </div>
         {task.status === "uploading" && task.progress !== null && <progress value={task.progress} max={100} className="mt-1 h-1 w-full overflow-hidden rounded-full [accent-color:var(--color-accent-primary)]" aria-label={task.file.name} />}
         {task.error && <p className="text-red-500" role="alert">{task.error}</p>}

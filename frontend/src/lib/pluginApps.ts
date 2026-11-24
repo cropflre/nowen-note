@@ -1,9 +1,11 @@
 import { getOfflineQueueStorageKey } from "./offlineScope";
 
-export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; manage?: boolean; studio?: boolean; studioId?: string; personalId?: string; pluginId?: string; pageId?: string } {
+export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; manage?: boolean; discover?: boolean; studio?: boolean; studioId?: string; personalId?: string; pluginId?: string; pageId?: string } {
   if (path === "/apps") return { matched: true };
   if (path === "/apps/dashboard") return { matched: true, dashboard: true };
   if (path === "/apps/manage") return { matched: true, manage: true };
+  // "discover" has no "." or "-", so it can never collide with a /apps/<pluginId>/<pageId> route.
+  if (path === "/apps/discover") return { matched: true, discover: true };
   if (path === "/apps/studio") return { matched: true, studio: true };
   const studioId = /^\/apps\/studio\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(path);
   if (studioId) return { matched: true, studio: true, studioId: studioId[1] };

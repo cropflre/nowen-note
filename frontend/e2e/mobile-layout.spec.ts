@@ -245,7 +245,7 @@ for (const scenario of navigationRailCases) {
           return [{ name: label.textContent.trim(), fontSize }];
         });
       }, scenario.scale);
-      expect(enlarged.map(label => label.name)).toEqual(expect.arrayContaining(["所有笔记", "每日记录", "应用", "工作台", "空间", "退出登录"]));
+      expect(enlarged.map(label => label.name)).toEqual(expect.arrayContaining(["所有笔记", "每日记录", "应用", "空间", "退出登录"]));
       await page.screenshot({ path: test.info().outputPath("rail-top.png") });
 
       const measurements = await rail.evaluate(element => {

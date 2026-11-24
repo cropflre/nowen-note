@@ -1,4 +1,4 @@
-// Read-only validation of the existing release.yml's Full + Lite desktop artifacts.
+// Read-only validation of the existing release.yml's desktop artifacts.
 import { createReadStream } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -10,12 +10,8 @@ const { verifyLocalDirectory, isUpdateMetadataName } = require("./lib/update-met
 
 export async function verifyFormalDirectory(directory, { platform, version }) {
   const expected = [...requiredDebugReleaseAssets(platform, version)];
-  if (platform === "windows") expected.push(
-    `Nowen-Note-Lite-${version}-setup.exe`, `Nowen-Note-Lite-${version}-portable.exe`,
-    `Nowen-Note-Lite-${version}-setup.exe.blockmap`, "latest-lite.yml",
-  );
   const names = await readdir(directory);
-  if (expected.some((name) => !names.includes(name))) throw Error("正式产物缺少必要文件或 Lite 更新元数据");
+  if (expected.some((name) => !names.includes(name))) throw Error("正式产物缺少必要文件或更新元数据");
   const allowed = new Set([...expected, ...expected.filter((n) => /\.(dmg|zip)$/.test(n)).map((n) => `${n}.blockmap`)]);
   if (names.some((name) => !allowed.has(name))) throw Error("正式产物含清单外文件；不能混入调试 manifest 或 Store 包");
   const report = verifyLocalDirectory({ directory, expectedVersion: version, requireMetadata: true });

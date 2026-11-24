@@ -40,12 +40,10 @@ function platformFiles(platform: Platform): { name: string; data: Buffer }[] {
   const prefix = "Nowen-Note-" + version;
   const file = (name: string) => ({ name, data: bytes(name) });
   if (platform === "windows") {
-    const full = file(prefix + "-setup.exe"), lite = file("Nowen-Note-Lite-" + version + "-setup.exe");
+    const full = file(prefix + "-setup.exe");
     return [
       full, file(prefix + "-portable.exe"), file(full.name + ".blockmap"),
       { name: "latest.yml", data: updater("latest.yml", [{ name: full.name, bytes: full.data }]) },
-      lite, file("Nowen-Note-Lite-" + version + "-portable.exe"), file(lite.name + ".blockmap"),
-      { name: "latest-lite.yml", data: updater("latest-lite.yml", [{ name: lite.name, bytes: lite.data }]) },
     ];
   }
   if (platform === "macos") {
@@ -199,7 +197,7 @@ async function verify(f: Awaited<ReturnType<typeof setup>>) {
   assert.equal(candidate.state, "verified");
   assert.ok(candidate.digest);
   assert.deepEqual(candidate.verifications.map((x) => [x.platform, x.files.length]),
-    [["windows", 8], ["macos", 5], ["linux", 3]]);
+    [["windows", 4], ["macos", 5], ["linux", 3]]);
   return candidate;
 }
 async function draft(f: Awaited<ReturnType<typeof setup>>, candidate: Awaited<ReturnType<typeof verify>>) {
@@ -208,11 +206,11 @@ async function draft(f: Awaited<ReturnType<typeof setup>>, candidate: Awaited<Re
   await f.publication.advance(task.id);
   assert.equal(f.store.task(task.id).state, "succeeded", f.store.task(task.id).error);
   assert.equal(f.publication.candidate(candidate.id).state, "draft");
-  assert.equal(f.github.assets.length, 16);
+  assert.equal(f.github.assets.length, 12);
   return task;
 }
 
-test("formal complete lifecycle: 3 real ZIP validators -> Draft/16 uploads -> immutable approval -> publish", async (t) => {
+test("formal complete lifecycle: 3 real ZIP validators -> Draft/12 uploads -> immutable approval -> publish", async (t) => {
   const f = await setup(t);
   const verified = await verify(f);
   assert.equal(f.github.createCount, 0);
@@ -228,7 +226,7 @@ test("formal complete lifecycle: 3 real ZIP validators -> Draft/16 uploads -> im
   assert.equal(f.publication.candidate(f.candidateId).state, "published");
   assert.equal(f.github.releaseRecord?.draft, false);
   assert.equal(f.github.publishCount, 1);
-  assert.equal(f.github.uploadCount, 16);
+  assert.equal(f.github.uploadCount, 12);
   assert.equal(f.github.calls.filter((x) => x === "POST releases").length, 1);
   assert.equal(f.github.calls.filter((x) => x === "PATCH releases/515").length, 1);
   assert.ok(f.github.calls.every((x) => !x.startsWith("DELETE ") && !x.startsWith("PUT ")));
@@ -250,7 +248,7 @@ test("Draft response lost after remote write: restart reconciles without another
   await restarted.advance(task.id);
   assert.equal(f.store.task(task.id).state, "succeeded", f.store.task(task.id).error);
   assert.equal(f.github.createCount, 1);
-  assert.equal(f.github.uploadCount, 16);
+  assert.equal(f.github.uploadCount, 12);
 });
 test("Publish response lost: remote read reconciles success, not a duplicate PATCH", async (t) => {
   const f = await setup(t);
@@ -306,6 +304,6 @@ test("Asset upload response lost: recover by remote digest without duplicate upl
   assert.equal(f.store.task(task.id).state, "succeeded", f.store.task(task.id).error);
   assert.equal(restarted.candidate(candidate.id).state, "draft");
   assert.equal(f.github.createCount, 1);
-  assert.equal(f.github.assets.length, 16);
-  assert.equal(f.github.uploadCount, 16);
+  assert.equal(f.github.assets.length, 12);
+  assert.equal(f.github.uploadCount, 12);
 });

@@ -3,6 +3,7 @@ import { normalizeShareBannerImage } from "../lib/share-banner";
 import { isSystemAdmin } from "../middleware/acl";
 import { invalidateFilesQueryDebugCache } from "./files";
 import { systemSettingsRepository } from "../repositories";
+import { AI_MEMORY_FEATURE_KEY } from "../lib/ai-memory-feature";
 import {
   resolvePublicWebOriginSettingUpdate,
   syncRuntimePublicWebOriginSetting,
@@ -45,6 +46,8 @@ export interface SiteSettings {
   debug_files_query: string;
   /** 是否允许服务端直接提供 Web UI 页面。 */
   web_ui_enabled: string;
+  /** AI 对话归档的实例级开关，默认开启；仅管理员可写。 */
+  feature_ai_memory_enabled: string;
 }
 
 const DEFAULTS: SiteSettings = {
@@ -64,6 +67,7 @@ const DEFAULTS: SiteSettings = {
   feature_personal_import_enabled: "true",
   debug_files_query: "false",
   web_ui_enabled: "true",
+  feature_ai_memory_enabled: "true",
 };
 
 try {
@@ -113,7 +117,8 @@ settings.put("/", async (c) => {
 
   const wantsDebugFlag = body.debug_files_query !== undefined;
   const wantsWebUiFlag = body.web_ui_enabled !== undefined;
-  if ((wantsDebugFlag || wantsWebUiFlag) && !isSystemAdmin(userId)) {
+  const wantsAIMemoryFlag = body.feature_ai_memory_enabled !== undefined;
+  if ((wantsDebugFlag || wantsWebUiFlag || wantsAIMemoryFlag) && !isSystemAdmin(userId)) {
     return c.json({ error: "仅管理员可修改系统开关", code: "FORBIDDEN" }, 403);
   }
 
@@ -190,6 +195,13 @@ settings.put("/", async (c) => {
       key: "web_ui_enabled",
       value: raw === true || raw === "true" || raw === 1 || raw === "1" ? "true" : "false",
     });
+  }
+  if (body.feature_ai_memory_enabled !== undefined) {
+    const raw = body.feature_ai_memory_enabled as unknown;
+    if (![true, false, "true", "false"].includes(raw as boolean | string)) {
+      return c.json({ error: "AI 对话归档开关必须为布尔值", code: "INVALID_AI_MEMORY_ENABLED" }, 400);
+    }
+    entries.push({ key: AI_MEMORY_FEATURE_KEY, value: String(raw === true || raw === "true") });
   }
 
   if (entries.length > 0) systemSettingsRepository.setMany(entries);

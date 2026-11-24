@@ -12,7 +12,6 @@
 //   - 兼容旧 preload：继续复用 updater:check / updater:quit-and-install 两个 IPC。
 //   - 安装前广播 preparing-install，让 renderer 有时间触发编辑器立即保存和队列落盘。
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
-const fs = require("fs");
 const path = require("path");
 const {
   buildReleaseDownloadUrl,
@@ -24,6 +23,7 @@ const {
   isMicrosoftStorePackage,
   storeManagedSnapshot,
 } = require("./storeChannel");
+const { createPreUpdateBackup } = require("./db-backup");
 
 
 let autoUpdater = null;
@@ -223,45 +223,13 @@ function backupDatabaseBeforeUpdate() {
   if (backupPrepared) return;
   backupPrepared = true;
   try {
-    const userDataPath = ctx.getUserDataPath?.();
-    if (!userDataPath) return;
-    const dbPath = path.join(userDataPath, "nowen-note.db");
-    if (!fs.existsSync(dbPath)) return;
-
-    const root = path.join(userDataPath, "backups-pre-update");
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const targetDir = path.join(root, stamp);
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    for (const suffix of ["", "-wal", "-shm"]) {
-      const source = dbPath + suffix;
-      if (fs.existsSync(source)) {
-        fs.copyFileSync(source, path.join(targetDir, `nowen-note.db${suffix}`));
-      }
-    }
-    fs.writeFileSync(
-      path.join(targetDir, "update.json"),
-      JSON.stringify(
-        {
-          fromVersion: app.getVersion(),
-          toVersion: state.version,
-          createdAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
-      "utf8",
-    );
-
-    const directories = fs
-      .readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-    for (const old of directories.slice(0, Math.max(0, directories.length - 3))) {
-      fs.rmSync(path.join(root, old), { recursive: true, force: true });
-    }
-    console.log("[updater] 升级前数据快照已创建", targetDir);
+    const targetDir = createPreUpdateBackup({
+      dataDir: ctx.getUserDataPath?.(),
+      fromVersion: app.getVersion(),
+      toVersion: state.version,
+      reason: "installer",
+    });
+    if (targetDir) console.log("[updater] 升级前数据快照已创建", targetDir);
   } catch (error) {
     // 备份失败不静默，但也不能把已验证通过的更新变成启动阻断。
     console.warn("[updater] 升级前备份失败：", sanitizeError(error));
@@ -517,6 +485,18 @@ function initAutoUpdater(opts = {}) {
         phase: "up-to-date",
         version: null,
         message: "当前已是最新稳定版",
+        checkedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    // 安装包版本没变、这个版本已经通过热更新在运行：不再提示下载整包（app.getVersion() 只是壳的版本）。
+    const hotUpdate = globalThis.__nowenHotUpdate;
+    if (hotUpdate?.covers?.(info.version)) {
+      availableInfo = null;
+      broadcast("not-available", {
+        phase: "up-to-date",
+        version: null,
+        message: `已通过热更新升级到 v${hotUpdate.effectiveVersion}`,
         checkedAt: new Date().toISOString(),
       });
       return;

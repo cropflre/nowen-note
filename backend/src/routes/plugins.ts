@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema.js";
-import { previewPersonalAIApp } from "../plugins/personalStudioAI.js";
+import { personalAIUnavailableCode, previewPersonalAIApp } from "../plugins/personalStudioAI.js";
 import { listPersonalStudioVersions, restorePersonalStudioVersion } from "../plugins/personalStudioHistory.js";
 import { listPersonalStudioApps, getPersonalStudioApp, createPersonalStudioApp, updatePersonalStudioApp, deletePersonalStudioApp } from "../plugins/personalStudioApps.js";
 import { bodyLimit } from "hono/body-limit";
@@ -13,6 +13,7 @@ import { getApplicationV3FeatureFlags, type AppPlatformV3 } from "../plugins/app
 import { getPluginService } from "../plugins/pluginService.js";
 import { EXTENSION_V21_TARGET_NOWEN_VERSION, NOWEN_VERSION } from "../plugins/types.js";
 import { APP_DOCUMENT_V3_CSP } from "../plugins/appDocumentV3.js";
+import { currentPluginRuntimePlatform } from "../plugins/ecosystemRegistry.js";
 
 const pluginsRouter = new Hono();
 
@@ -27,8 +28,13 @@ function errorResponse(c: any, error: unknown) {
     : coded.code === "STUDIO_AI_NOT_CONFIGURED" || coded.code === "STUDIO_AI_UNAVAILABLE" ? 409
     : coded.code === "STUDIO_AI_INVALID_OUTPUT" || coded.code === "STUDIO_AI_DESTRUCTIVE_CHANGE" ? 422
     : coded.code === "STUDIO_CONFLICT" || coded.code === "STUDIO_APP_LIMIT" ? 409
-    : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
-    : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
+    : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" || coded.code === "PLUGIN_EDITOR_ACTION_NOT_FOUND" ? 404
+    : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" || coded.code === "PLUGIN_EDITOR_ACTIONS_DISABLED"
+      || coded.code === "PLUGIN_EDITOR_NOTE_FORBIDDEN" || coded.code === "PLUGIN_EDITOR_NOTE_PROTECTED" ? 403
+    : coded.code === "PLUGIN_EDITOR_ACTION_INVALID_RESULT" ? 422
+    : coded.code === "PLUGIN_EDITOR_AI_NOT_CONFIGURED" ? 409
+    : coded.code === "PLUGIN_EDITOR_ACTION_BUSY" ? 429
+    : coded.code === "PLUGIN_EDITOR_AI_FAILED" ? 502
       : coded.code === "PLUGIN_TIMEOUT" ? 408
         : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" || coded.code === "PLUGIN_DATA_CONFLICT" ? 409
           : 400;
@@ -53,6 +59,7 @@ pluginsRouter.get("/features", (c) => c.json({
   applicationV3: getApplicationV3FeatureFlags(),
   currentNowenVersion: NOWEN_VERSION,
   targetNowenVersion: EXTENSION_V21_TARGET_NOWEN_VERSION,
+  runtimePlatform: currentPluginRuntimePlatform(),
 }));
 pluginsRouter.get("/actions", (c) => c.json(getPluginService().listActions()));
 pluginsRouter.get("/apps", (c) => {
@@ -104,6 +111,15 @@ pluginsRouter.post("/personal-apps/ai-preview", bodyLimit({ maxSize: 64 * 1024 }
     }, 502);
     return errorResponse(c, error);
   }
+});
+// Lets the create page offer templates up front instead of an AI request that can only fail.
+// Registered before "/personal-apps/:appId"; reports only a bounded code, never the AI settings.
+pluginsRouter.get("/personal-apps/ai-status", c => {
+  try {
+    const code = personalAIUnavailableCode(studioActor(c));
+    c.header("Cache-Control", "no-store");
+    return c.json(code ? { available: false, code } : { available: true });
+  } catch (error) { return errorResponse(c, error); }
 });
 pluginsRouter.get("/personal-apps/:appId/versions", c => {
   try { c.header("Cache-Control", "no-store"); return c.json(listPersonalStudioVersions(getDb(), studioActor(c), c.req.param("appId"))); }
@@ -218,9 +234,10 @@ export function pluginAppDocumentResponse(c: any) {
   if (!getApplicationV3FeatureFlags().appPages || !/^[a-f0-9]{64}$/.test(c.req.param("ticket"))) return c.text("App document unavailable", 404);
   if (c.req.header("Sec-Fetch-Dest") !== "iframe") return c.text("Iframe required", 403);
   try {
-    const html = getPluginService().appRuntime.takeDocument(c.req.param("ticket"));
-    c.header("Content-Security-Policy", `sandbox allow-scripts; ${APP_DOCUMENT_V3_CSP}; frame-ancestors 'self'`);
-    c.header("X-Frame-Options", "SAMEORIGIN");
+    const { html, platform } = getPluginService().appRuntime.takeDocument(c.req.param("ticket"));
+    // The desktop shell loads its UI from file://, so only a desktop session's document may be framed there.
+    c.header("Content-Security-Policy", `sandbox allow-scripts; ${APP_DOCUMENT_V3_CSP}; frame-ancestors ${platform === "desktop" ? "'self' file:" : "'self'"}`);
+    if (platform !== "desktop") c.header("X-Frame-Options", "SAMEORIGIN");
     c.header("Referrer-Policy", "no-referrer"); c.header("Cache-Control", "no-store");
     return c.html(html);
   } catch { return c.text("App document unavailable", 404); }
@@ -480,6 +497,24 @@ pluginsRouter.post("/:id/actions/:actionId/execute", async (c) => {
     }
     const execution = await getPluginService().execute(c.req.param("id"), c.req.param("actionId"), userId(c), body.workspaceId || null, body.input || {});
     return c.json({ success: true, executionId: execution.executionId, data: execution.result });
+  } catch (error) {
+    return errorResponse(c, error);
+  }
+});
+
+// Editor actions: the host passes only the submitted selection and returns bounded text for the editor to apply.
+pluginsRouter.post("/:id/editor-actions/:actionId/run", bodyLimit({
+  maxSize: 128 * 1024,
+  onError: (c) => c.json({ success: false, error: "选中的内容超过编辑器动作上限", code: "PLUGIN_INPUT_TOO_LARGE" }, 413),
+}), async (c) => {
+  try {
+    let body: unknown = null;
+    try { body = await c.req.json(); } catch (error) {
+      // Chunked bodies have no Content-Length, so the limit surfaces while reading.
+      if ((error as Error)?.name === "BodyLimitError") return c.json({ success: false, error: "选中的内容超过编辑器动作上限", code: "PLUGIN_INPUT_TOO_LARGE" }, 413);
+    }
+    const result = await getPluginService().runEditorAction(c.req.param("id"), c.req.param("actionId"), userId(c), body, c.req.raw.signal);
+    return c.json({ success: true, ...result });
   } catch (error) {
     return errorResponse(c, error);
   }

@@ -158,6 +158,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
     />
     <NoteTemplatePickerDialog
       open={Boolean(templateParent)} onClose={() => setTemplateParent(null)}
+      parentId={templateParent?.parentId ?? null}
       onCreate={async (templateId) => { await openTemplateNote(await noteTemplatesApi.createNote(templateId, templateParent!.parentId)); }}
       onCreatePlugin={async (pluginId, templateId, values) => {
         const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: templateParent!.parentId, values });

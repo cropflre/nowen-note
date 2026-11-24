@@ -11,6 +11,7 @@ import { logSyncWarn } from "./log";
 import { classifyApplyFailure, redactEntityId, structureFailureMessage } from "./diagnostics";
 import { applyNotebookUpserts, withNotebookLive } from "./notebookApply";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { normalizeDiaryFileAttachments } from "../lib/diary-file-attachments";
 import { registerRemoteAttachment } from './attachments';
 import { getActiveProfile } from './profile';
 import { EncryptedNotePayloadError, guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
@@ -468,15 +469,18 @@ function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, optio
     }
     return Array.isArray(value) ? JSON.stringify(value) : "[]";
   };
+  // 旧服务端的载荷没有 attachments 字段：保留本机已有附件。
+  const attachmentsProvided = Object.prototype.hasOwnProperty.call(p, "attachments");
 
   db.prepare(`
-    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt, workspaceId)
-    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, attachments, createdAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       contentText = excluded.contentText,
       mood = excluded.mood,
       images = excluded.images,
-      media = excluded.media
+      media = excluded.media,
+      attachments = CASE WHEN ? = 1 THEN excluded.attachments ELSE diaries.attachments END
   `).run(
     item.entityId,
     userId,
@@ -484,8 +488,10 @@ function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, optio
     str(p.mood, ""),
     asJsonArray(p.images),
     asJsonArray(p.media),
+    JSON.stringify(normalizeDiaryFileAttachments(p.attachments)),
     p.createdAt ?? null,
     workspaceId,
+    attachmentsProvided ? 1 : 0,
   );
 }
 

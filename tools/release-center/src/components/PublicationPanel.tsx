@@ -40,7 +40,7 @@ export function PublicationPanel({ revision, tasks, request }: { revision: numbe
   }
   return <div className="space-y-6">
     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-      正式候选只接收已存在 Tag 的成功 release.yml 构建，实际范围固定为完整桌面三平台，包含 Windows Full / Lite 和 macOS 双架构。
+      正式候选只接收已存在 Tag 的成功 release.yml 构建，实际范围固定为完整桌面三平台，包含 Windows x64 和 macOS 双架构。
       控制台不推 Tag，不触发新的构建；Tag 已触发的 iOS 等任务由原流程负责。调试包不能晋升为正式包。
       新流程尚待回归验证，正式写操作默认关闭。
     </div>
@@ -49,7 +49,7 @@ export function PublicationPanel({ revision, tasks, request }: { revision: numbe
         <h2 className="font-semibold">Phase 2C · 独立桌面候选构建</h2>
         <span className="text-xs text-slate-500">候选包 · 不可直接发布</span>
       </div>
-      <p className="text-sm leading-6 text-slate-500">可使用独立 GitHub Actions 构建完整 Windows Full/Lite、macOS 双架构及 Linux。
+      <p className="text-sm leading-6 text-slate-500">可使用独立 GitHub Actions 构建完整 Windows x64、macOS 双架构及 Linux。
         输入固定 Commit SHA、稳定版本 X.Y.Z 和新 UUID；不会推 Tag，也不会创建 Draft、正式 Release、TestFlight 或商店上传。
         生成的候选 ZIP 与证据分开保存，未签名、未审批，不能冒充下方允许接管的 Tag 正式构建。</p>
       <a className="inline-flex rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-primary hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"

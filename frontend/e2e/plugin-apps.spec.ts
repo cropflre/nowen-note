@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
+import http from "node:http";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -44,22 +45,31 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
     // A non-admin user can create a real persisted application without uploading executable code.
-    await page.getByRole("button", { name: "Create your own app", exact: true }).click();
-    await page.getByRole("button", { name: "Checklist", exact: true }).click();
+    await page.getByRole("button", { name: "Create", exact: true }).click();
+    // A disconnected account can still create apps from the template library.
+    await expect(page.getByRole("button", { name: "Daily to-dos", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "AI App Builder", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Daily to-dos", exact: true }).click();
     await page.getByRole("button", { name: "Save app", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "我的待办清单", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My to-do list", exact: true })).toBeVisible();
     // The editor preview has the same heading; wait until the saved app runtime is ready.
     await expect(page.getByRole("button", { name: "Edit app", exact: true })).toBeVisible();
-    await page.getByLabel("事项", { exact: true }).fill("Studio smoke record");
+    await page.getByLabel("Item", { exact: true }).fill("Studio smoke record");
     await page.getByRole("button", { name: "Add record", exact: true }).click();
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
     await page.reload(); await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    await page.route(requestUrl => requestUrl.pathname.endsWith("/api/ai/test"), route => route.fulfill({ json: { success: true } }));
+    const profile = await page.request.post(`${url}/api/user-preferences/ai-profiles`, {
+      headers,
+      data: { name: "Studio fixture", provider: "openai", apiUrl: `${url}/ai-fixture/v1`, apiKey: "fixture", model: "fixture" },
+    });
+    expect(profile.status(), await profile.text()).toBe(201);
+    await page.evaluate(() => window.dispatchEvent(new Event("nowen:ai-profiles-changed")));
     await page.getByRole("button", { name: "Edit app", exact: true }).click();
-    // Mock only the upstream AI preview at the browser boundary; the actual
-    // save, revision history and rollback still use the production backend.
+    // Saving, revision history, and rollback still use the production backend.
     await page.route("**/api/plugins/personal-apps/ai-preview", async route => {
       const input = route.request().postDataJSON() as { spec: { name: string; fields: Array<{ id: string; label: string; type: string }>; [key: string]: unknown } };
-      expect(input.spec.name).toBe("我的待办清单");
+      expect(input.spec.name).toBe("My to-do list");
       const schema = { ...input.spec };
       delete schema.items;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
@@ -75,29 +85,31 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Edit app", exact: true }).click();
     await page.getByText("Version history", { exact: true }).click();
-    await expect(page.getByText("v2 · 我的待办清单", { exact: false })).toBeVisible();
+    await expect(page.getByText("v2 · My to-do list", { exact: false })).toBeVisible();
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", { name: "Restore version", exact: true }).first().click();
-    await expect(page.getByRole("textbox", { name: "App name", exact: true })).toHaveValue("我的待办清单");
+    await expect(page.getByRole("textbox", { name: "App name", exact: true })).toHaveValue("My to-do list");
     await page.getByRole("button", { name: "Back to my apps", exact: true }).click();
 
-    await page.getByRole("button", { name: "Manage apps", exact: true }).click();
+    await page.getByRole("button", { name: "Mine", exact: true }).click();
     await page.reload();
-    await expect(page.getByRole("button", { name: "Install app", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Administrator actions", exact: true })).toBeVisible();
     await page.screenshot({ path: test.info().outputPath("app-management-desktop.png") });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByRole("button", { name: "Install app", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Administrator actions", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("app-management-narrow.png") });
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.locator('input[type="file"][accept=".nowen-plugin"]').setInputFiles(artifact);
-    await expect(page.getByText("这是声明式零代码扩展", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("This is a declarative no-code extension", { exact: false })).toHaveCount(0);
     await page.getByRole("button", { name: /继续安装|Continue install/, exact: true }).click();
-    await expect(page.getByText("Isolated app UI code", { exact: true })).toBeVisible();
+    await expect(page.locator('[data-extension-card="plugin:nowenlab.hello-app"]')).toBeVisible();
+    await page.getByRole("button", { name: "Review and enable", exact: true }).click();
     await page.getByRole("button", { name: /确认权限并启用|Confirm permissions and enable/, exact: true }).click();
     await expect.poll(async () => (await (await page.request.get(`${url}/api/plugins/nowenlab.hello-app`, { headers })).json()).status).toBe("enabled");
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
-    await page.getByRole("button", { name: "Pin to sidebar", exact: true }).click();
+    await page.getByRole("button", { name: "More actions · Hello Nowen App", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Pin to sidebar", exact: true }).click();
     await page.getByRole("button", { name: "Hello Nowen App", exact: true }).filter({ visible: true }).first().click();
     const iframe = page.frameLocator('iframe[title="Hello Nowen App"]');
     await expect(iframe.locator("#status")).toHaveText("Saved data loaded");
@@ -128,6 +140,19 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await expect(page.locator('iframe[title="Hello Nowen App"]')).toHaveCount(0);
     await page.getByRole("button", { name: "Reopen", exact: true }).click();
     await expect(iframe.getByLabel("Message", { exact: true })).toHaveValue("kept across app restarts");
+    // Navigating its own frame to another origin is refused by the host page's frame-src, so nothing leaves.
+    const leaks: string[] = [];
+    const sink = http.createServer((request, response) => { leaks.push(request.url ?? ""); response.end("ok"); });
+    await new Promise<void>(resolve => sink.listen(0, "127.0.0.1", resolve));
+    try {
+      const exfiltrating = page.frames().find(frame => frame.url().includes("/api/plugin-ui-v3/"))!;
+      await exfiltrating.evaluate(destination => { location.href = destination; }, `http://127.0.0.1:${(sink.address() as net.AddressInfo).port}/leak?message=kept-across-app-restarts`);
+      await expect(page.locator('iframe[title="Hello Nowen App"]')).toHaveCount(0);
+      await page.waitForTimeout(1000);
+      expect(leaks).toEqual([]);
+    } finally { await new Promise(resolve => sink.close(resolve)); }
+    await page.getByRole("button", { name: "Reopen", exact: true }).click();
+    await expect(iframe.getByLabel("Message", { exact: true })).toHaveValue("kept across app restarts");
     await iframe.getByRole("button", { name: "Back to notes", exact: true }).click();
     const personalArtifact = path.join(root, "examples/plugins/personal-dashboard/dist/nowenlab.personal-dashboard-0.1.0.nowen-plugin");
     expect(fs.existsSync(personalArtifact)).toBe(true);
@@ -137,15 +162,16 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     const taskId = existingTask.id || existingTask.task?.id; expect(typeof taskId).toBe("string");
     const installPersonal = async () => {
       await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
-      await page.getByRole("button", { name: "Manage apps", exact: true }).click();
+      await page.getByRole("button", { name: "Mine", exact: true }).click();
       await page.locator('input[type="file"][accept=".nowen-plugin"]').setInputFiles(personalArtifact);
       await page.getByRole("button", { name: /继续安装|Continue install/, exact: true }).click();
+      await page.getByRole("button", { name: "Review and enable", exact: true }).click();
       await page.getByRole("button", { name: /确认权限并启用|Confirm permissions and enable/, exact: true }).click();
       await expect.poll(async () => (await (await page.request.get(`${url}/api/plugins/nowenlab.personal-dashboard`, { headers })).json()).status).toBe("enabled");
     };
     await installPersonal();
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
-    await page.getByRole("button", { name: "Personal Dashboard", exact: true }).filter({ visible: true }).click();
+    await page.locator('[data-extension-card="plugin:nowenlab.personal-dashboard"]').getByRole("button", { name: "Open", exact: true }).click();
     const personal = page.frameLocator('iframe[title="Personal Dashboard"]');
     await expect(personal.locator("#status")).toHaveText("Ready");
     await personal.getByLabel("Title / 标题", { exact: true }).fill("Phase 2 item");
@@ -165,7 +191,9 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await expect(personal.locator("#items")).toContainText("Phase 2 item");
     await expect(personal.locator("#items")).toContainText("Existing Nowen task");
     await expect(personal.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Dashboard", exact: true }).filter({ visible: true }).click();
+    // The rail has a single Apps entry; the dashboard is a tab of the Extension Center it opens.
+    await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
+    await page.getByRole("navigation", { name: "Extension Center navigation" }).getByRole("button", { name: "Dashboard", exact: true }).click();
     const countCard = page.locator('[data-widget-id="nowenlab.personal-dashboard/count"]');
     await expect(countCard.locator("p")).toHaveText("1");
     await page.getByRole("button", { name: "Edit layout", exact: true }).click();
@@ -204,7 +232,10 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     expect((await page.request.post(`${url}/api/plugins/nowenlab.personal-dashboard/enable`, { headers })).ok()).toBe(true);
     await expect(page.locator('[data-widget-id="nowenlab.personal-dashboard/interactive"]')).toBeVisible();
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
-    const personalCatalog = page.locator("li").filter({ has: page.getByRole("button", { name: "Personal Dashboard", exact: true }) });
+    // Per-user data export and restore live in the app's details, reached from its "more" menu.
+    await page.getByRole("button", { name: "More actions · Personal Dashboard", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Details and settings", exact: true }).click();
+    const personalCatalog = page.getByRole("dialog", { name: "Personal Dashboard" });
     const downloading = page.waitForEvent("download");
     await personalCatalog.getByRole("button", { name: "Export app data in this space", exact: true }).click();
     const download = await downloading, snapshotFile = path.join(directory, "personal-data.json");
@@ -217,7 +248,7 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     expect((await page.request.delete(`${url}/api/plugins/nowenlab.personal-dashboard`, { headers, data: { retainAppData: true } })).ok()).toBe(true);
     await installPersonal();
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
-    await page.getByRole("button", { name: "Personal Dashboard", exact: true }).filter({ visible: true }).click();
+    await page.locator('[data-extension-card="plugin:nowenlab.personal-dashboard"]').getByRole("button", { name: "Open", exact: true }).click();
     await expect(personal.locator("#status")).toHaveText("Ready");
     await expect(personal.locator("#items")).toContainText("Phase 2 item");
     await page.evaluate(() => window.dispatchEvent(new Event("nowen:token-changed"))); await expect(page.locator('iframe[title="Hello Nowen App"]')).toHaveCount(0);

@@ -309,6 +309,60 @@ export function generateOpenAPISpec(): Record<string, any> {
       "/api/tasks/{id}/toggle": {
         patch: { tags: ["任务"], summary: "切换任务完成状态", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "状态已切换" } } },
       },
+      "/api/tasks/{id}": {
+        put: {
+          tags: ["任务"], summary: "更新任务",
+          description: "只修改请求体中出现的字段，不能修改所属空间；已归档任务需先恢复。API Token 需要 tasks:write，只能修改本人个人任务，不能关联工作区或笔记。",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: { content: { "application/json": { schema: { type: "object", properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            dueDate: { type: "string", nullable: true, description: "本地日期 YYYY-MM-DD，null 清除" },
+            dueAt: { type: "string", nullable: true, description: "本地截止时间 YYYY-MM-DDTHH:mm，不带时区，null 清除" },
+            priority: { type: "integer", enum: [1, 2, 3], description: "1=低 2=中 3=高" },
+            status: { type: "string", enum: ["todo", "doing", "blocked", "done"], description: "done 同时标记完成" },
+            isCompleted: { type: "integer", enum: [0, 1] },
+            parentId: { type: "string", nullable: true },
+            projectId: { type: "string", nullable: true },
+          } } } } },
+          responses: { "200": { description: "{ task, generatedTask }：更新后的任务；循环任务完成时附带新生成的下一次" }, "400": { description: "字段无效" }, "403": { description: "无权修改该任务" }, "404": { description: "任务不存在" }, "409": { description: "TASK_ARCHIVED：请先恢复已归档任务" } },
+        },
+        delete: {
+          tags: ["任务"], summary: "永久删除任务及其全部子任务",
+          description: "任务没有回收站，删除后只保留同步墓碑，无法恢复。mode=series 删除整个循环系列；mode=single 删除未完成的循环任务时可能按规则生成下一次。请求体带 expectedRevision 时按删除预览校验，预览后任务树有任何变化都整体拒绝。API Token 需要 tasks:write，只能删除本人个人任务（限定笔记本的 Token 同样适用），且必须先调用删除预览，再提交 expectedRevision 与 confirmation=DELETE_TASK。",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "mode", in: "query", schema: { type: "string", enum: ["single", "series"], default: "single" } },
+          ],
+          requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: {
+            expectedRevision: { type: "string", description: "删除预览返回的 revision；API Token 必填" },
+            confirmation: { type: "string", enum: ["DELETE_TASK"], description: "API Token 必填" },
+          } } } } },
+          responses: { "200": { description: "{ success, affected, ids }：实际删除的任务数和 ID" }, "400": { description: "mode 无效" }, "403": { description: "无权操作部分任务，或 Token 无权访问该任务" }, "404": { description: "任务不存在" }, "409": { description: "MCP_PREVIEW_REQUIRED / MCP_CONFIRMATION_REQUIRED：Token 未提交预览或确认；TASK_DELETION_CONFLICT：预览后任务已变化，请重新预览" } },
+        },
+      },
+      "/api/tasks/{id}/deletion-preview": {
+        get: {
+          tags: ["任务"], summary: "预览删除任务",
+          description: "列出删除会移除的全部任务（含各级子任务；mode=series 含整个循环系列）和 revision，不修改数据。API Token 需要 tasks:read，只能预览本人个人任务。",
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "mode", in: "query", schema: { type: "string", enum: ["single", "series"], default: "single" } },
+          ],
+          responses: { "200": { description: "{ taskId, mode, affected, revision, mayGenerateNextOccurrence, tasks }" }, "400": { description: "mode 无效" }, "403": { description: "无权操作部分任务" }, "404": { description: "任务不存在" } },
+        },
+      },
+      "/api/tasks/batch": {
+        post: {
+          tags: ["任务"], summary: "批量完成或删除任务",
+          description: "只处理前 100 个 ID 中当前用户有权管理的任务；删除会连同子任务永久删除，无法恢复。API Token 不能调用此接口，请逐个使用删除预览和 DELETE /api/tasks/{id}。",
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: {
+            ids: { type: "array", items: { type: "string" } },
+            action: { type: "string", enum: ["complete", "delete"] },
+          }, required: ["ids", "action"] } } } },
+          responses: { "200": { description: "{ success, affected, generatedCount? }" }, "400": { description: "ids 为空或 action 无效" }, "403": { description: "没有可管理的任务，或使用了 API Token" }, "409": { description: "TASK_ARCHIVED：批量完成包含已归档任务" } },
+        },
+      },
 
       // ===== 思维导图 =====
       "/api/mindmaps": {

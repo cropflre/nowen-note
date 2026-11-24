@@ -38,5 +38,8 @@ project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capa
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
 
+include ':capawesome-capacitor-live-update'
+project(':capawesome-capacitor-live-update').projectDir = new File('../node_modules/@capawesome/capacitor-live-update/android')
+
 include ':mhaberler-capacitor-zeroconf-nsd'
 project(':mhaberler-capacitor-zeroconf-nsd').projectDir = new File('../node_modules/@mhaberler/capacitor-zeroconf-nsd/android')
