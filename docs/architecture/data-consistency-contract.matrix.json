@@ -316,6 +316,7 @@
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
+        { "file": "frontend/src/lib/__tests__/sharedPageAttachmentAccess.test.ts", "case": "installs the attachment access bridge before rendering a public share (DCC-006)" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
         { "file": "frontend/src/lib/__tests__/attachmentUploadRecovery.test.ts", "case": "does not recover into a changed server or account (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/rtfImageUploader.test.ts", "case": "stops queued uploads and ignores late results after the note changes (DCC-006)" },

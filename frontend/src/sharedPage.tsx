@@ -11,7 +11,9 @@ import SharedNoteView from "./components/SharedNoteCommentDisplayRuntime";
 import WebUiDisabledPage from "./components/WebUiDisabledPage";
 import { fetchWebUiEnabled } from "./lib/webUiAccess";
 import { dismissBootSplash, observeBootSplashReadiness, reportBootStage } from "./lib/bootSplash";
+import { captureAttachmentAccessUpstreamFetch } from "./lib/attachmentAccessUpstreamFetch";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
+import { installNoteAttachmentAccessBridge } from "./lib/noteAttachmentAccessBridge";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -41,6 +43,10 @@ class SharedPageErrorBoundary extends React.Component<
 
 export async function renderSharedPage(shareToken: string): Promise<void> {
   const webUiAllowed = await fetchWebUiEnabled();
+  if (webUiAllowed) {
+    captureAttachmentAccessUpstreamFetch();
+    installNoteAttachmentAccessBridge();
+  }
   reportBootStage("rendering");
   initCodeBlockTheme();
   createRoot(document.getElementById("root")!).render(
