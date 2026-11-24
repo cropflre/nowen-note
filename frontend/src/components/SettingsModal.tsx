@@ -494,7 +494,16 @@ function AboutPanel() {
       <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
         <div>
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('about.openSource')}</span>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('about.license')}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+            <a
+              href="https://github.com/cropflre/nowen-note/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-accent-primary hover:underline transition-colors"
+            >
+              {t('about.license')}
+            </a>
+          </p>
         </div>
         <a
           href="https://github.com/cropflre/nowen-note"

@@ -55,6 +55,15 @@ struct WebViewPage {
       + "px');document.documentElement.style.setProperty('--safe-area-bottom','" + bottom + "px');true;");
   }
 
+  private async openExternal(url: string): Promise<void> {
+    if (!/^https?:\/\//i.test(url)) return;
+    try {
+      await (getContext(this) as common.UIAbilityContext).startAbility({ action: 'ohos.want.action.viewData', uri: url });
+    } catch {
+      // 没有可处理 viewData 的应用时保持当前页面，不阻塞内置页面。
+    }
+  }
+
   private async selectFiles(event: OnShowFileSelectorEvent): Promise<void> {
     try {
       const selector = new picker.DocumentViewPicker(getContext(this));
@@ -83,8 +92,20 @@ struct WebViewPage {
           }
           return null;
         })
+        // 页面里 target="_blank" / window.open 的链接一律交给系统浏览器。
+        // 必须调用 setWebController(null) 告知 ArkWeb 不创建新窗口，否则渲染进程会被阻塞，
+        // 表现为点击后当前页面空白。
+        .multiWindowAccess(true)
+        .onWindowNew((event: OnWindowNewEvent) => {
+          event.handler.setWebController(null);
+          this.openExternal(event.targetUrl);
+        })
         .onLoadIntercept((event: OnLoadInterceptEvent) => {
-          return event.data.isMainFrame() && !event.data.getRequestUrl().startsWith('https://localhost/');
+          if (!event.data.isMainFrame()) return false;
+          const url = event.data.getRequestUrl();
+          if (url.startsWith('https://localhost/')) return false;
+          this.openExternal(url);
+          return true;
         })
         .onShowFileSelector((event: OnShowFileSelectorEvent) => { this.selectFiles(event); return true; })
         .onPageBegin(() => { this.ready = false; })
