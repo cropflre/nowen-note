@@ -22,7 +22,7 @@ export interface WorkbookPreviewModel {
 }
 
 type XlsxInput = File | Blob | ArrayBuffer | Uint8Array;
-type ReadXml = (path: string) => Promise<string>;
+export type ReadXml = (path: string) => Promise<string>;
 
 // JSZip exposes streaming at runtime, but its object typings omit internalStream.
 interface XmlStream {
@@ -33,7 +33,7 @@ interface XmlStream {
   resume(): void;
 }
 
-function boundedXmlReader(zip: JSZip): ReadXml {
+export function boundedXmlReader(zip: JSZip): ReadXml {
   let expandedBytes = 0;
   return async (path) => {
     const file = zip.file(path);
@@ -76,7 +76,7 @@ function boundedXmlReader(zip: JSZip): ReadXml {
   };
 }
 
-function escapeXml(value: string): string {
+export function escapeXml(value: string): string {
   return (value || "")
     // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
     .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, "")
@@ -87,7 +87,7 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function decodeXml(value: string): string {
+export function decodeXml(value: string): string {
   return (value || "")
     .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_match, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)))
@@ -102,12 +102,12 @@ function regexEscape(value: string): string {
   return value.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
 }
 
-function attribute(source: string, name: string): string {
+export function attribute(source: string, name: string): string {
   const match = source.match(new RegExp(`(?:^|\\s)${regexEscape(name)}=["']([^"']*)["']`, "i"));
   return match ? decodeXml(match[1]) : "";
 }
 
-function textRuns(source: string): string {
+export function textRuns(source: string): string {
   let text = "";
   const pattern = /<t\b[^>]*>([\s\S]*?)<\/t>/gi;
   let match: RegExpExecArray | null;
@@ -115,19 +115,19 @@ function textRuns(source: string): string {
   return text;
 }
 
-function columnIndexFromRef(ref: string): number {
+export function columnIndexFromRef(ref: string): number {
   const letters = (ref.match(/[A-Za-z]+/)?.[0] || "").toUpperCase();
   let value = 0;
   for (const char of letters) value = value * 26 + char.charCodeAt(0) - 64;
   return value - 1;
 }
 
-function rowIndexFromRef(ref: string): number {
+export function rowIndexFromRef(ref: string): number {
   const value = Number.parseInt(ref.match(/\d+/)?.[0] || "0", 10);
   return value - 1;
 }
 
-function columnRef(index: number): string {
+export function columnRef(index: number): string {
   let value = index + 1;
   let result = "";
   while (value > 0) {
@@ -149,7 +149,7 @@ function normalizeZipPath(basePart: string, target: string): string {
   return base.join("/");
 }
 
-function worksheetParts(workbookXml: string, relsXml: string): Array<{ name: string; path: string }> {
+export function worksheetParts(workbookXml: string, relsXml: string): Array<{ name: string; path: string }> {
   const relations = new Map<string, string>();
   for (const relation of relsXml.matchAll(/<Relationship\b[^>]*>/gi)) {
     if (attribute(relation[0], "TargetMode").toLowerCase() === "external") continue;
@@ -164,7 +164,7 @@ function worksheetParts(workbookXml: string, relsXml: string): Array<{ name: str
   });
 }
 
-async function sharedStrings(readXml: ReadXml): Promise<string[]> {
+export async function sharedStrings(readXml: ReadXml): Promise<string[]> {
   const source = await readXml("xl/sharedStrings.xml");
   const strings: string[] = [];
   const pattern = /<si\b[^>]*>([\s\S]*?)<\/si>/gi;
@@ -173,13 +173,13 @@ async function sharedStrings(readXml: ReadXml): Promise<string[]> {
   return strings;
 }
 
-const BUILTIN_DATE_FORMAT_IDS = new Set([
+export const BUILTIN_DATE_FORMAT_IDS = new Set([
   14, 15, 16, 17, 18, 19, 20, 21, 22,
   27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
   45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58,
 ]);
 
-function looksLikeDateFormat(formatCode: string): boolean {
+export function looksLikeDateFormat(formatCode: string): boolean {
   const normalized = formatCode
     .replace(/"[^"]*"/g, "")
     .replace(/\\./g, "")
@@ -216,13 +216,13 @@ async function dateStyleIndexes(readXml: ReadXml): Promise<Set<number>> {
   return styles;
 }
 
-function workbookUses1904Dates(workbookXml: string): boolean {
+export function workbookUses1904Dates(workbookXml: string): boolean {
   const workbookPr = workbookXml.match(/<workbookPr\b[^>]*>/i)?.[0] || "";
   const value = attribute(workbookPr, "date1904").toLowerCase();
   return value === "1" || value === "true";
 }
 
-function excelSerialToIsoDate(raw: string, use1904Dates: boolean): string | null {
+export function excelSerialToIsoDate(raw: string, use1904Dates: boolean): string | null {
   const serial = Number(raw);
   if (!Number.isFinite(serial)) return null;
   const wholeDays = Math.floor(serial);

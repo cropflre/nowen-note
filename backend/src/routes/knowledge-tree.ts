@@ -7,6 +7,7 @@ import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolder
 import { getUserWorkspaceRole, hasRole, isFeatureEnabled, isSystemAdmin, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
 import { syncChangeNoticeMiddleware } from "../sync/feedNotifier";
+import { isExcelWorkbookCreationEnabled } from "../services/excelData.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { resolvePasswordAuthorizedNotes, resolveUnlockedFolderNodeIds, signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
@@ -363,8 +364,11 @@ app.post("/nodes", async (c) => {
       const conflict = verifyTreePreconditions(c, body.parentId, body);
       if (conflict) return conflict;
     }
-    if (!["folder", "note", "markdown", "word", "mindmap", "sheet"].includes(nodeType)) {
+    if (!["folder", "note", "markdown", "word", "mindmap", "sheet", "excel"].includes(nodeType)) {
       return c.json({ error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" }, 400);
+    }
+    if (nodeType === "excel" && !isExcelWorkbookCreationEnabled()) {
+      return c.json({ error: "Excel 表格尚未在此服务器开放", code: "EXCEL_WORKBOOK_DISABLED" }, 403);
     }
     const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
     if (nodeType === "mindmap") {

@@ -26,6 +26,7 @@ import {
   TreePine,
   X,
   Table2,
+  FileSpreadsheet,
 } from "lucide-react";
 
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
@@ -62,6 +63,7 @@ import { api, getCurrentWorkspace } from "@/lib/api";
 import { formatKnowledgeTreeUpdatedAt } from "@/lib/noteListTime";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
@@ -153,6 +155,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.nodeType === "mindmap") return <BrainCircuit data-knowledge-tree-icon="" size={18} className="shrink-0 text-accent-primary" />;
   if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={18} className="shrink-0 text-amber-500" />;
   if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={18} className="shrink-0 text-sky-500" />;
+  if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={18} className="shrink-0 text-emerald-600" />;
   return <FileText data-knowledge-tree-icon="" size={18} className="shrink-0 text-accent-primary" />;
 }
 
@@ -648,6 +651,11 @@ export default function MobileKnowledgeTreePanel({
       if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
+    if (node.noteType === "excel") {
+      pushExcelAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     if (state.activeNote?.id === node.resourceId) {
       cancelNoteLoad();
       activateNote(state.activeNote, node.parentId);
@@ -762,6 +770,12 @@ export default function MobileKnowledgeTreePanel({
       if (snapshot.kind === "sheet") {
         rememberOpened(created.id);
         pushSheetAppPath(created.resourceId);
+        if (variant === "mobile") actions.setMobileSidebar(false);
+        return;
+      }
+      if (snapshot.kind === "excel") {
+        rememberOpened(created.id);
+        pushExcelAppPath(created.resourceId);
         if (variant === "mobile") actions.setMobileSidebar(false);
         return;
       }
@@ -1032,6 +1046,8 @@ export default function MobileKnowledgeTreePanel({
           ? BrainCircuit
           : draft.kind === "sheet"
             ? Table2
+            : draft.kind === "excel"
+              ? FileSpreadsheet
             : FileText;
     return (
       <div

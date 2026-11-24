@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrainCircuit, Copy, FileArchive, FileCode, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
+import { BrainCircuit, Copy, FileArchive, FileCode, FileSpreadsheet, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import { duplicateKnowledgeTreeNoteAsChild, resolveDuplicableKnowledgeTreeNote } from "@/lib/knowledgeTreeDuplicateAsChild";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import { toast } from "@/lib/toast";
+import { isExcelCreationEnabled } from "@/lib/excelApi";
 
 const KNOWLEDGE_TREE_CHANGED_EVENT = "nowen:knowledge-tree-changed";
 
@@ -18,6 +19,8 @@ const CREATE_ITEMS = [
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
   { kind: "sheet", label: "轻量表格", icon: Table2 },
 ] as const;
+// 1.6.2 中 Excel 表格未接入同步与离线，仅在服务器显式开启时出现（来源：cropflre/nowen-note PR #802）。
+const EXCEL_CREATE_ITEM = { kind: "excel", label: "Excel 表格（预览）", icon: FileSpreadsheet } as const;
 const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹" } as const;
 
 const IMPORT_ITEMS = [
@@ -70,6 +73,14 @@ export function KnowledgeTreeCreateDropdown({
   const [position, setPosition] = useState<React.CSSProperties | null>(null);
   const [canDuplicateAsChild, setCanDuplicateAsChild] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [excelEnabled, setExcelEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!menu) return;
+    let cancelled = false;
+    void isExcelCreationEnabled().then((enabled) => { if (!cancelled) setExcelEnabled(enabled); });
+    return () => { cancelled = true; };
+  }, [menu]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +161,7 @@ export function KnowledgeTreeCreateDropdown({
       style={position || { left: 8, top: 8, width: CREATE_MENU_WIDTH, visibility: "hidden" }}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      {CREATE_ITEMS.map((item) => {
+      {[...CREATE_ITEMS, ...(excelEnabled ? [EXCEL_CREATE_ITEM] : [])].map((item) => {
         const Icon = item.icon;
         return (
           <button

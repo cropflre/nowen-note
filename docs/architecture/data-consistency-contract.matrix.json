@@ -20,7 +20,8 @@
           "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
           "case": "removes successful queued updates only after the server ACK"
         },
-        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready" }
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-001: 导入后立即离开也会真正写入，且只在服务端确认后才算已保存" }
       ]
     },
     {
@@ -168,7 +169,8 @@
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: after a structural failure the user can still retry by hand once the data is repaired, and a retryable failure keeps its automatic retry" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: a legacy backend that does not report retryable keeps the previous retrying behavior" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a same-name tag with unsent local changes is never merged silently and fails with a precise non-retryable reason" },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-003: 网络失败保留本地修改并退避重试，成功前不显示已保存" }
       ]
     },
     {
@@ -220,7 +222,9 @@
           "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
           "case": "keeps both local and server snapshots in a bounded conflict vault"
         },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" },
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-004: 过期 revision 返回 409，服务器版本不被覆盖；缺少 expectedRevision 拒绝盲写" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-004: 两窗口冲突时保留本机内容、停止自动覆盖，用户确认后才覆盖服务器" }
       ]
     },
     {
@@ -470,7 +474,8 @@
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a same-name tag seeded on the Windows install is merged into the server's tag and keeps every note association" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" },
         { "file": "backend/tests/user-delete-transfer.test.ts", "case": "transferring a user with nested, trashed and workspace notebooks moves the content and its tree" },
-        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" }
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" },
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-007: 回收站删除后不可编辑，恢复后工作簿完整；永久删除级联清理" }
       ]
     },
     {
@@ -514,7 +519,8 @@
           "file": "backend/tests/asset-organization.test.ts",
           "case": "migration is idempotent, relation constraints reject cross-scope rows and snapshots retain metadata"
         },
-        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" }
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" },
+        { "file": "backend/tests/excel-workbook-backup-upgrade.test.ts", "case": "DCC-008: 全量备份在全新实例恢复后工作簿快照逐字节一致" }
       ]
     },
     {

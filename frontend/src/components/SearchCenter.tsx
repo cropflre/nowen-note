@@ -25,6 +25,7 @@ import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { searchIncludingExcludedNotebooks } from "@/lib/searchNotebookExclusions";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
@@ -295,12 +296,13 @@ export default function SearchCenter() {
 
   const openResult = useCallback(async (result: EnhancedSearchResult) => {
     setOpeningId(result.id);
-    if (result.resourceType === "sheet") {
+    if (result.resourceType === "sheet" || result.resourceType === "excel") {
       actions.clearSelectedTags();
       actions.setSearchQuery("");
       actions.setMobileSidebar(false);
       updateMountedSidebarSearch("");
-      pushSheetAppPath(result.id);
+      if (result.resourceType === "excel") pushExcelAppPath(result.id);
+      else pushSheetAppPath(result.id);
       setOpeningId(null);
       return;
     }
@@ -534,7 +536,7 @@ export default function SearchCenter() {
                     ? copy.contentMatch
                     : copy.bothMatch;
                 const mindmap = result.resourceType === "mindmap";
-                const sheet = result.resourceType === "sheet";
+                const sheet = result.resourceType === "sheet" || result.resourceType === "excel";
                 const markdown = !mindmap && !sheet && result.contentFormat === "markdown";
 
                 return (

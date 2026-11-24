@@ -249,7 +249,7 @@ export function inferBrowserServerBaseUrl(
     || pathname.match(/\/apps\/[a-z0-9]+(?:[.-][a-z0-9]+)+\/[a-z][a-z0-9-]{0,63}$/)?.[0]
     || pathname.match(/\/apps\/(?:studio\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|personal\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|studio|dashboard|manage|discover)$/)?.[0]
     || (!locationLike.pathname.endsWith("/") ? pathname.match(/\/apps$/)?.[0] : "")
-    || pathname.match(/\/(?:notes|mindmaps|sheets)(?:\/[^/]+)?$/i)?.[0]
+    || pathname.match(/\/(?:notes|mindmaps|sheets|excel)(?:\/[^/]+)?$/i)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]
     || pathname.match(/\/(?:login|trash)$/)?.[0]
     || "";

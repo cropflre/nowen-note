@@ -29,6 +29,8 @@ import TaskCenter from "@/components/TaskCenter";
 import TrashPage from "@/features/trash/TrashPage";
 import MindMapCenter from "@/components/MindMapEditor";
 import SheetEditor from "@/components/SheetEditor";
+// Excel 表格（Univer）体积大，页面级懒加载。来源：cropflre/nowen-note PR #802。
+const ExcelEditor = React.lazy(() => import("@/components/ExcelEditor"));
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
@@ -99,6 +101,11 @@ import {
   parseSheetAppPath,
   type SheetAppRoute,
 } from "@/lib/sheetDeepLink";
+import {
+  getCurrentExcelAppRoute,
+  parseExcelAppPath,
+  type ExcelAppRoute,
+} from "@/lib/excelDeepLink";
 import {
   clearAuthTokens,
   fetchWithAuthRefresh,
@@ -399,6 +406,7 @@ function AppLayout() {
   const aiAvailable = useAIConnectionAvailable();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
+  const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExcelAppRoute());
   const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
   const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
   const [notificationCount, setNotificationCount] = useState(0);
@@ -422,6 +430,8 @@ function AppLayout() {
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
       setSheetRoute(nextSheetRoute);
+      const nextExcelRoute = parseExcelAppPath(pathname);
+      setExcelRoute(nextExcelRoute);
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
@@ -437,7 +447,7 @@ function AppLayout() {
         actions.setViewMode("issues");
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
-      } else if (nextSheetRoute.matched) {
+      } else if (nextSheetRoute.matched || nextExcelRoute.matched) {
         actions.setViewMode("all");
         actions.setActiveNote(null);
         actions.setMobileView("editor");
@@ -502,6 +512,7 @@ function AppLayout() {
   const [mobileRailHidden] = useMobileRailHidden();
   const railVisible = railMode !== "hidden" || state.sidebarCollapsed;
   const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
+  const isExcelView = excelRoute.matched && excelRoute.excelId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = aiAvailable && state.viewMode === "ai-chat";
@@ -519,6 +530,7 @@ function AppLayout() {
   const appShellRef = useRef<HTMLDivElement>(null);
   const viewSurfaceKey = state.viewMode === "trash" ? "trash"
     : isSheetView ? "sheet"
+    : isExcelView ? "excel"
     : isIssuesView ? "issues"
     : isTaskView ? "tasks"
     : isMindMapView ? "mindmaps"
@@ -959,6 +971,17 @@ function AppLayout() {
             noteId={sheetRoute.sheetId!}
             onRequestClose={() => replaceAppPathState("/")}
           />
+        </div>
+      ) : isExcelView ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MobileTopBar />
+          <React.Suspense fallback={<div className="flex flex-1 items-center justify-center text-sm text-tx-tertiary">加载 Excel 表格…</div>}>
+            <ExcelEditor
+              key={excelRoute.excelId!}
+              noteId={excelRoute.excelId!}
+              onRequestClose={() => replaceAppPathState("/")}
+            />
+          </React.Suspense>
         </div>
       ) : isIssuesView ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

@@ -1,4 +1,5 @@
 import { validateSheetData } from "./sheetData.js";
+import { createDefaultExcelWorkbook } from "./excelData.js";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
@@ -254,7 +255,7 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel";
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
@@ -279,6 +280,10 @@ export function createKnowledgeChild(input: {
   if (input.sheetData !== undefined && (input.nodeType !== "sheet" || input.encryptedContent || !sheetData)) {
     throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "表格数据格式无效");
   }
+  // Excel 工作簿正文存在 excel_documents，不能走加密正文通道，否则会留下明文快照。
+  if (input.nodeType === "excel" && input.encryptedContent) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "Excel 表格暂不支持加密");
+  }
 
   const title = input.title.trim() || (
     input.nodeType === "folder"
@@ -287,7 +292,9 @@ export function createKnowledgeChild(input: {
         ? "无标题导图"
         : input.nodeType === "sheet"
           ? "无标题表格"
-          : "无标题笔记"
+          : input.nodeType === "excel"
+            ? "无标题 Excel 表格"
+            : "无标题笔记"
   );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
@@ -318,7 +325,7 @@ export function createKnowledgeChild(input: {
       }
       const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : input.noteId || uuid();
       const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
-      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : "normal";
+      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : "normal";
       const content = input.encryptedContent || (contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
       db.prepare(`
         INSERT INTO notes (
@@ -351,6 +358,12 @@ export function createKnowledgeChild(input: {
           }),
         );
       }
+      if (input.nodeType === "excel") {
+        db.prepare(`
+          INSERT INTO excel_documents (noteId, userId, workspaceId, data)
+          VALUES (?, ?, ?, ?)
+        `).run(noteId, resourceOwnerUserId, normalizedWorkspaceId, JSON.stringify(createDefaultExcelWorkbook(title)));
+      }
       createdNode = nodeForResource(db, "note", noteId);
     }
 
@@ -376,7 +389,7 @@ export function createKnowledgeChild(input: {
     title,
     childCount: 0,
     contentFormat: input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
-    noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "word" ? "word" : undefined,
+    noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : input.nodeType === "word" ? "word" : undefined,
     access: resolveKnowledgeNodeAccess(row.id, input.actorUserId, db),
   };
 }

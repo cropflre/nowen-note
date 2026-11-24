@@ -27,6 +27,7 @@ interface SourceNoteRow {
   title: string;
   content: string;
   contentFormat: string;
+  noteType: string | null;
   isLocked: number;
   isTrashed: number;
   version: number;
@@ -55,7 +56,7 @@ export class DuplicateNoteError extends Error {
 function readSourceNote(db: Database.Database, noteId: string): SourceNoteRow | null {
   return (db.prepare(`
     SELECT note.id, note.workspaceId, note.title,
-           note.content, note.contentFormat, note.isLocked,
+           note.content, note.contentFormat, note.note_type AS noteType, note.isLocked,
            note.isTrashed, note.version, tree.parentId AS treeParentId,
            tree.scopeKey AS treeScopeKey, tree.id AS treeNodeId
     FROM notes note
@@ -147,6 +148,10 @@ export async function duplicateNote(input: {
   }
   if (source.isLocked === 1) {
     throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_LOCKED", 403, "请先解锁笔记再创建副本");
+  }
+  // Excel 工作簿正文不在 notes.content，按笔记复制只会得到空表。
+  if (source.noteType === "excel") {
+    throw new DuplicateNoteError("NOTE_DUPLICATE_FORMAT_UNSUPPORTED", 400, "Excel 表格暂不支持创建副本");
   }
   if (source.contentFormat !== "markdown" && source.contentFormat !== "tiptap-json") {
     throw new DuplicateNoteError("NOTE_DUPLICATE_FORMAT_UNSUPPORTED", 400, "仅支持复制富文本和 Markdown 笔记");

@@ -168,6 +168,8 @@ function listRows(db: Database.Database, rootNotebookId: string): ResourceRow[] 
     WHERE node.resourceType IN ('notebook', 'note', 'mindmap')
       AND (node.resourceType <> 'notebook' OR nb.id IS NOT NULL AND nb.isDeleted = 0)
       AND (node.resourceType <> 'note' OR note.id IS NOT NULL AND note.isTrashed = 0 AND note.isLocked = 0)
+      -- 公开页尚无 Excel 渲染器，发布时排除，避免以空白笔记形式公开。
+      AND (node.resourceType <> 'note' OR COALESCE(note.note_type, 'normal') <> 'excel')
       AND (node.resourceType <> 'mindmap' OR mm.id IS NOT NULL)
     ORDER BY subtree.depth ASC, node.sortOrder ASC, lower(COALESCE(note.title, mm.title, nb.name, node.resourceId)), node.id
   `).all(rootNotebookId) as ResourceRow[];

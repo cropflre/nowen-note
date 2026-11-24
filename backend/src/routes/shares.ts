@@ -136,8 +136,10 @@ sharesRouter.post("/", async (c) => {
     return c.json({ error: "缺少 noteId 参数" }, 400);
   }
 
-  const note = db.prepare("SELECT id, userId, title, contentFormat FROM notes WHERE id = ?").get(noteId) as any;
+  const note = db.prepare("SELECT id, userId, title, contentFormat, note_type FROM notes WHERE id = ?").get(noteId) as any;
   if (!note) return c.json({ error: "笔记不存在" }, 404);
+  // 分享页只渲染笔记正文；工作簿在 excel_documents 中，分享出去会是空白页。
+  if (note.note_type === "excel") return c.json({ error: "Excel 表格暂不支持分享链接", code: "EXCEL_SHARE_UNSUPPORTED" }, 400);
   if (note.contentFormat?.startsWith("encrypted-")) return c.json({ error: "加密笔记暂不支持公开分享", code: "ENCRYPTED_NOTE_SHARING_FORBIDDEN" }, 400);
   const folderPasswordError = requireUnlockedNoteForShare(c, noteId, userId);
   if (folderPasswordError) return folderPasswordError;

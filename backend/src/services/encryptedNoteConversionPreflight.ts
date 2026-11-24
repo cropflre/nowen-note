@@ -15,7 +15,7 @@ const groups = {
   links: [["note_links", "sourceNoteId = ? OR targetNoteId = ?"]],
   imports: [["note_import_origins", "noteId = ?"]],
   folderSync: [["folder_sync_files", "noteId = ?"]],
-  embeddedData: [["sheets", "noteId = ?"]],
+  embeddedData: [["sheets", "noteId = ?"], ["excel_documents", "noteId = ?"]],
   aiReferences: [["ai_chat_messages", "CASE WHEN json_valid(referencesJson) THEN EXISTS (SELECT 1 FROM json_tree(referencesJson) WHERE value = ?) ELSE instr(COALESCE(referencesJson, ''), ?) > 0 END"]],
 };
 const metadataTables = new Set(["notes", "note_tags", "favorites", "workspace_journals", "offline_sync_changes", "sync_changes_v2", "sync_v2_applied_mutations", "encrypted_block_write_permits", "encrypted_note_conversion_permits"]);

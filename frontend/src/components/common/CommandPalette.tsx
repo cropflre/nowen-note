@@ -17,6 +17,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import {
   detectShortcutPlatform,
@@ -226,6 +227,12 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         pushSheetAppPath(result.id);
         return;
       }
+      if (result.resourceType === "excel") {
+        actions.setSearchQuery("");
+        actions.setMobileSidebar(false);
+        pushExcelAppPath(result.id);
+        return;
+      }
       if (result.resourceType === "mindmap") {
         actions.setSearchQuery("");
         actions.setMobileSidebar(false);
@@ -390,7 +397,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 >
                   {result.resourceType === "mindmap"
                     ? <BrainCircuit size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
-                    : result.resourceType === "sheet"
+                    : result.resourceType === "sheet" || result.resourceType === "excel"
                       ? <Table2 size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
                       : <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />}
                   <div className="min-w-0 flex-1">

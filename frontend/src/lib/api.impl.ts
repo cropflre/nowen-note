@@ -1855,7 +1855,7 @@ export const api = {
     // 后端返回数组或 { items: [...] }，兼容处理
     const items = Array.isArray(data) ? data : (data?.items || []);
     return items
-      .filter((item: { resourceType?: string }) => item?.resourceType !== "mindmap" && item?.resourceType !== "sheet")
+      .filter((item: { resourceType?: string }) => item?.resourceType !== "mindmap" && item?.resourceType !== "sheet" && item?.resourceType !== "excel")
       .slice(0, limit)
       .map((item: { id: string; title: string; notebookId: string; updatedAt: string }) => ({
       id: item.id,
