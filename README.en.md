@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./electron/icon.png" alt="Nowen Note" width="104" />
+  <img src="./docs/assets/nowen-note-icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note</h1>
   <p><strong>An open-source, self-hosted knowledge base, collaborative note app, and task management platform</strong></p>
   <p>

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./electron/icon.png" alt="Nowen Note" width="104" />
+  <img src="./docs/assets/nowen-note-icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note（弄文笔记）</h1>
   <p><strong>开源、自托管的知识库、每日记录与任务协作平台</strong></p>
   <p>
