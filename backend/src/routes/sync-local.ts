@@ -27,6 +27,7 @@ import {
   getProfile,
   getSyncState,
   listProfiles,
+  setProfileLocalUser,
   setProfileRemoteUser,
   switchActiveProfile,
 } from "../sync/profile";
@@ -186,6 +187,7 @@ app.post("/settings/server", async (c) => {
   }
   const remoteUserId = typeof body.remoteUserId === "string" ? body.remoteUserId.trim() : null;
   const token = typeof body.token === "string" ? body.token.trim() : "";
+  const userId = c.req.header("X-User-Id") as string;
 
   try {
     const run = db.transaction(() => {
@@ -198,7 +200,9 @@ app.post("/settings/server", async (c) => {
           : new URL(serverUrl).host,
         serverUrl,
         remoteUserId,
+        localUserId: userId,
       });
+      setProfileLocalUser(db, profile.id, userId);
 
       // 切换服务器：switchActiveProfile 在事务内先全部停用再启用目标，
       // 保证"最多一个 active"这个不变量在任何时刻都成立。
@@ -234,7 +238,7 @@ app.post("/settings/server", async (c) => {
 
     // 立即让引擎跟随新配置，用户不需要重启应用。
     // 未授权时返回 null，属正常情况 —— 本地读写始终可用。
-    const engine = reconcileSyncEngine(db);
+    const engine = reconcileSyncEngine(db, { userId });
 
     return c.json({
       mode: "server",
@@ -344,6 +348,7 @@ app.post("/settings/server/login", async (c) => {
   }
 
   const db = getDb();
+  const userId = c.req.header("X-User-Id") as string;
   try {
     const configured = db.transaction(() => {
       let profile = findProfileByServer(db, serverUrl, remoteUserId);
@@ -359,8 +364,10 @@ app.post("/settings/server/login", async (c) => {
           name: new URL(serverUrl).host,
           serverUrl,
           remoteUserId,
+          localUserId: userId,
         });
       }
+      setProfileLocalUser(db, profile.id, userId);
       switchActiveProfile(db, profile.id);
       const device = ensureDevice(db, { profileId: profile.id, platform: process.platform });
       return { profile, device };
@@ -375,7 +382,7 @@ app.post("/settings/server/login", async (c) => {
 
     // 重新登录必须让运行时丢弃旧 client，下一次启动才会使用新 Token。
     stopSyncEngine();
-    const engine = reconcileSyncEngine(db);
+    const engine = reconcileSyncEngine(db, { userId });
     return c.json({
       mode: "server",
       profile: {
@@ -532,7 +539,7 @@ app.post("/bootstrap", async (c) => {
       client,
     });
     // 基线建立完成后立刻启动增量引擎，用户无需重启应用。
-    const engine = progress.status === "ready" ? reconcileSyncEngine(db) : null;
+    const engine = progress.status === "ready" ? reconcileSyncEngine(db, { userId }) : null;
     return c.json({ ...progress, engineRunning: engine !== null });
   } catch (error) {
     // 失败时把当前阶段回传给 UI，便于显示"在哪一步失败了、可否重试"。
@@ -662,7 +669,7 @@ app.post("/lite-migration", async (c) => {
         serverUrl: normalized,
         token,
       });
-      const engine = reconcileSyncEngine(db);
+      const engine = reconcileSyncEngine(db, { userId });
       return c.json({ ...progress, engineRunning: engine !== null });
     }
     return c.json({ ...progress, engineRunning: false });
@@ -743,6 +750,18 @@ app.get("/diagnostics", async (c) => {
   const offline = await readOfflineReadiness(db, active?.id ?? lastProfile?.id ?? null, c.req.header("X-User-Id") as string);
   const pendingUploads = (db.prepare(`SELECT COUNT(*) AS count FROM attachment_sync_state s JOIN attachments a ON a.id=s.attachmentId
     WHERE s.profileId=? AND a.userId=? AND s.remoteOnly=0 AND s.status IN ('pending','failed','uploading')`).get(active?.id ?? null,c.req.header("X-User-Id")) as {count:number}).count;
+  const engineStatus = getActiveEngine()?.getStatus() ?? null;
+  let lastErrorDiagnostic: Record<string, unknown> | null = engineStatus?.lastErrorDiagnostic
+    ? { ...engineStatus.lastErrorDiagnostic }
+    : null;
+  if (!lastErrorDiagnostic && state?.lastErrorDiagnostic) {
+    try {
+      const parsed = JSON.parse(state.lastErrorDiagnostic);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        lastErrorDiagnostic = parsed as Record<string, unknown>;
+      }
+    } catch { /* ignore malformed diagnostic */ }
+  }
   return c.json({
     offline,
     pendingAttachments: pendingUploads + offline.attachments.pendingDownloads + offline.attachments.failedDownloads + offline.attachments.missingFiles,
@@ -753,13 +772,14 @@ app.get("/diagnostics", async (c) => {
     localCursor: state?.lastSequence ?? 0,
     lastSyncAt: state?.lastSyncAt ?? null,
     lastError: state?.lastError ?? null,
+    lastErrorDiagnostic,
     pendingMutations: active ? countPendingMutations(db,active.id) : 0,
     conflictCount: active ? countUnresolvedConflicts(db,active.id) : 0,
     pendingSample: pending,
     // 引擎运行时状态：用户报"改了半天没同步"时，
     // 首先要能区分是引擎没跑、没授权，还是推送失败。
     engineRunning: getActiveEngine() !== null,
-    engineStatus: getActiveEngine()?.getStatus() ?? null,
+    engineStatus,
     authorized: active ? hasRemoteCredential(active.id) : false,
     scopes: active
       ? listWorkspaceScopeStates(db, active.id).map((scope) => ({

@@ -171,7 +171,11 @@
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: a legacy backend that does not report retryable keeps the previous retrying behavior" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a same-name tag with unsent local changes is never merged silently and fails with a precise non-retryable reason" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" },
-        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-003: 网络失败保留本地修改并退避重试，成功前不显示已保存" }
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-003: 网络失败保留本地修改并退避重试，成功前不显示已保存" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: knowledge tree note/notebook triggers never fail with KNOWLEDGE_TREE_PARENT_SCOPE_MISMATCH when parent tree projection is hidden or deleted" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: remote permanent deletion of trashed attachment and its parent note succeeds without ATTACHMENT_TRASH_RETAINED while local guard remains active" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: DATA_STRUCTURE failure in SyncEngine persists sanitized lastErrorDiagnostic without leaking content" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" }
       ]
     },
     {
@@ -226,7 +230,9 @@
         },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" },
         { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-004: 过期 revision 返回 409，服务器版本不被覆盖；缺少 expectedRevision 拒绝盲写" },
-        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-004: 两窗口冲突时保留本机内容、停止自动覆盖，用户确认后才覆盖服务器" }
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-004: 两窗口冲突时保留本机内容、停止自动覆盖，用户确认后才覆盖服务器" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004: reconcile ignores wire capability / default column drift from older servers but preserves genuine content conflicts" }
       ]
     },
     {
@@ -272,7 +278,9 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: child-first downloads followed by folder expansion never flatten the desktop, NAS or second device" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: a nested delete on the NAS reaches a synced device in either id order without tripping the parent guard" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" }
       ]
     },
     {
@@ -386,7 +394,8 @@
         },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: a completed desktop migration replaces NAS auth with local credentials and address" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" },
-        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" }
+        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" }
       ]
     },
     {
@@ -478,7 +487,9 @@
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" },
         { "file": "backend/tests/user-delete-transfer.test.ts", "case": "transferring a user with nested, trashed and workspace notebooks moves the content and its tree" },
         { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" },
-        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-007: 回收站删除后不可编辑，恢复后工作簿完整；永久删除级联清理" }
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-007: 回收站删除后不可编辑，恢复后工作簿完整；永久删除级联清理" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" }
       ]
     },
     {

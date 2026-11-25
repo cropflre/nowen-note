@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { ensureKnowledgeTreeScopeAwareTriggers } from "../db/knowledgeTreeScopeTriggerRepairMigration.js";
 import { getDb } from "../db/schema.js";
 
 const installedDatabases = new WeakSet<object>();
@@ -170,6 +171,33 @@ export function installNotebookTreeIntegrityGuards(db: Database.Database): void 
       );
     END;
   `);
+
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_tree_nodes'").get()) {
+    const legacyTrigger = db.prepare(`
+      SELECT 1 FROM sqlite_master
+      WHERE type = 'trigger'
+        AND name IN ('knowledge_tree_notebooks_ai', 'knowledge_tree_notebooks_parent_au', 'knowledge_tree_notes_ai', 'knowledge_tree_notes_au')
+        AND sql LIKE '%FROM notebooks parent%'
+      LIMIT 1
+    `).get();
+    if (legacyTrigger) {
+      // Preserve SQLite LIFO trigger order: sync_outbox_* triggers on notes/notebooks must remain
+      // more recently created than knowledge_tree_* triggers so business entities enqueue before tree nodes.
+      const outboxTriggers = db.prepare(`
+        SELECT name, sql FROM sqlite_master
+        WHERE type = 'trigger'
+          AND tbl_name IN ('notebooks', 'notes')
+          AND name LIKE 'sync_%'
+          AND sql IS NOT NULL
+        ORDER BY rowid ASC
+      `).all() as Array<{ name: string; sql: string }>;
+      ensureKnowledgeTreeScopeAwareTriggers(db);
+      for (const trigger of outboxTriggers) {
+        db.exec(`DROP TRIGGER IF EXISTS "${trigger.name.replaceAll('"', '""')}";`);
+        db.exec(trigger.sql);
+      }
+    }
+  }
 
   installedDatabases.add(db as object);
 }

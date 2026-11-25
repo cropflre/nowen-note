@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { recordConflict } from "./conflict.js";
 import { SyncError } from "./errors.js";
+import { applyKnowledgeTreeSnapshotLocal } from "./knowledgeTreeApplyLocal.js";
 import {
   isKnowledgeTreeSyncReady,
   markKnowledgeTreeSyncReady,
@@ -183,7 +184,18 @@ export async function runKnowledgeTreeBaseline(
       conflicts += 1;
       continue;
     }
-    if (sameStructure(localPayload, remotePayload)) continue;
+    if (sameStructure(localPayload, remotePayload)) {
+      // 升级自 v1.6.1 多账号错绑的库可能残留“localPayload IS NULL”的幽灵知识树冲突：
+      // 切回正确本地账号后若两端结构已完全一致（零数据改写），自动销账让树同步恢复。
+      options.db.prepare(`
+        UPDATE sync_conflicts
+        SET status = 'resolved', resolvedAt = datetime('now')
+        WHERE profileId = ? AND scopeKey = ?
+          AND entityType = 'knowledge_tree_node' AND entityId = ?
+          AND status = 'unresolved' AND localPayload IS NULL
+      `).run(options.profileId, options.scopeKey, entityId);
+      continue;
+    }
     if (preparedLocalOverrideMatches(
       options.db,
       options.profileId,
@@ -220,4 +232,57 @@ export async function runKnowledgeTreeBaseline(
     snapshotSequence: remoteSnapshot.sequence,
     conflictCount: 0,
   };
+}
+
+/**
+ * Adopt the remote knowledge tree immediately after a clean initial download
+ * (when the local database had zero pre-existing tree nodes before import).
+ *
+ * Without this, local triggers synthesize default sortOrder/parentId rows during
+ * legacy-entity import and omit file nodes / doc-under-doc links, causing
+ * runKnowledgeTreeBaseline to flag hundreds of false conflicts on brand-new devices.
+ *
+ * Strictly safe under DCC-004: callers only invoke this when the local tree was
+ * empty before the initial download, so zero user tree edits exist to overwrite.
+ */
+export async function adoptKnowledgeTreeOnCleanDownload(
+  options: BaselineOptions,
+): Promise<"ready" | "unsupported" | "deferred"> {
+  if (isKnowledgeTreeSyncReady(options.db, options.profileId, options.scopeKey)) {
+    return "ready";
+  }
+  const subscription: SyncProtocolSubscription = {
+    entityTypes: SYNC_V2_NEGOTIATED_ENTITY_TYPES,
+    deviceId: options.deviceId,
+  };
+  let remoteSnapshot: Awaited<ReturnType<typeof readRemoteTreeSnapshot>>;
+  try {
+    remoteSnapshot = await readRemoteTreeSnapshot(options, subscription);
+  } catch (error) {
+    if (error instanceof SyncError && error.code === "INVALID_PAYLOAD") {
+      return "unsupported";
+    }
+    return "deferred";
+  }
+  try {
+    if (remoteSnapshot.items.length > 0) {
+      applyKnowledgeTreeSnapshotLocal(options.db, remoteSnapshot.items, {
+        userId: options.userId,
+        workspaceId: options.workspaceId,
+        allowMissingProjection: true,
+      });
+    }
+    await options.client.ack(
+      options.deviceId,
+      remoteSnapshot.sequence,
+      options.scopeKey,
+      subscription,
+    );
+    markKnowledgeTreeSyncReady(options.db, options.profileId, options.scopeKey);
+    return "ready";
+  } catch {
+    // Window edits on remote during download can reference a brand-new resource not yet pulled;
+    // defer safely so SyncEngine catches up on its next cycle without failing initial download.
+    return "deferred";
+  }
 }

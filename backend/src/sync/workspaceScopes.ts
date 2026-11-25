@@ -59,8 +59,27 @@ export function refreshWorkspaceScopeStates(
       `).get(profileId, descriptor.scopeKey) as
         | { accessFingerprint: string; accessStatus: string }
         | undefined;
-      const changed = !previous || previous.accessFingerprint !== descriptor.accessFingerprint;
-      const status = changed ? "replan_required" : "active";
+      // Personal scope already initialized by liteMigration / runBootstrap must not
+      // have its cursor and lastSyncAt wiped on the first SyncEngine cycle.
+      const existingPersonalBootstrapped = !previous
+        && descriptor.scopeKey === SYNC_PERSONAL_SCOPE_KEY
+        && Boolean(db.prepare(`
+          SELECT 1
+          FROM sync_profiles p
+          JOIN sync_state s ON s.profileId = p.id AND s.scopeKey = ?
+          WHERE p.id = ?
+            AND p.bootstrapStatus = 'ready'
+            AND s.lastSyncAt IS NOT NULL
+            AND COALESCE(s.accessStatus, 'active') = 'active'
+          LIMIT 1
+        `).get(SYNC_PERSONAL_SCOPE_KEY, profileId));
+      const changed = !existingPersonalBootstrapped
+        && (!previous || previous.accessFingerprint !== descriptor.accessFingerprint);
+      // 上一轮 Snapshot 重建失败时 previous.accessStatus 仍是 replan_required；
+      // 未完成 markWorkspaceScopeActive 之前不能把它翻回 active，否则会跳过重建直接触发知识树误报冲突。
+      const status = changed || previous?.accessStatus === "replan_required"
+        ? "replan_required"
+        : "active";
       db.prepare(`
         INSERT INTO sync_workspace_scopes (
           profileId, scopeKey, workspaceId, workspaceName, role, canWrite,
@@ -84,7 +103,15 @@ export function refreshWorkspaceScopeStates(
         descriptor.accessFingerprint,
         status,
       );
-      if (changed) {
+      if (existingPersonalBootstrapped) {
+        db.prepare(`
+          UPDATE sync_state
+          SET accessFingerprint = ?,
+              accessStatus = 'active',
+              accessChangedAt = datetime('now')
+          WHERE profileId = ? AND scopeKey = ?
+        `).run(descriptor.accessFingerprint, profileId, descriptor.scopeKey);
+      } else if (changed) {
         db.prepare(`
           INSERT INTO sync_state (
             profileId, scopeKey, lastSequence, lastSyncAt, lastError,

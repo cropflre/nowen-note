@@ -56,6 +56,17 @@ export interface OfflineReadiness {
   verificationPending: boolean;
 }
 
+export interface SyncErrorDiagnostic {
+  stage?: string;
+  step?: string;
+  reason?: string;
+  sqliteCode?: string;
+  entityType?: string;
+  entityId?: string;
+  parentId?: string;
+  parentState?: string;
+}
+
 export interface SyncDiagnostics {
   offline?: OfflineReadiness;
   profileId: string | null;
@@ -65,6 +76,7 @@ export interface SyncDiagnostics {
   localCursor: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  lastErrorDiagnostic?: SyncErrorDiagnostic | null;
   pendingMutations: number;
   pendingAttachments?: number;
   conflictCount: number;

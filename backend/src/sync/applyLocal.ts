@@ -198,6 +198,11 @@ function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, options
 function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
   const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
+    // 远端权威永久删除：先清掉该笔记下已回收附件的 trashedAt，避免 ON DELETE CASCADE 撞上本地回收站防误删触发器。
+    db.prepare(`
+      UPDATE attachments SET trashedAt = NULL
+      WHERE noteId = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND trashedAt IS NOT NULL
+    `).run(item.entityId, workspaceId, workspaceId, userId);
     db.prepare("DELETE FROM notes WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
       .run(item.entityId,workspaceId,workspaceId,userId);
     return;
@@ -321,6 +326,11 @@ function applyFavoriteLocal(db: Database.Database, item: RemoteEntityPayload, op
 function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
   const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
+    // 远端权威永久删除：先清 trashedAt 再删行，避免触发器 ATTACHMENT_TRASH_RETAINED 阻断同步。
+    db.prepare(`
+      UPDATE attachments SET trashedAt = NULL
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND trashedAt IS NOT NULL
+    `).run(item.entityId, workspaceId, workspaceId, userId);
     db.prepare("DELETE FROM attachments WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
       .run(item.entityId,workspaceId,workspaceId,userId);
     return;

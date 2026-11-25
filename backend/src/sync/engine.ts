@@ -1,5 +1,6 @@
 import { cleanupNoteDeletionFiles } from "./noteDeletion";
-import { assertAssetMetadata, prepareAssetBaseline, receiveAssetMetadata } from "./assetOrganization";
+import { normalizeIncomingAssetMetadata, prepareAssetBaseline, receiveAssetMetadata } from "./assetOrganization";
+import { touchDevice } from "./device";
 import type Database from "better-sqlite3";
 import {
   SYNC_PERSONAL_SCOPE_KEY,
@@ -93,6 +94,7 @@ export interface SyncEngineStatus {
   lastPushAt: string | null;
   lastPullAt: string | null;
   lastError: string | null;
+  lastErrorDiagnostic: SyncFailureDiagnostic | null;
   retryCount: number;
   scopes: ReturnType<typeof listWorkspaceScopeStates>;
 }
@@ -148,6 +150,7 @@ export class SyncEngine {
   private lastPushAt: string | null = null;
   private lastPullAt: string | null = null;
   private lastError: string | null = null;
+  private lastErrorDiagnostic: SyncFailureDiagnostic | null = null;
   private remoteSequence = 0;
   /** 一轮同步进行中又收到触发时置位，结束后立即再跑一轮。 */
   private rerunRequested = false;
@@ -219,9 +222,12 @@ export class SyncEngine {
     this.phase = null;
   }
 
-  /** 网络恢复时立即触发一轮，不必等周期到点。 */
+  /** 网络恢复或远端通知时触发一轮；遇到不可重试错误（如 DATA_STRUCTURE / AUTH_EXPIRED）时不再自动死循环重试。 */
   notifyNetworkOnline(): void {
     if (this.stopped) return;
+    if (this.lastError && isSyncErrorCode(this.lastError) && !isRetryableSyncError(this.lastError)) {
+      return;
+    }
     this.scheduleNext(0);
   }
 
@@ -259,6 +265,7 @@ export class SyncEngine {
       lastPushAt: this.lastPushAt,
       lastPullAt: this.lastPullAt,
       lastError: this.lastError,
+      lastErrorDiagnostic: this.lastErrorDiagnostic,
       retryCount: this.retryCount,
       scopes: listWorkspaceScopeStates(this.db, this.profileId),
     };
@@ -298,6 +305,7 @@ export class SyncEngine {
 
     try {
       const descriptors = await this.client.listScopes();
+      try { touchDevice(this.db, this.deviceId); } catch { /* 诊断时间戳更新失败不影响同步 */ }
       const states = refreshWorkspaceScopeStates(this.db,this.profileId,descriptors,this.userId);
       for (const descriptor of descriptors) {
         const local = states.find((item) => item.scopeKey === descriptor.scopeKey);
@@ -335,6 +343,7 @@ export class SyncEngine {
 
       this.state = "idle";
       this.lastError = null;
+      this.lastErrorDiagnostic = null;
       this.retryCount = 0;
       logSyncInfo("engine.cycle-done", {
         profileId: this.profileId,
@@ -410,11 +419,22 @@ export class SyncEngine {
     return Boolean(row);
   }
 
+  private hasUnresolvedRealTreeConflict(scopeKey: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1 FROM sync_conflicts
+      WHERE profileId = ? AND scopeKey = ?
+        AND entityType = 'knowledge_tree_node' AND status = 'unresolved'
+        AND localPayload IS NOT NULL
+      LIMIT 1
+    `).get(this.profileId, scopeKey);
+    return Boolean(row);
+  }
+
   private async ensureKnowledgeTreeBaseline(scope: SyncScopeDescriptor): Promise<void> {
     if (this.treeSubscription(scope.scopeKey)
       || this.unsupportedTreeScopes.has(scope.scopeKey)
       || !this.businessBootstrapReady()
-      || this.hasUnresolvedTreeConflict(scope.scopeKey)) {
+      || this.hasUnresolvedRealTreeConflict(scope.scopeKey)) {
       return;
     }
 
@@ -463,8 +483,10 @@ export class SyncEngine {
     const code = isSyncErrorCode(error?.code)
       ? error.code
       : "SERVER_ERROR";
+    const diagnostic = error instanceof SyncError ? (error.diagnostic ?? null) : null;
     this.lastError = code;
-    recordSyncError(this.db, this.profileId, code, SYNC_PERSONAL_SCOPE_KEY);
+    this.lastErrorDiagnostic = diagnostic;
+    recordSyncError(this.db, this.profileId, code, SYNC_PERSONAL_SCOPE_KEY, diagnostic);
 
     if (code === "NETWORK_UNAVAILABLE") {
       // 离线不是错误状态：本地照常工作，等网络回来。
@@ -558,10 +580,19 @@ export class SyncEngine {
     }
 
     let response;
+    const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
     try {
       response = await this.client.push(
         this.deviceId,
-        batch.map(({ supersededIds: _ignored, ...payload }) => payload.entityType === "note" && payload.operation === "delete" ? {...payload,payload:undefined} : payload),
+        batch.map(({ supersededIds: _ignored, ...payload }) => {
+          if (payload.entityType === "note" && payload.operation === "delete") {
+            return { ...payload, payload: undefined };
+          }
+          if (payload.entityType === "attachment_organization" && payload.payload && remoteUserId) {
+            return { ...payload, payload: { ...payload.payload, userId: remoteUserId } };
+          }
+          return payload;
+        }),
         scope.scopeKey,
         subscription,
       );
@@ -741,10 +772,10 @@ export class SyncEngine {
     });
     this.restoreParentLinks(businessPayloads,scope);
     const treeResult = this.applyKnowledgeTreePayloads(treePayloads, scope);
+    const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
     receiveAssetMetadata(this.db,payloads.filter(item=>item.entityType==="attachment_organization").map(item=>{
       if (item.operation !== "upsert" || !item.payload) throw new SyncError("SERVER_ERROR","附件目录缺少版本化快照");
-      assertAssetMetadata(item.entityId,item.payload,this.userId);
-      return item.payload;
+      return normalizeIncomingAssetMetadata(item.entityId,item.payload,this.userId,remoteUserId);
     }),this.profileId,this.userId);
 
     for (const conflict of result.pendingConflicts) {
@@ -967,6 +998,9 @@ export class SyncEngine {
     const seen = new Map<string,Set<string>>();
     const parentLinks:RemoteEntityPayload[] = [];
     const assetEntries:Record<string,unknown>[] = [];
+    const allTreeEntries:TreeRemotePayload[] = [];
+    let heldNotebooks:RemoteEntityPayload[] = [];
+    const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
 
     do {
       const page: RemoteSnapshotPage<SyncNegotiatedEntityType> = subscription
@@ -992,14 +1026,19 @@ export class SyncEngine {
       }
 
       const businessEntries: RemoteEntityPayload[] = [];
-      const treeEntries: TreeRemotePayload[] = [];
       for (const entry of page.items) {
         if (entry.entityType === "attachment_organization") {
-          assertAssetMetadata(entry.entityId,entry.payload,this.userId);
-          assetEntries.push(entry.payload);
+          assetEntries.push(normalizeIncomingAssetMetadata(entry.entityId,entry.payload,this.userId,remoteUserId));
         } else if (entry.entityType === "knowledge_tree_node") {
-          treeEntries.push({
+          allTreeEntries.push({
             entityType: "knowledge_tree_node",
+            entityId: entry.entityId,
+            operation: "upsert",
+            payload: entry.payload,
+          });
+        } else if (entry.entityType === "notebook") {
+          heldNotebooks.push({
+            entityType: "notebook",
             entityId: entry.entityId,
             operation: "upsert",
             payload: entry.payload,
@@ -1013,20 +1052,37 @@ export class SyncEngine {
           });
         }
       }
-      const result = applyRemoteChanges(
-        this.db,
-        businessEntries,
-        { userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId },
-      );
-      const treeResult = this.applyKnowledgeTreePayloads(treeEntries, scope);
-      applied += result.applied + treeResult.applied;
+      // 目录跨页攒齐再按父先子后整体落库，避免跨页父子目录先被拍平或笔记先于目录到达。
+      const notebookSegmentOpen = Boolean(page.nextCursor) && businessEntries.length === 0 && allTreeEntries.length === 0 && assetEntries.length === 0 && heldNotebooks.length > 0;
+      if (!notebookSegmentOpen && (heldNotebooks.length > 0 || businessEntries.length > 0)) {
+        const pageBatch = heldNotebooks.length > 0 ? [...heldNotebooks, ...businessEntries] : businessEntries;
+        heldNotebooks = [];
+        const result = applyRemoteChanges(
+          this.db,
+          pageBatch,
+          { userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId },
+        );
+        applied += result.applied;
+      }
 
       cursor = page.nextCursor;
       guard += 1;
     } while (cursor && guard < 1000);
 
     if (cursor) throw new SyncError("SERVER_ERROR","Snapshot 分页超过安全上限");
+    if (heldNotebooks.length > 0) {
+      const result = applyRemoteChanges(
+        this.db,
+        heldNotebooks,
+        { userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId },
+      );
+      applied += result.applied;
+    }
     this.restoreParentLinks(parentLinks,scope);
+    if (allTreeEntries.length > 0) {
+      const treeResult = this.applyKnowledgeTreePayloads(allTreeEntries, scope);
+      applied += treeResult.applied;
+    }
     if (this.assetSubscribed && scope.workspaceId === null) this.db.transaction(()=> {
       prepareAssetBaseline(this.db,assetEntries,this.profileId,this.deviceId,this.userId);
       receiveAssetMetadata(this.db,assetEntries,this.profileId,this.userId);
