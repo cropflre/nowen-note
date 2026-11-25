@@ -1,33 +1,9 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import type { ExcelCell, ExcelWorkbook } from "@/lib/excelWorkbookFile";
+import { toast } from "@/lib/toast";
 
-interface UniverCell {
-  v?: unknown;
-  f?: string;
-  p?: { body?: { dataStream?: string } };
-}
-
-interface UniverMerge {
-  startRow: number;
-  endRow: number;
-  startColumn: number;
-  endColumn: number;
-}
-
-interface UniverSheet {
-  id?: string;
-  name?: string;
-  rowCount?: number;
-  columnCount?: number;
-  cellData?: Record<string, Record<string, UniverCell>>;
-  mergeData?: UniverMerge[];
-}
-
-interface UniverWorkbook {
-  name?: string;
-  sheetOrder?: string[];
-  sheets?: Record<string, UniverSheet>;
-}
+type PreviewCell = ExcelCell & { p?: { body?: { dataStream?: string } } };
 
 const MAX_PREVIEW_ROWS = 300;
 const MAX_PREVIEW_COLS = 50;
@@ -42,7 +18,7 @@ function columnLabel(index: number): string {
   return result;
 }
 
-function cellDisplayText(cell?: UniverCell): string {
+function cellDisplayText(cell?: PreviewCell): string {
   if (!cell) return "";
   if (cell.v !== undefined && cell.v !== null && String(cell.v) !== "") return String(cell.v);
   const stream = cell.p?.body?.dataStream;
@@ -51,11 +27,11 @@ function cellDisplayText(cell?: UniverCell): string {
   return "";
 }
 
-function parseWorkbook(raw: string): UniverWorkbook | null {
+function parseWorkbook(raw: string): ExcelWorkbook | null {
   try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as UniverWorkbook)
+      ? (parsed as ExcelWorkbook)
       : null;
   } catch {
     return null;
@@ -136,15 +112,17 @@ export default function ExcelWorkbookPreview({
     if (!workbook || exporting) return;
     setExporting(true);
     try {
-      const { createWorkbookXlsx, XLSX_MIME } = await import("@/lib/excelWorkbookFile");
-      const bytes = await createWorkbookXlsx(workbook as never);
-      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: XLSX_MIME });
+      const { writeXlsxWorkbook, XLSX_MIME } = await import("@/lib/excelWorkbookFile");
+      const bytes = await writeXlsxWorkbook(workbook);
+      const blob = new Blob([bytes], { type: XLSX_MIME });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `${(title || workbook.name || "workbook").replace(/[\\/:*?"<>|]+/g, "_")}.xlsx`;
       anchor.click();
       URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XLSX 导出失败");
     } finally {
       setExporting(false);
     }

@@ -179,6 +179,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/components/__tests__/PptDocumentEditor.test.tsx", "case": "DCC-004: a stale PPT refresh preserves a pending title edit" },
         { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 earlier history loaded later is prepended in order without changing saved messages"},

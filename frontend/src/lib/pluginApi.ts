@@ -296,7 +296,7 @@ export const pluginApi = {
   removeInboundWebhook: (id: string, hookId: string) => request(`/plugins/${encodeURIComponent(id)}/inbound-webhooks/${encodeURIComponent(hookId)}`, { method: "DELETE" }),
   setSettings: (id: string, values: Record<string, unknown>) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(values) }),
   installAutomationTemplate: (id: string, templateId: string) => request(`/plugins/${encodeURIComponent(id)}/automation-templates/${encodeURIComponent(templateId)}/install`, { method: "POST" }),
-  createNoteFromTemplate: (id: string, templateId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }) => request<{ success: true; noteId: string; node: unknown }>("/plugins/" + encodeURIComponent(id) + "/note-templates/" + encodeURIComponent(templateId) + "/create", { method: "POST", body: JSON.stringify(input) }),
+  createNoteFromTemplate: (id: string, templateId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }) => request<{ success: true; noteId: string; node: { id: string } }>("/plugins/" + encodeURIComponent(id) + "/note-templates/" + encodeURIComponent(templateId) + "/create", { method: "POST", body: JSON.stringify(input) }),
 };
 
 export interface WechatInboxItem {

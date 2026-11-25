@@ -77,6 +77,25 @@ describe("PptDocumentEditor 无障碍幻灯片编辑器", () => {
     host.remove();
   });
 
+  it("DCC-004: a stale PPT refresh preserves a pending title edit", async () => {
+    const onUpdate = vi.fn();
+    const onLocalUpdate = vi.fn();
+    const editor = React.createRef<React.ComponentRef<typeof PptDocumentEditor>>();
+    const initialNote = makePptNote();
+    const render = (note: Note) => (
+      <PptDocumentEditor ref={editor} note={note} onUpdate={onUpdate} onLocalUpdate={onLocalUpdate} editable />
+    );
+    await act(async () => root.render(render(initialNote)));
+    const title = host.querySelector<HTMLInputElement>('input[aria-label="PPT 演示文稿名称"]')!;
+    await act(async () => setControlValue(title, "本机新标题"));
+    expect(onLocalUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: "本机新标题" }));
+
+    await act(async () => root.render(render({ ...initialNote, title: "服务端旧标题" })));
+    expect(title.value).toBe("本机新标题");
+    await act(async () => editor.current?.flushSave());
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ title: "本机新标题", _noteId: initialNote.id }));
+  });
+
   it("支持默认双页初始化、新增/切换版式、大纲生成与全屏放映键盘翻页", async () => {
     const onUpdate = vi.fn();
     const onHeadingsChange = vi.fn();

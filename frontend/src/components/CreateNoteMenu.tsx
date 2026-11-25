@@ -33,7 +33,7 @@ export type NoteType = "normal" | "markdown" | "plaintext" | "word" | "ppt";
 export interface CreateNoteMenuProps {
   open: boolean;
   parentId?: string | null;
-  onPick: (type: NoteType) => void | Promise<void>;
+  onPick: (type: "normal" | "markdown" | "plaintext") => void | Promise<void>;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }

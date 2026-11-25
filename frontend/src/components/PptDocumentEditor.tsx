@@ -52,7 +52,6 @@ import {
 import { exportPptDeckToFile, pickPptxFile } from "@/lib/pptNoteService";
 import { api } from "@/lib/api";
 import {
-  shouldEmitTitleUpdate,
   shouldSkipTitleChange,
   shouldSyncTitleValue,
 } from "@/lib/titleIme";
@@ -564,11 +563,11 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       setActiveIndex(0);
       setPresenting(false);
     } else if (
+      !pendingDirtyRef.current &&
       shouldSyncTitleValue({
-        currentTitle: titleRef.current,
-        incomingTitle: note.title || "",
+        inputValue: titleRef.current,
+        noteTitle: note.title || "",
         isComposing: composingRef.current,
-        hasPendingLocalTitle: pendingDirtyRef.current,
       })
     ) {
       setTitle(note.title || "");
@@ -1206,7 +1205,7 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
                 const nextTitle = e.currentTarget.value;
                 setTitle(nextTitle);
                 titleRef.current = nextTitle;
-                if (shouldEmitTitleUpdate({ currentTitle: nextTitle, lastEmittedTitle: note.title || "" })) {
+                if (nextTitle !== (note.title || "")) {
                   scheduleSave(deckRef.current, nextTitle);
                 }
               }}
@@ -1217,7 +1216,7 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
                 if (
                   !shouldSkipTitleChange({
                     isComposing: composingRef.current,
-                    nativeIsComposing: (e.nativeEvent as InputEvent).isComposing,
+                    eventIsComposing: (e.nativeEvent as InputEvent).isComposing,
                   })
                 ) {
                   scheduleSave(deckRef.current, nextTitle);
