@@ -89,15 +89,61 @@ function SectionView({ section, zoom }: { section: Section; zoom: number }) {
         boxSizing: "border-box",
       }}
     >
+      {section.headerText && (
+        <div
+          style={{
+            marginBottom: 12 * zoom,
+            paddingBottom: 6 * zoom,
+            borderBottom: "1px solid #e5e7eb",
+            textAlign: "center",
+            fontSize: 9 * PT_TO_PX * zoom,
+            color: "#6b7280",
+          }}
+        >
+          {section.headerText}
+        </div>
+      )}
       {section.body.map((block, i) => (
         <BlockView key={i} block={block} zoom={zoom} />
       ))}
+      {section.footerText && (
+        <div
+          style={{
+            marginTop: 18 * zoom,
+            paddingTop: 6 * zoom,
+            borderTop: "1px solid #e5e7eb",
+            textAlign: "center",
+            fontSize: 9 * PT_TO_PX * zoom,
+            color: "#6b7280",
+          }}
+        >
+          {section.footerText}
+        </div>
+      )}
     </div>
   );
 }
 
-/** 块级分流：段落 → ParagraphView，表格 → TableView。 */
+/** 块级分流：分页符 → 分隔线，表格 → TableView，段落 → ParagraphView。 */
 function BlockView({ block, zoom }: { block: BlockNode; zoom: number }) {
+  if (block.type === "pageBreak") {
+    return (
+      <div
+        role="separator"
+        aria-label="分页符"
+        style={{
+          margin: `${16 * zoom}px 0`,
+          borderTop: "1px dashed #9ca3af",
+          textAlign: "center",
+          fontSize: 10 * zoom,
+          color: "#6b7280",
+          paddingTop: 4 * zoom,
+        }}
+      >
+        分页符
+      </div>
+    );
+  }
   if (block.type === "table") {
     return <TableView table={block} zoom={zoom} />;
   }

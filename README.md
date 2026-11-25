@@ -258,11 +258,12 @@ docker run -d \
 └── .jwt_secret
 ```
 
-- 默认生产数据库为 SQLite，主文件是 `/app/data/nowen-note.db`。
+- 正式生产数据库统一为 **SQLite（WAL 模式）**，主文件是 `/app/data/nowen-note.db`（兼顾个人桌面端、NAS 与小团队自托管的零运维与单文件备份体验）。
+- **切勿将 `/app/data`（SQLite 运行目录）直接挂载到 NFS / SMB 网络盘或 OneDrive / iCloud 等网盘同步目录**，网络文件系统可能导致 WAL 文件锁失效并损坏数据库；请将数据目录保留在宿主机本地磁盘/Docker 本地卷，再通过内置自动备份、WebDAV 或邮件同步到异地。
 - 附件默认存储在 `/app/data/attachments`，新文件按 `YYYY/MM` 分目录。
 - 自动备份默认位于 `/app/data/backups`。
 - 生产环境建议把 `BACKUP_DIR` 映射到独立物理磁盘，并遵循 3-2-1 备份原则。
-- PostgreSQL 适配和迁移仍在验证中，当前正式部署与恢复流程继续以 SQLite 为默认基线。
+- 仓库内遗留的 PostgreSQL 适配脚手架已暂停推进，正式部署、升级与恢复均以 SQLite 为唯一官方支持基线。
 
 ### 常用环境变量
 
@@ -359,7 +360,7 @@ npm run cap:open:ios
 | **后端** | Node.js 24 LTS、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
 | **桌面端** | Electron 43、electron-builder、electron-updater |
 | **移动端** | Capacitor 8（Android / iOS）、ArkTS + ArkWeb（HarmonyOS） |
-| **存储与备份** | SQLite、本地附件、S3 / Cloudflare R2 / MinIO、邮件与 WebDAV；PostgreSQL 处于适配验证阶段 |
+| **存储与备份** | SQLite（WAL，唯一正式支持）、本地附件、S3 / Cloudflare R2 / MinIO、邮件与 WebDAV |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、MCP Server、Webhook |
 
 ## 项目结构
@@ -411,7 +412,7 @@ nowen-note/
 
 ## 当前边界
 
-- **数据库**：SQLite 是当前默认且完整支持的生产方案；PostgreSQL 已有适配器、Schema 和部分双库测试，但尚未开放正式切换。
+- **数据库**：面向个人与小团队自托管场景，SQLite（WAL 模式）为唯一正式支持的生产数据库；仓库中历史预研的 PostgreSQL 适配器与脚本已暂停推进，不建议用于生产部署。
 - **格式互转**：Markdown 与富文本互转会尽量保留主要结构，但高度定制的 HTML、复杂扩展节点或第三方语法仍可能需要人工检查。
 - **AI 隐私**：使用在线 Embedding 或在线大模型时，相关文本会发送到用户自行配置的服务商；敏感信息建议使用本地模型或不要存储。
 - **WebDAV**：用于上传已经完成的备份文件，不是实时同步、数据库运行目录或附件在线存储后端。

@@ -2,6 +2,8 @@ import { agentP2Migration } from "./agentP2Migration.js";
 import { aiMemoryMigration } from "./aiMemoryMigration.js";
 import { diaryFileAttachmentsMigration } from "./diaryFileAttachmentsMigration.js";
 import { excelSyncOutboxMigration, excelWorkbookDocumentsMigration } from "./excelWorkbookDocumentsMigration.js";
+import { taskAssigneeMigration } from "./taskAssigneeMigration.js";
+import { workspaceGroupsMigration } from "./workspaceGroupsMigration.js";
 import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
 import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
@@ -468,6 +470,8 @@ export const MIGRATIONS: Migration[] = [
   diaryFileAttachmentsMigration,
   excelWorkbookDocumentsMigration,
   excelSyncOutboxMigration,
+  taskAssigneeMigration,
+  workspaceGroupsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

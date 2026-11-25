@@ -84,6 +84,11 @@ export function getDb(): Database.Database {
     // synchronous = NORMAL：WAL 模式下 NORMAL 已经能在断电时保证持久化，
     // 性能比 FULL 好得多；这是 SQLite 官方对 WAL 的推荐值。
     db.pragma("synchronous = NORMAL");
+    // 个人 / 小团队自托管读性能微调（不开启激进 mmap_size，避免 NAS/容器挂载盘异常断电风险）：
+    //   - temp_store = MEMORY：知识树递归查询、排序与 JOIN 临时表走内存，降低磁盘随机写；
+    //   - cache_size = -16000：约 16MB 页缓存，兼顾 1C1G / NAS 小内存机器与高频读取命中率。
+    db.pragma("temp_store = MEMORY");
+    db.pragma("cache_size = -16000");
     // Restore opens a brand-new connection, which must register vec0 before
     // VACUUM and PRAGMA quick_check touch an existing virtual-table schema.
     try {

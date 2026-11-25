@@ -18,8 +18,9 @@ export const zhCNWorkspaceIssuesTranslations = {
   },
   notificationCenter: {
     title: "站内通知", all: "全部", unread: "未读", readAll: "全部标为已读", empty: "暂无通知", close: "关闭通知",
-    note_commented: "评论了笔记", note_comment_replied: "回复了你的评论",
-    issue_created: "创建了议题", issue_commented: "回复了议题", issue_closed: "关闭了议题", issue_reopened: "重新打开了议题",
+    note_commented: "评论了笔记", note_comment_replied: "回复了你的评论", note_comment_mentioned: "在笔记评论中 @ 了你",
+    issue_created: "创建了议题", issue_commented: "回复了议题", issue_mentioned: "在议题中 @ 了你", issue_closed: "关闭了议题", issue_reopened: "重新打开了议题",
+    task_assigned: "向你指派了团队任务",
   },
 };
 
@@ -43,7 +44,8 @@ export const enWorkspaceIssuesTranslations = {
   },
   notificationCenter: {
     title: "Notifications", all: "All", unread: "Unread", readAll: "Mark all read", empty: "No notifications", close: "Close notifications",
-    note_commented: "commented on a note", note_comment_replied: "replied to your comment",
-    issue_created: "created an issue", issue_commented: "replied to an issue", issue_closed: "closed an issue", issue_reopened: "reopened an issue",
+    note_commented: "commented on a note", note_comment_replied: "replied to your comment", note_comment_mentioned: "mentioned you in a note comment",
+    issue_created: "created an issue", issue_commented: "replied to an issue", issue_mentioned: "mentioned you in an issue", issue_closed: "closed an issue", issue_reopened: "reopened an issue",
+    task_assigned: "assigned a team task to you",
   },
 };

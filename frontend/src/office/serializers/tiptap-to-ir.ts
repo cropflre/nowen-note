@@ -92,7 +92,36 @@ export async function tiptapToIr(
   };
 
   const blocks: BlockNode[] = [];
+  let pageSize: { w: number; h: number } | undefined;
+  let orientation: "portrait" | "landscape" | undefined;
+  let margins: { top: number; right: number; bottom: number; left: number } | undefined;
+  let headerText: string | undefined;
+  let footerText: string | undefined;
+
   for (const child of node.content || []) {
+    if (child.type === "wordPageSetup") {
+      const paperSize = String(child.attrs?.paperSize || "A4");
+      const base = paperSize === "A5"
+        ? { w: 420, h: 595 }
+        : paperSize === "Letter"
+          ? { w: 612, h: 792 }
+          : { w: 595, h: 842 };
+      orientation = child.attrs?.orientation === "landscape" ? "landscape" : "portrait";
+      pageSize = orientation === "landscape" ? { w: base.h, h: base.w } : base;
+      margins = {
+        top: clampInt(child.attrs?.marginTop, 18, 180, 72),
+        right: clampInt(child.attrs?.marginRight, 18, 180, 72),
+        bottom: clampInt(child.attrs?.marginBottom, 18, 180, 72),
+        left: clampInt(child.attrs?.marginLeft, 18, 180, 72),
+      };
+      if (typeof child.attrs?.headerText === "string" && child.attrs.headerText.trim()) {
+        headerText = child.attrs.headerText.trim();
+      }
+      if (typeof child.attrs?.footerText === "string" && child.attrs.footerText.trim()) {
+        footerText = child.attrs.footerText.trim();
+      }
+      continue;
+    }
     const out = await blockFromTip(child, ctx);
     for (const b of out) blocks.push(b);
   }
@@ -106,7 +135,14 @@ export async function tiptapToIr(
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
     },
-    sections: [{ body: blocks }],
+    sections: [{
+      ...(pageSize ? { pageSize } : {}),
+      ...(orientation ? { orientation } : {}),
+      ...(margins ? { margins } : {}),
+      ...(headerText ? { headerText } : {}),
+      ...(footerText ? { footerText } : {}),
+      body: blocks,
+    }],
   };
 }
 
@@ -205,6 +241,12 @@ async function blockFromTip(node: TipNode, ctx: BuildCtx): Promise<BlockNode[]> 
           : [],
       }));
     }
+
+    case "pageBreak":
+      return [{ type: "pageBreak" }];
+
+    case "wordPageSetup":
+      return [];
 
     case "horizontalRule":
       // OOXML 没有真正的 hr；用一个底部加边框的空段近似
@@ -367,6 +409,11 @@ async function paragraphFromTip(node: TipNode, ctx: BuildCtx): Promise<Paragraph
 
   if (node.attrs?.firstLineIndent === 2) {
     p.indent = { ...(p.indent || {}), firstLineChars: 2 };
+  }
+
+  const rawLineHeight = Number.parseFloat(String(node.attrs?.lineHeight ?? ""));
+  if (Number.isFinite(rawLineHeight) && rawLineHeight >= 1 && rawLineHeight <= 3) {
+    p.spacing = { ...(p.spacing || {}), line: rawLineHeight, lineRule: "auto" };
   }
 
   return p;

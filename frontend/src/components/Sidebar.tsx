@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, LayoutTemplate, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutTemplate, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Smartphone, Tags, Trash2, X, CircleDot, Bell, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -14,11 +14,14 @@ import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
+import { toast } from "@/lib/toast";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { api, getCurrentWorkspace } from "@/lib/api";
+import { NOTE_TEMPLATES_CHANGED_EVENT, noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { filterTagsByQuery } from "@/lib/tagSearch";
@@ -99,6 +102,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
   const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
+  const { setEnabled: setMobileLiteMode } = useMobileLiteMode();
   const showNotifications = variant === "mobile" && mobileRailHidden
     && isNavigationModuleVisible("notifications", userPrefs.hiddenNavigationModules);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -122,9 +126,36 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const [deleteTagTarget, setDeleteTagTarget] = useState<DeleteTagTarget | null>(null);
   const [tagColorPopover, setTagColorPopover] = useState<TagColorTarget | null>(null);
   const [templateManagementOpen, setTemplateManagementOpen] = useState(false);
+  const [hasTemplates, setHasTemplates] = useState(false);
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
     () => loadDesktopKnowledgeTreeViewMode(),
   );
+
+  useEffect(() => {
+    if (isMobileLocalMode() || !userPrefs.showTemplateManagement) {
+      setHasTemplates(false);
+      return;
+    }
+    let cancelled = false;
+    const syncTemplates = () => {
+      void noteTemplatesApi
+        .list()
+        .then((res) => {
+          if (!cancelled) setHasTemplates((res.templates?.length ?? 0) > 0);
+        })
+        .catch(() => {
+          if (!cancelled) setHasTemplates(false);
+        });
+    };
+    syncTemplates();
+    window.addEventListener("nowen:workspace-changed", syncTemplates);
+    window.addEventListener(NOTE_TEMPLATES_CHANGED_EVENT, syncTemplates);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("nowen:workspace-changed", syncTemplates);
+      window.removeEventListener(NOTE_TEMPLATES_CHANGED_EVENT, syncTemplates);
+    };
+  }, [userPrefs.showTemplateManagement, state.viewMode]);
 
   useEffect(() => {
     const syncMode = () => setDesktopKnowledgeTreeMode(loadDesktopKnowledgeTreeViewMode());
@@ -287,6 +318,20 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           )
         ) : variant === "mobile" ? (
           <div data-mobile-sidebar-actions="" className="flex shrink-0 items-center gap-0 rounded-xl bg-app-hover/60">
+            <button
+              type="button"
+              data-mobile-enter-lite-mode=""
+              onClick={() => {
+                setMobileLiteMode(true);
+                actions.setMobileSidebar(false);
+                toast.info(t("mobileLite.enteredToast"));
+              }}
+              title={t("mobileLite.enterLiteMode")}
+              aria-label={t("mobileLite.enterLiteMode")}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-tx-secondary transition-colors hover:bg-app-hover hover:text-accent-primary"
+            >
+              <Smartphone size={16} />
+            </button>
             {mobileRailHidden && (
               <button
                 type="button"
@@ -353,7 +398,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         </div>
       </section>
 
-      {!isMobileLocalMode() && userPrefs.showTemplateManagement && (
+      {!isMobileLocalMode() && userPrefs.showTemplateManagement && hasTemplates && (
         <div className="shrink-0 border-t border-app-border px-2 py-2">
           <button
             type="button"

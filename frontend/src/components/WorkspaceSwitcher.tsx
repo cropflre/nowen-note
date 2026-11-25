@@ -75,6 +75,57 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
     if (payload?.workspaceId || payload?.workspace?.id) void loadWorkspaces();
   }), [loadWorkspaces]);
 
+  // 实时监听成员变更（新增、角色调整、移除、删除工作区、Owner 转让）。
+  // 若当前所在工作区被移除或删除，立即安全退回个人空间并提示，避免继续操作触发 403。
+  useEffect(() => realtime.on("workspace:membership-changed", (payload: any) => {
+    void loadWorkspaces();
+    const affectedId = payload?.workspaceId;
+    const action = payload?.action;
+    if (!affectedId) return;
+    if ((action === "removed" || action === "deleted") && getCurrentWorkspace() === affectedId) {
+      setCurrent("personal");
+      setCurrentWorkspace("personal");
+      onWorkspaceChange?.("personal");
+      window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: "personal" } }));
+      const label = payload?.workspaceName ? `「${payload.workspaceName}」` : "当前工作区";
+      toast.info(action === "deleted" ? `${label}已被删除，已切回个人空间` : `你已被移出${label}，已切回个人空间`);
+    } else if (action === "added" && payload?.workspaceName) {
+      toast.success(`你已加入工作区「${payload.workspaceName}」`);
+    } else if (action === "owner_transferred" && payload?.workspaceName) {
+      toast.info(`工作区「${payload.workspaceName}」的所有权已变更`);
+    }
+  }), [loadWorkspaces, onWorkspaceChange]);
+
+  // 支持通过一键邀请链接（?joinWorkspace=CODE）自动加入工作区并清理地址栏参数
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const joinCode = url.searchParams.get("joinWorkspace")?.trim();
+    if (!joinCode) return;
+    url.searchParams.delete("joinWorkspace");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    void (async () => {
+      try {
+        const res = await api.joinWorkspace(joinCode);
+        await loadWorkspaces();
+        const targetId = res.workspace?.id || res.workspaceId;
+        if (res.alreadyMember) {
+          toast.info("你已是该工作区成员");
+        } else {
+          toast.success(`已加入工作区「${res.workspace?.name || ""}」`);
+        }
+        if (targetId) {
+          setCurrent(targetId);
+          setCurrentWorkspace(targetId);
+          onWorkspaceChange?.(targetId);
+          window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: targetId } }));
+        }
+      } catch (err: any) {
+        toast.error(err?.message || "通过邀请链接加入工作区失败");
+      }
+    })();
+  }, [loadWorkspaces, onWorkspaceChange]);
+
   // 系统管理员（users.role='admin'）：可对任意工作区右键编辑/删除——后端中间件已对其旁路。
   useEffect(() => {
     let cancelled = false;

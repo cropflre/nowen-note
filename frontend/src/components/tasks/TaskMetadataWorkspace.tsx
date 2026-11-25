@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
 import {
   Bookmark,
   BookmarkPlus,
@@ -474,10 +476,88 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
     { value: "done", label: copy.done },
   ];
 
+  const { active: mobileLiteActive, isMobileViewport } = useMobileLiteMode();
+  const [mobileHeaderSlot, setMobileHeaderSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setMobileHeaderSlot(null);
+      return;
+    }
+    const resolveSlot = () => {
+      const slot = document.querySelector<HTMLElement>("[data-mobile-task-header-slot]");
+      setMobileHeaderSlot((current) => (current === slot ? current : slot));
+    };
+    resolveSlot();
+    const frame = window.requestAnimationFrame(resolveSlot);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isMobileViewport, mobileLiteActive]);
+
+  const dockedToMobileTopBar = isMobileViewport && mobileHeaderSlot !== null;
+  const hideMobileBarRow = dockedToMobileTopBar && snapshot.views.length === 0;
+
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-app-bg">
-      <div className="shrink-0 border-b border-app-border bg-app-surface">
-        <div className="flex min-h-10 items-center gap-2 px-3 md:px-4">
+      {dockedToMobileTopBar && createPortal(
+        <>
+          {smartActive && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-tx-tertiary active:bg-app-hover"
+              title={copy.clear}
+              aria-label={copy.clear}
+            >
+              <RotateCcw size={16} />
+            </button>
+          )}
+          <button
+            type="button"
+            data-mobile-task-filter-trigger=""
+            onClick={() => setFilterOpen((value) => !value)}
+            className={cn(
+              "relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+              filterOpen || smartActive
+                ? "bg-accent-primary/10 text-accent-primary"
+                : "text-tx-secondary active:bg-app-hover",
+            )}
+            title={copy.filter}
+            aria-label={copy.filter}
+            aria-expanded={filterOpen}
+          >
+            <Filter size={17} />
+            {filterCount > 0 && (
+              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-primary px-1 text-[9px] font-medium leading-none text-white">
+                {filterCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            data-mobile-task-label-trigger=""
+            onClick={() => setLabelDialog(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-tx-secondary transition-colors active:bg-app-hover"
+            title={copy.manageLabels}
+            aria-label={copy.manageLabels}
+          >
+            <Tag size={17} />
+          </button>
+        </>,
+        mobileHeaderSlot,
+      )}
+
+      <div
+        className={cn(
+          "shrink-0 border-b border-app-border bg-app-surface",
+          hideMobileBarRow && !filterOpen && "hidden md:block",
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-h-10 items-center gap-2 px-3 md:px-4",
+            hideMobileBarRow && "hidden md:flex",
+          )}
+        >
           {snapshot.views.length > 0 && <Bookmark size={14} className="shrink-0 text-accent-primary" />}
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
             {snapshot.views.map((view) => (
@@ -502,6 +582,7 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
             onClick={() => setFilterOpen((value) => !value)}
             className={cn(
               "flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs",
+              dockedToMobileTopBar && "hidden md:flex",
               filterOpen || smartActive ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary hover:bg-app-hover",
             )}
           >
@@ -510,7 +591,14 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
             {filterCount > 0 && <span className="rounded-full bg-accent-primary px-1.5 text-[9px] text-white">{filterCount}</span>}
             <ChevronDown size={11} className={cn("transition-transform", filterOpen && "rotate-180")} />
           </button>
-          <button onClick={() => setLabelDialog(true)} className="rounded-md p-1.5 text-tx-secondary hover:bg-app-hover hover:text-accent-primary" title={copy.manageLabels}>
+          <button
+            onClick={() => setLabelDialog(true)}
+            className={cn(
+              "rounded-md p-1.5 text-tx-secondary hover:bg-app-hover hover:text-accent-primary",
+              dockedToMobileTopBar && "hidden md:inline-flex",
+            )}
+            title={copy.manageLabels}
+          >
             <Tag size={14} />
           </button>
           <button
@@ -530,7 +618,14 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
               <button onClick={() => setViewDialog(true)} className="hidden items-center gap-1 rounded-md px-2 py-1.5 text-xs text-accent-primary hover:bg-accent-primary/10 md:flex">
                 <BookmarkPlus size={13} /> {activeViewId ? copy.saveAs : copy.saveView}
               </button>
-              <button onClick={clearFilters} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" title={copy.clear}>
+              <button
+                onClick={clearFilters}
+                className={cn(
+                  "rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+                  dockedToMobileTopBar && "hidden md:inline-flex",
+                )}
+                title={copy.clear}
+              >
                 <RotateCcw size={14} />
               </button>
             </>

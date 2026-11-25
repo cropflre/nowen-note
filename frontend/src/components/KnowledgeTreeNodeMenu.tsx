@@ -60,6 +60,8 @@ import {
 } from "@/lib/exportService";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import {
   convertNoteContent,
   getNoteFormatConversionTarget,
@@ -186,7 +188,15 @@ export function buildKnowledgeTreeNodeMenuItems(
           id: "convert_format",
           label: note?.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
-          disabled: !note || note.isLocked === 1 || note.contentFormat === "plaintext",
+          disabled: !note
+            || note.isLocked === 1
+            || note.contentFormat === "plaintext"
+            || node.noteType === "sheet"
+            || node.noteType === "excel"
+            || node.noteType === "word"
+            || note.noteType === "sheet"
+            || note.noteType === "excel"
+            || note.noteType === "word",
         },
       );
     }
@@ -208,6 +218,12 @@ export function buildKnowledgeTreeNodeMenuItems(
         icon: <LayoutTemplate size={14} />,
         disabled: !note
           || note.isLocked === 1
+          || node.noteType === "sheet"
+          || node.noteType === "excel"
+          || node.noteType === "word"
+          || note.noteType === "sheet"
+          || note.noteType === "excel"
+          || note.noteType === "word"
           || (note.contentFormat !== "markdown" && note.contentFormat !== "tiptap-json"),
       });
     }
@@ -426,6 +442,16 @@ export default function KnowledgeTreeNodeMenu({
   );
 
   const openLoadedNote = (value: LoadedNote) => {
+    if (value.noteType === "excel") {
+      pushExcelAppPath(value.id);
+      actions.setMobileSidebar(false);
+      return;
+    }
+    if (value.noteType === "sheet") {
+      pushSheetAppPath(value.id);
+      actions.setMobileSidebar(false);
+      return;
+    }
     actions.setActiveNote(value);
     actions.setSelectedNotebook(value.notebookId);
     actions.setSelectedTag(null);

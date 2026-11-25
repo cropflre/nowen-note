@@ -739,6 +739,154 @@ app.delete("/nodes/:nodeId/permissions/:userId", (c) => {
   }
 });
 
+// P2：按工作区用户组批量授予目录权限
+app.post("/nodes/:nodeId/permissions/grant-group", async (c) => {
+  try {
+    const nodeId = c.req.param("nodeId");
+    const actorUserId = userIdOf(c);
+    const access = resolveKnowledgeNodeAccess(nodeId, actorUserId);
+    if (!access.capabilities.canManageMembers) {
+      return c.json({ error: "没有成员管理权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN", required: "canManageMembers" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
+    const preset = parseKnowledgeRolePreset(body.rolePreset);
+    if (!groupId || !preset) {
+      return c.json({ error: "请选择有效的用户组和角色预设", code: "INVALID_PAYLOAD" }, 400);
+    }
+
+    const db = getDb();
+    const nodeRow = db
+      .prepare("SELECT id, workspaceId FROM knowledge_tree_nodes WHERE id = ? AND isDeleted = 0")
+      .get(nodeId) as { id: string; workspaceId: string | null } | undefined;
+    if (!nodeRow || !nodeRow.workspaceId) {
+      return c.json({ error: "仅工作区内的目录支持按用户组授权", code: "WORKSPACE_NODE_REQUIRED" }, 400);
+    }
+
+    const groupRow = db
+      .prepare("SELECT id, name, workspaceId FROM workspace_groups WHERE id = ? AND workspaceId = ?")
+      .get(groupId, nodeRow.workspaceId) as { id: string; name: string; workspaceId: string } | undefined;
+    if (!groupRow) {
+      return c.json({ error: "用户组不存在或不属于当前工作区", code: "GROUP_NOT_FOUND" }, 404);
+    }
+
+    const members = db
+      .prepare(
+        `SELECT gm.userId
+         FROM workspace_group_members gm
+         JOIN workspace_members wm ON wm.workspaceId = ? AND wm.userId = gm.userId
+         JOIN users u ON u.id = gm.userId
+         WHERE gm.groupId = ? AND u.isDisabled = 0`,
+      )
+      .all(nodeRow.workspaceId, groupId) as Array<{ userId: string }>;
+
+    if (members.length === 0) {
+      return c.json({ error: "该用户组暂无有效成员", code: "GROUP_EMPTY" }, 400);
+    }
+
+    const tx = db.transaction(() => {
+      for (const m of members) {
+        setKnowledgeNodeRole({
+          nodeId,
+          targetUserId: m.userId,
+          rolePreset: preset,
+          actorUserId,
+          db,
+        });
+      }
+    });
+    tx();
+
+    return c.json({
+      success: true,
+      groupId: groupRow.id,
+      groupName: groupRow.name,
+      rolePreset: preset,
+      appliedCount: members.length,
+    });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
+// P2：查询指定成员在当前节点上的最终生效权限诊断（仅管理员可查）
+app.get("/nodes/:nodeId/permissions/effective", (c) => {
+  try {
+    const nodeId = c.req.param("nodeId");
+    const actorUserId = userIdOf(c);
+    const actorAccess = resolveKnowledgeNodeAccess(nodeId, actorUserId);
+    if (!actorAccess.capabilities.canManageMembers) {
+      return c.json({ error: "没有成员管理权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN", required: "canManageMembers" }, 403);
+    }
+    const targetUserId = (c.req.query("userId") || "").trim();
+    if (!targetUserId) {
+      return c.json({ error: "缺少 userId 参数", code: "INVALID_PAYLOAD" }, 400);
+    }
+
+    const db = getDb();
+    const userRow = db
+      .prepare("SELECT id, username, displayName FROM users WHERE id = ?")
+      .get(targetUserId) as { id: string; username: string; displayName: string | null } | undefined;
+    if (!userRow) {
+      return c.json({ error: "用户不存在", code: "USER_NOT_FOUND" }, 404);
+    }
+
+    const nodeRow = db
+      .prepare("SELECT id, workspaceId FROM knowledge_tree_nodes WHERE id = ?")
+      .get(nodeId) as { id: string; workspaceId: string | null } | undefined;
+    const effective = resolveKnowledgeNodeAccess(nodeId, targetUserId, db);
+    const workspaceRoleRow = nodeRow?.workspaceId
+      ? (db
+          .prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
+          .get(nodeRow.workspaceId, targetUserId) as { role: string } | undefined)
+      : undefined;
+    const sourceNode = effective.sourceNodeId
+      ? (db
+          .prepare(
+            `SELECT CASE
+               WHEN n.resourceType = 'notebook' THEN COALESCE(nb.name, '未命名文件夹')
+               WHEN n.resourceType = 'note' THEN COALESCE(note.title, '无标题笔记')
+               WHEN n.resourceType = 'mindmap' THEN COALESCE(mm.title, n.resourceId)
+               WHEN n.resourceType = 'file' THEN COALESCE(f.filename, n.resourceId)
+               ELSE n.resourceId
+             END AS title
+             FROM knowledge_tree_nodes n
+             LEFT JOIN notebooks nb ON n.resourceType = 'notebook' AND nb.id = n.resourceId
+             LEFT JOIN notes note ON n.resourceType = 'note' AND note.id = n.resourceId
+             LEFT JOIN mindmaps mm ON n.resourceType = 'mindmap' AND mm.id = n.resourceId
+             LEFT JOIN files f ON n.resourceType = 'file' AND f.id = n.resourceId
+             WHERE n.id = ?`,
+          )
+          .get(effective.sourceNodeId) as { title: string } | undefined)
+      : undefined;
+
+    let explanation = "无访问权限";
+    if (effective.source === "owner") {
+      explanation = "作为资源所有者或空间管理员，拥有全部管理权限";
+    } else if (!effective.capabilities.canView && (effective.source === "direct" || effective.source === "inherited")) {
+      explanation = `已被显式禁止访问（来源：${sourceNode?.title || "当前节点"}）`;
+    } else if (effective.source === "direct") {
+      explanation = `来自当前节点的独立授权（预设：${effective.rolePreset}），覆盖工作区默认角色`;
+    } else if (effective.source === "inherited") {
+      explanation = `继承自上级目录「${sourceNode?.title || "父目录"}」的授权（预设：${effective.rolePreset}）`;
+    } else if (effective.source === "legacy") {
+      explanation = workspaceRoleRow
+        ? `沿用工作区基础角色「${workspaceRoleRow.role}」的默认权限`
+        : "沿用历史共享权限";
+    }
+
+    return c.json({
+      user: { id: userRow.id, username: userRow.username, displayName: userRow.displayName },
+      workspaceRole: workspaceRoleRow?.role ?? null,
+      effective,
+      sourceNodeTitle: sourceNode?.title ?? null,
+      explanation,
+    });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
 app.get("/nodes/:nodeId/history", (c) => {
   try {
     return c.json({ history: listKnowledgeTreeHistory(c.req.param("nodeId"), userIdOf(c)) });

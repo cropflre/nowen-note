@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
+import { api, getCurrentWorkspace, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
 import { openCommentCenter } from "@/lib/noteCommentNavigation";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
+import { realtime } from "@/lib/realtime";
 import { NOTIFICATIONS_CHANGED_EVENT, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
 import type { NotificationListResponse, WorkspaceNotification } from "@/types/workspaceIssues";
 
@@ -19,6 +20,7 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [directOnly, setDirectOnly] = useState(false);
   const [data, setData] = useState<NotificationListResponse>({ items: [], total: 0, unreadCount: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,6 +67,7 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
     };
     void load();
     const timer = window.setInterval(() => { if (!document.hidden) void load(false); }, 45000);
+    const unsubscribeRealtime = realtime.on("notification:created", () => { void load(true); });
     window.addEventListener("focus", load);
     window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, load);
     window.addEventListener(SERVER_URL_CHANGED_EVENT, serverChanged);
@@ -73,6 +76,7 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
     return () => {
       epoch.current += 1;
       clearInterval(timer);
+      unsubscribeRealtime();
       window.removeEventListener("focus", load);
       window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, load);
       window.removeEventListener(SERVER_URL_CHANGED_EVENT, serverChanged);
@@ -116,9 +120,20 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
     if (notification.resourceType === "note_comment") {
       if (!notification.noteId || !onOpenComment) throw new Error(t("commentCenter.unavailable"));
       await onOpenComment(notification.noteId, notification.commentId || notification.resourceId);
+    } else if (notification.resourceType === "workspace_task") {
+      if (notification.workspaceId && getCurrentWorkspace() !== notification.workspaceId) {
+        setCurrentWorkspace(notification.workspaceId);
+        window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: notification.workspaceId } }));
+      }
+      window.dispatchEvent(new CustomEvent("nowen:open-task-center", { detail: { taskId: notification.resourceId } }));
     } else onOpenIssue(notification.resourceId, notification.workspaceId!);
     setOpen(false);
   });
+
+  const DIRECT_TYPES = new Set(["issue_mentioned", "note_comment_mentioned", "task_assigned"]);
+  const visibleItems = directOnly
+    ? data.items.filter((item) => DIRECT_TYPES.has(item.type))
+    : data.items;
 
   if (!open) return null;
   return createPortal(<div className="fixed inset-0 z-[100] bg-black/30" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
@@ -128,18 +143,28 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
         <button ref={close} className={buttonClass} aria-label={t("notificationCenter.close")} onClick={() => setOpen(false)}><X size={16} /></button>
       </header>
       <div className="flex shrink-0 flex-wrap gap-2 border-b border-app-border p-3">
-        <button className={buttonClass} disabled={loading} aria-pressed={!unreadOnly} onClick={() => setUnreadOnly(false)}>{t("notificationCenter.all")}</button>
-        <button className={buttonClass} disabled={loading} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(true)}>{t("notificationCenter.unread")}</button>
+        <button className={buttonClass} disabled={loading} aria-pressed={!unreadOnly && !directOnly} onClick={() => { setUnreadOnly(false); setDirectOnly(false); }}>{t("notificationCenter.all")}</button>
+        <button className={buttonClass} disabled={loading} aria-pressed={unreadOnly} onClick={() => setUnreadOnly((v) => !v)}>{t("notificationCenter.unread")}</button>
+        <button className={buttonClass} disabled={loading} aria-pressed={directOnly} onClick={() => setDirectOnly((v) => !v)}>@提及与指派</button>
         <button className={buttonClass} disabled={loading} onClick={() => setRevision((value) => value + 1)}>{t("issues.refresh")}</button>
         <button className={buttonClass} onClick={() => { setOpen(false); openCommentCenter(); }}>{t("commentCenter.title")}</button>
         <button className={buttonClass} disabled={loading || data.unreadCount === 0} onClick={() => void run(() => api.notifications.readAll())}>{t("notificationCenter.readAll")}</button>
       </div>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
         {error && <div role="alert" className="text-sm text-accent-danger">{error} <button className={buttonClass} onClick={() => setRevision((value) => value + 1)}>{t("issues.retry")}</button></div>}
-        {data.items.length === 0 && !error && <p className="py-8 text-center text-sm text-tx-tertiary">{t("notificationCenter.empty")}</p>}
-        {data.items.map((notification) => <button key={notification.id} className={`w-full rounded-lg border border-app-border p-3 text-left hover:bg-app-hover ${notification.readAt ? "text-tx-secondary" : "bg-accent-primary/5"}`} disabled={loading} onClick={() => openNotification(notification)}>
-          <p className="text-xs text-tx-tertiary">{notification.workspaceName || t("commentCenter.personal")} · {new Date(notification.createdAt).toLocaleString()}{!notification.readAt && <span className="ml-2 text-accent-primary">●</span>}</p>
-          <p className="mt-1 text-sm">{notification.actorName || t("issues.unknown")} {t(`notificationCenter.${notification.type}`)}</p>
+        {visibleItems.length === 0 && !error && <p className="py-8 text-center text-sm text-tx-tertiary">{t("notificationCenter.empty")}</p>}
+        {visibleItems.map((notification) => <button key={notification.id} className={`w-full rounded-lg border border-app-border p-3 text-left hover:bg-app-hover ${notification.readAt ? "text-tx-secondary" : "bg-accent-primary/5"}`} disabled={loading} onClick={() => openNotification(notification)}>
+          <p className="flex items-center gap-1.5 text-xs text-tx-tertiary">
+            <span>{notification.workspaceName || t("commentCenter.personal")} · {new Date(notification.createdAt).toLocaleString()}</span>
+            {(notification.type === "issue_mentioned" || notification.type === "note_comment_mentioned") && (
+              <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">@提及你</span>
+            )}
+            {notification.type === "task_assigned" && (
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">任务指派</span>
+            )}
+            {!notification.readAt && <span className="ml-auto text-accent-primary">●</span>}
+          </p>
+          <p className="mt-1 text-sm">{notification.actorName || t("issues.unknown")} {t(`notificationCenter.${notification.type}`, { defaultValue: notification.type })}</p>
           <p className="break-words text-sm font-medium">{notification.title}</p>
           {notification.body && <p className="mt-1 line-clamp-2 break-words text-xs text-tx-tertiary">{notification.body}</p>}
         </button>)}

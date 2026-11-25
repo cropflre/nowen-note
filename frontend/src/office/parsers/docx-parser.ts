@@ -44,6 +44,8 @@ interface ParseCtx {
   imageCache: Map<string, string>;
   /** 收集到的所有 blob URL，用于 IR.resources。 */
   blobUrls: string[];
+  /** 解析过程中发现的降级/不支持特性提示（去重）。 */
+  warnings: Set<string>;
 }
 
 /** 主入口：把一份 docx 读成 IR。 */
@@ -68,14 +70,17 @@ export async function parseDocx(
     rels,
     imageCache: new Map(),
     blobUrls: [],
+    warnings: new Set(),
   };
 
-  const body = await parseBody(ctx);
+  const { body, sectionMeta } = await parseBody(ctx);
 
-  // W1.1 暂只支持单 section（用 document.xml 末尾的 sectPr 还没解析，先给默认页大小）
   const section: Section = {
-    pageSize: { w: 595, h: 842 }, // A4 默认
-    margins: { top: 72, right: 72, bottom: 72, left: 72 }, // 1 inch
+    pageSize: sectionMeta.pageSize ?? { w: 595, h: 842 }, // A4 默认
+    orientation: sectionMeta.orientation,
+    margins: sectionMeta.margins ?? { top: 72, right: 72, bottom: 72, left: 72 }, // 1 inch
+    headerText: sectionMeta.headerText,
+    footerText: sectionMeta.footerText,
     body,
   };
 
@@ -83,6 +88,7 @@ export async function parseDocx(
     meta,
     sections: [section],
     resources: ctx.blobUrls.length ? { blobUrls: ctx.blobUrls } : undefined,
+    warnings: ctx.warnings.size ? Array.from(ctx.warnings) : undefined,
   };
 }
 
@@ -106,23 +112,133 @@ async function parseCoreProps(pkg: OpcPackage) {
 // word/document.xml —— 主体
 // ---------------------------------------------------------------------------
 
-async function parseBody(ctx: ParseCtx): Promise<BlockNode[]> {
+interface ParsedSectionMeta {
+  pageSize?: { w: number; h: number };
+  orientation?: "portrait" | "landscape";
+  margins?: { top: number; right: number; bottom: number; left: number };
+  headerText?: string;
+  footerText?: string;
+}
+
+async function parseSectionProps(sectPr: Element, ctx: ParseCtx): Promise<ParsedSectionMeta> {
+  const out: ParsedSectionMeta = {};
+  const pgSz = firstByLocalName(sectPr, "pgSz");
+  if (pgSz) {
+    const w = parseFloat(pgSz.getAttribute("w:w") || pgSz.getAttribute("w") || "");
+    const h = parseFloat(pgSz.getAttribute("w:h") || pgSz.getAttribute("h") || "");
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+      out.pageSize = { w: Math.round(w / 20), h: Math.round(h / 20) };
+    }
+    const orient = (pgSz.getAttribute("w:orient") || pgSz.getAttribute("orient") || "").toLowerCase();
+    if (orient === "landscape" || (out.pageSize && out.pageSize.w > out.pageSize.h)) {
+      out.orientation = "landscape";
+    } else if (out.pageSize) {
+      out.orientation = "portrait";
+    }
+  }
+  const pgMar = firstByLocalName(sectPr, "pgMar");
+  if (pgMar) {
+    const readTwip = (name: string, fallback: number) => {
+      const raw = parseFloat(pgMar.getAttribute(`w:${name}`) || pgMar.getAttribute(name) || "");
+      return Number.isFinite(raw) && raw >= 0 ? Math.round(raw / 20) : fallback;
+    };
+    out.margins = {
+      top: readTwip("top", 72),
+      right: readTwip("right", 72),
+      bottom: readTwip("bottom", 72),
+      left: readTwip("left", 72),
+    };
+  }
+  for (const child of childElements(sectPr)) {
+    if (child.localName !== "headerReference" && child.localName !== "footerReference") continue;
+    const type = (child.getAttribute("w:type") || child.getAttribute("type") || "default").toLowerCase();
+    if (type !== "default" && out[child.localName === "headerReference" ? "headerText" : "footerText"]) continue;
+    const rId =
+      child.getAttribute("r:id") ||
+      child.getAttribute("id") ||
+      child.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+    if (!rId) continue;
+    const rel = ctx.rels.get(rId);
+    if (!rel || rel.external) continue;
+    const partPath = resolveRelTarget("word/document.xml", rel.target);
+    const xml = await ctx.pkg.getXml(partPath);
+    if (!xml) continue;
+    const text = (xml.documentElement.textContent || "").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    if (child.localName === "headerReference") out.headerText = text;
+    else out.footerText = text;
+  }
+  return out;
+}
+
+function paragraphHasPageBreak(p: Element): { before: boolean; inlineBreak: boolean } {
+  const pPr = firstByLocalName(p, "pPr");
+  const before = Boolean(pPr && firstByLocalName(pPr, "pageBreakBefore"));
+  let inlineBreak = false;
+  for (const child of childElements(p)) {
+    if (child.localName !== "r") continue;
+    for (const rChild of childElements(child)) {
+      if (rChild.localName === "br") {
+        const t = (rChild.getAttribute("w:type") || rChild.getAttribute("type") || "").toLowerCase();
+        if (t === "page") inlineBreak = true;
+      }
+    }
+  }
+  return { before, inlineBreak };
+}
+
+function detectUnsupportedFeatures(bodyEl: Element, ctx: ParseCtx): void {
+  const stack: Element[] = [bodyEl];
+  while (stack.length) {
+    const el = stack.pop()!;
+    const name = el.localName;
+    if (name === "ins" || name === "del") {
+      ctx.warnings.add("文档包含修订记录，导入后仅保留正文内容");
+    } else if (name === "commentRangeStart") {
+      ctx.warnings.add("文档包含 Word 批注，批注内容不会自动迁移");
+    } else if (name === "txbxContent") {
+      ctx.warnings.add("文档包含浮动文本框，部分排版位置可能简化");
+    } else if (name === "graphicData") {
+      const uri = (el.getAttribute("uri") || "").toLowerCase();
+      if (uri.includes("diagram") || uri.includes("chart")) {
+        ctx.warnings.add("文档包含 SmartArt 或图表，无法完整保留为可编辑对象");
+      }
+    }
+    const list = el.children;
+    for (let i = 0; i < list.length; i++) stack.push(list[i]);
+  }
+}
+
+async function parseBody(ctx: ParseCtx): Promise<{ body: BlockNode[]; sectionMeta: ParsedSectionMeta }> {
   const doc = await ctx.pkg.getXml("word/document.xml");
-  if (!doc) return [];
+  if (!doc) return { body: [], sectionMeta: {} };
   const bodyEl = firstByLocalName(doc.documentElement, "body");
-  if (!bodyEl) return [];
+  if (!bodyEl) return { body: [], sectionMeta: {} };
+
+  detectUnsupportedFeatures(bodyEl, ctx);
 
   const blocks: BlockNode[] = [];
+  let sectionMeta: ParsedSectionMeta = {};
   for (const child of childElements(bodyEl)) {
     if (child.localName === "p") {
-      blocks.push(await parseParagraph(child, ctx));
+      const br = paragraphHasPageBreak(child);
+      if (br.before) blocks.push({ type: "pageBreak" });
+      const para = await parseParagraph(child, ctx);
+      const hasContent = para.runs.some((r) => (r.type === "run" ? r.text.length > 0 : true));
+      if (hasContent || !br.inlineBreak) {
+        blocks.push(para);
+      }
+      if (br.inlineBreak) {
+        blocks.push({ type: "pageBreak" });
+      }
     } else if (child.localName === "tbl") {
       const tbl = await parseTable(child, ctx);
       if (tbl) blocks.push(tbl);
+    } else if (child.localName === "sectPr") {
+      sectionMeta = await parseSectionProps(child, ctx);
     }
-    // sectPr / sdt 等暂忽略
   }
-  return blocks;
+  return { body: blocks, sectionMeta };
 }
 
 // ---------------------------------------------------------------------------
@@ -548,10 +664,14 @@ async function parseRun(r: Element, ctx: ParseCtx): Promise<InlineNode[]> {
       case "tab":
         out.push({ type: "run", text: "\t", props });
         break;
-      case "br":
-        // w:br type="page" 暂当成换行处理；W1.4 加分页节点
-        out.push({ type: "run", text: "\n", props });
+      case "br": {
+        const brType = (child.getAttribute("w:type") || child.getAttribute("type") || "").toLowerCase();
+        // 分页符已由 parseBody 提升为独立 PageBreakNode，避免重复写入换行符
+        if (brType !== "page") {
+          out.push({ type: "run", text: "\n", props });
+        }
         break;
+      }
       case "drawing": {
         const img = await parseDrawing(child, ctx);
         if (img) out.push(img);

@@ -9,6 +9,7 @@ export type {
   DocMeta,
   Section,
   BlockNode,
+  PageBreakNode,
   ParagraphNode,
   RunNode,
   RunProps,
@@ -25,3 +26,6 @@ export type { CreateDocxOptions } from "./serializers/docx-serializer";
 // Tiptap JSON → DocxIR 适配器（W2 MVP）。配合 createDocx 实现"任意笔记导出 .docx"。
 export { tiptapToIr } from "./serializers/tiptap-to-ir";
 export type { TiptapToIrOptions } from "./serializers/tiptap-to-ir";
+// DocxIR → Tiptap JSON 适配器（W2 双向闭环）。配合 parseDocx 实现高保真导入编辑。
+export { irToTiptap } from "./serializers/ir-to-tiptap";
+export type { IrToTiptapOptions, IrToTiptapResult, TiptapJsonNode } from "./serializers/ir-to-tiptap";

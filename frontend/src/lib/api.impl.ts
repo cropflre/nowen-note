@@ -6,7 +6,7 @@ import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination"
 import type { EncryptionConversionPreflight } from "./encryptedNotes/conversionPreflight";
 import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceGroup, WorkspaceActivityCategory, WorkspaceActivityResponse, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
@@ -1949,12 +1949,13 @@ export const api = {
   //   - getTasks / getTaskStats / createTask 三个"集合"接口注入 workspaceId；
   //   - getTask / updateTask / toggleTask / deleteTask 按 id 操作，后端按行自带的
   //     workspaceId 做 ACL，不需注入。
-  getTasks: (filter?: TaskFilter, noteId?: string, projectId?: string) => {
+  getTasks: (filter?: TaskFilter, noteId?: string, projectId?: string, assigneeId?: string) => {
     const params = new URLSearchParams();
     if (filter && filter !== "all") params.set("filter", filter);
     params.set("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
     if (noteId) params.set("noteId", noteId);
     if (projectId) params.set("projectId", projectId);
+    if (assigneeId) params.set("assigneeId", assigneeId);
     const ws = getCurrentWorkspace();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     const qs = params.toString() ? `?${params.toString()}` : "";
@@ -4317,6 +4318,16 @@ export const api = {
 
   // 成员
   getWorkspaceMembers: (id: string) => request<WorkspaceMember[]>(`/workspaces/${id}/members`),
+  addWorkspaceMember: (id: string, data: { userId: string; role?: WorkspaceRole }) =>
+    request<{ success: boolean; userId: string; role: WorkspaceRole }>(`/workspaces/${id}/members`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  transferWorkspaceOwner: (id: string, targetUserId: string) =>
+    request<{ success: boolean; ownerId: string }>(`/workspaces/${id}/transfer-owner`, {
+      method: "POST",
+      body: JSON.stringify({ targetUserId }),
+    }),
   updateWorkspaceMember: (id: string, userId: string, role: WorkspaceRole) =>
     request<{ success: boolean }>(`/workspaces/${id}/members/${userId}`, {
       method: "PUT",
@@ -4349,6 +4360,39 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // 工作区用户组（P2）
+  getWorkspaceGroups: (id: string) =>
+    request<WorkspaceGroup[]>(`/workspaces/${id}/groups`),
+  createWorkspaceGroup: (id: string, data: { name: string; description?: string }) =>
+    request<WorkspaceGroup>(`/workspaces/${id}/groups`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateWorkspaceGroup: (id: string, groupId: string, data: { name?: string; description?: string }) =>
+    request<WorkspaceGroup>(`/workspaces/${id}/groups/${groupId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteWorkspaceGroup: (id: string, groupId: string) =>
+    request<{ success: boolean }>(`/workspaces/${id}/groups/${groupId}`, {
+      method: "DELETE",
+    }),
+  addWorkspaceGroupMember: (id: string, groupId: string, userId: string) =>
+    request<{ success: boolean }>(`/workspaces/${id}/groups/${groupId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    }),
+  removeWorkspaceGroupMember: (id: string, groupId: string, userId: string) =>
+    request<{ success: boolean }>(`/workspaces/${id}/groups/${groupId}/members/${userId}`, {
+      method: "DELETE",
+    }),
+
+  // 工作区动态流与空间级审计（P2）
+  getWorkspaceActivity: (id: string, category: WorkspaceActivityCategory = "all", limit = 30) => {
+    const qs = new URLSearchParams({ category, limit: String(limit) });
+    return request<WorkspaceActivityResponse>(`/workspaces/${id}/activity?${qs.toString()}`);
+  },
 
   // ========== 数据库文件（.data）导出 / 导入 / 占用统计 ==========
   //

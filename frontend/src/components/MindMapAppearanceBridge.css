@@ -27,9 +27,15 @@ html[data-nowen-mindmap-node-style="minimal"] svg[data-nowen-mindmap-minimap="tr
   [data-mindmap-appearance-control="true"] {
     display: flex !important;
     position: fixed;
-    right: 12px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 12px;
+    right: auto;
+    bottom: calc(12px + var(--safe-area-bottom, env(safe-area-inset-bottom)));
     z-index: 45;
+  }
+
+  /* 精简模式若底部操作栏同时可见，样式切换胶囊自动上移避让底栏 */
+  [data-mobile-lite-mode="true"]:has([data-mobile-lite-bottom-bar]) [data-mindmap-appearance-control="true"] {
+    bottom: calc(76px + var(--safe-area-bottom, env(safe-area-inset-bottom)));
   }
 }
 

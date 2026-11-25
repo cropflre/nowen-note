@@ -143,6 +143,19 @@ describe("NoteList compact cards and controls", () => {
     expect(onDragEnd).toHaveBeenCalledOnce();
   });
 
+  it("renders spreadsheet and word icons on note cards and routes spreadsheet clicks to dedicated editors", () => {
+    renderCard({ note: { ...note, noteType: "excel" } });
+    expect(document.querySelector('[aria-label="Excel 表格"] svg')).not.toBeNull();
+    renderCard({ note: { ...note, noteType: "sheet" } });
+    expect(document.querySelector('[aria-label="note.format.sheet"] svg')).not.toBeNull();
+    renderCard({ note: { ...note, noteType: "word" } });
+    expect(document.querySelector('[aria-label="Word 文档"] svg')).not.toBeNull();
+    expect(source).toContain('if (pending?.noteType === "sheet" || pending?.noteType === "excel")');
+    expect(source).toContain("pushExcelAppPath(noteId)");
+    expect(source).toContain("pushSheetAppPath(noteId)");
+    expect(source).toContain('if (note.noteType === "excel")');
+    expect(source).toContain('if (note.noteType === "sheet")');
+  });
   it("keeps important pin, favorite, lock and share indicators", () => {
     renderCard({ note: { ...note, isPinned: 1, isFavorite: 1, isLocked: 1 }, isShared: true });
     for (const icon of ["pin", "star", "lock", "share2"]) expect(document.querySelector(`.lucide-${icon}`)).not.toBeNull();

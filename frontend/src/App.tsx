@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { fetchWebUiEnabled } from "@/lib/webUiAccess";
 import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
-import { Archive, Menu, Sparkles } from "lucide-react";
+import { Archive, ChevronLeft, Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
 import { useViewSwitchFade } from "@/hooks/useViewSwitchFade";
 import { MOTION_DURATION, MOTION_EASE, MOTION_SPRING, overlayMotion } from "@/lib/motion";
@@ -22,6 +22,21 @@ import NavRail from "@/components/NavRail";
 import SettingsModal from "@/components/SettingsModal";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
+import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import MobileLiteBottomBar, { type MobileLiteActiveTab } from "@/components/mobileLite/MobileLiteBottomBar";
+import MobileLiteDirectorySheet from "@/components/mobileLite/MobileLiteDirectorySheet";
+import MobileLiteMoreSheet from "@/components/mobileLite/MobileLiteMoreSheet";
+import MobileLiteCreateSheet from "@/components/mobileLite/MobileLiteCreateSheet";
+import { useLiteQuickCreate } from "@/components/mobileLite/useLiteQuickCreate";
+import {
+  isNoteWorkspaceViewMode,
+  MOBILE_LITE_CLOSE_SEARCH_EVENT,
+  MOBILE_LITE_OPEN_DIRECTORY_EVENT,
+  MOBILE_LITE_OPEN_SEARCH_EVENT,
+  MOBILE_LITE_SCROLL_LIST_TOP_EVENT,
+  MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT,
+} from "@/lib/mobileLiteMode";
 import NoteList from "@/components/NoteList";
 import EditorPane from "@/components/EditorPane";
 import EditorSplitView from "@/components/EditorSplitView";
@@ -336,16 +351,22 @@ function useSwipeGesture({
   onSwipeRight,
   onSwipeLeft,
   mobileSidebarOpen,
+  disabled = false,
 }: {
   onSwipeRight: () => void;
   onSwipeLeft: () => void;
   mobileSidebarOpen: boolean;
+  disabled?: boolean;
 }) {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const isSwiping = useRef(false);
 
   useEffect(() => {
+    if (disabled) {
+      isSwiping.current = false;
+      return;
+    }
     // 仅在小屏幕（移动端）上启用手势
     const EDGE_THRESHOLD = 30; // 边缘检测区域宽度
     const SWIPE_MIN_DISTANCE = 60; // 最小滑动距离
@@ -396,7 +417,7 @@ function useSwipeGesture({
       document.removeEventListener("touchstart", handleTouchStart);
       document.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [mobileSidebarOpen, onSwipeRight, onSwipeLeft]);
+  }, [disabled, mobileSidebarOpen, onSwipeRight, onSwipeLeft]);
 }
 
 function AppLayout() {
@@ -451,8 +472,10 @@ function AppLayout() {
         actions.setViewMode("all");
         actions.setActiveNote(null);
         actions.setMobileView("editor");
+        actions.setMobileSidebar(false);
       } else if (route.matched) {
         actions.setViewMode("mindmaps");
+        actions.setMobileSidebar(false);
       } else if (pathname === "/" && event?.type === "popstate") {
         // Browser Back/Forward owns navigation intent. Internal root-path normalization must
         // not clobber a concurrent legacy viewMode transition such as tasks/AI/files.
@@ -510,6 +533,41 @@ function AppLayout() {
   // 否则用户会陷入"既无 Rail 又无主侧栏"的死局，找不到任何导航入口。
   const [railMode] = useRailMode();
   const [mobileRailHidden] = useMobileRailHidden();
+  const { active: mobileLiteActive, setEnabled: setMobileLiteEnabled } = useMobileLiteMode();
+  const { visible: keyboardVisible } = useKeyboardVisible();
+  const [liteDirectoryOpen, setLiteDirectoryOpen] = useState(false);
+  const [liteMoreOpen, setLiteMoreOpen] = useState(false);
+  const [liteCreateOpen, setLiteCreateOpen] = useState(false);
+  const [liteSearchFocused, setLiteSearchFocused] = useState(false);
+  const liteQuickCreate = useLiteQuickCreate({
+    onOpenDirectory: () => setLiteDirectoryOpen(true),
+  });
+
+  useEffect(() => {
+    if (mobileLiteActive) {
+      if (state.mobileSidebarOpen) actions.setMobileSidebar(false);
+      return;
+    }
+    setLiteDirectoryOpen(false);
+    setLiteMoreOpen(false);
+    setLiteCreateOpen(false);
+    setLiteSearchFocused(false);
+  }, [actions, mobileLiteActive, state.mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!mobileLiteActive) return;
+    const onOpenDirectory = () => setLiteDirectoryOpen(true);
+    const onSearchFocus = (event: Event) => {
+      const focused = Boolean((event as CustomEvent<{ focused?: boolean }>).detail?.focused);
+      setLiteSearchFocused(focused);
+    };
+    window.addEventListener(MOBILE_LITE_OPEN_DIRECTORY_EVENT, onOpenDirectory);
+    window.addEventListener(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, onSearchFocus);
+    return () => {
+      window.removeEventListener(MOBILE_LITE_OPEN_DIRECTORY_EVENT, onOpenDirectory);
+      window.removeEventListener(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, onSearchFocus);
+    };
+  }, [mobileLiteActive]);
   const railVisible = railMode !== "hidden" || state.sidebarCollapsed;
   const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
   const isExcelView = excelRoute.matched && excelRoute.excelId !== null;
@@ -686,12 +744,29 @@ function AppLayout() {
   const handleCloseSidebar = useCallback(() => {
     actions.setMobileSidebar(false);
   }, [actions]);
+  const handleBackToNotes = useCallback(() => {
+    if (!mobileLiteActive) return false;
+    if (isSheetView || isExcelView) {
+      replaceAppPathState("/");
+      actions.setViewMode("all");
+      actions.setMobileView("list");
+      return true;
+    }
+    if (!isNoteWorkspaceViewMode(state.viewMode)) {
+      if (resolveCurrentAppPathname() !== "/") replaceAppPathState("/");
+      actions.setViewMode("all");
+      actions.setMobileView("list");
+      return true;
+    }
+    return false;
+  }, [actions, isExcelView, isSheetView, mobileLiteActive, state.viewMode]);
 
   useBackButton({
     mobileView: state.mobileView,
     mobileSidebarOpen: state.mobileSidebarOpen,
     onBackToList: handleBackToList,
     onCloseSidebar: handleCloseSidebar,
+    onBackToNotes: handleBackToNotes,
   });
 
   // P2: 状态栏与主题同步
@@ -723,6 +798,14 @@ function AppLayout() {
     actions.setMobileSidebar(false);
   }, [actions]);
   useReminderNotifier(handleOpenTaskNotification);
+  useEffect(() => {
+    const onOpenTaskCenter = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: string }>).detail?.taskId || "";
+      handleOpenTaskNotification(taskId);
+    };
+    window.addEventListener("nowen:open-task-center", onOpenTaskCenter);
+    return () => window.removeEventListener("nowen:open-task-center", onOpenTaskCenter);
+  }, [handleOpenTaskNotification]);
 
   // P3: 侧边栏边缘滑动手势
   const handleSwipeOpen = useCallback(() => {
@@ -734,6 +817,7 @@ function AppLayout() {
     onSwipeRight: handleSwipeOpen,
     onSwipeLeft: ignoreSwipeClose,
     mobileSidebarOpen: state.mobileSidebarOpen,
+    disabled: mobileLiteActive,
   });
 
   // Alt+N 全局快捷键 / 桌面端菜单"新建笔记"共用同一入口
@@ -888,12 +972,96 @@ function AppLayout() {
     if (userPrefs.enableNoteTabs) actions.openNoteTab({ id: note.id, title: note.title, notebookId: note.notebookId, workspaceId: note.workspaceId, contentFormat: note.contentFormat, colorMark: note.colorMark, isLocked: note.isLocked, isTrashed: note.isTrashed, updatedAt: note.updatedAt });
   });
 
+  const isMindMapDocumentView = isMindMapView && mindMapRoute.matched && mindMapRoute.mindMapId !== null;
+  const isNoteWorkspaceSurface = !isSheetView
+    && !isExcelView
+    && isNoteWorkspaceViewMode(state.viewMode);
+  const liteBottomBarHidden = (isNoteWorkspaceSurface && state.mobileView === "editor")
+    || isMindMapDocumentView
+    || isSheetView
+    || isExcelView
+    || keyboardVisible
+    || liteSearchFocused;
+  const liteActiveTab: MobileLiteActiveTab = liteMoreOpen
+    ? "more"
+    : liteDirectoryOpen
+      ? "directory"
+      : state.viewMode === "search"
+        ? "search"
+        : isNoteWorkspaceSurface
+          ? "notes"
+          : "more";
+
+  const handleLiteTapNotes = useCallback(() => {
+    setLiteDirectoryOpen(false);
+    setLiteMoreOpen(false);
+    setLiteCreateOpen(false);
+    window.dispatchEvent(new Event(MOBILE_LITE_CLOSE_SEARCH_EVENT));
+    if (isSheetView || isExcelView || !isNoteWorkspaceViewMode(state.viewMode)) {
+      if (resolveCurrentAppPathname() !== "/") replaceAppPathState("/");
+    }
+    const alreadyAllRoot = isNoteWorkspaceSurface
+      && state.viewMode === "all"
+      && !state.selectedNotebookId
+      && state.selectedTagIds.length === 0
+      && !state.searchQuery.trim()
+      && state.mobileView === "list";
+    if (alreadyAllRoot) {
+      window.dispatchEvent(new Event(MOBILE_LITE_SCROLL_LIST_TOP_EVENT));
+      return;
+    }
+    actions.setSelectedNotebook(null);
+    actions.clearSelectedTags();
+    actions.setSearchQuery("");
+    actions.setViewMode("all");
+    actions.setMobileView("list");
+  }, [actions, isExcelView, isNoteWorkspaceSurface, isSheetView, state.mobileView, state.searchQuery, state.selectedNotebookId, state.selectedTagIds.length, state.viewMode]);
+
+  const handleLiteLongPressNotes = useCallback(() => {
+    setLiteDirectoryOpen(false);
+    setLiteMoreOpen(false);
+    setLiteCreateOpen(false);
+    window.dispatchEvent(new Event(MOBILE_LITE_CLOSE_SEARCH_EVENT));
+    actions.setSelectedNotebook(null);
+    actions.clearSelectedTags();
+    actions.setSearchQuery("");
+    actions.setViewMode(state.viewMode === "favorites" ? "all" : "favorites");
+    actions.setMobileView("list");
+  }, [actions, state.viewMode]);
+
+  const handleLiteTapSearch = useCallback(() => {
+    setLiteDirectoryOpen(false);
+    setLiteMoreOpen(false);
+    setLiteCreateOpen(false);
+    if (!isNoteWorkspaceSurface) {
+      if (resolveCurrentAppPathname() !== "/") replaceAppPathState("/");
+      actions.setViewMode("search");
+      actions.setMobileView("list");
+    } else if (state.mobileView !== "list") {
+      actions.setMobileView("list");
+    }
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event(MOBILE_LITE_OPEN_SEARCH_EVENT));
+    });
+  }, [actions, isNoteWorkspaceSurface, state.mobileView]);
+
+  const handleLiteSwitchToFullMode = useCallback(() => {
+    setMobileLiteEnabled(false);
+    void import("@/lib/toast").then(({ toast }) => {
+      toast.info(t("mobileLite.exitedToast"));
+    }).catch(() => {});
+  }, [setMobileLiteEnabled, t]);
+
   return (
-    <div ref={appShellRef} className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
+    <div
+      ref={appShellRef}
+      data-mobile-lite-mode={mobileLiteActive ? "true" : undefined}
+      className={`flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200 ${mobileLiteActive ? "max-md:flex-col" : ""}`}
+    >
       <NoteDeepLinkBridge />
-      {/* 移动端目录使用全屏抽屉；快捷栏默认显示，也可通过独立偏好隐藏。 */}
+      {/* 移动端目录使用全屏抽屉；精简模式下禁用旧抽屉避免与底部操作栏冲突。 */}
       <AnimatePresence>
-        {state.mobileSidebarOpen && (
+        {!mobileLiteActive && state.mobileSidebarOpen && (
           <>
             <motion.div
               initial={overlayMotion.initial}
@@ -995,7 +1163,7 @@ function AppLayout() {
           <TaskCenter />
         </div>
       ) : isMindMapView ? (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <MobileTopBar />
           <MindMapCenter
             documentMode={mindMapRoute.matched && mindMapRoute.mindMapId !== null}
@@ -1034,13 +1202,13 @@ function AppLayout() {
           <FileManager />
         </div>
       ) : isSharesView ? (
-        <div className="flex-1 flex min-w-0 flex-col">
+        <div className="flex-1 min-h-0 flex min-w-0 flex-col overflow-hidden">
           <MobileTopBar />
           <ShareManagementPage />
         </div>
       ) : (
         <div
-          className="flex-1 flex relative overflow-hidden"
+          className="flex-1 min-h-0 flex relative overflow-hidden"
           data-note-workspace-window={adaptiveWindow.windowClass}
           data-note-workspace-two-pane={mediumNoteWorkspace ? "true" : "false"}
           data-note-workspace-width={adaptiveWindow.width}
@@ -1087,6 +1255,52 @@ function AppLayout() {
         </div>
       )}
 
+      {/* 手机端精简模式：底部操作栏与弹出底抽屉（桌面端与完整模式零渲染） */}
+      {mobileLiteActive && (
+        <>
+          <MobileLiteBottomBar
+            activeTab={liteActiveTab}
+            hidden={liteBottomBarHidden}
+            onTapNotes={handleLiteTapNotes}
+            onLongPressNotes={handleLiteLongPressNotes}
+            onTapDirectory={() => {
+              setLiteMoreOpen(false);
+              setLiteCreateOpen(false);
+              setLiteDirectoryOpen(true);
+            }}
+            onQuickCreate={() => {
+              setLiteDirectoryOpen(false);
+              setLiteMoreOpen(false);
+              setLiteCreateOpen(true);
+            }}
+            onLongPressCreate={() => { void liteQuickCreate.createNote("normal"); }}
+            onTapSearch={handleLiteTapSearch}
+            onTapMore={() => {
+              setLiteDirectoryOpen(false);
+              setLiteCreateOpen(false);
+              setLiteMoreOpen(true);
+            }}
+          />
+          <MobileLiteDirectorySheet
+            open={liteDirectoryOpen}
+            onClose={() => setLiteDirectoryOpen(false)}
+          />
+          <MobileLiteMoreSheet
+            open={liteMoreOpen}
+            onClose={() => setLiteMoreOpen(false)}
+            onSwitchToFullMode={handleLiteSwitchToFullMode}
+          />
+          <MobileLiteCreateSheet
+            open={liteCreateOpen}
+            onClose={() => setLiteCreateOpen(false)}
+            onCreateNote={(kind) => liteQuickCreate.createNote(kind)}
+            onCreateFolder={(title) => liteQuickCreate.createFolder(title)}
+            onCreateMindMap={(title) => liteQuickCreate.createMindMap(title)}
+            onCreateExcel={(title) => liteQuickCreate.createExcel(title)}
+          />
+        </>
+      )}
+
       {aiAvailable && <AICollaborationCenter />}
       {aiAvailable && siteConfig.aiMemoryEnabled && <AIMemoryCenter />}
       <CommentManagementCenter onOpenComment={handleOpenComment} />
@@ -1128,9 +1342,58 @@ function AppLayout() {
 
 function MobileTopBar() {
   const { t } = useTranslation();
+  const { state } = useApp();
   const actions = useAppActions();
   const { siteConfig } = useSiteSettings();
   const aiAvailable = useAIConnectionAvailable();
+  const { active: mobileLiteActive } = useMobileLiteMode();
+
+  if (mobileLiteActive) {
+    const modeTitles: Partial<Record<typeof state.viewMode, string>> = {
+      tasks: t("mobileLite.more.tasks"),
+      mindmaps: t("mobileLite.more.mindmaps"),
+      diary: t("mobileLite.more.diary"),
+      files: t("mobileLite.more.files"),
+      "ai-chat": t("mobileLite.more.aiChat"),
+      shares: t("mobileLite.more.shares"),
+      issues: t("mobileLite.more.issues"),
+      trash: t("mobileLite.more.trash"),
+    };
+    const title = modeTitles[state.viewMode] || siteConfig.title;
+    const hasTaskSlot = state.viewMode === "tasks";
+    return (
+      <header
+        data-mobile-lite-topbar=""
+        className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/70 md:hidden shrink-0"
+        style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}
+      >
+        <div className="flex flex-1 min-w-0 items-center justify-start">
+          <button
+            type="button"
+            data-mobile-lite-back-to-notes=""
+            onClick={() => {
+              if (resolveCurrentAppPathname() !== "/") replaceAppPathState("/");
+              actions.setViewMode("all");
+              actions.setMobileView("list");
+            }}
+            aria-label={t("mobileLite.header.backToNotes")}
+            className="inline-flex min-h-[44px] items-center gap-1 rounded-xl px-2 -ml-1 text-sm font-medium text-accent-primary active:bg-app-hover"
+          >
+            <ChevronLeft size={20} />
+            <span>{t("mobileLite.nav.notes")}</span>
+          </button>
+        </div>
+        <span className="shrink-0 max-w-[44%] truncate text-center text-sm font-semibold text-tx-primary">
+          {title}
+        </span>
+        <div
+          data-mobile-task-header-slot={hasTaskSlot ? "" : undefined}
+          className="flex flex-1 min-w-0 items-center justify-end gap-0.5"
+        />
+      </header>
+    );
+  }
+
   return (
     <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
       <button
@@ -1140,6 +1403,9 @@ function MobileTopBar() {
         <Menu size={24} />
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
+      {state.viewMode === "tasks" && (
+        <div data-mobile-task-header-slot="" className="flex shrink-0 items-center gap-0.5 mr-1" />
+      )}
       {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
       {aiAvailable && siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
     </header>

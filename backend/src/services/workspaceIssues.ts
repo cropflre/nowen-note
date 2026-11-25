@@ -66,15 +66,40 @@ export function textField(value: unknown, label: string, max: number, allowEmpty
   return value.trim();
 }
 
-export function notifyIssue(issue: WorkspaceIssue, actorId: string, type: string, body: string, now: string) {
+import { broadcastToUser } from "./realtime.js";
+import { resolveMentionedWorkspaceUserIds } from "./teamMentions.js";
+
+export function notifyIssue(issue: WorkspaceIssue, actorId: string, type: string, body: string, now: string): string[] {
   const db = getDb();
   const members = db.prepare(`SELECT m.userId FROM workspace_members m JOIN users u ON u.id = m.userId
     WHERE m.workspaceId = ? AND m.userId <> ? AND u.isDisabled = 0`).all(issue.workspaceId, actorId) as { userId: string }[];
+  const mentionedUserIds = resolveMentionedWorkspaceUserIds(
+    db,
+    issue.workspaceId,
+    `${issue.title}\n${body}`,
+    actorId,
+  );
   const insert = db.prepare(`INSERT INTO notifications
     (id, userId, workspaceId, type, actorUserId, resourceType, resourceId, title, body, createdAt)
     VALUES (?, ?, ?, ?, ?, 'workspace_issue', ?, ?, ?, ?)`);
   for (const member of members) {
-    insert.run(uuid(), member.userId, issue.workspaceId, type, actorId, issue.id, issue.title, body.slice(0, 200), now);
+    const effectiveType = mentionedUserIds.has(member.userId) ? "issue_mentioned" : type;
+    insert.run(uuid(), member.userId, issue.workspaceId, effectiveType, actorId, issue.id, issue.title, body.slice(0, 200), now);
+  }
+  return members.map((member) => member.userId);
+}
+
+/** 事务提交后再向在线成员推送轻量通知事件，避免回滚时误推。 */
+export function broadcastNotificationCreated(
+  userIds: string[],
+  meta: { workspaceId?: string | null; resourceType: string; resourceId: string; type?: string },
+): void {
+  const uniqueIds = new Set(userIds.filter(Boolean));
+  for (const uid of uniqueIds) {
+    broadcastToUser(uid, {
+      type: "notification:created",
+      ...meta,
+    } as any);
   }
 }
 

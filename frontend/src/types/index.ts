@@ -123,6 +123,44 @@ export interface WorkspaceInvite {
   createdAt: string;
 }
 
+export interface WorkspaceGroupMember {
+  groupId: string;
+  userId: string;
+  addedAt: string;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+}
+
+export interface WorkspaceGroup {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  memberCount: number;
+  members: WorkspaceGroupMember[];
+}
+
+export type WorkspaceActivityCategory = "all" | "docs" | "issues" | "members" | "permissions";
+
+export interface WorkspaceActivityItem {
+  id: string;
+  category: Exclude<WorkspaceActivityCategory, "all">;
+  action: string;
+  actorName: string;
+  targetTitle: string;
+  detail?: string;
+  createdAt: string;
+}
+
+export interface WorkspaceActivityResponse {
+  items: WorkspaceActivityItem[];
+  canViewPermissions: boolean;
+}
+
 /**
  * 工作区功能开关（Phase 1 数据隔离）
  *   每个键代表一个可独立启用/禁用的功能模块。
@@ -183,6 +221,8 @@ export interface Note {
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */
   contentFormat?: string;
+  /** 笔记业务类型：normal | word | journal | sheet | excel */
+  noteType?: string | null;
   isPinned: number;
   isFavorite: number;
   isLocked: number;
@@ -210,6 +250,8 @@ export interface NoteListItem {
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */
   contentFormat?: string;
+  /** 笔记业务类型：normal | word | journal | sheet | excel */
+  noteType?: string | null;
   isPinned: number;
   isFavorite: number;
   isLocked: number;
@@ -452,6 +494,10 @@ export interface Task {
   activeReminderCount?: number;
   /** 创建者用户名；仅 list/single read 时由后端 LEFT JOIN 返回。 */
   creatorName?: string | null;
+  /** 团队任务负责人 userId / 展示名 */
+  assigneeId?: string | null;
+  assigneeName?: string | null;
+  assigneeUsername?: string | null;
   repeatRule?: "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
   repeatInterval?: number;
   repeatEndDate?: string | null;

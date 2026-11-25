@@ -27,20 +27,43 @@ export function listManagedNoteComments(userId: string, options: { status: strin
   return { items, total };
 }
 
+import { broadcastNotificationCreated } from "./workspaceIssues.js";
+import { resolveMentionedNoteReaders } from "./teamMentions.js";
+
 export function createNoteCommentWithNotifications(input: Parameters<typeof shareCommentsRepository.create>[0]): void {
   const db = getDb();
+  const notifiedUserIds: string[] = [];
+  let workspaceId: string | null = null;
   db.transaction(() => {
     shareCommentsRepository.create(input);
     const note = db.prepare("SELECT userId, workspaceId, title, isTrashed FROM notes WHERE id = ?").get(input.noteId) as { userId: string; workspaceId: string | null; title: string; isTrashed: number };
     if (note.isTrashed) return;
+    workspaceId = note.workspaceId;
     const parent = input.parentId ? shareCommentsRepository.getById(input.parentId) : undefined;
-    const recipients = new Set([note.userId, parent?.userId].filter((id): id is string => Boolean(id) && id !== input.userId));
+    const mentioned = resolveMentionedNoteReaders(db, input.noteId, note.workspaceId, input.content, input.userId);
+    const recipients = new Set([
+      ...[note.userId, parent?.userId].filter((id): id is string => Boolean(id) && id !== input.userId),
+      ...mentioned,
+    ]);
     const insert = db.prepare(`INSERT INTO notifications (id, userId, workspaceId, type, actorUserId, resourceType, resourceId, title, body, createdAt)
       VALUES (?, ?, ?, ?, ?, 'note_comment', ?, ?, ?, ?)`);
     for (const userId of recipients) {
       const user = db.prepare("SELECT isDisabled FROM users WHERE id = ?").get(userId) as { isDisabled: number } | undefined;
       if (!user || user.isDisabled || !resolveEffectiveNoteCapabilities(input.noteId, userId).read) continue;
-      insert.run(uuid(), userId, note.workspaceId, userId === parent?.userId ? "note_comment_replied" : "note_commented", input.userId, input.id, note.title, input.content.slice(0, 200), new Date().toISOString());
+      const notifType = mentioned.has(userId)
+        ? "note_comment_mentioned"
+        : userId === parent?.userId
+          ? "note_comment_replied"
+          : "note_commented";
+      insert.run(uuid(), userId, note.workspaceId, notifType, input.userId, input.id, note.title, input.content.slice(0, 200), new Date().toISOString());
+      notifiedUserIds.push(userId);
     }
   }).immediate();
+  if (notifiedUserIds.length > 0) {
+    broadcastNotificationCreated(notifiedUserIds, {
+      workspaceId,
+      resourceType: "note_comment",
+      resourceId: input.id,
+    });
+  }
 }

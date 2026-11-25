@@ -217,6 +217,7 @@ import {
 
 import { useTranslation } from "react-i18next";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
 import { getActiveListType, type ActiveListType } from "@/lib/activeListType";
 import {
   applyCapturedTextFormat,
@@ -1535,6 +1536,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     return () => mq.removeEventListener("change", handler);
   }, []);
   const { visible: keyboardVisible } = useKeyboardVisible();
+  const { active: mobileLiteActive } = useMobileLiteMode();
   const compactMobileEditing = isMobile && editable && keyboardVisible;
   const [mobileToolbarExpanded, setMobileToolbarExpanded] = useState(false);
   useEffect(() => {
@@ -5363,30 +5365,36 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
               <Heading1 size={16} />
             </ToolbarButton>
-            <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
-              <Heading2 size={16} />
-            </ToolbarButton>
+            {!mobileLiteActive && (
+              <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
+                <Heading2 size={16} />
+              </ToolbarButton>
+            )}
             <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
               <Bold size={16} />
             </ToolbarButton>
-            <ToolbarButton
-              compact
-              onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
-              isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
-              disabled={!editor.isActive("paragraph")}
-              title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
-            >
-              <span className="text-[10px] font-semibold leading-none">首2</span>
-            </ToolbarButton>
+            {!mobileLiteActive && (
+              <ToolbarButton
+                compact
+                onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+                isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+                disabled={!editor.isActive("paragraph")}
+                title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+              >
+                <span className="text-[10px] font-semibold leading-none">首2</span>
+              </ToolbarButton>
+            )}
             <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
               <List size={16} />
             </ToolbarButton>
             <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
               <ImagePlus size={16} />
             </ToolbarButton>
-            <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
-              <Film size={16} />
-            </ToolbarButton>
+            {!mobileLiteActive && (
+              <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+                <Film size={16} />
+              </ToolbarButton>
+            )}
           </div>
           <MobileEditorToolbarSlot location="trailing" />
           <ToolbarButton compact onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
@@ -5424,7 +5432,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Heading1 size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
-          className="max-md:hidden"
+          className={mobileLiteActive ? undefined : "max-md:hidden"}
           onClick={() => toggleHeadingSmart(editor, 2)}
           isActive={editor.isActive("heading", { level: 2 })}
           title={t('tiptap.heading2')}
@@ -5590,9 +5598,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={handleVideoUrlInsert} title={t('tiptap.insertVideoLink')}>
           <Film size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton className="max-md:hidden" onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+        <ToolbarButton className={mobileLiteActive ? undefined : "max-md:hidden"} onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
           <Upload size={iconSize} />
         </ToolbarButton>
+        {mobileLiteActive && (
+          <ToolbarButton
+            className="md:hidden"
+            onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+            isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+            disabled={!editor.isActive("paragraph")}
+            title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+          >
+            <span className="text-[10px] font-semibold leading-none">首2</span>
+          </ToolbarButton>
+        )}
         <VoiceInsertMenu onUpload={handleAttachmentUpload} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />
         <ToolbarButton
           onClick={openAttachmentLibrary}

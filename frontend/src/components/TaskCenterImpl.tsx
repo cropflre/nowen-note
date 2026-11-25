@@ -6,12 +6,12 @@ import {
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight, Bell, Maximize2, Minimize2,
-  Archive, MoreHorizontal, FileText, ClipboardPlus, Sun, CalendarClock, Download, Info,
+  Archive, MoreHorizontal, FileText, ClipboardPlus, Sun, CalendarClock, Download, Info, CheckCircle2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Portal as TooltipPortal } from "@radix-ui/react-tooltip";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
 import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
@@ -116,6 +116,7 @@ export default function TaskCenter() {
   const selectTaskFilter = (nextFilter: TaskFilter) => {
     setCenterMode("tasks");
     setFilter(nextFilter);
+    setAssignedToMeOnly(false);
     setSelectedTaskId(null);
     setSearchQuery("");
     setSelectedProjectId(null);
@@ -316,10 +317,26 @@ export default function TaskCenter() {
     return flatOrderedTasks.filter((item) => taskMatchesSearch(item.node, searchQuery));
   }, [flatOrderedTasks, searchQuery]);
 
+  const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
+
+  useEffect(() => {
+    const onOpenTaskCenter = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (taskId) openTaskFromNotification(taskId);
+    };
+    window.addEventListener("nowen:open-task-center", onOpenTaskCenter);
+    return () => window.removeEventListener("nowen:open-task-center", onOpenTaskCenter);
+  }, [openTaskFromNotification]);
+
+  useEffect(() => {
+    if (getCurrentWorkspace() === "personal") setAssignedToMeOnly(false);
+  }, [workspaceVersion]);
+
   const loadTasks = useCallback(async () => {
     try {
+      const assigneeFilter = assignedToMeOnly && getCurrentWorkspace() !== "personal" ? "me" : undefined;
       const [data, statsData] = await Promise.all([
-        api.getTasks(filter, undefined, selectedProjectId || undefined),
+        api.getTasks(filter, undefined, selectedProjectId || undefined, assigneeFilter),
         api.getTaskStats(),
       ]);
       setTasks(data);
@@ -329,7 +346,7 @@ export default function TaskCenter() {
     } finally {
       setIsLoading(false);
     }
-  }, [filter, selectedProjectId, workspaceVersion]);
+  }, [filter, selectedProjectId, workspaceVersion, assignedToMeOnly]);
 
   useEffect(() => {
     let day = formatLocalDateKey();
@@ -980,6 +997,29 @@ export default function TaskCenter() {
               </span>
             </button>
           ))}
+
+          {getCurrentWorkspace() !== "personal" && (
+            <button
+              type="button"
+              aria-pressed={centerMode === "tasks" && assignedToMeOnly}
+              onClick={() => {
+                setCenterMode("tasks");
+                setSelectedProjectId(null);
+                setSelectedTaskId(null);
+                setFilter("all");
+                setAssignedToMeOnly((prev) => !prev);
+              }}
+              className={cn(
+                "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
+                centerMode === "tasks" && assignedToMeOnly
+                  ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 font-medium"
+                  : "text-tx-secondary hover:bg-app-hover",
+              )}
+            >
+              <CheckCircle2 size={16} />
+              <span className="flex-1 text-left">指派给我</span>
+            </button>
+          )}
 
           {/* Projects section */}
           <div className="!mt-3 border-t border-app-border px-3 pb-2 pt-3">

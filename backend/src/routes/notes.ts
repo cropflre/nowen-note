@@ -172,7 +172,7 @@ app.get("/", (c) => {
     CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
     notes.isLocked, notes.isArchived, notes.isTrashed, notes.version, notes.sortOrder,
     notes.createdAt, notes.updatedAt,
-    notes.contentFormat, notes.colorMark,
+    notes.contentFormat, notes.note_type AS noteType, notes.colorMark,
     (SELECT tree.parentId
        FROM knowledge_tree_nodes tree
       WHERE tree.resourceType = 'note' AND tree.resourceId = notes.id AND tree.isDeleted = 0
@@ -577,9 +577,9 @@ app.get("/:id", (c) => {
   const favExpr = `CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite`;
   const selectCols = slim
     ? `id, userId, notebookId, workspaceId, title, isPinned, ${favExpr}, isLocked,
-       isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark`
+       isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, note_type AS noteType, colorMark`
     : `id, userId, notebookId, workspaceId, title, content, contentText, isPinned, ${favExpr},
-       isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark`;
+       isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, note_type AS noteType, colorMark`;
   const note = db.prepare(`SELECT ${selectCols} FROM notes WHERE id = ?`).get(userId, id) as any;
   if (!note) return c.json({ error: "Note not found" }, 404);
 
@@ -773,14 +773,15 @@ app.post("/", async (c) => {
     }, 400);
   }
 
+  const noteType = body.noteType === "word" ? "word" : "normal";
   const legacyNoteCreateTx = db.transaction(() => {
     db.prepare(`
-      INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, colorMark)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, note_type, colorMark)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId, inheritedWorkspaceId, body.notebookId,
-      body.title || "无标题笔记", initialContent,
-      extractSearchableText(initialContent, contentFormat), contentFormat, initialColorMark,
+      body.title || (noteType === "word" ? "无标题 Word 文档" : "无标题笔记"), initialContent,
+      extractSearchableText(initialContent, contentFormat), contentFormat, noteType, initialColorMark,
     );
     synchronizeLegacyNoteHierarchy({
       db,
@@ -869,7 +870,7 @@ app.post("/", async (c) => {
   const note = db.prepare(`
     SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
       CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark
+      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, note_type AS noteType, colorMark
     FROM notes WHERE id = ?
   `).get(userId, id);
   logAudit(userId, "note", "create", { noteId: id, title: body.title }, { targetType: "note", targetId: id });
@@ -1398,7 +1399,7 @@ app.put("/:id", async (c) => {
   const note = db.prepare(`
     SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
       CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark
+      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, note_type AS noteType, colorMark
     FROM notes WHERE id = ?
   `).get(userId, id);
 

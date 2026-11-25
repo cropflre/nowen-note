@@ -8,6 +8,7 @@ import {
 describe("knowledge tree inline create", () => {
   it("provides selected starter titles for every inline type", () => {
     expect(defaultInlineCreateTitle("note")).toBe("未命名文档");
+    expect(defaultInlineCreateTitle("word")).toBe("未命名 Word 文档");
     expect(defaultInlineCreateTitle("markdown")).toBe("未命名 Markdown");
     expect(defaultInlineCreateTitle("folder")).toBe("未命名文件夹");
     expect(defaultInlineCreateTitle("mindmap")).toBe("无标题导图");

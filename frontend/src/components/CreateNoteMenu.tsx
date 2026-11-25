@@ -86,7 +86,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
 
   async function create(kind: KnowledgeTreeInlineCreateKind) {
     onClose();
-    const focusRequestId = kind === "note" || kind === "markdown" || kind === "plaintext" ? requestNewNoteTitleFocus() : null;
+    const focusRequestId = kind === "note" || kind === "markdown" || kind === "plaintext" || kind === "word" ? requestNewNoteTitleFocus() : null;
     try {
       if (isMobileLocalMode() && (kind === "note" || kind === "markdown" || kind === "plaintext")) {
         await onPick(kind === "note" ? "normal" : kind);

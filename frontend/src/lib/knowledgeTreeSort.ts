@@ -146,6 +146,87 @@ export function resolveKnowledgeTreeDropPlacement(
   return "inside";
 }
 
+/**
+ * Resolve drop placement taking active filtering and sort mode into account.
+ * When the tree is filtered or not in manual sort mode, sibling reordering is
+ * unavailable, so the entire target row accepts "inside" drops like a file explorer.
+ */
+export function resolveKnowledgeTreeActiveDropPlacement(
+  pointerY: number,
+  rowTop: number,
+  rowHeight: number,
+  options: { isFiltered: boolean; sortMode: KnowledgeTreeSortMode },
+): KnowledgeTreeDropPlacement {
+  if (options.isFiltered || options.sortMode !== "manual") return "inside";
+  return resolveKnowledgeTreeDropPlacement(pointerY, rowTop, rowHeight);
+}
+
+function resolveNodeDepths(nodes: KnowledgeTreeNode[]): Map<string, number> {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const cache = new Map<string, number>();
+
+  const computeDepth = (nodeId: string, visiting: Set<string>): number => {
+    const cached = cache.get(nodeId);
+    if (cached !== undefined) return cached;
+    const node = byId.get(nodeId);
+    if (!node || !node.parentId || !byId.has(node.parentId) || visiting.has(node.parentId)) {
+      cache.set(nodeId, 0);
+      return 0;
+    }
+    visiting.add(nodeId);
+    const depth = computeDepth(node.parentId, visiting) + 1;
+    visiting.delete(nodeId);
+    cache.set(nodeId, depth);
+    return depth;
+  };
+
+  for (const node of nodes) {
+    computeDepth(node.id, new Set());
+  }
+  return cache;
+}
+
+/**
+ * Sort move-target candidates for both single-move and batch-move panels.
+ *
+ * - Folders always appear before documents.
+ * - In "manual" mode, root folders stay first in manual order, followed directly
+ *   by nested folders ordered by newest creation time so newly created folders
+ *   never sink behind hundreds of older documents.
+ * - In explicit sort modes (title / updated / created), candidates follow the
+ *   active tree sort mode while preserving folder priority.
+ */
+export function sortKnowledgeTreeMoveTargets(
+  candidates: KnowledgeTreeNode[],
+  mode: KnowledgeTreeSortMode,
+  allNodes: KnowledgeTreeNode[] = candidates,
+): KnowledgeTreeNode[] {
+  if (mode !== "manual") {
+    return candidates.slice().sort((a, b) => compareKnowledgeTreeNodes(a, b, mode));
+  }
+
+  const depths = resolveNodeDepths(allNodes);
+  return candidates.slice().sort((a, b) => {
+    const pinnedPriority = compareKnowledgeTreePinnedPriority(a, b);
+    if (pinnedPriority !== 0) return pinnedPriority;
+
+    const aDepth = depths.get(a.id) ?? (a.parentId ? 1 : 0);
+    const bDepth = depths.get(b.id) ?? (b.parentId ? 1 : 0);
+    if (aDepth !== bDepth) return aDepth - bDepth;
+
+    if (aDepth === 0) {
+      return a.sortOrder - b.sortOrder || compareText(a, b) || a.id.localeCompare(b.id);
+    }
+
+    return (
+      timestamp(b.createdAt) - timestamp(a.createdAt)
+      || a.sortOrder - b.sortOrder
+      || compareText(a, b)
+      || a.id.localeCompare(b.id)
+    );
+  });
+}
+
 export interface KnowledgeTreeSiblingReorderPlan {
   nodes: KnowledgeTreeNode[];
   items: Array<{ id: string; sortOrder: number }>;

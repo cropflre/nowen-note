@@ -12,6 +12,7 @@ import {
   Clock3,
   FileCode,
   FileText,
+  FileType2,
   Folder,
   Loader2,
   ListFilter,
@@ -79,6 +80,10 @@ import {
   type KnowledgeTreeInlineCreateKind,
 } from "@/lib/knowledgeTreeInlineCreate";
 import {
+  alignKnowledgeTreeAnchorToTop,
+  scheduleKnowledgeTreeTopAlignment,
+} from "@/lib/knowledgeTreeInlineScroll";
+import {
   knowledgeTreeApi,
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
@@ -102,6 +107,7 @@ import {
 import {
   buildFirstLevelNoteCounts,
 } from "@/lib/knowledgeTreeStats";
+import { sortKnowledgeTreeMoveTargets } from "@/lib/knowledgeTreeSort";
 import {
   buildMobileKnowledgeTreePath,
   buildMobileKnowledgeTreeRecentNodes,
@@ -156,6 +162,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={18} className="shrink-0 text-amber-500" />;
   if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={18} className="shrink-0 text-sky-500" />;
   if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={18} className="shrink-0 text-emerald-600" />;
+  if (node.nodeType === "word" || node.noteType === "word") return <FileType2 data-knowledge-tree-icon="" size={18} className="shrink-0 text-blue-500" />;
   return <FileText data-knowledge-tree-icon="" size={18} className="shrink-0 text-accent-primary" />;
 }
 
@@ -184,21 +191,25 @@ function descendantsOf(nodeId: string, nodes: KnowledgeTreeNode[]) {
 function MovePanel({
   node,
   nodes,
+  sortMode,
   onMoved,
   onClose,
 }: {
   node: KnowledgeTreeNode;
   nodes: KnowledgeTreeNode[];
+  sortMode: MobileKnowledgeTreeSortMode;
   onMoved: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const [filterQuery, setFilterQuery] = useState("");
+  const [foldersOnly, setFoldersOnly] = useState(false);
   const blocked = useMemo(() => {
     const result = descendantsOf(node.id, nodes);
     result.add(node.id);
     return result;
   }, [node.id, nodes]);
-  const candidates = useMemo(() => sortMobileKnowledgeTreeNodes(
+  const sortedCandidates = useMemo(() => sortKnowledgeTreeMoveTargets(
     nodes.filter((candidate) => (
       !blocked.has(candidate.id)
       && candidate.access.capabilities.canCreate
@@ -206,9 +217,20 @@ function MovePanel({
         ? candidate.sharedRootId === node.sharedRootId
         : !candidate.sharedRootId)
     )),
-    "title-asc",
-  ), [blocked, node.sharedRootId, nodes]);
-  const allowRoot = !node.sharedRootId;
+    sortMode,
+    nodes,
+  ), [blocked, node.sharedRootId, nodes, sortMode]);
+  const candidates = useMemo(() => {
+    const keyword = filterQuery.trim().toLocaleLowerCase();
+    return sortedCandidates.filter((candidate) => {
+      if (foldersOnly && candidate.nodeType !== "folder") return false;
+      if (!keyword) return true;
+      if (candidate.title.toLocaleLowerCase().includes(keyword)) return true;
+      const parentPath = candidate.parentId ? buildMobileKnowledgeTreePath(candidate, nodes) : "";
+      return parentPath.toLocaleLowerCase().includes(keyword);
+    });
+  }, [filterQuery, foldersOnly, nodes, sortedCandidates]);
+  const allowRoot = !node.sharedRootId && !filterQuery.trim();
 
   const move = async (parentId: string | null) => {
     if ((node.parentId ?? null) === parentId) {
@@ -228,11 +250,50 @@ function MovePanel({
 
   return (
     <div className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
-      <header className="flex h-12 items-center gap-2 border-b border-app-border px-3">
-        <Folder size={17} className="text-amber-500" />
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-app-border px-3">
+        <Folder size={17} className="shrink-0 text-amber-500" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>
-        <button type="button" onClick={onClose} className="rounded-md p-2 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={17} /></button>
+        <button type="button" onClick={onClose} className="shrink-0 rounded-md p-2 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={17} /></button>
       </header>
+      <div className="shrink-0 border-b border-app-border/70 px-2.5 py-2">
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+            <input
+              type="text"
+              value={filterQuery}
+              onChange={(event) => setFilterQuery(event.target.value)}
+              placeholder="搜索目标文件夹或文档..."
+              aria-label="搜索移动目标"
+              className="h-9 w-full rounded-lg border border-app-border bg-app-bg pl-8 pr-7 text-xs text-tx-primary placeholder:text-tx-tertiary outline-none focus:border-accent-primary"
+            />
+            {filterQuery && (
+              <button
+                type="button"
+                onClick={() => setFilterQuery("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                aria-label="清空目标搜索"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOnly((current) => !current)}
+            aria-pressed={foldersOnly}
+            className={cn(
+              "inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors",
+              foldersOnly
+                ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary"
+                : "border-app-border bg-app-bg text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+            )}
+          >
+            <Folder size={13} className="shrink-0" />
+            <span>仅文件夹</span>
+          </button>
+        </div>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {allowRoot && (
           <button
@@ -241,11 +302,11 @@ function MovePanel({
             onClick={() => void move(null)}
             className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <TreePine size={17} className="text-accent-primary" /><span className="truncate">{t("knowledgeTreeUi.mobileRoot")}</span>
+            <TreePine size={17} className="shrink-0 text-accent-primary" /><span className="min-w-0 flex-1 truncate">{t("knowledgeTreeUi.mobileRoot")}</span>
           </button>
         )}
         {candidates.map((candidate) => (
-          <button key={candidate.id} type="button" onClick={() => void move(candidate.id)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary">
+          <button key={candidate.id} type="button" disabled={(node.parentId ?? null) === candidate.id} onClick={() => void move(candidate.id)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40">
             {nodeIcon(candidate)}
             <span className="min-w-0 flex-1">
               <span className="block truncate">{candidate.title}</span>
@@ -253,7 +314,7 @@ function MovePanel({
             </span>
           </button>
         ))}
-        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
+        {candidates.length === 0 && (filterQuery.trim() || foldersOnly || node.parentId === null) && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
       </div>
     </div>
   );
@@ -261,8 +322,10 @@ function MovePanel({
 
 export default function MobileKnowledgeTreePanel({
   variant = "mobile",
+  onRequestCloseContainer,
 }: {
   variant?: "mobile" | "desktop";
+  onRequestCloseContainer?: () => void;
 } = {}) {
   const { t, i18n } = useTranslation();
   const sortLabel = (mode: MobileKnowledgeTreeSortMode) => t(`knowledgeTreeUi.${SORT_LABELS[mode]}`);
@@ -277,6 +340,7 @@ export default function MobileKnowledgeTreePanel({
   const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const rootRef = useRef<HTMLElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
   const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
@@ -341,12 +405,44 @@ export default function MobileKnowledgeTreePanel({
 
   useEffect(() => {
     if (!draft) return;
-    requestAnimationFrame(() => {
+    if (variant !== "mobile") {
+      const frame = requestAnimationFrame(() => {
+        draftInputRef.current?.focus({ preventScroll: true });
+        draftInputRef.current?.scrollIntoView({ block: "nearest" });
+        draftInputRef.current?.select();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    const focusFrame = requestAnimationFrame(() => {
       draftInputRef.current?.focus({ preventScroll: true });
-      draftInputRef.current?.scrollIntoView({ block: "nearest" });
       draftInputRef.current?.select();
     });
-  }, [draft?.parentId, draft?.kind]);
+
+    const alignDraftToTop = () => {
+      const container = scrollContainerRef.current;
+      const draftElement = draftInputRef.current?.closest<HTMLElement>("[data-mobile-knowledge-tree-inline-create]")
+        || draftInputRef.current;
+      alignKnowledgeTreeAnchorToTop(container, draftElement);
+    };
+
+    const stopAlign = scheduleKnowledgeTreeTopAlignment(alignDraftToTop);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      stopAlign();
+    };
+  }, [draft?.parentId, draft?.kind, variant]);
+
+  useEffect(() => {
+    if (!inlineRenameNodeId || variant !== "mobile") return;
+    const alignRenameRow = () => {
+      const container = scrollContainerRef.current;
+      const targetRow = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((el) => el.dataset.knowledgeTreeSelectId === inlineRenameNodeId) || null;
+      alignKnowledgeTreeAnchorToTop(container, targetRow);
+    };
+    return scheduleKnowledgeTreeTopAlignment(alignRenameRow);
+  }, [inlineRenameNodeId, variant]);
 
   const reload = useCallback(async (onEntry = false) => {
     setLoading(true);
@@ -452,7 +548,8 @@ export default function MobileKnowledgeTreePanel({
     actions.setViewMode("search");
     actions.setMobileSidebar(false);
     actions.setMobileView("list");
-  }, [actions, query]);
+    onRequestCloseContainer?.();
+  }, [actions, onRequestCloseContainer, query]);
 
   const changeSearchScope = useCallback((scope: "tree" | "content") => {
     if (scope === "content") {
@@ -616,8 +713,9 @@ export default function MobileKnowledgeTreePanel({
     if (variant === "mobile") {
       actions.setMobileView("editor");
       actions.setMobileSidebar(false);
+      onRequestCloseContainer?.();
     }
-  }, [actions, variant]);
+  }, [actions, onRequestCloseContainer, variant]);
 
   const openDocument = useCallback(async (node: KnowledgeTreeNode) => {
     closeMenu();
@@ -635,25 +733,37 @@ export default function MobileKnowledgeTreePanel({
     if (node.resourceType === "mindmap") {
       rememberOpened(node.id);
       pushMindMapAppPath(node.resourceId);
-      if (variant === "mobile") actions.setMobileSidebar(false);
+      if (variant === "mobile") {
+        actions.setMobileSidebar(false);
+        onRequestCloseContainer?.();
+      }
       return;
     }
     if (node.resourceType === "file") {
       rememberOpened(node.id);
       setPreviewFileId(node.resourceId);
-      if (variant === "mobile") actions.setMobileSidebar(false);
+      if (variant === "mobile") {
+        actions.setMobileSidebar(false);
+        onRequestCloseContainer?.();
+      }
       return;
     }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
     if (node.noteType === "sheet") {
       pushSheetAppPath(node.resourceId);
-      if (variant === "mobile") actions.setMobileSidebar(false);
+      if (variant === "mobile") {
+        actions.setMobileSidebar(false);
+        onRequestCloseContainer?.();
+      }
       return;
     }
     if (node.noteType === "excel") {
       pushExcelAppPath(node.resourceId);
-      if (variant === "mobile") actions.setMobileSidebar(false);
+      if (variant === "mobile") {
+        actions.setMobileSidebar(false);
+        onRequestCloseContainer?.();
+      }
       return;
     }
     if (state.activeNote?.id === node.resourceId) {
@@ -669,7 +779,7 @@ export default function MobileKnowledgeTreePanel({
       onSuccess: (note) => activateNote(note, node.parentId),
       onError: (requestError) => toast.error((requestError instanceof Error && requestError.message) || "打开文档失败"),
     });
-  }, [actions, activateNote, cancelNoteLoad, closeMenu, loadNote, rememberOpened, state.activeNote, unlockedFolderIds, variant]);
+  }, [actions, activateNote, cancelNoteLoad, closeMenu, loadNote, onRequestCloseContainer, rememberOpened, state.activeNote, unlockedFolderIds, variant]);
 
   const handleNodeSelection = (event: React.MouseEvent, node: KnowledgeTreeNode) => {
     if (multiSelectMode || event.ctrlKey || event.metaKey) {
@@ -764,19 +874,28 @@ export default function MobileKnowledgeTreePanel({
       if (snapshot.kind === "mindmap") {
         rememberOpened(created.id);
         pushMindMapAppPath(created.resourceId);
-        if (variant === "mobile") actions.setMobileSidebar(false);
+        if (variant === "mobile") {
+          actions.setMobileSidebar(false);
+          onRequestCloseContainer?.();
+        }
         return;
       }
       if (snapshot.kind === "sheet") {
         rememberOpened(created.id);
         pushSheetAppPath(created.resourceId);
-        if (variant === "mobile") actions.setMobileSidebar(false);
+        if (variant === "mobile") {
+          actions.setMobileSidebar(false);
+          onRequestCloseContainer?.();
+        }
         return;
       }
       if (snapshot.kind === "excel") {
         rememberOpened(created.id);
         pushExcelAppPath(created.resourceId);
-        if (variant === "mobile") actions.setMobileSidebar(false);
+        if (variant === "mobile") {
+          actions.setMobileSidebar(false);
+          onRequestCloseContainer?.();
+        }
         return;
       }
       rememberOpened(created.id);
@@ -1610,12 +1729,32 @@ export default function MobileKnowledgeTreePanel({
               </React.Fragment>
             ))}
           </div>
+          {onRequestCloseContainer && currentFolder?.resourceType === "notebook" && (
+            <button
+              type="button"
+              data-mobile-lite-filter-folder=""
+              onClick={() => {
+                actions.setSelectedNotebook(currentFolder.resourceId);
+                actions.setSelectedKnowledgeTreeParent(currentFolder.id);
+                actions.clearSelectedTags();
+                actions.setSearchQuery("");
+                actions.setViewMode("notebook");
+                actions.setMobileView("list");
+                onRequestCloseContainer();
+              }}
+              className="shrink-0 rounded-lg bg-accent-primary/10 px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/15"
+            >
+              {t("mobileLite.nav.notes")}
+            </button>
+          )}
         </div>
       )}
 
       <div
+        ref={scrollContainerRef}
         className={cn(
-          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3",
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1",
+          variant === "mobile" && (draft || inlineRenameNodeId) ? "pb-[55vh]" : "pb-3",
           controlsCollapsed && "pt-1.5",
         )}
         data-swipe-blocker="knowledge-tree-scroll"
@@ -1754,12 +1893,21 @@ export default function MobileKnowledgeTreePanel({
             }}
           />
         )}
-        {movingNode && <MovePanel node={movingNode} nodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))} onMoved={() => void reload()} onClose={() => setMovingNode(null)} />}
+        {movingNode && (
+          <MovePanel
+            node={movingNode}
+            nodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))}
+            sortMode={sortMode}
+            onMoved={() => void reload()}
+            onClose={() => setMovingNode(null)}
+          />
+        )}
         {batchMoving && (
           <KnowledgeTreeBatchMovePanel
             selectedNodes={selectedNodes}
             nodes={visibleNodes}
             targetNodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))}
+            sortMode={sortMode}
             onMoved={() => {
               clearSelection();
               emitTreeChanged("nodes-batch-moved");

@@ -56,8 +56,25 @@ describe("note list create menu", () => {
     await act(async () => root.render(<MenuHost key={++renderCount} />));
   }
   async function pick(label: string) {
-    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === label)!.click());
+    const findButton = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === label);
+    let target = findButton();
+    if (!target) {
+      const expandLabel = label.startsWith("导入") ? "导入内容" : "更多类型";
+      const toggle = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes(expandLabel));
+      if (toggle) {
+        await act(async () => toggle.click());
+        target = findButton();
+      }
+    }
+    await act(async () => target!.click());
   }
+  it("keeps primary create menu compact by collapsing secondary types and imports by default", async () => {
+    await renderMenu();
+    const initialItems = Array.from(document.querySelectorAll('[role="menuitem"]')).map((node) => node.textContent);
+    expect(initialItems).toEqual(["富文本文档", "Word 文档", "Markdown 文档", "文件夹", "从模板新建"]);
+    expect(initialItems).not.toContain("导入 Markdown 文件");
+    expect(initialItems).not.toContain("纯文本文档（TXT）");
+  });
   it("creates a blank TXT note through the normal tree node and persisted plaintext format", async () => {
     await renderMenu();
     await pick("纯文本文档（TXT）");

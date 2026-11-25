@@ -294,7 +294,9 @@ export function createKnowledgeChild(input: {
           ? "无标题表格"
           : input.nodeType === "excel"
             ? "无标题 Excel 表格"
-            : "无标题笔记"
+            : input.nodeType === "word"
+              ? "无标题 Word 文档"
+              : "无标题笔记"
   );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);

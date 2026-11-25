@@ -16,6 +16,7 @@ import {
   canManageResource,
   requireWorkspaceFeature,
 } from "../middleware/acl";
+import { broadcastNotificationCreated } from "../services/workspaceIssues.js";
 import { taskDependenciesRepository } from "../repositories";
 import {
   taskOverdueConditionSql,
@@ -111,22 +112,41 @@ tasks.get("/", requireWorkspaceFeature("tasks"), (c) => {
   const params: any[] = [];
   if (scope.scope === "workspace") {
     sql = `SELECT tasks.*, users.username AS creatorName,
+                  COALESCE(NULLIF(assignee.displayName, ''), assignee.username) AS assigneeName,
+                  assignee.username AS assigneeUsername,
                   (SELECT parent.title FROM tasks parent WHERE parent.id=tasks.parentId) AS parentTitle,
                   (SELECT COUNT(*) FROM task_reminders tr
                    WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
-           FROM tasks LEFT JOIN users ON users.id = tasks.userId
-           WHERE workspaceId = ?`;
+           FROM tasks
+           LEFT JOIN users ON users.id = tasks.userId
+           LEFT JOIN users assignee ON assignee.id = tasks.assigneeId
+           WHERE tasks.workspaceId = ?`;
     params.push(userId);
     params.push(scope.workspaceId);
   } else {
     sql = `SELECT tasks.*, users.username AS creatorName,
+                  COALESCE(NULLIF(assignee.displayName, ''), assignee.username) AS assigneeName,
+                  assignee.username AS assigneeUsername,
                   (SELECT parent.title FROM tasks parent WHERE parent.id=tasks.parentId) AS parentTitle,
                   (SELECT COUNT(*) FROM task_reminders tr
                    WHERE tr.taskId = tasks.id AND tr.userId = ? AND tr.enabled = 1) AS activeReminderCount
-           FROM tasks LEFT JOIN users ON users.id = tasks.userId
-           WHERE tasks.userId = ? AND workspaceId IS NULL`;
+           FROM tasks
+           LEFT JOIN users ON users.id = tasks.userId
+           LEFT JOIN users assignee ON assignee.id = tasks.assigneeId
+           WHERE tasks.userId = ? AND tasks.workspaceId IS NULL`;
     params.push(userId);
     params.push(userId);
+  }
+
+  const assigneeFilter = c.req.query("assigneeId");
+  if (assigneeFilter === "me") {
+    sql += ` AND tasks.assigneeId = ?`;
+    params.push(userId);
+  } else if (assigneeFilter === "unassigned") {
+    sql += ` AND (tasks.assigneeId IS NULL OR tasks.assigneeId = '')`;
+  } else if (assigneeFilter) {
+    sql += ` AND tasks.assigneeId = ?`;
+    params.push(assigneeFilter);
   }
 
   if (noteId) {
@@ -352,6 +372,80 @@ class TaskCreateError extends Error {
   constructor(public payload: { error: string; code?: string }, public status: 400 | 403 | 404 | 409) { super(payload.error); }
 }
 
+function validateTaskAssignee(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string | null,
+  actorUserId: string,
+  rawAssigneeId: unknown,
+): string | null {
+  if (rawAssigneeId === undefined || rawAssigneeId === null || rawAssigneeId === "") return null;
+  if (typeof rawAssigneeId !== "string") {
+    throw new TaskCreateError({ error: "无效的任务负责人", code: "INVALID_ASSIGNEE" }, 400);
+  }
+  const assigneeId = rawAssigneeId.trim();
+  if (!assigneeId) return null;
+  if (!workspaceId) {
+    if (assigneeId !== actorUserId) {
+      throw new TaskCreateError({ error: "个人空间任务仅可指派给自己", code: "INVALID_ASSIGNEE" }, 400);
+    }
+    return assigneeId;
+  }
+  const member = db
+    .prepare(
+      `SELECT m.userId FROM workspace_members m
+       JOIN users u ON u.id = m.userId
+       WHERE m.workspaceId = ? AND m.userId = ? AND u.isDisabled = 0`,
+    )
+    .get(workspaceId, assigneeId) as { userId: string } | undefined;
+  if (!member) {
+    throw new TaskCreateError({ error: "负责人必须是当前工作区的有效成员", code: "INVALID_ASSIGNEE" }, 400);
+  }
+  return assigneeId;
+}
+
+function notifyTaskAssigned(
+  db: ReturnType<typeof getDb>,
+  params: { taskId: string; title: string; workspaceId: string | null; assigneeId: string | null; actorUserId: string },
+): void {
+  if (!params.workspaceId || !params.assigneeId || params.assigneeId === params.actorUserId) return;
+  try {
+    db.prepare(
+      `INSERT INTO notifications (id, userId, workspaceId, type, actorUserId, resourceType, resourceId, title, body, createdAt)
+       VALUES (?, ?, ?, 'task_assigned', ?, 'workspace_task', ?, ?, '', ?)`,
+    ).run(
+      crypto.randomUUID(),
+      params.assigneeId,
+      params.workspaceId,
+      params.actorUserId,
+      params.taskId,
+      params.title,
+      new Date().toISOString(),
+    );
+    broadcastNotificationCreated([params.assigneeId], {
+      workspaceId: params.workspaceId,
+      resourceType: "workspace_task",
+      resourceId: params.taskId,
+      type: "task_assigned",
+    });
+  } catch (err) {
+    console.warn("[tasks] notifyTaskAssigned failed:", err instanceof Error ? err.message : err);
+  }
+}
+
+function selectTaskWithAssignee(db: ReturnType<typeof getDb>, taskId: string) {
+  return db
+    .prepare(
+      `SELECT tasks.*, users.username AS creatorName,
+              COALESCE(NULLIF(assignee.displayName, ''), assignee.username) AS assigneeName,
+              assignee.username AS assigneeUsername
+       FROM tasks
+       LEFT JOIN users ON users.id = tasks.userId
+       LEFT JOIN users assignee ON assignee.id = tasks.assigneeId
+       WHERE tasks.id = ?`,
+    )
+    .get(taskId);
+}
+
 // The normal endpoint and AI batch share the same creation validation and SQL.
 export function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
   const invalidDate = invalidTaskDateField(body);
@@ -453,13 +547,22 @@ export function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, w
 
   const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
   const repeatSequenceIndex = repeatRule === "none" ? null : 1;
+  const assigneeId = validateTaskAssignee(db, effectiveWorkspaceId, userId, body.assigneeId);
 
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, description, isCompleted, completedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), description, effectiveIsCompleted, effectiveCompletedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
+    INSERT INTO tasks (id, userId, workspaceId, assigneeId, title, description, isCompleted, completedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, effectiveWorkspaceId, assigneeId, title.trim(), description, effectiveIsCompleted, effectiveCompletedAt, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatGroupId, repeatGeneratedFromId, repeatEndCount, repeatSequenceIndex, repeatRuleJson);
 
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+  notifyTaskAssigned(db, {
+    taskId: id,
+    title: title.trim(),
+    workspaceId: effectiveWorkspaceId,
+    assigneeId,
+    actorUserId: userId,
+  });
+
+  const task = selectTaskWithAssignee(db, id);
   return task as Record<string, unknown>;
 }
 
@@ -664,12 +767,31 @@ tasks.put("/:id", (c) => {
 
     const effectiveRepeatEndDate = repeatRule === "none" ? null : repeatEndDate;
     const repeatSequenceIndex = repeatRule === "none" ? null : (existing.repeatSequenceIndex ?? 1);
+    let assigneeId: string | null = existing.assigneeId ?? null;
+    if (Object.prototype.hasOwnProperty.call(body, "assigneeId")) {
+      try {
+        assigneeId = validateTaskAssignee(db, existing.workspaceId ?? null, userId, body.assigneeId);
+      } catch (error) {
+        if (error instanceof TaskCreateError) return c.json(error.payload, error.status);
+        throw error;
+      }
+    }
 
     db.prepare(`
-      UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
+      UPDATE tasks SET title = ?, assigneeId = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
         description = ?, noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, completedAt = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, repeatEndCount = ?, repeatSequenceIndex = ?, repeatRuleJson = ?, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, completedAt, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatEndCount, repeatSequenceIndex, repeatRuleJson, id);
+    `).run(title, assigneeId, isCompleted, priority, dueDate, dueAt, startDate, description, noteId, parentId, sortOrder, projectId, status, completedAt, repeatRule, repeatInterval, effectiveRepeatEndDate, repeatEndCount, repeatSequenceIndex, repeatRuleJson, id);
+
+    if (assigneeId && assigneeId !== existing.assigneeId) {
+      notifyTaskAssigned(db, {
+        taskId: id,
+        title,
+        workspaceId: existing.workspaceId ?? null,
+        assigneeId,
+        actorUserId: userId,
+      });
+    }
 
     let generatedTask = null;
     // Generate next repeated task when marking as done via PUT
@@ -678,7 +800,7 @@ tasks.put("/:id", (c) => {
       generatedTask = generateNextRepeatedTask(db, updatedForGeneration);
     }
 
-    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+    const updated = selectTaskWithAssignee(db, id);
     return c.json({ task: updated, generatedTask });
   });
 });

@@ -96,6 +96,11 @@ function useItemCopy() {
       t("preferences.items.showNoteListDividers.description"),
       t("preferences.items.showNoteListDividers.keywords"),
     ),
+    mobileLiteMode: item(
+      t("preferences.items.mobileLiteMode.title"),
+      t("preferences.items.mobileLiteMode.description"),
+      t("preferences.items.mobileLiteMode.keywords"),
+    ),
     mobileRailHidden: item(
       t("preferences.items.mobileRailHidden.title"),
       t("preferences.items.mobileRailHidden.description"),
@@ -240,6 +245,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
       ({ kind: "page" as const, page: pageName, disclosure });
     const deviceEntries: PreferenceSearchEntry[] = surface === "mobile"
       ? [
+        { id: "mobileLiteMode", ...copy.mobileLiteMode, path: devicePath, scope: "device", target: onPage("layout") },
         { id: "mobileRailHidden", ...copy.mobileRailHidden, path: devicePath, scope: "device", target: onPage("layout") },
         { id: "mobileKnowledgeTreeMode", ...copy.mobileKnowledgeTreeMode, path: devicePath, scope: "device", target: onPage("layout") },
         { id: "mobileKnowledgeTreeCompact", ...copy.mobileKnowledgeTreeCompact, path: devicePath, scope: "device", target: onPage("layout") },
@@ -601,6 +607,13 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
       <PreferenceGroup title={deviceSectionTitle} scope="device">
         {surface === "mobile" ? (
           <>
+            <SwitchRow
+              anchorId="mobileLiteMode"
+              title={copy.mobileLiteMode.title}
+              description={copy.mobileLiteMode.description}
+              checked={device.mobileLiteMode}
+              onChange={device.setMobileLiteMode}
+            />
             <SwitchRow
               anchorId="mobileRailHidden"
               title={copy.mobileRailHidden.title}
