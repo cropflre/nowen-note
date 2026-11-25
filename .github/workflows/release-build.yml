@@ -6,7 +6,7 @@ on:
       request_id: { description: Unique request UUID, required: true, type: string }
       commit_sha: { description: Exact HEAD SHA of the selected branch, required: true, type: string }
       version: { description: Committed stable X.Y.Z version, required: true, type: string }
-      targets: { description: 'Comma-separated targets: pc,android,ios,store,docker,fpk,upk,clipper or all', required: true, default: pc, type: string }
+      targets: { description: 'Comma-separated targets: pc,android,ios,store,docker,fpk,upk,clipper or all', required: true, default: 'pc,fpk', type: string }
       notes: { description: Optional release notes, required: false, type: string }
 permissions:
   contents: read

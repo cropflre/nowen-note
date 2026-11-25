@@ -37,19 +37,54 @@ test('artifact verification rejects changed bytes, missing targets and foreign s
   t.after(() => rm(directory, {recursive:true,force:true}));
   await mkdir(join(directory,'release-clipper'));
   await writeFile(join(directory,'release-clipper','clipper.zip'),'fixture package');
-  const input = normalizeBuild({version:'1.5.3',request_id:id,commit_sha:sha,targets:'clipper'});
+  for (const arch of ['amd64', 'arm64']) {
+    const imageDirectory = join(directory, `release-docker-${arch}`);
+    await mkdir(imageDirectory);
+    await writeFile(join(imageDirectory, 'image.json'), 'fixture image');
+  }
+  const input = normalizeBuild({version:'1.5.3',request_id:id,commit_sha:sha,targets:'clipper,docker'});
   const source = {id:101,run_attempt:1,event:'workflow_dispatch',path:'.github/workflows/release-build.yml',status:'completed',conclusion:'success',head_sha:sha,display_title:`Release build ${id}`,repository:{full_name:'cropflre/nowen-note'}};
-  const publish = normalizePublish({version:'1.5.3',request_id:id,source_run_id:101,source_attempt:1,channels:'github',confirmation:'1.5.3'});
+  const publish = normalizePublish({version:'1.5.3',request_id:id,source_run_id:101,source_attempt:1,channels:'docker',confirmation:'1.5.3'});
   const manifest = await makeManifest(input,directory,{run_id:101,run_attempt:1});
   await mkdir(join(directory,'release-manifest'));
   await writeFile(join(directory,'release-manifest','release-manifest.json'),JSON.stringify(manifest));
   await verifyManifest(manifest,directory,source,publish);
+  await assert.rejects(verifyManifest(manifest,directory,source,{...publish,channels:['github','docker']}), /需要双架构飞牛 FPK/);
   await assert.rejects(verifyManifest(manifest,directory,{...source,run_attempt:2},publish));
   await assert.rejects(verifyManifest(manifest,directory,source,{...publish,channels:['testflight']}));
   await writeFile(join(directory,'release-clipper','clipper.zip'),'tampered package');
   await assert.rejects(verifyManifest(manifest,directory,source,publish));
   await rm(join(directory,'release-clipper'),{recursive:true});
   await assert.rejects(makeManifest(input,directory,{run_id:101,run_attempt:1}));
+});
+test('the release inventory accepts a universal FPK and rejects architecture or image mismatches', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'nowen-fpk-inventory-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const request = normalizeBuild({ version: '1.6.2', request_id: id, commit_sha: sha, targets: 'fpk' });
+  for (const arch of ['amd64', 'arm64']) {
+    const imageDirectory = join(directory, `release-docker-${arch}`);
+    await mkdir(imageDirectory);
+    await writeFile(join(imageDirectory, 'image.json'), 'fixture image');
+  }
+  await mkdir(join(directory, 'release-fpk'));
+  await mkdir(join(directory, 'docker'));
+  const inventory = () => makeManifest(request, directory, { run_id: 101, run_attempt: 1 });
+  const universal = 'platform = all\n';
+  const compose = 'services:\n  nowen-note:\n    image: cropflre/nowen-note:v1.6.2\n';
+  for (const { manifest, yaml, error } of [
+    { manifest: universal, yaml: compose },
+    { manifest: 'arch = x86_64\n', yaml: compose, error: /必须支持 AMD64 和 ARM64/ },
+    { manifest: universal + 'arch = x86_64\n', yaml: compose, error: /必须支持 AMD64 和 ARM64/ },
+    { manifest: universal, yaml: compose + '    platform: linux/amd64\n', error: /由 Docker 选择平台/ },
+    { manifest: universal, yaml: compose.replace('v1.6.2', 'latest'), error: /必须引用本版本/ },
+  ]) {
+    await writeFile(join(directory, 'manifest'), manifest);
+    await writeFile(join(directory, 'docker/docker-compose.yaml'), yaml);
+    execFileSync('tar', ['-czf', 'app.tgz', 'docker/docker-compose.yaml'], { cwd: directory });
+    execFileSync('tar', ['-cf', 'release-fpk/nowen-note-1.6.2.fpk', 'manifest', 'app.tgz'], { cwd: directory });
+    if (error) await assert.rejects(inventory(), error);
+    else assert.equal((await inventory()).artifacts.at(-1).files[0].name, 'nowen-note-1.6.2.fpk');
+  }
 });
 test('remote CLI cannot accept local build flags or injected extra arguments', () => {
   assert.equal(parseArgs(['--target','pc,android','--wait']).wait,true);

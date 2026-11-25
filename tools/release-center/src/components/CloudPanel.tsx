@@ -4,7 +4,7 @@ import { BUILD_TARGETS, PUBLISH_CHANNELS } from "../../../../scripts/lib/release
 import type { BuildTarget, PublishChannel, BuildRequest } from "../../../../scripts/lib/release-cloud-contract.mjs";
 import type { CloudPlan, CloudRequest, CloudView } from "../../shared";
 import { Button, Card, Input } from "./ui";
-const names: Record<BuildTarget, string> = { windows: "Windows x64", macos: "macOS Intel / Apple Silicon", linux: "Linux x64", android: "Android APK / AAB", ios: "iOS IPA", store: "Microsoft Store AppX", docker: "Docker amd64 / arm64", fpk: "飞牛 FPK", upk: "绿联 UPK", clipper: "浏览器扩展 Chrome / Edge / Firefox", hot: "热更新包（安卓 / 桌面，需签名密钥）" };
+const names: Record<BuildTarget, string> = { windows: "Windows x64", macos: "macOS Intel / Apple Silicon", linux: "Linux x64", android: "Android APK / AAB", ios: "iOS IPA", store: "Microsoft Store AppX", docker: "Docker amd64 / arm64", fpk: "飞牛 FPK（AMD64 / ARM64）", upk: "绿联 UPK", clipper: "浏览器扩展 Chrome / Edge / Firefox", hot: "热更新包（安卓 / 桌面，需签名密钥）" };
 const channels: Record<PublishChannel, string> = { github: "GitHub Release", docker: "Docker Hub", testflight: "TestFlight" };
 const states = { dispatching: "正在触发", unknown: "等待核对远端结果", running: "GitHub 执行中", succeeded: "已完成", failed: "失败，请核查各 Job" };
 const active = (r: CloudRequest) => ["dispatching", "unknown", "running"].includes(r.state);
@@ -14,7 +14,7 @@ export function CloudPanel({ request, branch, version, tasksOnly = false }: { re
   const [ref, setRef] = useState(branch);
   const [candidate, setCandidate] = useState(version);
   const [notes, setNotes] = useState("");
-  const [targets, setTargets] = useState<BuildTarget[]>(["windows", "macos", "linux"]);
+  const [targets, setTargets] = useState<BuildTarget[]>(["windows", "macos", "linux", "fpk"]);
   const [plan, setPlan] = useState<CloudPlan>();
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ export function CloudPanel({ request, branch, version, tasksOnly = false }: { re
   function invalidate() { setPlan(undefined); setConfirmed(false); }
   function publishOptions(value: CloudRequest): PublishChannel[] {
     const targets = (value.inputs as BuildRequest).targets;
-    return PUBLISH_CHANNELS.filter(channel => channel === "docker" ? targets.includes("docker") : channel === "testflight" ? targets.includes("ios") : targets.some(target => !["docker", "ios", "store"].includes(target)));
+    return PUBLISH_CHANNELS.filter(channel => channel === "docker" ? targets.includes("docker") : channel === "testflight" ? targets.includes("ios") : targets.includes("fpk"));
   }
   const locked = busy || !view?.enabled || view.requests.some(active);
   return <div className="space-y-6">

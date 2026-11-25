@@ -15,7 +15,7 @@
 
 ```sh
 # 示例要求远端提交已经准备好 1.5.4 版本
-bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc,android,docker --wait
+bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc,android,fpk --wait
 
 # 仅预览触发请求（会查询远端 HEAD，不执行构建）
 bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc --dry-run
@@ -23,7 +23,7 @@ bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc --dr
 
 `--target` 接受 `pc`（三平台桌面）、`windows`（x64）、`macos`（x64/arm64）、`linux`（x64）、`android`（APK/AAB）、`ios`（IPA）、`store`（AppX）、`docker`（amd64/arm64）、`fpk`、`upk`、`clipper`（Chrome/Edge/Firefox）和 `all`。`lite` 映射为 Windows Full/Lite，`linux-app` 映射为 Linux。
 
-NAS 目标自动包含 Docker：FPK 引用本次版本镜像；UPK 从同次构建的两架构 Docker 归档打包，不拉取另一个版本的线上镜像。Docker 构建不登录、不推送镜像。扩展保留自己的 package.json 版本，应用版本和源码由外层清单绑定。
+默认构建目标包含桌面和飞牛 FPK。NAS 目标自动包含 Docker：正式 GitHub 发布需要通用 FPK，它引用同版本的 AMD64 / ARM64 镜像，由 Docker 自动选择；UPK 从同次构建的两架构 Docker 归档打包，不拉取另一个版本的线上镜像。Docker 构建不登录、不推送镜像。扩展保留自己的 package.json 版本，应用版本和源码由外层清单绑定。
 
 `--sha` 可额外校验远端 HEAD，`--notes` 提供可选发布说明。`--request-id` 可指定 UUID；程序输出请求后会先持久化意图，再派发一次。网络响应丢失后用同一 UUID 查询，不会重复派发。CLI 记录位于 `${NOWEN_RELEASE_DATA:-~/.nowen-release-center}/cli`。`--wait` 仅跟踪远端，关闭本机不会取消构建。
 

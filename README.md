@@ -297,7 +297,7 @@ docker run -d \
 | **Android** | Releases APK 或在 `frontend/` 下使用 Capacitor 构建 | 正式维护；支持系统分享导入、Markdown 导入、沉浸式编辑、移动端知识树、图片手势预览、系统原生任务提醒，以及远程连接 NAS 服务登录 |
 | **iOS** | Capacitor 工程与 GitHub Actions / TestFlight 流程 | 需要 Apple 签名与开发者账号，详见 [iOS 发布指南](./docs/iOS-Release.md) |
 | **HarmonyOS** | 使用 DevEco Studio 打开 [`nowen-harmony/`](./nowen-harmony/) | ArkTS + ArkWeb MVP；部分原生能力仍在完善 |
-| **fnOS** | Releases 中的 `.fpk` | 支持飞牛 NAS 安装；当前 `.fpk` 主要面向 x86_64，部署后可通过局域网或公网地址远程连接登录 |
+| **fnOS** | Releases 中的 `.fpk` | 从 v1.6.2 起提供 AMD64 / ARM64 通用飞牛安装包，部署后可通过局域网或公网地址远程连接登录 |
 | **绿联 UGOS** | Releases / 构建脚本中的 `.upk` | 支持绿联 NAS 安装，依赖具体设备架构与应用安装能力；部署后可通过局域网或公网地址远程连接登录 |
 | **其他 NAS** | Docker Compose | 群晖、威联通、极空间等可按 Docker 方式部署 |
 

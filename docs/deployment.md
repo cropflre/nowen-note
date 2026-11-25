@@ -252,7 +252,7 @@ storeFile=你的keystore路径
    - 桌面出现「弄文笔记」图标，点击在浏览器中打开
    - 数据卷由飞牛自动管理在 `${TRIM_PKGVAR}/data`，升级覆盖安装不会丢数据
 
-> 限制：当前仅支持 **x86_64** 飞牛设备。
+> 从 v1.6.2 起，同一个 FPK 支持 **AMD64（x86_64）和 ARM64**，Docker 会按飞牛系统的架构自动选择镜像。
 > 自行打包：参见 [scripts/fpk/README.md](../scripts/fpk/README.md)。
 
 ### B. Docker 手动部署（兼容 ARM 设备）

@@ -13,41 +13,26 @@
 2. **Docker 镜像已发布到 Docker Hub**：飞牛不会现场构建，必须用预构建镜像。
 3. **Node.js 24.22.1+（24.x LTS）**。
 
-## 一、推荐：用 release.sh 一键发布
+## 一、通过 GitHub Actions 构建
 
-最省心的姿势——在仓库根目录跑：
+`Unified Release Build` 默认包含 `fpk`，也可用 `--target fpk` 单独构建飞牛包及依赖的两种架构镜像。产物为 `release-fpk` 中的 `nowen-note-<version>.fpk`。
+
+`Publish Verified Release` 先发布同版本的 Docker 多架构镜像，再将已校验的 FPK 上传到 GitHub Releases。
+
+## 二、手动发布镜像并打包
+
+先发布一个同时包含 AMD64 和 ARM64 的 Docker 标签。例如在已启用跨平台构建的 Buildx 环境中运行：
 
 ```bash
-./scripts/release.sh
-# 选 5：🚀 一键全量发布（git tag + Docker 多架构 + exe + APK + .fpk + GitHub Releases）
-# 或   选 7：仅打飞牛 .fpk
-```
-
-`release.sh` 会自动：
-
-- 把镜像推到 Docker Hub（tag = `v<version>`）
-- 调 `scripts/fpk/build-fpk.mjs`，并通过环境变量传入 `FPK_IMAGE_TAG=v<version>`，让 `compose.yaml` 里的镜像 tag **与 push 一致**（manifest 仍用纯 `<version>`，飞牛要求 X.Y.Z 形式）
-- 把 `.fpk` 上传到 GitHub Releases
-
-> 历史坑：早期 build-fpk.mjs 的 compose 里写的是裸版本号 `1.0.x`，但 release.sh push 的是 `v1.0.x`，导致飞牛 NAS 安装时拉镜像报 `manifest unknown / EOF`（错误信息有误导性）。已通过 `FPK_IMAGE_TAG` 修复。
-
-## 二、手动发布镜像 + 手动打包
-
-如果你不想走 `release.sh`，也可以手动：
-
-```powershell
-# Windows PowerShell：构建并推 Docker Hub
-$VER = (Get-Content package.json | ConvertFrom-Json).version
-docker build -t yourname/nowen-note:v$VER .
-docker push  yourname/nowen-note:v$VER
-docker tag   yourname/nowen-note:v$VER yourname/nowen-note:latest
-docker push  yourname/nowen-note:latest
+VER="$(node -p 'require("./package.json").version')"
+docker buildx build --platform linux/amd64,linux/arm64 -t yourname/nowen-note:v${VER} --push .
 ```
 
 然后调 build-fpk.mjs：
 
 ```powershell
 # Windows
+$VER = (Get-Content package.json | ConvertFrom-Json).version
 $env:DOCKERHUB_REPO = "yourname/nowen-note"
 $env:FPK_IMAGE_TAG  = "v$VER"   # 与 push 的 tag 对齐！否则飞牛装不上
 node scripts/fpk/build-fpk.mjs
@@ -112,12 +97,11 @@ scripts/fpk/
 
 数据卷由飞牛托管在 `${TRIM_PKGVAR}/data`，升级不会丢数据。
 
-> 走 `release.sh` 选 5 / 选 7 时，FPK_IMAGE_TAG 会自动注入，不必手动设置。
+> GitHub Actions 会自动传入对应版本的 `FPK_IMAGE_TAG`。
 
 ## 六、关于 ARM 设备
 
-飞牛 fnOS 当前**仅支持 x86_64** 第三方应用（manifest 的 `platform=x86`）。
-ARM 飞牛设备等官方放开后再补 arm64 支持。
+从 v1.6.2 起，FPK 使用 `platform = all`，AMD64 和 ARM64 共用一个下载文件。应用代码由 Docker 镜像提供，安装时 Docker 会按设备架构选择该版本镜像。飞牛应用中心的上架与审核仍由飞牛平台处理。
 
 ## 七、故障排查
 
