@@ -29,6 +29,7 @@ import WorkspaceManagement from "@/components/WorkspaceManagement";
 import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
+import AppGalleryDownloadLink from "@/components/settings/AppGalleryDownloadLink";
 import PreferencesPanel from "@/components/settings/preferences/PreferencesPanel";
 import { revealSettingsTarget } from "@/components/settings/preferences/revealSettingsTarget";
 import type { RelatedSettingsTab } from "@/components/settings/preferences/preferenceSearch";
@@ -442,6 +443,7 @@ function AboutPanel() {
             {t('about.microsoftStoreDownload')}
             <ExternalLink size={11} />
           </a>
+          <AppGalleryDownloadLink className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors" />
         </div>
         {import.meta.env.MODE === "harmony" && (
           <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">

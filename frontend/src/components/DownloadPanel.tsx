@@ -19,6 +19,7 @@ import {
   Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import AppGalleryDownloadLink from "@/components/settings/AppGalleryDownloadLink";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -327,6 +328,19 @@ export default function DownloadPanel() {
             defaultValue: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
           })}
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+        <div className="space-y-1">
+          <h4 className="flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+            <Smartphone size={14} aria-hidden="true" className="text-zinc-500 dark:text-zinc-400" />
+            HarmonyOS
+          </h4>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {t("download.harmonyRequirement")}
+          </p>
+        </div>
+        <AppGalleryDownloadLink className="inline-flex min-h-11 items-center gap-1.5 px-3 rounded-md bg-accent-primary text-white text-xs font-medium hover:opacity-90" />
       </div>
 
       {/* 头部信息卡 */}

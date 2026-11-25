@@ -2,6 +2,8 @@ export const zhCNDownloadNetworkTranslations = {
   download: {
     title: "下载客户端",
     subtitle: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
+    appGalleryLink: "华为应用市场下载",
+    harmonyRequirement: "适用于 HarmonyOS 5 及以上的手机和平板。",
     latestVersion: "最新版本",
     viewOnGithub: "在 GitHub 查看完整 release",
     refresh: "刷新",
@@ -51,6 +53,8 @@ export const enDownloadNetworkTranslations = {
   download: {
     title: "Download clients",
     subtitle: "Verified Cloudflare R2 downloads first; files not mirrored remain on GitHub.",
+    appGalleryLink: "Download on Huawei AppGallery",
+    harmonyRequirement: "For phones and tablets running HarmonyOS 5 or later.",
     latestVersion: "Latest version",
     viewOnGithub: "View the full release on GitHub",
     refresh: "Refresh",
