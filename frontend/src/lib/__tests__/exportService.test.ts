@@ -5,6 +5,17 @@ vi.mock("@/lib/notePrintBridge", () => ({ requestNotePrint }));
 
 import { exportSingleNote, noteContentToExportHtml, printNote } from "@/lib/exportService";
 import { api } from "@/lib/api";
+import { markdownToHtml, markdownToTiptapJSON } from "@/lib/contentFormat";
+
+function exportedTaskItems(html: string) {
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  return Array.from(host.querySelectorAll('li[data-type="taskItem"]'), (item) => ({
+    checked: item.querySelector(':scope > label > input[type="checkbox"]')?.hasAttribute("checked") ?? null,
+    text: item.querySelector(":scope > div > p")?.textContent ?? null,
+    nested: item.querySelectorAll(':scope > div > ul[data-type="taskList"] > li').length,
+  }));
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -51,6 +62,25 @@ describe("noteContentToExportHtml", () => {
     expect(html).toContain("<pre><code");
     expect(html).toContain("<table>");
     expect(html).not.toContain("# 一级标题");
+  });
+
+  it("gives Markdown task items the same checkbox structure as rich-text notes", () => {
+    const markdown = "- [ ] 待补充\n- [x] 已完成\n  - [ ] 子任务";
+    const richText = JSON.stringify(markdownToTiptapJSON(markdown));
+
+    const markdownItems = exportedTaskItems(noteContentToExportHtml(markdown, "", "markdown"));
+
+    expect(markdownItems).toEqual([
+      { checked: false, text: "待补充", nested: 0 },
+      { checked: true, text: "已完成", nested: 1 },
+      { checked: false, text: "子任务", nested: 0 },
+    ]);
+    expect(markdownItems).toEqual(exportedTaskItems(noteContentToExportHtml(richText, "", "tiptap-json")));
+  });
+
+  it("leaves Markdown exports without task lists byte-for-byte unchanged", () => {
+    const markdown = "# 标题\n\n- 普通列表 & 'quote'\n\n![图](/api/attachments/a?x=1&y=2)";
+    expect(noteContentToExportHtml(markdown, "", "markdown")).toBe(markdownToHtml(markdown));
   });
 });
 
@@ -113,5 +143,25 @@ describe("printNote", () => {
       "打印测试",
     );
     expect(requestNotePrint.mock.calls[0][0]).toContain("<h1>正文标题</h1>");
+  });
+
+  it("keeps Markdown task checkboxes in the printed document", async () => {
+    requestNotePrint.mockResolvedValue({ ok: true, mode: "web" });
+
+    await printNote({
+      title: "任务打印",
+      content: "- [ ] 待补充\n- [x] 已完成\n  - [ ] 子任务",
+      contentText: "待补充 已完成 子任务",
+      contentFormat: "markdown",
+      createdAt: "2026-11-13 10:00:00",
+      updatedAt: "2026-11-13 11:00:00",
+    });
+
+    const printed = new DOMParser().parseFromString(requestNotePrint.mock.lastCall![0], "text/html");
+    expect(exportedTaskItems(printed.body.innerHTML)).toEqual([
+      { checked: false, text: "待补充", nested: 0 },
+      { checked: true, text: "已完成", nested: 1 },
+      { checked: false, text: "子任务", nested: 0 },
+    ]);
   });
 });

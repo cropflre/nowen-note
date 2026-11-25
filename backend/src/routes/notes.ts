@@ -57,6 +57,7 @@ import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 import { resolveNotebookNoteScopeIds } from "../lib/notebookNoteScope";
 import { resolveKnowledgeTreeNoteScopeIds } from "../lib/knowledgeTreeNoteScope";
+import { TOKEN_NOTEBOOK_SCOPE_HEADER, tokenNotebookScopeFromHeader } from "../services/apiTokenNotebookAccess";
 import {
   reportTransientPersistedImageSource,
   stabilizePersistedNoteContent,
@@ -145,11 +146,16 @@ app.get("/", (c) => {
   //   title 排序对中文用 NOCASE 仅做大小写不敏感，中文按 UTF-8 字节序——可接受。
   const sortByRaw = c.req.query("sortBy");
   const sortOrderRaw = c.req.query("sortOrder");
-  const sortBy: "manual" | "updatedAt" | "createdAt" | "title" =
-    sortByRaw === "updatedAt" || sortByRaw === "createdAt" || sortByRaw === "title"
+  // recent：只按最后更新时间倒序，不让置顶笔记占位（工作台“最近笔记”等摘要视图使用）。
+  const sortBy: "manual" | "updatedAt" | "createdAt" | "title" | "recent" =
+    sortByRaw === "updatedAt" || sortByRaw === "createdAt" || sortByRaw === "title" || sortByRaw === "recent"
       ? sortByRaw
       : "manual";
   const sortDir: "ASC" | "DESC" = sortOrderRaw === "asc" ? "ASC" : "DESC";
+  // 可选 limit（1–100）：摘要视图只取少量条目；未传或非法时保持历史行为返回全部。
+  const limitRaw = Number.parseInt(c.req.query("limit") || "", 10);
+  const limit = Number.isSafeInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : null;
+  const tokenNotebookScope = tokenNotebookScopeFromHeader(c.req.header(TOKEN_NOTEBOOK_SCOPE_HEADER));
 
   // Phase 2/Y1: isFavorite 不再来自 notes 列，而是按"当前请求用户是否在 favorites 表中收藏"
   // 动态计算（EXISTS 子查询，结果仍是 0/1，前端契约 Note.isFavorite: number 不变）。
@@ -206,10 +212,16 @@ app.get("/", (c) => {
     if (!role) return c.json({ error: "无权访问该工作区" }, 403);
     query += " AND notes.workspaceId = ?";
     params.push(workspaceId);
-  } else {
+  } else if (!tokenNotebookScope || workspaceId === "personal") {
     // 个人空间（默认或 'personal'）
     query += " AND notes.userId = ? AND notes.workspaceId IS NULL";
     params.push(userId);
+  }
+  // restricted API Token：只查询它被授权且当前仍有效的笔记本；未指定空间时可跨个人与团队空间。
+  if (tokenNotebookScope) {
+    if (tokenNotebookScope.length === 0) return c.json([]);
+    query += ` AND notes.notebookId IN (${tokenNotebookScope.map(() => "?").join(",")})`;
+    params.push(...tokenNotebookScope);
   }
 
   if (search) {
@@ -283,9 +295,15 @@ app.get("/", (c) => {
     query += " ORDER BY notes.isPinned DESC, notes.sortOrder ASC, notes.updatedAt DESC, notes.id ASC";
   } else if (sortBy === "title") {
     query += ` ORDER BY notes.isPinned DESC, notes.title COLLATE NOCASE ${sortDir}, notes.id ASC`;
+  } else if (sortBy === "recent") {
+    query += " ORDER BY notes.updatedAt DESC, notes.id ASC";
   } else {
     // updatedAt | createdAt
     query += ` ORDER BY notes.isPinned DESC, notes.${sortBy} ${sortDir}, notes.id ASC`;
+  }
+  if (limit !== null) {
+    query += " LIMIT ?";
+    params.push(limit);
   }
   const notes = db.prepare(query).all(...params) as Array<Record<string, unknown>>;
   if (useKnowledgeTreeScope && !includeDescendants) {

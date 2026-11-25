@@ -40,6 +40,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { RefreshCw, X, AlertTriangle, ExternalLink } from "lucide-react";
 
 // 编译期常量兜底：开发态走 HMR / 旧构建可能没注入，统一给"取不到"的哨兵值。
@@ -159,6 +160,22 @@ export default function UpdateNotifier() {
   } | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 热更新以后 __APP_VERSION__ 是网页包的版本，不再代表 APK；硬升级要比较安装包自己的版本。
+  const [shellVersion, setShellVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isAndroidNative()) return;
+    let cancelled = false;
+    import("@capacitor/app")
+      .then(({ App }) => App.getInfo())
+      .then((info) => {
+        if (!cancelled && info.version) setShellVersion(info.version);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const nativeVersion = shellVersion ?? CLIENT_VERSION;
 
   const check = useCallback(async () => {
     try {
@@ -205,7 +222,7 @@ export default function UpdateNotifier() {
     if (
       isAndroidNative() &&
       serverInfo.minClientVersion &&
-      compareVersions(CLIENT_VERSION, serverInfo.minClientVersion) < 0
+      compareVersions(nativeVersion, serverInfo.minClientVersion) < 0
     ) {
       return { kind: "hard-android", serverDisplay: serverInfo.minClientVersion };
     }
@@ -259,7 +276,7 @@ export default function UpdateNotifier() {
       // 即使内部用 buildId 比对，展示给用户仍用 appVersion（更可读）
       serverDisplay: serverInfo.appVersion || "new",
     };
-  }, [serverInfo, dismissed]);
+  }, [serverInfo, dismissed, nativeVersion]);
 
   /**
    * 计算当前这对 (server, client) 版本差异对应的 dismiss key。
@@ -291,6 +308,27 @@ export default function UpdateNotifier() {
     } catch {
       /* ignore */
     }
+  };
+
+  // 安卓和桌面都加载安装包里的前端，刷新不会变新；有热更新时改为检查热更新。
+  const desktopHotUpdate = (window as Window & { nowenDesktop?: { hotUpdate?: { check?: () => Promise<{ phase: string; message: string } | null> } } }).nowenDesktop?.hotUpdate;
+  const canCheckHotUpdate = isAndroidNative() || Boolean(desktopHotUpdate?.check);
+  const handleCheckHotUpdate = () => {
+    const key = computeDismissKey();
+    if (key) {
+      writeDismissed(key);
+      setDismissed(key);
+    }
+    const checking = desktopHotUpdate?.check
+      ? desktopHotUpdate.check()
+      : import("@/lib/hotUpdate").then(({ getHotUpdateController }) => getHotUpdateController().check({ manual: true }));
+    void checking
+      .then((result) => {
+        if (!result) return;
+        // 下载成功时底部会出现「立即重启」提示；其余结果直接告诉用户。
+        if (result.phase !== "ready") toast.info(result.message || "当前已是最新版本");
+      })
+      .catch(() => toast.error("检查更新失败"));
   };
 
   const handleDismiss = () => {
@@ -331,7 +369,7 @@ export default function UpdateNotifier() {
             </h2>
           </div>
           <p className="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
-            当前版本 <span className="font-mono">v{CLIENT_VERSION}</span> 已不兼容服务端
+            当前安装包 <span className="font-mono">v{nativeVersion}</span> 已不兼容服务端
             （需 <span className="font-mono">v{state.serverDisplay}</span> 或更高）。请
             下载并安装新版本 APK 后继续使用。
           </p>
@@ -364,10 +402,10 @@ export default function UpdateNotifier() {
           ，当前 <span className="font-mono opacity-80">v{CLIENT_VERSION}</span>
         </span>
         <button
-          onClick={handleReload}
+          onClick={canCheckHotUpdate ? handleCheckHotUpdate : handleReload}
           className="flex-shrink-0 px-2.5 py-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors text-xs font-medium"
         >
-          刷新
+          {canCheckHotUpdate ? "检查更新" : "刷新"}
         </button>
         <button
           onClick={handleDismiss}

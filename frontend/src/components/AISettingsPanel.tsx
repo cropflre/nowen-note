@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getNonChatModelKind } from "@/lib/chatModelType";
+import { rememberAIProfileConnection, useAIConnectionAvailable } from "@/lib/aiConnection";
 import PluginPromptPackSettingsSection from "@/components/settings/PluginPromptPackSettingsSection";
 import SpeechSettingsPanel from "@/components/SpeechSettingsPanel";
 import {
@@ -167,6 +168,7 @@ function profileToDraft(profile: AIProfile): AIProfileDraft {
 
 export default function AISettingsPanel() {
   const copy = useMemo(getCopy, []);
+  const aiAvailable = useAIConnectionAvailable();
   const [available, setAvailable] = useState<AvailableAIProfiles | null>(null);
   const [manageShared, setManageShared] = useState(false);
   const [managedProfiles, setManagedProfiles] = useState<ManagedSharedAIProfile[]>([]);
@@ -415,18 +417,37 @@ export default function AISettingsPanel() {
       if (manageShared) {
         const saved = await persistDraft(false);
         if (operationScope !== getAIProfilesScope()) return;
-        const tested = await aiProfiles.shared.test(saved.profile.id);
+        const tested = await aiProfiles.shared.test(saved.profile.id).catch((error: Error) => ({ success: false, error: error.message, message: undefined }));
         if (operationScope !== getAIProfilesScope()) return;
         await loadProfiles(saved.profile.id);
         if (operationScope !== getAIProfilesScope()) return;
+        if ("enabled" in saved.profile) rememberAIProfileConnection(saved.profile, tested.success);
         emitAIProfilesChanged();
         setMessage({ type: tested.success ? "success" : "error", text: tested.message || tested.error || copy.testSuccess });
         return;
       }
       // Never mutate the active profile on a failed connectivity test.
-      const tested = await aiProfiles.testDraft(draft, selectedId || undefined);
+      const reportFailedActiveTest = () => {
+        if (!selectedProfile || selectedProfile.id !== activeProfileId) return;
+        const savedHeaders = selectedProfile.customHeaders || {};
+        const draftHeaders = Object.entries(draft.customHeaders || {});
+        const unchanged = draft.provider === selectedProfile.provider
+          && draft.apiUrl.trim().replace(/\/+$/, "") === selectedProfile.apiUrl
+          && draft.apiKey === selectedProfile.apiKey
+          && draft.model.trim() === selectedProfile.model
+          && Object.keys(savedHeaders).length === draftHeaders.length
+          && draftHeaders.every(([name, value]) => savedHeaders[name] === value);
+        if (!unchanged) return;
+        rememberAIProfileConnection(selectedProfile, false);
+        emitAIProfilesChanged(selectedProfile.id);
+      };
+      const tested = await aiProfiles.testDraft(draft, selectedId || undefined).catch((error) => {
+        if (operationScope === getAIProfilesScope()) reportFailedActiveTest();
+        throw error;
+      });
       if (operationScope !== getAIProfilesScope()) return;
       if (!tested.success) {
+        reportFailedActiveTest();
         setMessage({ type: "error", text: tested.error || tested.message || copy.loadFailed });
         return;
       }
@@ -440,6 +461,7 @@ export default function AISettingsPanel() {
       if (operationScope !== getAIProfilesScope()) return;
       await loadProfiles(saved.profile.id);
       if (operationScope !== getAIProfilesScope()) return;
+      rememberAIProfileConnection(saved.profile, true);
       emitAIProfilesChanged(nextActiveId);
       setMessage({ type: "success", text: tested.message || copy.testSuccess });
     } catch (error) {
@@ -780,7 +802,7 @@ export default function AISettingsPanel() {
           </div>
         </section>
       </div>
-      <PluginPromptPackSettingsSection />
+      {aiAvailable && <PluginPromptPackSettingsSection />}
       <SpeechSettingsPanel />
     </div>
   );

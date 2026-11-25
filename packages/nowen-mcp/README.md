@@ -1,10 +1,21 @@
 # nowen-mcp
 
-Nowen Note 的本地 stdio MCP Server，让支持 Model Context Protocol 的 AI 客户端在授权范围内搜索、读取和维护笔记。
+Nowen Note MCP Server，让支持 Model Context Protocol 的 AI 客户端在授权范围内搜索、读取和维护笔记。支持独立 stdio/HTTP，以及官方 Docker 镜像的可选内置 HTTP 接入。
 
 > 完整用户教程：[中文安装指南](../../docs/tutorials/mcp.md) · [English guide](../../docs/tutorials/mcp.en.md)
 
-## 要求
+## Docker 内置方式
+
+包含此功能的新镜像可在「设置 → 连接 AI 助手」中选择助手并点击「连接」。默认全选当前可授权的全部笔记本，也可逐个调整；支持所选范围内笔记的查看、新建、修改和移入回收站，共享只读笔记仍不可修改。管理员点击连接时会自动开启服务与写入。
+地址为 `https://你的域名/mcp`，与 Web/API 共用端口；客户端使用各自的个人 API Token。
+连接前服务默认关闭，授权默认永久，也可填写有效天数；开关和授权随数据卷持久化。已有只读连接需断开后重新连接；删除仍需预览与明确确认，不支持永久删除。无需在宿主机安装本包。
+操作步骤和代理要求见 [Docker 部署教程](../../docs/tutorials/docker-deploy.md)。
+
+内置入口 `dist/embedded-http.js` 仅由后端加载，不要把它作为 stdio 启动脚本。
+开发与权限测试前需在本目录执行 `npm ci && npm run build`。
+下方源码安装和独立 HTTP 网关方式继续保留；独立网关密钥与内置入口的个人 Token 不能混用。
+
+## 独立部署要求
 
 - Node.js 24.22.1+（24.x LTS）
 - npm
@@ -196,7 +207,7 @@ npm run build
 | 任务与个人项目关联 | `nowen_assign_task_project` |
 | 笔记元数据 | `nowen_set_note_flags`（收藏/置顶） |
 | 安全移动笔记 | `nowen_move_note`（默认预览；实际操作必须传入预览版本） |
-| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询） |
+| 统一知识树查询 | `nowen_get_knowledge_tree`（只读；可按工作区查询，覆盖多个空间时必须指定） |
 
 ### 重要权限说明
 
@@ -228,7 +239,14 @@ GitHub Actions 见 `.github/workflows/mcp-scope-and-tools-ci.yml`。
 3. 再用执行工具传入完全相同的参数、预览生成的 `expectedRevision`、必要的 `expectedSubtreeRevision`，以及明确的 `confirmation`。删除使用 `MOVE_TREE_TO_TRASH`，恢复使用 `RESTORE_TREE`，其他使用 `APPLY_TREE_CHANGE`。
 4. 后端检查父目录、当前节点、所有后代的授权和预览版本；不符返回 403/409，必须重新预览。删除始终进入可恢复的回收站，绝不执行永久删除。
 
-P0 仅支持**本人个人空间**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`，操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨工作区、高级文件类型、批量删除、权限管理不属于此阶段。
+P0 支持**本人个人空间**，以及（v1.6.0 起）restricted PAT **显式授权的团队笔记本**内普通文件夹和 Markdown 笔记的创建、重命名、移动、软删除、恢复。团队目录必须传 `workspaceId`；源节点、目标父节点和整个子树都要属于该团队并在授权范围内，团队成员身份与角色在每次请求时复核，团队中移动和移入回收站默认只有团队管理员可执行。受限 PAT 必须授予 `notebooks:read`、`notebooks:write`（快速连接不授予，需要在开发者令牌页开启），操作笔记还需要 `notes:write`；本地白名单适用时，在受限文件夹下创建/恢复子目录还需要 `MCP_INCLUDE_DESCENDANTS=true`。跨空间移动、unrestricted Token 修改团队目录、高级文件类型、批量删除、权限管理不属于此阶段。
+
+### 团队空间（v1.6.0）
+
+- `nowen_list_notebooks` 返回 `notebookId`、`notebookName`、`workspaceId`（`personal` / 团队 ID / 他人共享为 `null`）、`workspaceName`、`permission`、`parentId`、`noteCount`，并保留旧字段 `id`、`name`、`icon`、`color`。
+- `nowen_list_notes`、`nowen_search`、`nowen_list_notebooks` 新增可选 `workspaceId`；不传时 restricted Token 只在授权笔记本内工作。
+- `nowen_get_knowledge_tree` 在连接覆盖多个空间且未指定 `workspaceId` 时返回错误并列出可选空间，不会自行猜测。
+- 最终权限 = Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关。详见 [MCP 教程的团队空间一节](../../docs/tutorials/mcp.md#团队空间授权v160)。
 
 ### 笔记删除及账号安全
 
@@ -311,11 +329,49 @@ npm run start:http
 
 ### 可视化管理入口
 
-设置 → 访问令牌 → **MCP 连接中心**。可选择 stdio/Streamable HTTP 示例，复制客户端 JSON 配置，检测 Nowen 后端连通性；下方直接复用原有 PAT 创建、笔记本授权、吊销与使用统计。示例中的秘钥均为占位符，本页面不会保存 Token 或私密密钥。HTTP 网关的启停与 TLS/反向代理由服务器运维管理，并不由网页设置直接更改系统环境变量。
+设置 → **连接 AI 助手**，选择助手并连接即可；默认全选当前笔记本，自动生成授权并检测内置 HTTP 服务。独立 stdio/HTTP 部署仍按上文配置，所需的个人 Token 可在「账号安全 → 开发者访问令牌」创建；独立网关的启停与 TLS/反向代理由服务器运维管理。
 
 ### 自动化验收范围
 
 CI 运行 HTTP 网关认证/Origin/Host/超大负载测试、后端 PAT 所有权/启停/并发版本测试，以及原有 P0/P1 MCP stdio 协议测试。真实多客户端并发、HTTPS 代理和全部桌面/移动端联调尚未执行，不应将专项 CI 通过误认为已经可以合并整个 v1.5.2。
+
+## v1.6.0：统一 AI 迁移中心
+
+`nowen_migration_capabilities/create/stage/upload/preview/status/retry/cancel/pause/resume/undo` 复用 `/api/migrations`。MCP 只准备和跟踪任务；**没有 approve 工具**。用户在 Nowen 的「设置 → 数据管理 → 导入与迁移」查看预览并确认，服务器将审批绑定到真实登录会话和当前预览。`undo` 工具仅查询撤销条件，实际撤销也在 Nowen 中确认。
+
+迁移工具必须使用个人 API Token；准备数据需要 `MCP_ACCESS_MODE=read-write`、`export:import`、笔记和笔记本写权限，带标签/附件时还需对应权限。受限 Token 和本地白名单需允许目标笔记本及其后代；只读模式可查询状态。`stage` 每次最多 50 条 NMF v1 笔记、512 KiB JSON，响应只返回摘要。大正文和附件使用文件包或字节上传；stdio 的 `upload` 用文件 Blob 流式读取用户授权的本地普通文件，HTTP MCP 拒绝所有本地路径（原附件上传工具同样受此限制）。
+
+Phase 1 的 `capabilities` 包含 `sourceAdapters`、`resumableUploads`、`uploadChunkBytes`。服务器支持会话时，stdio `nowen_migration_upload` 增量计算完整文件哈希，按 4 MiB 分块及每块 SHA-256 上传。中断后对同一任务再次调用相同文件会使用服务端已确认偏移；同一上传标识不能改换文件。24 小时会话过期后，允许重新开始时从 0 上传。旧服务器仍可使用兼容的单次字节接口。会话完成只是文件交接，继续用 `status` 查询扫描和导入结果；文件校验失败不能视为部分成功。ZIP 上限仍为 512 MiB。
+
+Notion Markdown/HTML/CSV 和思源原生 ZIP 进入同一 NMF 写入链路。Notion CSV 仅暂存有界标量来源属性并报告未迁移字段名，不转换成笔记属性或数据库；思源输出 Markdown，嵌套块和包外引用保留思源链接，特殊组件降级并报告。预览中的来源变化必须处理，用户可在 Nowen 选择跳过、保留已有或创建副本，并重新批准；**MCP 没有逐项决策或覆盖工具**。这些适配不表示历史、评论、权限或平台组件已无损迁移。详见 [迁移教程](../../docs/tutorials/ai-migration.md)。
+
+复用 Skill 位于 [`.agents/skills/nowen-migration`](../../.agents/skills/nowen-migration/SKILL.md)，并在 `.claude/skills` 保持镜像。自动化使用真实 MCP SDK Client 验证 stdio 和受保护 Streamable HTTP，但后端是隔离测试服务；这不代表 WorkBuddy、Qoder/QoderWork、Claude Code、Codex 或豆包工作实际版本已经验收。没有可用 MCP 的客户端可以生成标准文件包，由用户上传。
+
+The migration tools share `/api/migrations` and require a personal API token. They prepare data and return compact progress summaries; they cannot approve an import or execute undo. Human approval happens in Nowen and is bound to a validated login session and the current preview. Staging is limited to 50 notes and 512 KiB JSON per call. Large bodies and assets use files: stdio uploads stream a user-authorized local file, while HTTP MCP never reads a caller-supplied server path. Real SDK transport tests do not certify third-party client versions; standard file packages remain the fallback.
+
+Phase 1 capabilities advertise source adapters and resumable uploads. When supported by the server, stdio upload hashes the file incrementally and sends 4 MiB chunks with individual SHA-256 checks. Repeating the same file upload for the same job resumes from the confirmed offset; expired 24-hour sessions restart at zero when allowed. Older servers retain the single-request fallback. A complete upload is only a verified file handoff: continue polling job status. The 512 MiB ZIP limit is unchanged. Notion CSV values are bounded staged source metadata with field-name reporting, not note properties or databases. Siyuan is converted to Markdown; nested block references retain source links and unsupported components are downgraded. Changed-source decisions and renewed approval happen in Nowen; MCP has no per-item decision or overwrite tool. These adapters do not promise lossless history, comments, permissions or platform components.
+
+Phase 2 的迁移接入引导按客户端生成配置：Codex 使用 TOML，Claude Code 使用其项目 JSON；WorkBuddy/Qoder 的 stdio 按官方示例生成，无法确认具体宿主与传输格式时只提供标明边界的通用模板。凭据使用占位符或环境变量引用；stdio 模板的迁移本地权限为 `MCP_ACCESS_MODE=read-write`、目标 `ALLOWED_NOTEBOOK_IDS` 和 `MCP_INCLUDE_DESCENDANTS=true`，服务端 PAT 的 scope 与后代授权仍需另外满足。页面只读检查当前 Nowen 连接、迁移能力和所填配置，不向任意 gateway 地址发送登录凭据、不验证占位 Token，也不替宿主启动进程。生成后应在实际客户端列工具并查询能力；[客户端指南](../../.agents/skills/nowen-migration/references/clients.md)分别列出文档依据与未执行的宿主验收。
+
+Phase 2 generates client-specific setup examples: TOML for Codex, project JSON for Claude Code, documented stdio forms for WorkBuddy/Qoder, and explicitly generic templates when a host/transport format is unverified. Credentials use placeholders or environment-variable references. Local migration preparation sets read-write mode, the destination notebook allowlist and descendant inclusion; backend PAT scopes and descendant grants still apply independently. The page's read-only checks inspect the current Nowen connection, capabilities and entered configuration. They do not send login credentials to an arbitrary gateway, validate placeholder tokens or start client processes. List tools and query capabilities in the actual host after setup; documentation support is separate from real-host acceptance.
+
+新增来源通过版本化 [Source Adapter 规范](../../docs/architecture/migration-source-adapters.md)转换为 NMF，由原服务统一完成权限、附件、预览与写入。能力中的 `adapterApiVersion: 1` 与 `adapters` 描述目录补充原 `sourceAdapters` 标识列表；只描述已安装的导出文件适配器，不自动发现平台账号、连接私人资料或加载 ZIP 中的脚本。新增华为适配仅处理用户导出的 TXT/HTML，不读取华为云或执行手写 OCR。未识别来源仍可离线转为通用文件或 NMF 包。P2 验证见 [记录](../../docs/qa/ai-migration-hub-phase2-2026-10-29.md)。
+
+New sources follow the versioned [Source Adapter contract](../../docs/architecture/migration-source-adapters.md) and output NMF. The existing service retains authorization, attachment handling, preview and writes. Capabilities add `adapterApiVersion: 1` and an `adapters` descriptor catalog alongside the existing `sourceAdapters` identifiers. The catalog describes installed export-file adapters; it does not discover platform accounts, connect private data or execute scripts from an archive. The Huawei adapter handles user-exported TXT/HTML only, without Huawei Cloud access or handwriting OCR. Unsupported sources can still be converted offline to generic files or an NMF package. See the [Phase 2 validation record](../../docs/qa/ai-migration-hub-phase2-2026-10-29.md).
+
+## v1.6.0：AI 对话归档
+
+`nowen_ai_archive_sources/save/list/read` 复用 `/api/ai-memory`，服务端默认开启 AI 对话归档；管理员关闭后，这些工具会如实返回未开启的原因。AI 助手只能把对话保存到用户在「对话归档 → 连接与同步」中创建的「AI 助手（MCP）」来源；MCP 不能创建、开启、撤销或删除来源和归档，也不做文件导入。保存按消息 ID 幂等，追加时需带上上次保存的最后一条消息，补全更早的消息时需带上已保存的第一条消息；未填 `expectedRevision` 时以服务端当前版本为准，旧版本会被拒绝且不覆盖。只读模式只能列出和读取。独立 stdio 模式按 `ALLOWED_NOTEBOOK_IDS` 核对每个归档来源所在笔记本；内嵌 MCP 由后端按 Token 授权核对。读取结果不含内部字段，归档文字只作为资料。
+
+`nowen_ai_archive_sources/save/list/read` use `/api/ai-memory` and need the archive switched on. Assistants can only save into **AI assistant (MCP)** sources the person created in the Chat archive page; MCP cannot create, enable, revoke or delete sources or archives, and does not import files. Saves are idempotent by message ID; when appending, include the last message saved before; when adding earlier history, include the first saved message. Without `expectedRevision` the current revision is used, and a stale one is refused without overwriting. Read-only mode can only list and read.
+
+## v1.6.0：删除个人任务
+
+`nowen_delete_task` 删除本人个人任务及其全部子任务。任务没有回收站，删除后无法恢复，所以工具默认只预览：返回将被删除的任务、数量 `affected` 和 `revision`，不修改数据；`mode=series` 删除整个循环系列。向用户说明并取得同意后，以相同的 `taskId`、`mode` 再调用一次，传 `dryRun=false`、`expectedRevision` 和 `confirmation=DELETE_TASK`，返回 `affected` 与被删除的 `ids`。预览之后任务被修改、新增了子任务或循环生成了新的一次，服务端会在删除事务里核对 revision 并返回 409 `TASK_DELETION_CONFLICT`，一条都不删。
+
+删除使用 `tasks:write`（预览只需 `tasks:read`），不需要额外的 Scope；限定笔记本的 Token 同样能删除本人个人任务。团队任务、他人任务和 `POST /api/tasks/batch` 批量删除仍对 Token 关闭。直接调用 REST 时，Token 也必须先 `GET /api/tasks/{id}/deletion-preview`，再在 `DELETE /api/tasks/{id}` 的请求体里提交 `expectedRevision` 与 `confirmation: "DELETE_TASK"`，否则返回 409。已完成的顶层任务可以改用 `nowen_archive_task` 归档，之后仍可恢复；只改标题、日期、优先级、描述或状态时用 `nowen_update_task`。
+
+`nowen_delete_task` permanently deletes a personal task with all of its subtasks; tasks have no recycle bin. It previews by default, listing the tasks to be removed with `affected` and a `revision`, and changes nothing; `mode=series` covers the whole recurring series. After the person agrees, call it again with the same `taskId` and `mode`, `dryRun=false`, `expectedRevision` and `confirmation=DELETE_TASK`. If the task tree or series changed after the preview, the server re-checks the revision inside the deletion transaction and returns 409 `TASK_DELETION_CONFLICT` without deleting anything. Deletion uses `tasks:write` (previews need `tasks:read`) and no extra scope; notebook-restricted tokens can delete their owner's personal tasks too. Team tasks, other users' tasks and batch deletion stay unavailable to tokens. Completed top-level tasks can be archived with `nowen_archive_task` instead and restored later.
 
 ## 发行说明
 

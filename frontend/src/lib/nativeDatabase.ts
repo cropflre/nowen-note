@@ -668,6 +668,18 @@ async function upgradeSchemaV2ToV3(raw: SQLiteDBConnection): Promise<void> {
   await raw.execute("CREATE INDEX IF NOT EXISTS idx_native_notes_color_mark ON notes(scopeKey, colorMark)", false);
 }
 
+/**
+ * 说说文件附件（Issue #928）。纯增量列且带默认值，所以不提升 user_version：
+ * 每次打开幂等补列，回退到旧版 App 时数据库仍能打开，旧版写入也不会碰这一列。
+ */
+async function ensureDiaryAttachmentsColumn(raw: SQLiteDBConnection): Promise<void> {
+  const rows = await raw.query("PRAGMA table_info(diaries)");
+  const columns = new Set((rows.values || []).map((row) => String(row.name || "")));
+  if (columns.size > 0 && !columns.has("attachments")) {
+    await raw.execute("ALTER TABLE diaries ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", false);
+  }
+}
+
 async function upgradeTaskRecurrence(raw: SQLiteDBConnection): Promise<void> {
   const rows = await raw.query("PRAGMA table_info(tasks)");
   const columns = new Set((rows.values || []).map(row => String(row.name)));
@@ -748,9 +760,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           throw new Error(`原生数据库版本无效：${String(version)}`);
         }
         if (version > SCHEMA_VERSION) {
-          throw new Error(
-            `原生数据库版本 ${version} 高于当前支持版本 ${SCHEMA_VERSION}`,
-          );
+          throw new NativeDatabaseUpgradeRequiredError(version, SCHEMA_VERSION);
         }
 
         if (version === 0) {
@@ -762,6 +772,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           await upgradeTaskRecurrence(this.raw);
           await executeSchemaStatements(this.raw, NATIVE_TASK_DELETION_STATEMENTS);
           for (const statement of NATIVE_ENCRYPTED_NOTE_GUARDS) await this.raw.execute(statement, false);
+          await ensureDiaryAttachmentsColumn(this.raw);
           await this.raw.run(
             `INSERT INTO native_runtime_meta (key, value, updatedAt)
              VALUES ('accountHash', ?, datetime('now'))`,
@@ -825,6 +836,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           }
         }
         if (version < 12) await upgradeSignedTreeOrdering(this.raw);
+        await ensureDiaryAttachmentsColumn(this.raw);
         await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
       });
     });
@@ -1090,7 +1102,38 @@ function createOpenDecision(): Extract<OpenDecision, { kind: "create" }> {
   };
 }
 
+/**
+ * 本地库的 schema 比当前代码新：通常是热更新包升级过数据库后又回退到了旧版本。
+ * 旧代码绝不能继续读写这个库（DCC-013），只能引导用户换回能打开它的新版本。
+ */
+export class NativeDatabaseUpgradeRequiredError extends Error {
+  readonly code = "NATIVE_DATABASE_UPGRADE_REQUIRED";
+
+  constructor(readonly databaseVersion: number, readonly supportedVersion: number) {
+    super(`原生数据库版本 ${databaseVersion} 高于当前支持版本 ${supportedVersion}`);
+    this.name = "NativeDatabaseUpgradeRequiredError";
+  }
+}
+
+let lastOpenFailure: unknown = null;
+
+/** 最近一次 openNativeDatabase 失败的原因；之后打开成功会清空。 */
+export function getNativeDatabaseOpenFailure(): unknown {
+  return lastOpenFailure;
+}
+
 export async function openNativeDatabase(accountId: string): Promise<NativeDatabase> {
+  try {
+    const database = await openNativeDatabaseOnce(accountId);
+    lastOpenFailure = null;
+    return database;
+  } catch (error) {
+    lastOpenFailure = error;
+    throw error;
+  }
+}
+
+async function openNativeDatabaseOnce(accountId: string): Promise<NativeDatabase> {
   if (!Capacitor.isNativePlatform()) {
     throw new Error("原生数据库只能在 Android 或 iOS 运行时打开");
   }

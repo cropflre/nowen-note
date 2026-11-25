@@ -66,6 +66,34 @@ describe("sharedKnowledgeTree", () => {
       .toEqual(["root", "folder", "doc"]);
   });
 
+  it("keeps child documents and folders below a matching document without unrelated siblings", () => {
+    const rows = [
+      node("root", null, "产品资料", "root"),
+      { ...node("doc", "root", "CM3342 产品说明", "root"), nodeType: "note" as const, resourceType: "note" as const },
+      node("folder", "doc", "261020-001", "root"),
+      { ...node("child", "folder", "测试记录", "root"), nodeType: "markdown" as const, resourceType: "note" as const },
+      node("sibling", "root", "其他产品", "root"),
+      node("other-child", "sibling", "其他记录", "root"),
+    ];
+
+    expect(filterKnowledgeTreeNodes(rows, "  cm3342 ").map((item) => item.id))
+      .toEqual(["root", "doc", "folder", "child"]);
+  });
+
+  it("keeps all descendants of a matching folder", () => {
+    const rows = [
+      node("root", null, "产品资料"),
+      node("folder", "root", "SMT 测试"),
+      node("child-folder", "folder", "记录"),
+      node("child", "child-folder", "261111-011"),
+      node("sibling", "root", "无关资料"),
+    ];
+
+    expect(filterKnowledgeTreeNodes(rows, "SMT").map((item) => item.id))
+      .toEqual(["root", "folder", "child-folder", "child"]);
+    expect(filterKnowledgeTreeNodes(rows, " ")).toBe(rows);
+  });
+
   it("allows moves only inside the same shared root and never moves the root itself", () => {
     const root = node("root", null, "共享根", "root");
     const source = node("source", "root", "源", "root");

@@ -45,6 +45,7 @@ describe("站点标识异步加载", () => {
 
   it("配置加载完成之前，管理员也不能编辑或保存站点品牌", async () => {
     await act(async () => root.render(<SettingsModal onClose={close} />));
+    expect(Array.from(document.querySelectorAll("button")).some(button => button.textContent === "settings.plugins")).toBe(false);
     expect(titleInput().disabled).toBe(true);
     expect(document.querySelector<HTMLInputElement>("#site-share-page-width")?.disabled).toBe(true);
     expect(saveButton().disabled).toBe(true);

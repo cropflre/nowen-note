@@ -60,7 +60,7 @@ describe("issue #808: server address field on desktop login", () => {
     expect(latest.protocol).toBe("https");
     expect(buildServerUrl(latest)).toBe("https://notes.example.com:8443/reverse");
     await act(async () => address().blur());
-    expect(address().value).toBe("notes.example.com:8443/reverse");
+    expect(address().value).toBe("https://notes.example.com:8443/reverse");
     expect(onBlur).toHaveBeenCalledWith(expect.objectContaining({
       protocol: "https", host: "notes.example.com", port: "8443", path: "/reverse",
     }));
@@ -84,31 +84,37 @@ describe("issue #808: server address field on desktop login", () => {
     expect(buildServerUrl(latest)).toBe("");
   });
 
-  it("uses an accessible custom protocol menu, without the browser-native select or outer focus ring", async () => {
-    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!;
-    expect(trigger).toBeTruthy();
+  it("is a single paste-friendly field without a protocol menu", async () => {
+    expect(host.querySelector('[aria-haspopup="listbox"]')).toBeNull();
     expect(host.querySelector("select")).toBeNull();
-    expect(host.querySelector(".focus-within\\:ring-2")).toBeNull();
-    await act(async () => trigger.click());
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const https = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="option"]'))
-      .find((button) => button.textContent?.startsWith("https:"))!;
-    await act(async () => https.click());
-    expect(latest.protocol).toBe("https");
-    expect(host.querySelector('[role="listbox"]')).toBeNull();
-    expect(document.activeElement).toBe(address());
+    expect(host.querySelectorAll("input")).toHaveLength(1);
+    expect(address().getAttribute("inputmode")).toBe("url");
   });
 
-  it("does not auto-test the server while moving focus inside the protocol chooser", async () => {
-    await input("nas.local:3001");
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!.focus();
-    });
+  it.each([
+    ["notes.example.com", "https://notes.example.com"],
+    ["notes.example.com:8443/nowen", "https://notes.example.com:8443/nowen"],
+    ["http://notes.example.com", "http://notes.example.com"],
+    ["https://192.168.1.10:3001", "https://192.168.1.10:3001"],
+    ["192.168.1.10:3001", "http://192.168.1.10:3001"],
+    ["nas:5000/note", "http://nas:5000/note"],
+    ["nas.local:3001", "http://nas.local:3001"],
+    ["localhost:3001", "http://localhost:3001"],
+    ["[fd00::10]:3001", "http://[fd00::10]:3001"],
+    ["https://lucky.example.com/public", "https://lucky.example.com/public"],
+  ])("resolves %s to %s", async (raw, expected) => {
+    await input(raw);
+    await act(async () => address().blur());
+    expect(buildServerUrl(latest)).toBe(expected);
+    expect(address().value).toBe(expected);
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report an unparsable address on blur", async () => {
+    await input("http://");
+    await act(async () => address().blur());
     expect(onBlur).not.toHaveBeenCalled();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!.click());
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(host.querySelector('[role="listbox"]')).toBeNull();
-    expect(document.activeElement).toBe(host.querySelector('[aria-haspopup="listbox"]'));
+    expect(latest.host).toBe("");
   });
 
   it("accepts a restored server address while an untouched input has autofocus", async () => {
@@ -118,7 +124,7 @@ describe("issue #808: server address field on desktop login", () => {
     await act(async () => root.render(<ServerAddressInput
       value={{ protocol: "https", host: "note.nowen.cn", port: "", path: "" }}
       onChange={onChange} autoFocus />));
-    expect(address().value).toBe("note.nowen.cn");
+    expect(address().value).toBe("https://note.nowen.cn");
     expect(onChange).not.toHaveBeenCalled();
   });
 

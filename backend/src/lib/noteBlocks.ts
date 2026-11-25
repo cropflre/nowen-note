@@ -48,6 +48,49 @@ const MARKDOWN_BLOCK_ID_RE = /(?:\s+|^)(\^blk_[A-Za-z0-9_-]{6,})\s*$/;
 const GENERATED_MARKDOWN_BLOCK_ID = String.raw`blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}`;
 const GENERATED_MARKER_LINE_RE = new RegExp(String.raw`^[ \t]*\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
 const ATTACHED_GENERATED_MARKER_RE = new RegExp(String.raw`^(.*\S)\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
+const TRAILING_GENERATED_MARKER_RE = new RegExp(String.raw`^(.*\S)[ \t]*\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
+const STANDALONE_MARKER_RE = /^[ \t]*\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/;
+// CommonMark 分隔线（---、***、- - -）没有文本也不带 ID：行尾加标记会让它变成普通段落
+const THEMATIC_BREAK_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+// 紧跟段落的 setext 下划线：上面的段落是标题，ID 写在文字行上
+const SETEXT_UNDERLINE_RE = /^ {0,3}(?:=+|-+)[ \t]*$/;
+// GFM 表格分隔行（与 @lezer/markdown 相同）
+const TABLE_DELIMITER_RE = /^\|?(\s*:?-+:?\s*\|)+(\s*:?-+:?\s*)?$/;
+// 编辑器转 Markdown 时保留为 HTML 的块：pre/script/style 到结束标签为止，其余到空行为止（CommonMark HTML 块）
+const HTML_BLOCK_OPEN_RE = /^ {0,3}<(pre|script|style|details|div|table|section|article|iframe|video|audio|p|h[1-6])(?=[\s>/])/i;
+const HTML_BLOCK_ID_RE = /^ {0,3}<[a-z][\w-]*\b[^>]*?\sdata-block-id="(blk_[A-Za-z0-9_-]{6,})"/i;
+// 块级公式的开始/结束行：与代码块相同，ID 独占一行写在结束 `$$` 之后，写在行尾它就不再是结束行
+const MATH_FENCE_RE = /^ {0,3}\$\$[ \t]*$/;
+const LEGACY_MATH_CLOSE_RE = new RegExp(String.raw`^( {0,3}\$\$)[ \t]+\^(${GENERATED_MARKDOWN_BLOCK_ID})[ \t]*$`, "i");
+
+/** GFM 表格行的单元格：按未转义的「|」切分，忽略行首行尾可选的「|」。 */
+function tableCells(line: string): string[] {
+  const text = line.trim();
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\" && i + 1 < text.length) { cell += text[i] + text[i + 1]; i++; continue; }
+    if (text[i] === "|") { cells.push(cell); cell = ""; continue; }
+    cell += text[i];
+  }
+  cells.push(cell);
+  if (text.startsWith("|")) cells.shift();
+  if (/(?<!\\)\|$/.test(text)) cells.pop();
+  return cells.map((value) => value.trim());
+}
+
+function isTableStart(lines: Array<{ text: string }>, index: number): boolean {
+  const header = lines[index]?.text;
+  const delimiter = lines[index + 1]?.text.trim();
+  return Boolean(header && delimiter) && classifyMarkdownLine(header) === "paragraph" && /(?<!\\)\|/.test(header)
+    && TABLE_DELIMITER_RE.test(delimiter) && tableCells(header).length === tableCells(delimiter).length;
+}
+
+function htmlPlainText(raw: string): string {
+  return raw.replace(/<[^>]*>/g, " ")
+    .replace(/&#10;/g, "\n").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ").trim();
+}
 
 function makeBlockId(): string {
   return `blk_${uuid()}`;
@@ -163,9 +206,11 @@ function stripMarkdownMarker(raw: string): { text: string; blockId: string | nul
 }
 
 function classifyMarkdownLine(line: string): NoteBlockType | null {
+  if (THEMATIC_BREAK_RE.test(line)) return null;
   if (/^\s{0,3}#{1,6}\s+/.test(line)) return "heading";
   if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) return "taskItem";
-  if (/^\s*(?:[-*+]|\d+\.)\s+/.test(line)) return "listItem";
+  // 有序列表的分隔符可以是「.」或「)」：编辑器让相邻的有序列表交替使用，避免合并成一个列表
+  if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line)) return "listItem";
   if (/^\s{0,3}>\s?/.test(line)) return "blockquote";
   return line.trim() ? "paragraph" : null;
 }
@@ -174,7 +219,7 @@ function cleanMarkdownText(type: NoteBlockType, value: string): string {
   let text = value.trim();
   if (type === "heading") text = text.replace(/^#{1,6}\s+/, "");
   else if (type === "taskItem") text = text.replace(/^[-*+]\s+\[[ xX]\]\s+/, "");
-  else if (type === "listItem") text = text.replace(/^(?:[-*+]|\d+\.)\s+/, "");
+  else if (type === "listItem") text = text.replace(/^(?:[-*+]|\d+[.)])\s+/, "");
   else if (type === "blockquote") text = text.replace(/^>\s?/, "");
   return text.replace(/\s+\^blk_[A-Za-z0-9_-]{6,}\s*$/, "").trim();
 }
@@ -189,8 +234,14 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
   let fenceChar = "";
   let fenceLength = 0;
   let expectsCodeMarker = false;
+  // 与 parseMarkdown 划分 HTML 块的方式一致：pre/script/style 到结束标签为止，其余到空行为止
+  let htmlClose: RegExp | null = null;
+  let inHtml = false;
+  let htmlStart = -1;
+  let inMath = false;
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     if (fenceChar) {
       const closeRe = new RegExp(`^[ \\t]{0,3}${fenceChar}{${fenceLength},}[ \\t]*$`);
       if (closeRe.test(line.text)) {
@@ -207,11 +258,48 @@ function normalizeGeneratedMarkdownMarkers(content: string): string {
       if (marker) continue;
     }
 
-    const opener = line.text.match(/^\s{0,3}(`{3,}|~{3,})/);
-    if (opener) {
-      fenceChar = opener[1][0];
-      fenceLength = opener[1].length;
+    if (!line.text.trim()) inHtml = false;
+    const html: RegExpMatchArray | null = htmlClose || inHtml ? null : line.text.match(HTML_BLOCK_OPEN_RE);
+    if (html) {
+      const tag = html[1].toLowerCase();
+      if (tag === "pre" || tag === "script" || tag === "style") htmlClose = new RegExp(`</${tag}\\s*>`, "i");
+      else inHtml = true;
+      htmlStart = index;
+    }
+    if (htmlClose || inHtml) {
+      // 多行 HTML 块的 ID 与代码块相同，独占一行写在块后（pre/script/style 在结束标签之后，其余在空行之前）
+      const last = htmlClose ? htmlClose.test(line.text) : !lines[index + 1]?.text.trim();
+      if (htmlClose && last) {
+        htmlClose = null;
+        expectsCodeMarker = true;
+      } else if (inHtml && marker && last) {
+        continue;
+      }
+      // 旧版按行和空行切块，把标记写进了多行 HTML 块的中间行或末行行尾（代码里就多出 ^blk_ 文字，块补丁也会拒绝）：
+      // 中间行的去掉，末行的挪到块后独占一行。单行 HTML 块行尾的标记是正常写法，不动
+      const trailing = line.text.match(TRAILING_GENERATED_MARKER_RE);
+      if (trailing && !(last && index === htmlStart)) {
+        edits.push({ from: line.start, to: line.end, insert: last ? `${trailing[1]}\n^${trailing[2]}` : trailing[1] });
+        continue;
+      }
+    } else if (MATH_FENCE_RE.test(line.text)) {
+      // 块级公式与代码块相同，结束 `$$` 之后独占一行的 ID 不是孤立标记
+      expectsCodeMarker = inMath;
+      inMath = !inMath;
       continue;
+    } else if (inMath && LEGACY_MATH_CLOSE_RE.test(line.text)) {
+      // 旧版把 ID 接在结束 `$$` 行尾，这一行因此不再闭合公式（块补丁会整篇拒绝）：挪到下一行
+      const [, close, id] = line.text.match(LEGACY_MATH_CLOSE_RE)!;
+      edits.push({ from: line.start, to: line.end, insert: `${close}\n^${id}` });
+      inMath = false;
+      continue;
+    } else {
+      const opener = line.text.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (opener) {
+        fenceChar = opener[1][0];
+        fenceLength = opener[1].length;
+        continue;
+      }
     }
 
     if (marker) {
@@ -296,6 +384,118 @@ function parseMarkdown(noteId: string, content: string): {
       continue;
     }
 
+    if (MATH_FENCE_RE.test(line.text)) {
+      let close = i + 1;
+      while (close < lines.length && !MATH_FENCE_RE.test(lines[close].text)) close++;
+      if (close < lines.length) {
+        const standalone = lines[close + 1]?.text.match(STANDALONE_MARKER_RE);
+        const end = standalone ? close + 2 : close + 1;
+        const latex = lines.slice(i + 1, close).map((row) => row.text).join("\n").trim();
+        candidates.push({
+          noteId,
+          blockId: standalone?.[1] ?? null,
+          explicitBlockId: Boolean(standalone),
+          blockType: "mathBlock",
+          parentBlockId: null,
+          blockOrder: order++,
+          plainText: latex,
+          contentHash: hashText("mathBlock", latex),
+          path: String(order - 1),
+          startOffset: line.start,
+          endOffset: lines[end - 1].endWithNewline,
+          markerInsertOffset: lines[close].end,
+          markerStyle: "standalone",
+        });
+        i = end;
+        continue;
+      }
+    }
+
+    if (isTableStart(lines, i)) {
+      // GFM 把表格后不以其他块开头的非空行都读成表格行
+      let j = i + 2;
+      while (j < lines.length && lines[j].text.trim() && classifyMarkdownLine(lines[j].text) === "paragraph"
+        && !/^\s*(```+|~~~+)/.test(lines[j].text) && !HTML_BLOCK_OPEN_RE.test(lines[j].text)) j++;
+      const last = lines[j - 1];
+      const rows = lines.slice(i, j).map((row) => row.text);
+      // 与编辑器转 Markdown 一致，表格的 ID 写在最后一行行尾（GFM 忽略多出的单元格）；
+      // 只有表头的表格没有能写 ID 的行：分隔行加了标记就不再是表格
+      const hasBody = j > i + 2;
+      const stripped = hasBody ? stripMarkdownMarker(rows[rows.length - 1]) : { text: rows[rows.length - 1], blockId: null };
+      rows[rows.length - 1] = stripped.text;
+      const blockId = stripped.blockId;
+      const plainText = rows.filter((_row, index) => index !== 1).flatMap(tableCells)
+        .map((cell) => cell.replace(/\\\|/g, "|")).filter(Boolean).join(" ");
+      candidates.push({
+        noteId,
+        blockId,
+        explicitBlockId: Boolean(blockId),
+        blockType: "table",
+        parentBlockId: null,
+        blockOrder: order++,
+        plainText,
+        contentHash: hashText("table", plainText),
+        path: String(order - 1),
+        startOffset: line.start,
+        endOffset: last.endWithNewline,
+        markerInsertOffset: hasBody ? last.end : undefined,
+        markerStyle: "inline",
+      });
+      i = j;
+      continue;
+    }
+
+    const html = line.text.match(HTML_BLOCK_OPEN_RE);
+    if (html) {
+      const tag = html[1].toLowerCase();
+      const closesAtTag = tag === "pre" || tag === "script" || tag === "style";
+      let contentEnd = i + 1;
+      if (closesAtTag) {
+        const close = new RegExp(`</${tag}\\s*>`, "i");
+        let k = i;
+        while (k < lines.length && !close.test(lines[k].text)) k++;
+        contentEnd = Math.min(k + 1, lines.length);
+      } else {
+        while (contentEnd < lines.length && lines[contentEnd].text.trim()) contentEnd++;
+      }
+      let blockEnd = contentEnd;
+      let markerId: string | null = null;
+      if (closesAtTag && contentEnd < lines.length) {
+        const standalone = lines[contentEnd].text.match(STANDALONE_MARKER_RE);
+        if (standalone) { markerId = standalone[1]; blockEnd = contentEnd + 1; }
+      } else if (!closesAtTag && contentEnd - 1 > i) {
+        const standalone = lines[contentEnd - 1].text.match(STANDALONE_MARKER_RE);
+        if (standalone) { markerId = standalone[1]; contentEnd -= 1; }
+      }
+      const lastContent = lines[contentEnd - 1];
+      let raw = normalizedContent.slice(line.start, lastContent.end);
+      if (!markerId) {
+        const inline = stripMarkdownMarker(raw);
+        if (inline.blockId) { markerId = inline.blockId; raw = inline.text; }
+      }
+      const blockType: NoteBlockType = tag === "pre" ? "codeBlock" : tag === "table" ? "table" : /^h[1-6]$/.test(tag) ? "heading" : "paragraph";
+      const plainText = htmlPlainText(raw);
+      candidates.push({
+        noteId,
+        // 编辑器保留的 HTML 自带 data-block-id：沿用它，Markdown 与富文本里是同一个 ID
+        blockId: markerId ?? line.text.match(HTML_BLOCK_ID_RE)?.[1] ?? null,
+        explicitBlockId: Boolean(markerId),
+        blockType,
+        parentBlockId: null,
+        blockOrder: order++,
+        plainText,
+        contentHash: hashText(blockType, plainText),
+        path: String(order - 1),
+        startOffset: line.start,
+        endOffset: lines[blockEnd - 1].endWithNewline,
+        markerInsertOffset: lastContent.end,
+        // 多行 HTML 的结束行在块补丁看来仍在 HTML 内部，ID 另起一行
+        markerStyle: contentEnd - 1 > i ? "standalone" : "inline",
+      });
+      i = blockEnd;
+      continue;
+    }
+
     const type = classifyMarkdownLine(line.text);
     if (!type) {
       i++;
@@ -304,10 +504,13 @@ function parseMarkdown(noteId: string, content: string): {
 
     let j = i + 1;
     if (type === "paragraph") {
-      while (j < lines.length && lines[j].text.trim() && classifyMarkdownLine(lines[j].text) === "paragraph" && !/^\s*(```+|~~~+)/.test(lines[j].text)) {
+      while (j < lines.length && lines[j].text.trim() && classifyMarkdownLine(lines[j].text) === "paragraph" && !/^\s*(```+|~~~+)/.test(lines[j].text)
+        && !SETEXT_UNDERLINE_RE.test(lines[j].text) && !HTML_BLOCK_OPEN_RE.test(lines[j].text) && !MATH_FENCE_RE.test(lines[j].text)) {
         j++;
       }
     }
+    const setext = type === "paragraph" && j < lines.length && SETEXT_UNDERLINE_RE.test(lines[j].text);
+    const blockType: NoteBlockType = setext ? "heading" : type;
     const start = line.start;
     const end = lines[j - 1].endWithNewline;
     const raw = normalizedContent.slice(start, end).replace(/\n$/, "");
@@ -317,18 +520,19 @@ function parseMarkdown(noteId: string, content: string): {
       noteId,
       blockId: stripped.blockId,
       explicitBlockId: Boolean(stripped.blockId),
-      blockType: type,
+      blockType,
       parentBlockId: null,
       blockOrder: order++,
       plainText,
-      contentHash: hashText(type, plainText),
+      contentHash: hashText(blockType, plainText),
       path: String(order - 1),
       startOffset: start,
       endOffset: end,
       markerInsertOffset: lines[j - 1].end,
       markerStyle: "inline",
     });
-    i = j;
+    // 下划线行属于这个标题，不单独成块，也不带标记
+    i = setext ? j + 1 : j;
   }
 
   return { normalizedContent, candidates, changed: normalizedContent !== content };

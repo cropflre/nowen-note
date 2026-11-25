@@ -1,0 +1,28 @@
+{
+  "format": "nowen-migration",
+  "schemaVersion": 1,
+  "source": {
+    "platform": "markdown",
+    "exportId": "nmf-v1-example"
+  },
+  "notes": [
+    {
+      "sourceId": "example-001",
+      "title": "Welcome to Nowen",
+      "path": [
+        "Examples"
+      ],
+      "contentFormat": "markdown",
+      "contentFile": "notes/example.md",
+      "sha256": "9caa00eb7ac3caabbb15dde4c0adccee8a1933ddb56684af975f15a955f73837",
+      "createdAt": "2025-01-01T10:00:00Z",
+      "updatedAt": "2025-01-02T10:00:00Z",
+      "tags": [
+        "example"
+      ],
+      "attachments": [],
+      "links": [],
+      "metadata": {}
+    }
+  ]
+}

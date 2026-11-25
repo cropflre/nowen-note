@@ -45,6 +45,58 @@ test("shared administration requires a login administrator; role claims and PATs
   assert.equal(service.listAdminSharedAIProfiles().length, 0);
 });
 
+test("shared connection tests reserve a reasoning budget for custom models", async () => {
+  const profile = service.saveSharedAIProfile("admin", { ...draft, provider: "custom", model: "opaque-model-id" });
+  const originalFetch = globalThis.fetch;
+  let maxTokens: number | undefined;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    maxTokens = body.max_tokens;
+    assert.equal(body.model, "opaque-model-id");
+    return Response.json({ choices: [{
+      finish_reason: maxTokens! >= 4096 ? "stop" : "length",
+      message: { content: maxTokens! >= 4096 ? "OK" : "", reasoning_content: "private reasoning" },
+    }] });
+  };
+  try {
+    const response = await request("POST", `/shared-profiles/${profile.id}/test`, {});
+    assert.equal(maxTokens, 4096);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.success, true);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("shared connection tests report exhausted reasoning without exposing private upstream content", async () => {
+  const profile = service.saveSharedAIProfile("admin", draft);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ choices: [{
+    finish_reason: "length",
+    message: { content: "", reasoning_content: "private reasoning shared-secret private-session" },
+  }] });
+  try {
+    const response = await request("POST", `/shared-profiles/${profile.id}/test`, {});
+    assert.equal(response.status, 502);
+    assert.equal(response.body.success, false);
+    assert.match(response.body.error, /token.*上限/);
+    assert.match(response.body.error, /推理/);
+    assert.doesNotMatch(JSON.stringify(response.body), /private reasoning|shared-secret|private-session/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("shared connection tests reject non-admin sessions before contacting the model", async () => {
+  const profile = service.saveSharedAIProfile("admin", draft);
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; return Response.json({}); };
+  try {
+    const url = `/shared-profiles/${profile.id}/test`;
+    assert.equal((await request("POST", url, {}, "")).status, 401);
+    assert.equal((await request("POST", url, {}, "member-a")).status, 403);
+    assert.equal((await request("POST", url, {}, "admin", "api-token")).status, 403);
+    assert.equal(requests, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("shared middleware does not intercept legacy chat PATs or cap unrelated request bodies", async () => {
   const combined = new Hono().route("/ai", sharedRouter);
   combined.post("/ai/chat", async (c) => c.json({ mode: c.req.header("X-Auth-Mode"), length: (await c.req.text()).length }));

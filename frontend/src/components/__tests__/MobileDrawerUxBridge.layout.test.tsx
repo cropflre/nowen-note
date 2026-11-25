@@ -27,8 +27,6 @@ vi.mock("@/store/AppContext", () => ({
   useAppActions: () => actions,
 }));
 vi.mock("@/components/KnowledgeTreeDrawer", () => ({ default: () => null }));
-vi.mock("@/components/ShortcutHelpCenter", () => ({ default: () => null }));
-vi.mock("@/components/ShortcutRuntimeBridge", () => ({ default: () => null }));
 
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
 

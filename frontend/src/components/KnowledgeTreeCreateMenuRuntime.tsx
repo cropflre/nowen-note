@@ -178,6 +178,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
       />
       <NoteTemplatePickerDialog
         open={Boolean(templatePicker)}
+        parentId={templatePicker?.parentId ?? null}
         onClose={() => setTemplatePicker(null)}
         onCreate={requestTemplateCreate}
         onCreatePlugin={requestPluginTemplateCreate}

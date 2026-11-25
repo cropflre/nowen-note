@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" class="dark" spellcheck="false">
+<html lang="zh-CN" spellcheck="false">
   <head>
     <meta charset="UTF-8" />
     <!-- SEC-ELECTRON-01-E3.4: CSP — 保留严格默认策略，补齐 nowen-note 实际资源来源 -->
@@ -19,33 +19,141 @@
     " />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="alternate icon" type="image/svg+xml" href="./nowen-note-icon.svg" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.svg" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta name="theme-color" content="#2563EB" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>nowen-note</title>
     <script>
       (function () {
+        var root = document.documentElement;
         try {
-          var s = localStorage.getItem("nowen-note-skin");
-          if (s === "macos") document.documentElement.setAttribute("data-skin", "macos");
+          if (localStorage.getItem("nowen-note-skin") === "macos") root.setAttribute("data-skin", "macos");
+          // Match ThemeProvider before React mounts, including its light default.
+          var theme = localStorage.getItem("nowen-note-theme");
+          var dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          root.classList.add(dark ? "dark" : "light");
         } catch (e) {}
       })();
     </script>
     <style>
-      html, body { margin: 0; width: 100%; height: 100%; background: #f8fafc; }
-      .app-boot-splash { position: fixed; inset: 0; z-index: 999999; display: flex; align-items: center; justify-content: center; padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); box-sizing: border-box; background: radial-gradient(circle at 50% 30%, rgba(37, 99, 235, 0.08), transparent 32%), #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.18s ease; }
+      /* Fall back to the matching app theme palette until index.css loads. */
+      :root {
+        --app-boot-bg: #ffffff;
+        --app-boot-ink: #111827;
+        --app-boot-muted: #6b7280;
+        --app-boot-paper: #f9fafb;
+        --app-boot-cover: #e0e7ff;
+        --app-boot-rule: #9ca3af;
+        --app-boot-bookmark: #3b82f6;
+      }
+      :root.dark {
+        --app-boot-bg: #0d1117;
+        --app-boot-ink: #e6edf3;
+        --app-boot-muted: #8b949e;
+        --app-boot-paper: #161b22;
+        --app-boot-cover: #253040;
+        --app-boot-rule: #6e7681;
+        --app-boot-bookmark: #58a6ff;
+      }
+      :root[data-skin="macos"] {
+        --app-boot-bg: #ececec;
+        --app-boot-ink: #000000;
+        --app-boot-muted: rgba(0, 0, 0, 0.60);
+        --app-boot-paper: #ffffff;
+        --app-boot-cover: #b4d8ff;
+        --app-boot-rule: rgba(0, 0, 0, 0.40);
+        --app-boot-bookmark: #007aff;
+      }
+      :root[data-skin="macos"].dark {
+        --app-boot-bg: #1e1e1e;
+        --app-boot-ink: #ffffff;
+        --app-boot-muted: rgba(255, 255, 255, 0.60);
+        --app-boot-paper: #2e2e2e;
+        --app-boot-cover: rgba(10, 132, 255, 0.30);
+        --app-boot-rule: rgba(255, 255, 255, 0.40);
+        --app-boot-bookmark: #0a84ff;
+      }
+      html, body { margin: 0; width: 100%; height: 100%; background: var(--color-bg, var(--app-boot-bg)); }
+      .app-boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        display: flex;
+        overflow: auto;
+        padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+        box-sizing: border-box;
+        background: var(--color-bg, var(--app-boot-bg));
+        color: var(--color-text-primary, var(--app-boot-ink));
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        text-align: center;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+      }
       .app-boot-splash--visible { opacity: 1; visibility: visible; pointer-events: auto; }
       .app-boot-splash--leaving { opacity: 0; visibility: visible; pointer-events: none; }
-      .app-boot-card { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(280px, 100%); padding: 28px 32px; border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 20px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08); box-sizing: border-box; backdrop-filter: blur(16px); }
-      .app-boot-logo { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #6366f1); color: #ffffff; font-size: 22px; font-weight: 800; box-shadow: 0 10px 30px rgba(37, 99, 235, 0.28); }
-      .app-boot-title { font-size: 16px; font-weight: 700; }
-      .app-boot-subtitle { font-size: 13px; color: #64748b; text-align: center; }
-      .app-boot-spinner { width: 22px; height: 22px; margin-top: 4px; border: 2px solid rgba(37, 99, 235, 0.18); border-top-color: #2563eb; border-radius: 999px; animation: appBootSpin 0.8s linear infinite; }
-      .app-boot-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
-      .app-boot-reload, .app-boot-copy { display: none; align-items: center; justify-content: center; padding: 8px 14px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
-      .app-boot-reload { border: 0; background: #2563eb; color: #ffffff; }
-      .app-boot-copy { border: 1px solid rgba(100, 116, 139, 0.35); background: transparent; color: inherit; }
-      .app-boot-code { display: none; width: 100%; max-height: 108px; overflow: auto; margin: 2px 0 0; padding: 8px; border-radius: 8px; background: rgba(100, 116, 139, 0.10); box-sizing: border-box; color: #64748b; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
+      .app-boot-content { width: 100%; max-width: 320px; margin: auto; }
+      .app-boot-title { font-size: 17px; font-weight: 650; line-height: 1.4; }
+      .app-boot-subtitle { margin-top: 4px; font-size: 13px; line-height: 1.6; color: var(--color-text-secondary, var(--app-boot-muted)); }
+      .app-boot-spinner { position: relative; width: 82px; height: 76px; margin: 0 auto 14px; }
+      .app-boot-spinner::before, .app-boot-notebook {
+        position: absolute;
+        top: 9px;
+        width: 48px;
+        height: 58px;
+        box-sizing: border-box;
+        border: 1px solid var(--color-text-tertiary, var(--app-boot-rule));
+        border-radius: 5px 8px 8px 5px;
+      }
+      .app-boot-spinner::before {
+        content: "";
+        left: 24px;
+        background: var(--color-active, var(--app-boot-cover));
+        transform: rotate(11deg);
+      }
+      .app-boot-notebook {
+        left: 13px;
+        background: var(--color-surface, var(--app-boot-paper));
+        box-shadow: inset 5px 0 var(--color-active, var(--app-boot-cover)), 0 3px 6px rgba(0, 0, 0, 0.1);
+        transform: rotate(-9deg);
+        transform-origin: 10% 90%;
+      }
+      .app-boot-notebook::before {
+        content: "";
+        position: absolute;
+        inset: 21px 9px auto 12px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--color-text-tertiary, var(--app-boot-rule));
+        box-shadow: 0 8px var(--color-text-tertiary, var(--app-boot-rule)), 0 16px var(--color-text-tertiary, var(--app-boot-rule));
+      }
+      .app-boot-notebook::after {
+        content: "";
+        position: absolute;
+        top: -1px;
+        right: 8px;
+        width: 8px;
+        height: 13px;
+        background: var(--color-accent-primary, var(--app-boot-bookmark));
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 75%, 0 100%);
+      }
+      @keyframes appBootLiftPage {
+        0%, 65%, 100% { transform: rotate(-9deg); }
+        30% { transform: translate(-2px, -6px) rotate(-16deg); }
+        52% { transform: translateY(1px) rotate(-7deg); }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .app-boot-splash--visible .app-boot-notebook,
+        .app-boot-splash--leaving .app-boot-notebook { animation: appBootLiftPage 1.9s ease-in-out infinite; }
+      }
+      @media (prefers-reduced-motion: reduce) { .app-boot-splash { transition: none; } }
+      .app-boot-actions { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 8px; }
+      .app-boot-reload, .app-boot-copy { display: none; align-items: center; justify-content: center; margin-top: 12px; padding: 8px 14px; border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; }
+      .app-boot-reload { border: 1px solid transparent; background: var(--color-text-primary, var(--app-boot-ink)); color: var(--color-bg, var(--app-boot-bg)); }
+      .app-boot-copy { border: 1px solid var(--color-text-tertiary, var(--app-boot-rule)); background: transparent; color: inherit; }
+      .app-boot-actions button:focus-visible { outline: 2px solid var(--color-accent-primary, var(--app-boot-bookmark)); outline-offset: 2px; }
+      .app-boot-code { display: none; width: 100%; max-height: 108px; overflow: auto; margin: 12px 0 0; padding: 8px; border-radius: 8px; background: var(--color-surface, var(--app-boot-paper)); box-sizing: border-box; color: var(--color-text-secondary, var(--app-boot-muted)); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
 
       /* Issue #145 UI guard styles */
       .fixed.inset-0.z-\[10000\] > [role="dialog"][aria-modal="true"] { background: var(--color-bg, #fff) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
@@ -75,15 +183,13 @@
            让面板始终停留在输入法上方；空间不足时由面板自身纵向滚动。 */
         html[data-keyboard="open"] [data-mobile-editor-toolbar="expanded"],
         html[data-keyboard="open"] [data-markdown-mobile-toolbar="expanded"] {
+          /* 这段内联样式不经过 PostCSS：先写 vh 给不认识 dvh 的旧 WebView。 */
+          max-height: max(8rem, calc(100vh - var(--keyboard-height, 0px) - var(--safe-area-top, 0px) - 10rem)) !important;
           max-height: max(8rem, calc(100dvh - var(--keyboard-height, 0px) - var(--safe-area-top, 0px) - 10rem)) !important;
           overflow-y: auto !important;
           overflow-x: hidden !important;
         }
       }
-
-      @keyframes appBootSpin { to { transform: rotate(360deg); } }
-      @media (prefers-reduced-motion: reduce) { .app-boot-spinner { animation: none; } .app-boot-splash { transition: none; } }
-      @media (prefers-color-scheme: dark) { html, body { background: #0f172a; } .app-boot-splash { background: radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.16), transparent 34%), #0f172a; color: #e5e7eb; } .app-boot-card { border-color: rgba(148, 163, 184, 0.22); background: rgba(15, 23, 42, 0.78); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28); } .app-boot-subtitle { color: #94a3b8; } }
     </style>
     <script>
       (function () {
@@ -373,8 +479,8 @@
           window.__NOWEN_REPORT_BOOT_ERROR__("unhandledrejection", event && event.reason, true);
         });
 
-        // Fast starts should not flash a splash card. Reveal it only after 260ms, then let
-        // bootSplash.ts keep it visible for at least 600ms once the card has appeared.
+        // Fast starts should not flash a splash. Reveal it only after 260ms, then let
+        // bootSplash.ts keep it visible for at least 600ms once it has appeared.
         window.__NOWEN_BOOT_REVEAL_TIMER__ = window.setTimeout(function () {
           var splash = document.getElementById("app-boot-splash");
           if (!splash) return;
@@ -399,11 +505,10 @@
   </head>
   <body>
     <div id="app-boot-splash" class="app-boot-splash" role="status" aria-live="polite" aria-label="正在恢复工作区">
-      <div class="app-boot-card">
-        <div class="app-boot-logo" aria-hidden="true">N</div>
-        <div class="app-boot-title">nowen-note</div>
+      <div class="app-boot-content">
+        <div class="app-boot-spinner" aria-hidden="true"><span class="app-boot-notebook"></span></div>
+        <div class="app-boot-title">Nowen Note</div>
         <div class="app-boot-subtitle">正在恢复你的工作区…</div>
-        <div class="app-boot-spinner" aria-hidden="true"></div>
         <div class="app-boot-actions">
           <button id="app-boot-reload" class="app-boot-reload" type="button">刷新重试</button>
           <button id="app-boot-copy" class="app-boot-copy" type="button">复制诊断信息</button>
@@ -412,6 +517,6 @@
       </div>
     </div>
     <div id="root" style="height:100vh;width:100vw;overflow:hidden;"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/entry.ts"></script>
   </body>
 </html>

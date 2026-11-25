@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
+import "./NavRail.css";
 import { motion } from "framer-motion";
 import {
   BrainCircuit,
+  Archive,
   CircleDot,
   Bell,
   CloudOff,
@@ -21,12 +23,16 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { PluginAppNavigation } from "./PluginApps";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import { MOTION_SPRING } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
+import { openAIMemory } from "@/lib/aiMemory";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
 import { pushAppPathState } from "@/lib/appPathNavigation";
@@ -103,6 +109,9 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   const { state } = useApp();
   const actions = useAppActions();
   const { prefs: userPrefs } = useUserPreferences();
+  // 服务端开启 AI 对话归档时才显示入口（默认开启，管理员可在「设置 → AI 助手」中关闭）。
+  const { siteConfig } = useSiteSettings();
+  const aiAvailable = useAIConnectionAvailable();
   const [railMode] = useRailMode();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
@@ -182,6 +191,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   const capabilityItems = localDeviceMode ? NAV_CONFIG : availableItems;
   const configurableItemById = new Map<NavigationModuleId, NavConfigItem>();
   for (const item of capabilityItems) {
+    if (item.mode === "ai-chat" && !aiAvailable) continue;
     if (NAVIGATION_MODULE_IDS.includes(item.mode as NavigationModuleId)) {
       configurableItemById.set(item.mode as NavigationModuleId, item);
     }
@@ -350,21 +360,23 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
   return (
     <div
+      data-mobile-drawer-rail={isMobile ? "" : undefined}
       className={cn(
         isMobile ? "flex md:hidden h-full" : "hidden md:flex h-full",
         "nav-rail vibrancy-sidebar bg-app-sidebar border-r border-app-border flex-col items-center shrink-0 transition-[width] duration-150",
         railWidthClass,
       )}
-      style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
+      style={{ paddingTop: `calc(var(--safe-area-top) + ${isMobile ? 8 : 4}px)`, paddingBottom: "8px" }}
     >
       {isMobile ? (
         <button
           type="button"
           data-mobile-rail-hide=""
+          data-mobile-drawer-close=""
           onClick={() => setMobileRailHidden(true)}
           title={t("sidebar.hideMobileRail")}
           aria-label={t("sidebar.hideMobileRail")}
-          className="h-10 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
+          className="h-11 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
         >
           <PanelLeftClose size={16} />
         </button>
@@ -387,85 +399,89 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
-      <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
-        {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
-        <button onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAICollaboration(); }} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Sparkles size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiCollaboration.entry")}</span>}</button>
-        {renderItem(ALL_NOTES_ITEM)}
-        {orderedNavigationModuleIds.map((id) => {
-          if (id === "notifications") return renderNotificationItem();
-          const item = configurableItemById.get(id);
-          return item ? renderItem(item) : null;
-        })}
-        {trashItem && (
-          <>
-            <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
-            {renderItem(trashItem)}
-          </>
+      <div className="nav-rail-scroll flex min-h-0 flex-1 w-full flex-col items-center">
+        <div data-nav-rail-navigation="" className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
+          {!localDeviceMode && workspaceId !== "personal" && <button data-mobile-drawer-rail-item="" onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
+          {aiAvailable && <button data-mobile-drawer-rail-item="" onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAICollaboration(); }} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Sparkles size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiCollaboration.entry")}</span>}</button>}
+          {aiAvailable && siteConfig.aiMemoryEnabled && !localDeviceMode && <button data-mobile-drawer-rail-item="" onClick={() => { if (isMobile) actions.setMobileSidebar(false); openAIMemory(); }} aria-label={t("aiMemory.navLabel")} title={t("aiMemory.navLabel")} className={cn(itemBaseClass, "text-accent-primary hover:bg-app-hover")}><Archive size={RAIL_ICON_SIZE}/>{showLabel && <span className="mt-0.5 max-w-full truncate text-[10px]">{t("aiMemory.navLabel")}</span>}</button>}
+          {renderItem(ALL_NOTES_ITEM)}
+          {orderedNavigationModuleIds.map((id) => {
+            if (id === "notifications") return renderNotificationItem();
+            const item = configurableItemById.get(id);
+            return item ? renderItem(item) : null;
+          })}
+          <PluginAppNavigation showLabel={showLabel} />
+          {trashItem && (
+            <>
+              <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
+              {renderItem(trashItem)}
+            </>
+          )}
+        </div>
+
+        <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
+
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-settings"))}
+          title={showLabel ? undefined : t("sidebar.settings")}
+          aria-label={t("sidebar.settings")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
+        >
+          <Settings size={16} />
+          {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{t("sidebar.settings")}</span>}
+        </button>
+
+        {!localDeviceMode && isAccountLoginHistorySupported() && (
+          <button
+            data-mobile-drawer-rail-item=""
+            onClick={() => setLoginHistoryOpen(true)}
+            title={showLabel ? undefined : t("auth.loginHistory.title")}
+            aria-label={t("auth.loginHistory.title")}
+            className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+          >
+            <UsersRound size={16} />
+            {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("auth.loginHistory.shortTitle")}</span>}
+          </button>
+        )}
+
+        {(canSwitchBackToLocal || (isAndroidNativeRuntime() && !localDeviceMode)) && (
+          <button
+            data-mobile-drawer-rail-item=""
+            onClick={handleSwitchToLocal}
+            title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
+            aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
+            className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+          >
+            <CloudOff size={16} />
+            {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "本地")}</span>}
+          </button>
+        )}
+
+        {localDeviceMode ? (
+          <button
+            data-mobile-drawer-rail-item=""
+            onClick={handleAccountLogin}
+            title={showLabel ? undefined : t("sidebar.loginAndSync")}
+            aria-label={t("sidebar.loginAndSync")}
+            className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+          >
+            <LogIn size={16} />
+            {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.loginAndSync")}</span>}
+          </button>
+        ) : (
+          <button
+            data-mobile-drawer-rail-item=""
+            onClick={handleLogout}
+            title={showLabel ? undefined : t("sidebar.logout")}
+            aria-label={t("sidebar.logout")}
+            className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
+          >
+            <LogOut size={16} />
+            {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
+          </button>
         )}
       </div>
-
-      <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
-
-      <button
-        data-mobile-drawer-rail-item=""
-        onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-settings"))}
-        title={showLabel ? undefined : t("sidebar.settings")}
-        aria-label={t("sidebar.settings")}
-        className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
-      >
-        <Settings size={16} />
-        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{t("sidebar.settings")}</span>}
-      </button>
-
-      {!localDeviceMode && isAccountLoginHistorySupported() && (
-        <button
-          data-mobile-drawer-rail-item=""
-          onClick={() => setLoginHistoryOpen(true)}
-          title={showLabel ? undefined : t("auth.loginHistory.title")}
-          aria-label={t("auth.loginHistory.title")}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
-        >
-          <UsersRound size={16} />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("auth.loginHistory.shortTitle")}</span>}
-        </button>
-      )}
-
-      {(canSwitchBackToLocal || (isAndroidNativeRuntime() && !localDeviceMode)) && (
-        <button
-          data-mobile-drawer-rail-item=""
-          onClick={handleSwitchToLocal}
-          title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
-          aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
-        >
-          <CloudOff size={16} />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "本地")}</span>}
-        </button>
-      )}
-
-      {localDeviceMode ? (
-        <button
-          data-mobile-drawer-rail-item=""
-          onClick={handleAccountLogin}
-          title={showLabel ? undefined : t("sidebar.loginAndSync")}
-          aria-label={t("sidebar.loginAndSync")}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
-        >
-          <LogIn size={16} />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.loginAndSync")}</span>}
-        </button>
-      ) : (
-        <button
-          data-mobile-drawer-rail-item=""
-          onClick={handleLogout}
-          title={showLabel ? undefined : t("sidebar.logout")}
-          aria-label={t("sidebar.logout")}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
-        >
-          <LogOut size={16} />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
-        </button>
-      )}
 
       <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />
     </div>

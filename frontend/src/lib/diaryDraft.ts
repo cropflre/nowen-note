@@ -6,6 +6,7 @@
  */
 
 import { getCurrentWorkspace } from "@/lib/api";
+import type { DiaryAttachmentItem } from "@/types";
 
 export interface DiaryDraftMedia {
   id: string;
@@ -19,6 +20,8 @@ export interface DiaryDraftPayload {
   text: string;
   mood: string;
   media: DiaryDraftMedia[];
+  /** 已上传未发布的文件附件；旧草稿没有该字段。 */
+  attachments?: DiaryAttachmentItem[];
   updatedAt: number;
 }
 

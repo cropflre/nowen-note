@@ -56,7 +56,8 @@ import {
   stopSyncEngine,
   triggerSyncNow,
 } from "../sync/runtime";
-import { SyncError, isSyncErrorCode, classifyHttpStatus } from "../sync/errors";
+import { SyncError, isRetryableSyncError, isSyncErrorCode, classifyHttpStatus } from "../sync/errors";
+import { describeSyncFailure } from "../sync/diagnostics";
 import { SYNC_PERSONAL_SCOPE_KEY } from "../sync/constants";
 import { logSyncInfo } from "../sync/log";
 import { readOfflineReadiness } from "../sync/offlineReadiness";
@@ -99,9 +100,14 @@ function errorResponse(c: any, error: any) {
   const code = error instanceof SyncError && isSyncErrorCode(error.code)
     ? error.code
     : "SERVER_ERROR";
-  const status = code === "INVALID_PAYLOAD" ? 400 : 500;
+  // 结构性失败不是服务端故障：重试没有意义，用 422 让调用方（和访问日志）区分开。
+  const status = code === "INVALID_PAYLOAD" ? 400 : code === "DATA_STRUCTURE" ? 422 : 500;
   return c.json(
-    { error: error?.message ? String(error.message).slice(0, 200) : code, code },
+    {
+      error: error?.message ? String(error.message).slice(0, 200) : code,
+      code,
+      retryable: isRetryableSyncError(code),
+    },
     status,
   );
 }
@@ -530,12 +536,18 @@ app.post("/bootstrap", async (c) => {
     return c.json({ ...progress, engineRunning: engine !== null });
   } catch (error) {
     // 失败时把当前阶段回传给 UI，便于显示"在哪一步失败了、可否重试"。
+    // errorCode / retryable / diagnostic 让调用方区分"稍后自动重试"和"重试没有意义"，
+    // diagnostic 只含阶段、固定标记与脱敏 ID，可以直接复制给支持人员。
+    const failure = describeSyncFailure(error, "bootstrap");
     return c.json(
       {
         ...getBootstrapProgress(db, active.id),
-        error: error instanceof Error ? error.message.slice(0, 200) : "SERVER_ERROR",
+        error: failure.message,
+        errorCode: failure.code,
+        retryable: failure.retryable,
+        diagnostic: failure.diagnostic,
       },
-      500,
+      failure.code === "DATA_STRUCTURE" ? 422 : 500,
     );
   }
 });
@@ -655,12 +667,16 @@ app.post("/lite-migration", async (c) => {
     }
     return c.json({ ...progress, engineRunning: false });
   } catch (error) {
+    const failure = describeSyncFailure(error, "lite-migration");
     return c.json(
       {
         ...getLiteMigrationProgress(db),
-        error: error instanceof Error ? error.message.slice(0, 200) : "SERVER_ERROR",
+        error: failure.message,
+        errorCode: failure.code,
+        retryable: failure.retryable,
+        diagnostic: failure.diagnostic,
       },
-      500,
+      failure.code === "DATA_STRUCTURE" ? 422 : 500,
     );
   } finally {
     migrationsInFlight.delete(db);

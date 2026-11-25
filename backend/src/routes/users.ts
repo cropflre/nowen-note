@@ -20,6 +20,7 @@ import { invalidateUserAuthCache, verifySudoFromRequest, extractClientIp } from 
 import { disconnectUser } from "../services/realtime";
 import { noteAclRepository, workspaceInvitesRepository, noteYupdatesRepository, workspaceMembersRepository, shareCommentsRepository, noteVersionsRepository } from "../repositories";
 import { logAudit } from "../services/audit";
+import { AIMemoryError, assertAIMemoryOwnershipTransferAllowed } from "../services/aiMemoryService";
 
 const users = new Hono();
 
@@ -510,6 +511,39 @@ users.get("/:id/data-summary", requireAdmin, (c) => {
   });
 });
 
+// 删除用户并转移数据时在事务内暂停的结构守卫，原因见下方 transferAndDeleteUser 的说明。
+const TRANSFER_SUSPENDED_TREE_GUARDS = [
+  "notebooks_parent_guard_update",
+  "notebooks_scope_guard_update",
+  "knowledge_tree_parent_scope_guard_update",
+] as const;
+
+function suspendTreeGuards(db: import("better-sqlite3").Database): Array<{ sql: string }> {
+  const placeholders = TRANSFER_SUSPENDED_TREE_GUARDS.map(() => "?").join(",");
+  const saved = db
+    .prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${placeholders})`)
+    .all(...TRANSFER_SUSPENDED_TREE_GUARDS) as Array<{ name: string; sql: string }>;
+  for (const { name } of saved) db.exec(`DROP TRIGGER "${name}"`);
+  return saved;
+}
+
+/** 守卫暂停期间由这里兜底：接收方名下不得出现跨所有者的父子关系。 */
+function assertTransferredTreeConsistent(db: import("better-sqlite3").Database, toId: string): void {
+  const { mismatches } = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM notebooks child JOIN notebooks parent ON parent.id = child.parentId
+        WHERE child.workspaceId IS NULL AND parent.workspaceId IS NULL
+          AND child.userId <> parent.userId AND ? IN (child.userId, parent.userId))
+      + (SELECT COUNT(*) FROM notes note JOIN notebooks notebook ON notebook.id = note.notebookId
+        WHERE note.workspaceId IS NULL AND notebook.workspaceId IS NULL
+          AND note.userId <> notebook.userId AND ? IN (note.userId, notebook.userId))
+      + (SELECT COUNT(*) FROM knowledge_tree_nodes child JOIN knowledge_tree_nodes parent ON parent.id = child.parentId
+        WHERE child.scopeKey <> parent.scopeKey AND 'personal:' || ? IN (child.scopeKey, parent.scopeKey))
+      AS mismatches
+  `).get(toId, toId, toId) as { mismatches: number };
+  if (mismatches > 0) throw new Error("USER_TRANSFER_SCOPE_MISMATCH");
+}
+
 /**
  * L3：把被删用户的全部数据所有权迁移到另一个用户，再删除原账号。
  *
@@ -521,15 +555,28 @@ users.get("/:id/data-summary", requireAdmin, (c) => {
  *    DELETE /api/users/:id  body:{transferTo}      — 同上，兼容 body 方式（某些客户端 DELETE 不便带 query）
  *
  * 迁移覆盖表：
- *    notebooks.userId, notes.userId, tags.userId*, tasks.userId, diaries.userId,
+ *    notebooks.userId, notes.userId***, tags.userId*, tasks.userId, diaries.userId,
  *    shares.ownerId, note_versions.userId, share_comments.userId, attachments.userId,
  *    workspaces.ownerId, workspace_members.userId**, workspace_invites.createdBy,
- *    note_acl.userId**, note_yupdates.userId
+ *    note_acl.userId**, note_yupdates.userId,
+ *    knowledge_tree_nodes.userId/scopeKey, diary_attachments.userId, task_attachments.userId,
+ *    task_reminders.userId, task_projects.userId, task_labels.userId/scopeKey*,
+ *    task_recurrence_state.scopeKey, mindmaps.userId, mindmap_folders.userId, sheets.userId,
+ *    note_templates.createdBy, notebook_share_links.createdBy, workspace_journals.createdBy
  *
  *    *  tags 存在 UNIQUE(userId,name) 约束：对接收方已存在同名标签时，需要重写 note_tags
- *       的 tagId 指向后再丢弃旧 tag 行，避免 UNIQUE 冲突。
+ *       的 tagId 指向后再丢弃旧 tag 行，避免 UNIQUE 冲突。task_labels 的
+ *       UNIQUE(scopeKey,normalizedName) 同理合并到接收方的同名标签。
  *    ** workspace_members 与 note_acl 的主键含 userId：若接收方已是同一工作区/笔记的成员，
  *       直接改写主键会 UNIQUE 冲突，需保留接收方那一行，删除原用户那一行。
+ *    *** notes 存在 UNIQUE(userId,note_type,journal_date)：同一天两人都有个人日记时，保留
+ *       接收方的日记，被转移的那篇改为普通笔记（标题、内容不变）。
+ *
+ * 不转移（随账号删除）：登录会话、API 令牌、偏好与 AI 设置、AI 对话与提示词、习惯打卡、
+ * 通知、插件/助手配置等账号级或个人数据。
+ *
+ * 笔记本 / 知识树的结构守卫按单行校验父子作用域，整批改写归属时父子总有先后，无论先改
+ * 谁都会被拦；因此在本事务内暂时移除这些守卫，迁移后复核一致性再按原 SQL 重建。
  */
 function transferAndDeleteUser(
   db: import("better-sqlite3").Database,
@@ -544,6 +591,11 @@ function transferAndDeleteUser(
   };
 
   const tx = db.transaction(() => {
+    // Do not let the existing user CASCADE silently discard authoritative AI archives.
+    assertAIMemoryOwnershipTransferAllowed(db, fromId);
+    // --- 0) 暂停笔记本 / 知识树结构守卫（DDL 随事务回滚，失败时守卫自动恢复） ---
+    const suspendedGuards = suspendTreeGuards(db);
+
     // --- 1) tags：先处理重名冲突，避免 UNIQUE(userId,name) ---
     // 把 fromId 的 tag 若在 toId 下已同名存在，先把 note_tags 的 tagId 指到 toId 的 tag，再删原 tag。
     const conflictTags = db
@@ -587,6 +639,18 @@ function transferAndDeleteUser(
     }
     moved.noteAcl = noteAclRepository.transferOwnership(fromId, toId);
 
+    // --- 3b) 个人日记 UNIQUE(userId,note_type,journal_date)：同一天两人都有日记时，
+    //         保留接收方的日记，被转移的那篇改为普通笔记，标题和内容不变 ---
+    moved.journalsKeptAsNotes = run(
+      `UPDATE notes SET note_type = 'normal', journal_date = NULL
+        WHERE userId = ? AND note_type = 'journal' AND journal_date IN (
+          SELECT journal_date FROM notes
+           WHERE userId = ? AND note_type = 'journal' AND journal_date IS NOT NULL
+        )`,
+      fromId,
+      toId,
+    );
+
     // --- 4) 其他表的简单 ownership 迁移 ---
     moved.notebooks = run("UPDATE notebooks SET userId = ? WHERE userId = ?", toId, fromId);
     moved.notes = run("UPDATE notes SET userId = ? WHERE userId = ?", toId, fromId);
@@ -608,6 +672,72 @@ function transferAndDeleteUser(
     moved.workspaceInvites = workspaceInvitesRepository.transferOwnership(fromId, toId);
     // note_yupdates.userId 没有 FK 但仍是 ownership 标记
     moved.noteYUpdates = noteYupdatesRepository.transferOwnership(fromId, toId);
+
+    // --- 4b) 挂在已转移内容上的数据：不迁移就会被删除原用户时的 CASCADE 一并删掉 ---
+    // 知识树节点：个人节点的作用域随所有者变成接收方；工作区节点只改创建者。
+    moved.knowledgeTreeNodes = run(
+      `UPDATE knowledge_tree_nodes
+          SET userId = ?, scopeKey = CASE WHEN workspaceId IS NULL THEN 'personal:' || ? ELSE scopeKey END
+        WHERE userId = ?`,
+      toId,
+      toId,
+      fromId,
+    );
+    moved.diaryAttachments = run("UPDATE diary_attachments SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.taskAttachments = run("UPDATE task_attachments SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.taskReminders = run("UPDATE task_reminders SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.taskProjects = run("UPDATE task_projects SET userId = ? WHERE userId = ?", toId, fromId);
+    // 任务标签：个人标签 UNIQUE(scopeKey,normalizedName)，接收方已有同名标签时合并过去。
+    const labelConflicts = db
+      .prepare(
+        `SELECT a.id AS fromLabelId, b.id AS toLabelId
+           FROM task_labels a
+           JOIN task_labels b ON b.scopeKey = 'personal:' || ? AND b.normalizedName = a.normalizedName
+          WHERE a.scopeKey = 'personal:' || ?`,
+      )
+      .all(toId, fromId) as { fromLabelId: string; toLabelId: string }[];
+    for (const { fromLabelId, toLabelId } of labelConflicts) {
+      run(
+        `INSERT OR IGNORE INTO task_label_links (taskId, labelId, createdAt)
+         SELECT taskId, ?, createdAt FROM task_label_links WHERE labelId = ?`,
+        toLabelId,
+        fromLabelId,
+      );
+      run("DELETE FROM task_labels WHERE id = ?", fromLabelId);
+    }
+    moved.taskLabels = run(
+      `UPDATE task_labels
+          SET userId = ?, scopeKey = CASE WHEN workspaceId IS NULL THEN 'personal:' || ? ELSE scopeKey END
+        WHERE userId = ?`,
+      toId,
+      toId,
+      fromId,
+    );
+    moved.taskLabelsMerged = labelConflicts.length;
+    // 重复任务的停止/整组删除标记按个人作用域保存，不跟着改会让已停止的系列重新生成。
+    moved.taskRecurrenceStates = run(
+      "UPDATE task_recurrence_state SET scopeKey = 'personal:' || ? WHERE scopeKey = 'personal:' || ?",
+      toId,
+      fromId,
+    );
+    moved.mindmapFolders = run("UPDATE mindmap_folders SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.mindmaps = run("UPDATE mindmaps SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.sheets = run("UPDATE sheets SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.noteTemplates = run("UPDATE note_templates SET createdBy = ? WHERE createdBy = ?", toId, fromId);
+    moved.notebookShareLinks = run(
+      "UPDATE notebook_share_links SET createdBy = ? WHERE createdBy = ?",
+      toId,
+      fromId,
+    );
+    // workspace_journals.createdBy 是 ON DELETE RESTRICT：不改写会让删除原用户直接失败。
+    moved.workspaceJournals = run(
+      "UPDATE workspace_journals SET createdBy = ? WHERE createdBy = ?",
+      toId,
+      fromId,
+    );
+
+    assertTransferredTreeConsistent(db, toId);
+    for (const { sql } of suspendedGuards) db.exec(sql);
 
     // --- 5) 最后删除原用户（此时 ON DELETE CASCADE 链上已无残留数据） ---
     run("DELETE FROM users WHERE id = ?", fromId);
@@ -683,8 +813,11 @@ users.delete("/:id", requireAdmin, async (c) => {
   let moved: Record<string, number> | undefined;
   if (receiver) {
     // L3 分支：先迁移再删除，全部在单个事务中完成，不会出现半迁移半删除的中间态。
-    const r = transferAndDeleteUser(db, targetId, receiver.id);
-    moved = r.moved;
+    try { moved = transferAndDeleteUser(db, targetId, receiver.id).moved; }
+    catch (error) {
+      if (error instanceof AIMemoryError) return c.json({ code: error.code, error: error.message }, error.status as never);
+      throw error;
+    }
   } else {
     // 原有路径：直接 DELETE，users 表的 ON DELETE CASCADE 连带清理 notebooks/notes/...
     db.prepare("DELETE FROM users WHERE id = ?").run(targetId);

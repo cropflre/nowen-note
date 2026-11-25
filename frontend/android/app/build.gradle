@@ -14,8 +14,8 @@ android {
         applicationId "com.nowen.note"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10511
-        versionName "1.5.5"
+        versionCode 10601
+        versionName "1.6.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -31,6 +31,12 @@ android {
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
             }
+        }
+    }
+    packaging {
+        resources {
+            // 热更新插件带来的 okhttp-brotli 与 jspecify 各有一份 Java 9 OSGi 元数据，同名冲突；安卓用不到。
+            excludes += ["META-INF/versions/9/OSGI-INF/MANIFEST.MF"]
         }
     }
     buildTypes {

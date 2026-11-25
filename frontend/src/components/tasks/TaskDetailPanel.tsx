@@ -1,5 +1,7 @@
 import { readAiProvenance } from "@/lib/aiContentProvenance";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { TaskSaveNoteDialog } from "./TaskSaveNoteDialog";
+import PluginInspector from "../PluginInspector";
 import TaskAttachmentSection from "./TaskAttachmentSection";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -182,6 +184,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   onDeleteDependency?: (id: string) => Promise<void>;
 }>(({ task, treeNode, allTasks, onClose, onUpdate, onDelete, onArchive, onToggle, onSelectTask, onCreated, onReminderCountChange, dependencies = [], onCreateDependency, onDeleteDependency }, ref) => {
   const { t, i18n } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const lang = i18n.resolvedLanguage || i18n.language;
   const isZh = lang.toLowerCase().startsWith("zh");
   const dateLocale = isZh ? zhCN : enUS;
@@ -499,6 +502,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-app-border" style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}>
         <span className="text-sm font-semibold text-tx-primary">{t("tasks.taskDetail")}</span>
+        <PluginInspector resource={{ type: "task", id: task.id }} workspaceId={task.workspaceId} />
         <button onClick={onClose} className="p-1 rounded-md hover:bg-app-hover transition-colors">
           <X size={16} className="text-tx-secondary" />
         </button>
@@ -832,7 +836,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         )}
 
         {/* AI Breakdown */}
-        <TaskAIBreakdown task={task} onCreated={() => onCreated?.()} />
+        {aiAvailable && <TaskAIBreakdown task={task} onCreated={() => onCreated?.()} />}
 
         {/* Save as Template */}
         <TaskTemplateEditor task={task} allTasks={allTasks} onSaved={() => {}} />

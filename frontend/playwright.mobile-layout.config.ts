@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(mobile-layout|ai-collaboration)\.spec\.ts/,
+  testMatch: /(mobile-layout|mobile-sidebar-search|ai-collaboration)\.spec\.ts/,
   workers: 1,
   timeout: 45_000,
   outputDir: "node_modules/.cache/mobile-layout-results",

@@ -1,12 +1,12 @@
 import { readAiProvenance } from "./aiContentProvenance";
-﻿import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
+import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
 import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
 import type { EncryptionConversionPreflight } from "./encryptedNotes/conversionPreflight";
 import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
@@ -51,6 +51,7 @@ import {
   buildServerPathCandidates as _buildServerPathCandidates,
   cacheResolvedServerConnection as _cacheResolvedServerConnection,
   clearResolvedServerConnection as _clearResolvedServerConnection,
+  getConfiguredApiBaseUrl as _getConfiguredApiBaseUrl,
   getResolvedApiBaseUrl as _getResolvedApiBaseUrl,
   inferBrowserServerBaseUrl as _inferBrowserServerBaseUrl,
   isNativeClientRuntime,
@@ -1287,7 +1288,20 @@ async function requireTaskSeriesSupport(): Promise<void> {
   if (capabilities.taskRecurrenceLifecycle !== "v1") throw Object.assign(new Error("TASK_RECURRENCE_UNSUPPORTED"),{code:"TASK_RECURRENCE_UNSUPPORTED"});
 }
 
+export interface EmbeddedMcpStatus {
+  available: boolean;
+  canManage: boolean;
+  enabled: boolean;
+  allowWrite: boolean;
+  publicUrl: string;
+}
+
 export const api = {
+  mcp: {
+    status: () => request<EmbeddedMcpStatus>("/mcp", { _skipOfflineQueue: true }),
+    configure: (input: Pick<EmbeddedMcpStatus, "enabled" | "allowWrite" | "publicUrl">) =>
+      request<EmbeddedMcpStatus>("/mcp", { method: "PUT", body: JSON.stringify(input), _skipOfflineQueue: true }),
+  },
   agentLibrary: {
     request: <T>(workspaceId: string, path: string, method = "GET", body?: unknown) => request<T>(`/agent/library${path}?workspaceId=${encodeURIComponent(workspaceId)}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), _skipOfflineQueue: true }),
   },
@@ -1329,6 +1343,8 @@ export const api = {
     // 功能开关（字符串 "true"/"false"，未写过时 DEFAULTS 保证为 "true"）
     feature_personal_export_enabled?: string;
     feature_personal_import_enabled?: string;
+    // AI 对话归档的实例级开关；服务端未返回（旧版本）时视为关闭。
+    feature_ai_memory_enabled?: string;
   }> => {
     const res = await fetch(`${getBaseUrl()}/settings`, { cache: "no-store" });
     if (!res.ok)
@@ -1426,6 +1442,22 @@ export const api = {
     }
   },
 
+
+  // Only returns R2 URLs if the server verified all ten manifest entries against
+  // the current official GitHub release, including exact filename and size.
+  getLatestReleaseMirror: async (): Promise<
+    | { available: true; tag: string; assets: Array<{ name: string; size: number; downloadUrl: string }> }
+    | { available: false; tag: string }
+  > => {
+    try {
+      const res = await fetch(`${getBaseUrl()}/releases/latest/mirror`);
+      if (!res.ok) return { available: false, tag: "" };
+      return res.json();
+    } catch {
+      return { available: false, tag: "" };
+    }
+  },
+
   // User
   getMe: () => request<User>("/me"),
   claimOnboardingWelcome: () => request<{ noteId: string | null }>("/onboarding/welcome", {
@@ -1446,6 +1478,8 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
+    codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1462,6 +1496,8 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
+    codeBlockWordWrap?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1476,6 +1512,8 @@ export const api = {
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
     showNoteListDividers?: boolean;
+    showTemplateManagement?: boolean;
+    codeBlockWordWrap?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
@@ -2801,6 +2839,7 @@ export const api = {
       // 调试开关："true" / "false"。仅管理员可写，未写过时为 "false"。
       debug_files_query?: string;
       web_ui_enabled?: string;
+      feature_ai_memory_enabled?: string;
     }>("/settings"),
   updateSiteSettings: (data: {
     site_title?: string;
@@ -2819,6 +2858,8 @@ export const api = {
     // 同上：后端归一化为 "true"/"false"
     debug_files_query?: boolean | string;
     web_ui_enabled?: boolean | string;
+    // 仅管理员可写；必须是布尔值或 "true"/"false"
+    feature_ai_memory_enabled?: boolean | string;
   }) =>
     request<{
       site_title: string;
@@ -2837,6 +2878,7 @@ export const api = {
       feature_personal_import_enabled?: string;
       debug_files_query?: string;
       web_ui_enabled?: string;
+      feature_ai_memory_enabled?: string;
     }>("/settings", {
       method: "PUT",
       body: JSON.stringify(data),
@@ -3124,7 +3166,7 @@ export const api = {
   //   - <uuid>            → 指定工作区（要求成员身份 + diaries 功能开关未关闭）
   // 在工作区中：发布权限按"是否成员 + 功能开关"，删除权限按 canManageResource
   //   （创建者本人 / admin / owner）。
-  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string }) => {
+  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; attachments?: DiaryAttachmentItem[]; createdAt?: string }) => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Diary>(`/diary${qs}`, { method: "POST", body: JSON.stringify(data) });
@@ -3157,7 +3199,7 @@ export const api = {
    */
   updateDiary: (
     id: string,
-    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string },
+    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; attachments?: DiaryAttachmentItem[]; createdAt?: string },
   ) =>
     request<Diary>(`/diary/${id}`, {
       method: "PUT",
@@ -3370,13 +3412,16 @@ export const api = {
   // 说说图片：上传 / 删除悬空 / 拼 URL。
   // 上传时机：用户选好图就立即上传（不是发布时再传），体验上能即时看到缩略图、
   // 失败也能立即提示。返回的 id 在用户点"发布"时一并提交给 postDiary({ images })。
+  // kind: "file" 上传任意文件附件（Issue #928），发布时走 postDiary({ attachments })。
   diaryImages: {
     upload: async (
       file: File,
-    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename?: string; type: "image" | "video" }> => {
+      options: { kind?: "file" } = {},
+    ): Promise<{ id: string; url: string; mimeType: string; size: number; filename?: string; type: "image" | "video" | "file" }> => {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
+      if (options.kind === "file") form.append("kind", "file");
       // Y2: 上传时即记录目标工作区，发布时再 attach 一致。
       const ws = getCurrentWorkspace();
       const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
@@ -3387,7 +3432,10 @@ export const api = {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `图片上传失败: ${res.status}`);
+        throw Object.assign(
+          new Error(err.error || `${options.kind === "file" ? "附件" : "图片"}上传失败: ${res.status}`),
+          { status: res.status },
+        );
       }
       return res.json();
     },
@@ -5324,6 +5372,39 @@ export async function testServerConnection(serverUrl: string): Promise<ServerPro
     apiOk: true,
     websocketOk,
   };
+}
+
+/**
+ * 登录请求在当前 API 路径拿到非 Nowen 响应（404、代理页面等）时使用：
+ * 在同一入口下用无凭据的健康检查找可用的兼容路径，找到后缓存。
+ */
+export async function discoverNowenApiPath(serverUrl: string, skipApiBaseUrl?: string): Promise<ServerPathCandidate | null> {
+  for (const candidate of _buildServerPathCandidates(_normalizeBase(serverUrl))) {
+    if (candidate.apiBaseUrl === skipApiBaseUrl) continue;
+    if ((await probeHealthCandidate(candidate)).ok) {
+      _cacheResolvedServerConnection(candidate);
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * 登录成功后在后台确认 WebSocket 路径，不阻塞进入工作台。
+ * 找到可用路径时更新缓存，实时连接下次重连即使用；找不到时由实时连接状态提示离线。
+ */
+export async function resolveWebSocketPathAfterLogin(serverUrl: string): Promise<boolean> {
+  const candidates = _buildServerPathCandidates(_normalizeBase(serverUrl));
+  const apiBaseUrl = _getConfiguredApiBaseUrl(serverUrl);
+  const api = candidates.find((candidate) => candidate.apiBaseUrl === apiBaseUrl);
+  if (!api) return false;
+  for (const candidate of [api, ...candidates.filter((item) => item !== api)]) {
+    if (await probeWebSocketCandidate(candidate.websocketUrl)) {
+      _cacheResolvedServerConnection({ ...api, websocketUrl: candidate.websocketUrl, websocketPath: candidate.websocketPath });
+      return true;
+    }
+  }
+  return false;
 }
 
 /** 诊断结果 */

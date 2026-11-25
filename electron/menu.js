@@ -265,7 +265,7 @@ function buildMenu({
         },
         {
           label: "聚焦笔记列表",
-          accelerator: "CmdOrCtrl+L",
+          // 不设快捷键：Ctrl/Cmd+L 是编辑器的左对齐（Issue #915），菜单加速键可能先于页面拿到按键。
           click: () => send("menu:focus-note-list"),
         },
         { type: "separator" },

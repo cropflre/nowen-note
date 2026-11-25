@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
-import { callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
+import { AI_SHORT_TASK_MAX_TOKENS, callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
 import { chatModelTypeError, nonChatModelKind } from "../services/ai-model-kind";
 import {
   getUserAISetting,
@@ -171,13 +171,16 @@ function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = tru
 }
 
 function legacyProfile(userId: string): AIProfile {
+  const enabled = isManualAIEnabled(userId);
+  const readSetting = (key: string) => (enabled ? "" : getUserAISetting(userId, `ai_disabled_backup_${key}`))
+    || getUserAISetting(userId, key);
   return normalizeProfile({
     name: "默认配置",
-    provider: getUserAISetting(userId, "ai_provider") || "openai",
-    apiUrl: getUserAISetting(userId, "ai_api_url") || "https://api.openai.com/v1",
-    apiKey: getUserAISetting(userId, "ai_api_key"),
-    customHeaders: normalizeAIHeaders(getUserAISetting(userId, "ai_custom_headers")),
-    model: getUserAISetting(userId, "ai_model") || "gpt-4o-mini",
+    provider: readSetting("ai_provider") || "openai",
+    apiUrl: readSetting("ai_api_url") || "https://api.openai.com/v1",
+    apiKey: readSetting("ai_api_key"),
+    customHeaders: normalizeAIHeaders(readSetting("ai_custom_headers")),
+    model: readSetting("ai_model") || "gpt-4o-mini",
   });
 }
 
@@ -216,18 +219,19 @@ function syncEffectiveAISettings(userId: string, profile: AIProfile): void {
   ]);
 }
 
-export function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
+export function ensureAIProfiles(userId: string, initialize = true): { profiles: AIProfile[]; activeProfileId: string } {
   let profiles = parseStoredProfiles(userId);
   let activeProfileId = getUserAISetting(userId, AI_ACTIVE_PROFILE_KEY);
   if (profiles.length === 0) {
-    const initial = legacyProfile(userId);
+    const legacy = legacyProfile(userId);
+    const initial = initialize ? legacy : { ...legacy, id: "legacy-default", createdAt: "", updatedAt: "" };
     profiles = [initial];
     activeProfileId = initial.id;
-    saveAIProfiles(userId, profiles, activeProfileId);
+    if (initialize) saveAIProfiles(userId, profiles, activeProfileId);
   }
   if (!profiles.some((profile) => profile.id === activeProfileId)) {
     activeProfileId = profiles[0].id;
-    saveAIProfiles(userId, profiles, activeProfileId);
+    if (initialize) saveAIProfiles(userId, profiles, activeProfileId);
   }
   return { profiles, activeProfileId };
 }
@@ -444,7 +448,7 @@ async function testAIProfile(c: any, userId: string, profile: AIProfile) {
 
   try {
     const text = await callAIChat(profileAISettings(profile), [{ role: "user", content: "Hi" }], {
-      max_tokens: 10,
+      max_tokens: AI_SHORT_TASK_MAX_TOKENS,
       timeout_ms: 15_000,
     });
     const runtimeEnabled = isManualAIEnabled(userId);

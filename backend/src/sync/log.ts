@@ -26,6 +26,18 @@ export interface SyncLogFields {
   entityId?: string;
   /** 仅允许布尔/数字型状态标记，禁止塞入自由文本。 */
   state?: string;
+  // ---- 失败诊断（见 diagnostics.ts）：取值都是固定枚举或已脱敏的标识 ----
+  /** 失败所在的流程阶段。 */
+  stage?: string;
+  /** 阶段内的具体步骤。 */
+  step?: string;
+  /** 经白名单清洗的原因标记（触发器 RAISE 标记或约束类别）。 */
+  reason?: string;
+  sqliteCode?: string;
+  /** 必须是 redactEntityId 的输出，不得传原始 ID。 */
+  parentId?: string;
+  parentState?: string;
+  retryable?: boolean;
 }
 
 const ALLOWED_FIELDS: readonly (keyof SyncLogFields)[] = [
@@ -43,6 +55,13 @@ const ALLOWED_FIELDS: readonly (keyof SyncLogFields)[] = [
   "entityType",
   "entityId",
   "state",
+  "stage",
+  "step",
+  "reason",
+  "sqliteCode",
+  "parentId",
+  "parentState",
+  "retryable",
 ];
 
 /**

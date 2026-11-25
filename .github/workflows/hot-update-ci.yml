@@ -1,0 +1,72 @@
+name: Hot Update Pipeline CI
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "hot-update/**"
+      - "scripts/hot-update/**"
+      - "scripts/tests/hot-update-*.test.mjs"
+      - "scripts/tests/hot-update-*.test.cjs"
+      - "electron/hot-update/**"
+      - "electron/main-bootstrap.js"
+      - "electron/db-backup.js"
+      - "electron/updater.js"
+      - "electron/main.js"
+      - "electron/__tests__/hotUpdateRuntime.test.mjs"
+      - "electron/__tests__/hotUpdateDatabaseGuard.test.js"
+      - "scripts/lib/release-cloud-contract.mjs"
+      - "scripts/release-cloud-ci.mjs"
+      - "backend/build.bundle.mjs"
+      - "frontend/android/capacitor.settings.gradle"
+      - ".github/workflows/release-build.yml"
+      - ".github/workflows/release-publish.yml"
+      - ".github/workflows/sync-r2-hot-update.yml"
+      - ".github/workflows/release-center-candidate.yml"
+      - ".github/workflows/hot-update-ci.yml"
+  pull_request:
+    paths:
+      - "hot-update/**"
+      - "scripts/hot-update/**"
+      - "scripts/tests/hot-update-*.test.mjs"
+      - "scripts/tests/hot-update-*.test.cjs"
+      - "electron/hot-update/**"
+      - "electron/main-bootstrap.js"
+      - "electron/db-backup.js"
+      - "electron/updater.js"
+      - "electron/main.js"
+      - "electron/__tests__/hotUpdateRuntime.test.mjs"
+      - "electron/__tests__/hotUpdateDatabaseGuard.test.js"
+      - "scripts/lib/release-cloud-contract.mjs"
+      - "scripts/release-cloud-ci.mjs"
+      - "backend/build.bundle.mjs"
+      - "frontend/android/capacitor.settings.gradle"
+      - ".github/workflows/release-build.yml"
+      - ".github/workflows/release-publish.yml"
+      - ".github/workflows/sync-r2-hot-update.yml"
+      - ".github/workflows/release-center-candidate.yml"
+      - ".github/workflows/hot-update-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hot-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # 临时密钥跑完整的 打包 → 签名 → 校验 → 渠道地址 流程，不接触任何正式 Secret。
+      - run: npm run test:hot-update
+      - name: Print this commit's shell fingerprints
+        run: node scripts/hot-update/runtime-fingerprint.mjs

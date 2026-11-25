@@ -82,12 +82,13 @@ test("full inventory rejects a missing platform and unrelated stale assets", () 
   const require = createRequire(import.meta.url);
   const { requiredMacReleaseAssets, requiredDebugReleaseAssets } = require("../lib/release-platform-assets.cjs");
   const names = [...requiredMacReleaseAssets("1.5.3"), ...requiredDebugReleaseAssets("linux", "1.5.3"),
-    ...["Nowen-Note", "Nowen-Note-Lite"].flatMap(prefix => [`${prefix}-1.5.3-setup.exe`, `${prefix}-1.5.3-portable.exe`, `${prefix}-1.5.3-setup.exe.blockmap`]),
-    "latest.yml", "latest-lite.yml", "Nowen-Note-1.5.3.apk"];
+    "Nowen-Note-1.5.3-setup.exe", "Nowen-Note-1.5.3-portable.exe", "Nowen-Note-1.5.3-setup.exe.blockmap",
+    "latest.yml", "Nowen-Note-1.5.3.apk"];
   const assets = names.map(name => ({ name }));
   assertFullInventory(assets, source, ["Nowen-Note-1.5.3.apk"]);
   assert.throws(() => assertFullInventory(assets.slice(1), source, ["Nowen-Note-1.5.3.apk"]));
   assert.throws(() => assertFullInventory([...assets, { name: "old.apk" }], source, ["Nowen-Note-1.5.3.apk"]));
+  assert.throws(() => assertFullInventory([...assets, { name: "latest-lite.yml" }], source, ["Nowen-Note-1.5.3.apk"]), /unexpected Release asset: latest-lite\.yml/);
 });
 
 test("supplemental packages cannot change while desktop collection is running", () => {
@@ -149,7 +150,7 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.equal(workflow.jobs.docker.needs, "verify");
   assert.equal(workflow.jobs.docker.environment, "release-docker");
   assert.ok(workflow.jobs.verify.steps.some(step => step.run === "node scripts/release-cloud-ci.mjs verify"));
-  assert.deepEqual(workflow.jobs.gitee.needs, ["verify", "github"]);
+  assert.deepEqual(workflow.jobs.gitee.needs, ["verify", "github", "r2-downloads"]);
   assert.equal(workflow.jobs.gitee.uses, "./.github/workflows/sync-gitee-release.yml");
   assert.equal(workflow.jobs.gitee.with.tag, "v${{ inputs.version }}");
   for (const job of Object.values(workflow.jobs)) {
@@ -166,4 +167,31 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.match(giteeReleaseStep.run, /for attempt in 1 2 3 4/);
   assert.match(giteeReleaseStep.run, /--http1\.1/);
   assert.match(giteeReleaseStep.run, /recovered existing release after ambiguous POST/);
+  const giteeUpload = gitee.jobs.sync.steps.find(step => step.name === "Upload assets to Gitee");
+  assert.ok(giteeUpload);
+  assert.match(giteeUpload.run, /if http=\$\(curl/);
+  assert.match(giteeUpload.run, /--max-time 180/);
+  assert.match(giteeUpload.run, /--speed-limit 10240/);
+  assert.match(giteeUpload.run, /if ! attachments=\$\(list_attachments\)/);
+  assert.match(giteeUpload.run, /recovered completed upload/);
+  // Gitee's cross-border asset endpoint is unreliable: metadata + official links
+  // must succeed independently; native upload requires an explicit opt-in.
+  assert.deepEqual(gitee.on.push.branches, ["main"]);
+  assert.deepEqual(gitee.on.push.paths, [".github/workflows/sync-gitee-release.yml"]);
+  assert.match(gitee.jobs.sync.if, /github.event_name == 'push'/);
+  assert.equal(gitee.on.workflow_dispatch.inputs.sync_assets.default, false);
+  assert.equal(gitee.on.workflow_call.inputs.sync_assets.default, false);
+  const downloadStep = gitee.jobs.sync.steps.find(step => step.name === "Download release assets from GitHub");
+  const filterStep = gitee.jobs.sync.steps.find(step => step.name?.startsWith("Filter assets by size"));
+  assert.match(downloadStep.if, /inputs\.sync_assets == true/);
+  assert.match(filterStep.if, /inputs\.sync_assets == true/);
+  assert.match(giteeUpload.if, /inputs\.sync_assets == true/);
+  const metadataStep = gitee.jobs.sync.steps.find(step => step.name === "Sync official release notes and download links");
+  assert.ok(metadataStep);
+  assert.match(metadataStep.run, /gh api/);
+  assert.match(metadataStep.run, /release-r2-links\.mjs/);
+  assert.match(metadataStep.run, /download\.nowen\.cn/);
+  assert.match(metadataStep.run, /mirror_file/);
+  assert.match(metadataStep.run, /-X PATCH/);
+  assert.match(metadataStep.run, /status=success/);
 });

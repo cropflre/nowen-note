@@ -293,7 +293,7 @@ export function installMobileLocalModuleBridge(
     if (range?.to) rows = rows.filter((row) => String(row.createdAt) <= `${range.to}T23:59:59.999Z`);
     if (range?.mood) rows = rows.filter((row) => row.mood === range.mood);
     if (range?.q) rows = rows.filter((row) => String(row.contentText).toLowerCase().includes(range.q!.toLowerCase()));
-    const items = rows.slice(0,limit).map((row) => ({ ...row,images:parseArray<string>(row.images),media:parseArray(row.media) })) as unknown as Diary[];
+    const items = rows.slice(0,limit).map((row) => ({ ...row,images:parseArray<string>(row.images),media:parseArray(row.media),attachments:parseArray(row.attachments) })) as unknown as Diary[];
     return { items,hasMore:rows.length > items.length,nextCursor:null };
   };
   target.getDiaryStats = async (): Promise<DiaryStats> => {
@@ -301,18 +301,18 @@ export function installMobileLocalModuleBridge(
     const today = dateKey(now());return {total:rows.length,todayCount:rows.filter((row) => dateKey(row.createdAt) === today).length};
   };
   target.postDiary = async (data: Partial<Diary>): Promise<Diary> => {
-    const diary: Diary = { id:newLocalId(),userId,workspaceId:null,contentText:data.contentText || "",mood:data.mood || "",images:data.images || [],media:data.media || [],createdAt:data.createdAt || now() };
-    await db.run("INSERT INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,createdAt) VALUES (?,'personal',NULL,?,?,?,?,?,?)",[
-      diary.id,userId,diary.contentText,diary.mood,JSON.stringify(diary.images),JSON.stringify(diary.media),diary.createdAt,
+    const diary: Diary = { id:newLocalId(),userId,workspaceId:null,contentText:data.contentText || "",mood:data.mood || "",images:data.images || [],media:data.media || [],attachments:data.attachments || [],createdAt:data.createdAt || now() };
+    await db.run("INSERT INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,attachments,createdAt) VALUES (?,'personal',NULL,?,?,?,?,?,?,?)",[
+      diary.id,userId,diary.contentText,diary.mood,JSON.stringify(diary.images),JSON.stringify(diary.media),JSON.stringify(diary.attachments),diary.createdAt,
     ]);
     await enqueue("diary",diary.id,"upsert",diary as unknown as Record<string, unknown>);return diary;
   };
   target.updateDiary = async (id: string, patch: Partial<Diary>): Promise<Diary> => {
     const row = (await db.query<Record<string, unknown>>("SELECT * FROM diaries WHERE id=?",[id]))[0];
     if (!row) throw new Error("记录不存在");
-    const diary = { ...row,...patch,id,userId,workspaceId:null,images:patch.images || parseArray(row.images),media:patch.media || parseArray(row.media) } as unknown as Diary;
-    await db.run("UPDATE diaries SET contentText=?,mood=?,images=?,media=?,createdAt=? WHERE id=?",[
-      diary.contentText,diary.mood,JSON.stringify(diary.images),JSON.stringify(diary.media),diary.createdAt,id,
+    const diary = { ...row,...patch,id,userId,workspaceId:null,images:patch.images || parseArray(row.images),media:patch.media || parseArray(row.media),attachments:patch.attachments || parseArray(row.attachments) } as unknown as Diary;
+    await db.run("UPDATE diaries SET contentText=?,mood=?,images=?,media=?,attachments=?,createdAt=? WHERE id=?",[
+      diary.contentText,diary.mood,JSON.stringify(diary.images),JSON.stringify(diary.media),JSON.stringify(diary.attachments),diary.createdAt,id,
     ]);
     await enqueue("diary",id,"upsert",diary as unknown as Record<string, unknown>);return diary;
   };

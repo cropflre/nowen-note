@@ -190,6 +190,21 @@ describe("mobile knowledge tree navigation", () => {
     ]);
   });
 
+  it("keeps unmatched child folders and documents below a matching document without unrelated branches", () => {
+    const rows = [
+      node("root", "来料加工资料", { sortOrder: 1 }),
+      node("product", "CM3342 V1.1", { parentId: "root", nodeType: "note", resourceType: "note", sortOrder: 2 }),
+      node("folder", "261111-011", { parentId: "product", sortOrder: 3 }),
+      node("child", "产品测试记录", { parentId: "product", nodeType: "markdown", resourceType: "note", sortOrder: 4 }),
+      node("deep", "首件测试", { parentId: "folder", nodeType: "note", resourceType: "note", sortOrder: 5 }),
+      node("unrelated", "CM5842", { parentId: "root", nodeType: "note", resourceType: "note", sortOrder: 6 }),
+      node("deleted", "已删除测试记录", { parentId: "product", isDeleted: 1 }),
+    ];
+    expect(filterMobileKnowledgeTreeNodes(rows, "3342", "manual").map((row) => row.id)).toEqual([
+      "root", "folder", "product", "child", "deep",
+    ]);
+  });
+
   it("supports explicit name sorting without changing the hierarchy", () => {
     const rows = [
       node("note:b", "B", { nodeType: "note", resourceType: "note", parentId: "notebook:root" }),

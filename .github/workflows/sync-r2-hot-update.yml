@@ -1,0 +1,213 @@
+# Mirror verified hot-update bundles to R2 and move the stable channel pointers forward.
+#
+# Required GitHub secrets (same as sync-r2-release.yml):
+#   CLOUDFLARE_ACCOUNT_ID - Cloudflare account id for bucket nowen-releases
+#   CLOUDFLARE_API_TOKEN  - scoped token with R2 bucket item read/write access
+#
+# Layout on https://download.nowen.cn:
+#   hot/<tag>/<asset>                              immutable copies of the GitHub Release hot-update assets
+#   hot/stable/<target>/<runtimeVersion>.json      signed envelope clients poll; only ever moves forward
+name: Publish R2 Hot Update Channel
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable release tag
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Stable release tag that carries hot-update assets (for example v1.6.2)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r2-hot-update
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate stable tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Only stable release tags such as v1.6.2 can publish hot updates"
+            exit 1
+          fi
+
+      # Verify with the tagged source: its scripts, committed public keys and shell fingerprint.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+
+      - name: Download hot-update assets from the published GitHub Release
+        id: assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > release.json
+          jq -e '.draft == false and .prerelease == false' release.json >/dev/null
+          jq -r '.assets[].name | select(test("^nowen-hot-(android|desktop)-"))' release.json > hot-names.txt
+          if [ ! -s hot-names.txt ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "[hot] $TAG has no hot-update assets; nothing to publish"
+            exit 0
+          fi
+          mkdir -p hot-files
+          while IFS= read -r name; do
+            bytes=$(jq -r --arg n "$name" '[.assets[] | select(.name == $n)] | if length == 1 then .[0].size else empty end' release.json)
+            if [ -z "$bytes" ] || [ "$bytes" -le 0 ] || [ "$bytes" -gt 300000000 ]; then
+              echo "::error::Hot-update asset missing or exceeds 300 MB R2 REST limit: $name"
+              exit 1
+            fi
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir hot-files --pattern "$name"
+            if [ "$(stat -c%s "hot-files/$name")" -ne "$bytes" ]; then
+              echo "::error::GitHub release asset size mismatch: $name"
+              exit 1
+            fi
+            digest=$(jq -r --arg n "$name" '.assets[] | select(.name == $n) | (.digest // "")' release.json)
+            if [[ "$digest" == sha256:* ]] && [ "$(sha256sum "hot-files/$name" | cut -d' ' -f1)" != "${digest#sha256:}" ]; then
+              echo "::error::GitHub SHA-256 mismatch: $name"
+              exit 1
+            fi
+          done < hot-names.txt
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify signatures, digests and runtime fingerprints against the tagged source
+        if: steps.assets.outputs.present == 'true'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: node scripts/hot-update/verify.mjs --dir hot-files --version "${TAG#v}" --check-runtime
+
+      - name: Validate Cloudflare credentials
+        if: steps.assets.outputs.present == 'true'
+        env:
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CF_ACCOUNT" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID GitHub Actions secret"
+            exit 1
+          fi
+          if [ -z "$CF_TOKEN" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN GitHub Actions secret (R2 bucket item read/write)"
+            exit 1
+          fi
+
+      - name: Upload bundles, then move channel pointers forward
+        if: steps.assets.outputs.present == 'true'
+        env:
+          TAG: ${{ inputs.tag }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/r2/buckets/nowen-releases"
+          api_list() {
+            curl --http1.1 -fsS --retry 3 --retry-all-errors \
+              --connect-timeout 20 --max-time 60 \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              --get --data-urlencode "prefix=$1" --data-urlencode "per_page=1000" \
+              "$base/objects" > "$2"
+            jq -e '.success == true and (.result|type == "array") and (.result_info.is_truncated != true)' "$2" >/dev/null
+          }
+          api_upload() {
+            local key="$1" path="$2" type="$3" cache="$4"
+            curl --http1.1 -fsS --retry 2 --retry-all-errors --retry-delay 3 \
+              --connect-timeout 20 --max-time 900 \
+              -H "Authorization: Bearer $CF_TOKEN" \
+              -H "Content-Type: $type" -H "Cache-Control: $cache" \
+              -X PUT --data-binary "@$path" \
+              "$base/objects/$key" > upload-result.json
+            jq -e '.success == true' upload-result.json >/dev/null
+          }
+          api_get() {
+            local key="$1" out="$2" status
+            status=$(curl --http1.1 -sS --retry 3 --connect-timeout 20 --max-time 60 \
+              -H "Authorization: Bearer $CF_TOKEN" -o "$out" -w '%{http_code}' "$base/objects/$key")
+            if [ "$status" != "200" ]; then
+              echo "::error::R2 GET $key failed: HTTP $status"
+              exit 1
+            fi
+          }
+
+          # 1) Immutable per-release copies: an existing object must already match exactly.
+          api_list "hot/$TAG/" existing.json
+          while IFS= read -r name; do
+            key="hot/$TAG/$name"
+            path="hot-files/$name"
+            bytes=$(stat -c%s "$path")
+            md5=$(md5sum "$path" | cut -d' ' -f1)
+            remote=$(jq -c --arg key "$key" '[.result[] | select(.key == $key)] | first // empty' existing.json)
+            if [ -n "$remote" ]; then
+              if [ "$(printf '%s' "$remote" | jq -r '.size')" -ne "$bytes" ] || [ "$(printf '%s' "$remote" | jq -r '.etag')" != "$md5" ]; then
+                echo "::error::R2 object differs from immutable GitHub release: $key"
+                exit 1
+              fi
+              echo "[hot] verified existing: $key"
+              continue
+            fi
+            case "$name" in
+              *.zip) type=application/zip ;;
+              *) type=application/json ;;
+            esac
+            api_upload "$key" "$path" "$type" "public, max-age=31536000, immutable"
+            echo "[hot] uploaded: $key ($bytes bytes)"
+          done < hot-names.txt
+          api_list "hot/$TAG/" verified.json
+          while IFS= read -r name; do
+            key="hot/$TAG/$name"
+            md5=$(md5sum "hot-files/$name" | cut -d' ' -f1)
+            jq -e --arg key "$key" --argjson size "$(stat -c%s "hot-files/$name")" --arg md5 "$md5" \
+              'any(.result[]; .key == $key and .size == $size and .etag == $md5)' verified.json >/dev/null || {
+              echo "::error::R2 remote size/ETag mismatch after upload: $key"
+              exit 1
+            }
+          done < hot-names.txt
+
+          # 2) Channel pointers: one atomic PUT of the signed envelope, only when it moves forward.
+          #    Existence comes from the listing, so a failed read can never look like "missing".
+          {
+            echo "## R2 Hot Update Channel — $TAG"
+            echo "| Channel key | Action |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for envelope in hot-files/nowen-hot-*-e*.json; do
+            key=$(node scripts/hot-update/pointer.mjs key --file "$envelope")
+            rm -f current.json
+            api_list "$key" pointer-list.json
+            if jq -e --arg key "$key" 'any(.result[]; .key == $key)' pointer-list.json >/dev/null; then
+              api_get "$key" current.json
+            fi
+            action=$(node scripts/hot-update/pointer.mjs decide --next "$envelope" --current current.json)
+            if [ "$action" = "update" ]; then
+              api_upload "$key" "$envelope" application/json "no-cache"
+              api_get "$key" readback.json
+              if ! cmp -s readback.json "$envelope"; then
+                echo "::error::Channel pointer readback mismatch: $key"
+                exit 1
+              fi
+              echo "[hot] channel moved forward: $key"
+            else
+              echo "[hot] channel kept: $key"
+            fi
+            echo "| $key | $action |" >> "$GITHUB_STEP_SUMMARY"
+          done

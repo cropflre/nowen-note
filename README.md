@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./electron/icon.png" alt="Nowen Note" width="104" />
+  <img src="./docs/assets/nowen-note-icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note（弄文笔记）</h1>
   <p><strong>开源、自托管的知识库、每日记录与任务协作平台</strong></p>
   <p>
@@ -11,7 +11,7 @@
     <a href="https://nowen.cn/#/note/download">下载中心</a> ·
     <a href="https://nowen.cn/#/note/tutorials">帮助中心</a> ·
     <a href="http://note.nowen.cn/">在线体验</a> ·
-    <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
+    <a href="https://github.com/cropflre/nowen-note/releases/latest">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
     <a href="./docs/tutorials/mcp.md">MCP 安装</a> ·
     <a href="./.agents/skills/nowen-note-development/SKILL.md">AI 开发 Skill</a> ·
@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 [![Node.js 24.22.1+（24.x LTS）](https://img.shields.io/badge/Node.js-24.22.1%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -33,30 +33,25 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.5.5 更新亮点 · 2026-11-09
+## v1.6.1 更新亮点 · 2026-11-23
 
-**Web、桌面和 Android 双向同步加强，桌面启动恢复与交互体验升级。** [完整更新说明](./docs/releases/v1.5.5.md) · [v1.5.5 正式 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.5)。
+- **首次支持热更新。** Windows、macOS、Linux 和 Android 用户先下载安装 v1.6.1，之后的多数更新可在应用内完成。
+- **编辑器与分享。** 编辑器支持 Tab 插入四个空格、快捷键对齐和可拖动的文本框。分享页支持显示高亮块、文本框、分栏和折叠块。
+- **登录与附件。** 简化已配置反向代理时的登录流程，改善旧版 Android WebView 的登录布局，并修复桌面端无法提取 PDF 附件文字的问题。
+
+[v1.6.1 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
+
+本次提供 Windows 安装程序和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB，以及 Android APK 和 AAB。Docker 镜像见 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags)，飞牛 fnOS、绿联 UGOS 和剪藏扩展的下载见 [v1.6.0 发布页](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)。
 
 > [!IMPORTANT]
-> 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** macOS 官方 GitHub 包未签名或公证，Windows GitHub EXE 也未提供代码签名。实时同步需要在线连接同一服务端和账号；弱网、离线和并发冲突仍需正确处理。
+> 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** GitHub 发布的 macOS 安装包未做 Apple Developer ID 签名或公证，Windows 直接下载的 EXE 未签名。
 
-- **多端双向同步**：增强 Web / PC / Android 变更通知、打开中笔记自动更新，并补充三端回归；同时编辑保留两端正文，不再静默覆盖（#910）。
-- **知识树冲突恢复**：完善结构差异修复的预检、操作意图验证及跨设备首次引导状态。
-- **桌面稳定性**：改进首次下载进度、本机登录恢复、后端启动失败重试及 Lite 启动。
-- **UI 动效与编辑**：统一动效设计系统，修复宽窄窗口布局、手机分享弹窗、Word 粘贴图片与 Markdown 换行。
-- **权限与兼容**：完善 AI 生成内容标识、个人日记授权接口、鸿蒙导出和历史数据库迁移。
+## 近期版本
 
-**v1.6.0 规划边界**：完整 Workspace、个人应用 Studio 和扩展平台 V3 不作为 v1.5.5 本次交付。实际安装包以 Release 附件为准，商店渠道独立维护。
-
-[官网更新日志](https://nowen.cn/#/note/changelog) · [下载中心](https://nowen.cn/#/note/download) · [完整更新日志](./CHANGELOG.md)
-
-## 上一正式版 · v1.5.4
-
-v1.5.4 于 2026-11-02 发布，包含 AI 修改审核、Markdown 章节折叠、附件恢复与桌面 NAS 离线体验增强。[历史更新说明](./docs/releases/v1.5.4.md)。
-
-## 历史正式版 · v1.5.3
-
-v1.5.3 于 2026-10-23 公开发布，改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。详情见 [v1.5.3 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)。
+- **v1.6.0**（2026-11-21）更新扩展中心和设置，改进笔记导入、AI 对话归档与说说附件，并扩展 MCP 团队空间授权和个人任务操作。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
+- **v1.5.5**（2026-11-09）增强 Web、桌面和 Android 双向同步、知识树冲突处理和桌面启动恢复。[更新说明](./docs/releases/v1.5.5.md)
+- **v1.5.4**（2026-11-02）新增 AI 修改审核和 Markdown 章节折叠，增强附件恢复与桌面 NAS 离线体验。[更新说明](./docs/releases/v1.5.4.md)
+- **v1.5.3**（2026-10-23）改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)
 
 ## 为什么选择 Nowen Note
 
@@ -77,14 +72,14 @@ v1.5.3 于 2026-10-23 公开发布，改进笔记编辑、图片管理、加密�
 | **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
 | **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
 | **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答，并支持查询今日任务、查看完成进度以及确认后创建或完成个人任务。 |
-| **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
+| **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、说说文件附件、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
 | **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖、重复规则、提醒、模板、My Day、Inbox、离线任务 / 习惯和 Android 原生提醒；支持 AI 生成任务后确认创建、今日完成汇总、任务树归档、任务详情另存为笔记（保留原任务）、任务报表及子树导出 Excel / Markdown，并提供到期排序和 Webhook 早晚摘要。 |
 | **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
-| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
+| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、Logseq、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
 | **附件与存储** | 文件中心提供资源管理器式文件夹导航、瀑布流、标签、智能文件夹、批量上传进度、移动 / 重命名、文件回收站及恢复、个人附件目录同步和已有附件插入；支持远程图片安全转存与逐图进度。AI 文件整理采用元数据建议、人工确认和权限校验，语义检索基于文件名 / 标签 / 描述，不读取文件字节，且受 [平台与作用域限制](./docs/user/file-ai-organization.md)。附件可存储于本地磁盘、S3、R2、MinIO；参见[文件整理](./docs/user/file-asset-organization.md)、[回收站](./docs/user/file-recycle-bin.md)与[目录同步](./docs/user/file-folder-sync.md)。 |
 | **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
-| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
+| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树（含选定的团队笔记本）、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
 
 ## AI 问答与隐私
 
@@ -99,10 +94,10 @@ Nowen Note 的知识库问答采用 RAG 检索增强方式，**不会在每次�
 
 ## 让 AI 客户端连接 Nowen Note
 
-Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端。在 **Personal API Token 授权范围**内使用笔记、知识树、个人任务 / 项目、文件管理及个人自动化能力；部分新增写入工具要求先预览、明确确认，并通过并发版本校验。高风险功能默认不开放，不能绕过笔记本范围与用户权限。
+Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端。在 **Personal API Token 授权范围**内使用笔记、知识树、个人任务 / 项目、文件管理及个人自动化能力；已授权的团队笔记本仍受团队角色与目录权限限制。部分写入工具要求先预览、明确确认，并通过并发版本校验。高风险功能默认不开放，不能绕过笔记本范围与用户权限。
 
-- [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
-- [MCP Server English guide](./docs/tutorials/mcp.en.md)
+- [MCP Server 中文安装与团队空间授权教程](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.md)
+- [MCP Server English guide](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.en.md)
 - [nowen-mcp 包说明](./packages/nowen-mcp/README.md)
 
 目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 24.22.1+（24.x LTS））；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
@@ -113,17 +108,31 @@ v1.5.1 的任务提醒、AI 任务操作与 Android 同步修复见 [v1.5.1 发�
 
 ## 截图
 
+以下截图取自在本地真实运行的 Nowen Note（演示账号，浅色主题，2× 分辨率）。
+
 ### 桌面端
 
-| AI 写作助手 | AI 服务商配置 |
+| 工作区总览 | 知识树与文档管理 |
 | :---: | :---: |
-| ![桌面 AI 写作](./docs/screenshots/desktop-ai-writing.png) | ![AI 设置](./docs/screenshots/settings-ai.png) |
+| ![工作区总览](./docs/screenshots/desktop-overview.png) | ![知识树与文档管理](./docs/screenshots/desktop-knowledge-tree.png) |
+
+| 富文本编辑器 | Markdown 分屏预览 |
+| :---: | :---: |
+| ![富文本编辑器](./docs/screenshots/desktop-editor.png) | ![Markdown 分屏预览](./docs/screenshots/desktop-markdown.png) |
+
+| AI 写作助手 | 任务中心 |
+| :---: | :---: |
+| ![AI 写作助手](./docs/screenshots/desktop-ai-writing.png) | ![任务中心](./docs/screenshots/desktop-tasks.png) |
+
+![AI 服务商配置](./docs/screenshots/settings-ai.png)
 
 ### 移动端
 
 | 侧边栏 | 笔记列表 | 编辑器 |
 | :---: | :---: | :---: |
-| ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
+| ![移动端侧边栏](./docs/screenshots/mobile-sidebar.png) | ![移动端笔记列表](./docs/screenshots/mobile-list.png) | ![移动端编辑器](./docs/screenshots/mobile-editor.png) |
+
+> 截图由 `node scripts/screenshots/capture-readme.mjs` 自动生成，连接本地开发环境时会自动准备演示数据。
 
 ## 官网与在线体验
 
@@ -198,16 +207,11 @@ docker compose logs -f --tail=200 nowen-note
 
 升级前先在管理后台创建完整备份，并确认数据库与附件目录已经持久化。
 
+如需固定到 v1.6.0，请在 Compose 的 `.env` 文件中设置 `NOWEN_IMAGE_TAG=v1.6.0`，再执行以下命令。镜像标签可在 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) 查看。
+
 ```bash
 docker compose pull
 docker compose up -d
-```
-
-需要固定 Docker 镜像时，请先确认目标标签已经在 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) 发布。以下使用已公开可用的 v1.5.1 标签示例（v1.5.2 镜像可用后再替换）：
-
-```bash
-NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
-NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
 > [!IMPORTANT]
@@ -220,7 +224,7 @@ NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.5.1 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.6.0 docker compose --profile updater up -d
 ```
 
 启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级、健康验证和失败回滚。
@@ -236,7 +240,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.5.1
+  cropflre/nowen-note:v1.6.0
 ```
 
 ## 数据、备份与配置
@@ -420,7 +424,7 @@ nowen-note/
 
 README 维护稳定的产品定位、能力范围、近期版本和部署方式；完整提交历史请查看更新日志。
 
-- [查看最新 Release](https://github.com/cropflre/nowen-note/releases)
+- [查看最新 Release](https://github.com/cropflre/nowen-note/releases/latest)
 - [查看完整更新日志](./CHANGELOG.md)
 - [查看 Issues 与开发进度](https://github.com/cropflre/nowen-note/issues)
 

@@ -467,6 +467,57 @@ test("真实思源导入产生的跨批次变更经服务端应用后最终收�
   }
 });
 
+test("DCC-002: Migration Hub final bodies converge across push batches without self-conflicts", async (t) => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  sync.ensureDevice(db, { profileId, platform: "darwin" });
+  sync.markBootstrapReady(db, profileId, 0);
+  (await import("../src/sync/knowledgeTreeReadiness")).markKnowledgeTreeSyncReady(db, profileId);
+  const serverPath = path.join(tmpDir, "migration-hub-server.db"); await db.backup(serverPath);
+  const Sqlite = (await import("better-sqlite3")).default; const serverDb = new Sqlite(serverPath);
+  t.after(() => serverDb.close()); serverDb.pragma("foreign_keys=ON");
+  (await import("../src/lib/searchIndex")).ensureNormalizedSearchFts(serverDb);
+  const { applyMutation } = await import("../src/sync/apply");
+  const migration = await import("../src/services/migrationService");
+  db.prepare("INSERT INTO user_sessions(id,userId,expiresAt) VALUES ('hub-session',?,?)").run(USER_ID, new Date(Date.now() + 3_600_000).toISOString());
+  const actor = { userId: USER_ID }, source = { platform: "markdown", exportId: "sync-hub-fixture" };
+  const job = migration.createMigration(actor, { operationId: randomUUID(), source });
+  const count = sync.SYNC_PUSH_MAX_MUTATIONS + 5;
+  for (let start = 0; start < count; start += 50) await migration.stageMigrationItems(actor, job.id, Array.from({ length: Math.min(50, count - start) }, (_, index) => ({
+    schemaVersion: 1, source: { ...source, sourceId: `sync-${start + index}` }, title: `Migrated ${start + index}`,
+    contentFormat: "markdown", content: `# Migrated ${start + index}\nFinal body ${start + index}`, path: ["Imported"],
+  })));
+  const preview = await migration.previewMigration(actor, job.id); migration.approveMigration(actor, job.id, preview.previewDigest!, "hub-session");
+  const deadline = Date.now() + 20_000;
+  while (migration.getMigration(actor, job.id).status !== "COMPLETED") { assert.ok(Date.now() < deadline); await new Promise((resolve) => setTimeout(resolve, 20)); }
+  const serverEntities = new Map<string, any>();
+  remote.pushResponder = (mutations) => {
+    const results = mutations.map((mutation) => {
+      const result = serverDb.transaction(() => applyMutation(serverDb, { ...mutation, userId: USER_ID, deviceId: DEVICE_ID }))();
+      const table = { note: "notes", notebook: "notebooks", knowledge_tree_node: "knowledge_tree_nodes" }[mutation.entityType as string];
+      assert.ok(table);
+      serverEntities.set(`${mutation.entityType}:${mutation.entityId}`, { entityType: mutation.entityType, entityId: mutation.entityId,
+        payload: serverDb.prepare(`SELECT * FROM ${table} WHERE id=?`).get(mutation.entityId) });
+      return result;
+    });
+    remote.serverSequence++;
+    remote.changesQueue.push({ serverSequence: remote.serverSequence, nextSequence: remote.serverSequence, hasMore: false, resetRequired: false,
+      items: mutations.map((mutation) => ({ sequence: remote.serverSequence, entityType: mutation.entityType, entityId: mutation.entityId, operation: "upsert" })) });
+    remote.snapshotPages.push({ snapshotSequence: remote.serverSequence, hasMore: false, nextCursor: null, items: [...serverEntities.values()] });
+    return { serverSequence: remote.serverSequence, results };
+  };
+  for (let cycle = 0; cycle < 20 && sync.countPendingMutations(db, profileId); cycle++) { await engine.syncOnce(); assert.equal(engine.getStatus().lastError, null); }
+  assert.equal(sync.countPendingMutations(db, profileId), 0); assert.equal(sync.countUnresolvedConflicts(db, profileId), 0);
+  const imported = db.prepare("SELECT targetNoteId FROM migration_items WHERE jobId=?").all(job.id) as { targetNoteId: string }[];
+  assert.equal(imported.length, count); assert.ok(remote.pushCalls.length > 1);
+  for (const item of imported) {
+    const local = db.prepare("SELECT content,version FROM notes WHERE id=?").get(item.targetNoteId) as any;
+    const stored = serverDb.prepare("SELECT content,version FROM notes WHERE id=?").get(item.targetNoteId) as any;
+    assert.deepEqual(stored, local); assert.match(stored.content, /Final body/);
+  }
+});
+
 test("推送成功后 Outbox 出队，被合并条目一并清除", async () => {
   resetSyncTables();
   const db = getDb();

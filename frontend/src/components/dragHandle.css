@@ -396,9 +396,118 @@ div[data-type="callout"][data-callout-type="purple"] { background-color: #f3f0fc
 .dark div[data-type="callout"][data-callout-type="pink"]   { background-color: rgba(236, 72, 153, 0.16); border-color: rgba(236, 72, 153, 0.25); }
 .dark div[data-type="callout"][data-callout-type="purple"] { background-color: rgba(139, 92, 246, 0.16); border-color: rgba(139, 92, 246, 0.25); }
 
+/* ===== 文本框（Issue #915）：带 float 的高亮块浮动在正文一侧，段落和标题环绕 =====
+ * 浮动作用在 NodeView 外层元素 .node-callout（ProseMirror 用它计算光标与选中框），
+ * data-text-box / 宽度变量由 CalloutExtension 的 NodeView attrs 写入。 */
+.ProseMirror .node-callout[data-text-box="left"],
+.ProseMirror .node-callout[data-text-box="right"] {
+  width: var(--nowen-text-box-width, 40%);
+  max-width: 100%;
+  clear: both;
+}
+.ProseMirror .node-callout[data-text-box="right"] { float: right; margin-left: 20px; }
+.ProseMirror .node-callout[data-text-box="left"] { float: left; margin-right: 20px; }
+.ProseMirror .node-callout[data-text-box="left"] > div[data-type="callout"],
+.ProseMirror .node-callout[data-text-box="right"] > div[data-type="callout"] { margin: 4px 0 12px; }
+/* 只让段落和标题环绕；列表、表格、代码块等从文本框下方开始，避免背景和边框压在文本框底下 */
+.ProseMirror .node-callout[data-text-box="left"] ~ :not(p, h1, h2, h3, h4, h5, h6),
+.ProseMirror .node-callout[data-text-box="right"] ~ :not(p, h1, h2, h3, h4, h5, h6) { clear: both; }
+/* 文本框在末尾时撑开编辑区 */
+.ProseMirror:has(> .node-callout[data-text-box="left"], > .node-callout[data-text-box="right"])::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+/* 文本框控件：框外顶部左侧的拖动柄 + 靠左/靠右按钮，内侧边缘的宽度拖拽柄。
+   显隐与高亮块调色按钮一致：悬停或焦点在框内时显示。工具栏底部留白与框顶相接，鼠标移上去不会断开悬停。 */
+.text-box-toolbar {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  height: 28px;
+  padding-bottom: 6px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.text-box-grip,
+.text-box-float-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+  background: var(--color-elevated, #fff);
+  color: var(--color-text-secondary, #6b7280);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+.text-box-grip { cursor: grab; }
+.text-box-grip:active { cursor: grabbing; }
+.text-box-float-button.is-active,
+.text-box-float-button:hover,
+.text-box-grip:hover {
+  color: var(--color-accent-primary, #3b82f6);
+  border-color: var(--color-accent-primary, #3b82f6);
+}
+.text-box-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+/* 靠右的文本框，柄在左边缘；靠左的文本框，柄在右边缘 */
+.text-box-resize[data-side="right"] { left: -7px; }
+.text-box-resize[data-side="left"] { right: -7px; }
+.text-box-resize::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 36px;
+  max-height: 60%;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  background: var(--color-accent-primary, #3b82f6);
+  opacity: 0.7;
+}
+.text-box-resize:focus-visible { outline: 2px solid var(--color-accent-primary, #3b82f6); outline-offset: 1px; }
+.node-callout[data-text-box]:hover .text-box-toolbar,
+.node-callout[data-text-box]:focus-within .text-box-toolbar,
+.node-callout[data-text-box]:hover .text-box-resize,
+.node-callout[data-text-box]:focus-within .text-box-resize,
+/* 按住时保持可用：拖动的第一下移动常已离开文本框，失去悬停后浏览器会找不到拖动源而不开始拖动 */
+.text-box-toolbar:active,
+.text-box-resize:active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 @media (max-width: 767px) {
   .ProseMirror .prosemirror-column-container { flex-direction: column; }
   .ProseMirror .prosemirror-column { width: 100% !important; flex: auto !important; }
+  /* 手机宽度下文本框不浮动，按顺序独占一行 */
+  .ProseMirror .node-callout[data-text-box="left"],
+  .ProseMirror .node-callout[data-text-box="right"] { float: none; width: auto; margin-left: 0; margin-right: 0; }
+  .ProseMirror .text-box-toolbar,
+  .ProseMirror .text-box-resize { display: none; }
 }
 
 @media (hover: none) {

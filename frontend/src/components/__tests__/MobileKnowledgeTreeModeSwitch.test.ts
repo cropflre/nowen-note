@@ -3,11 +3,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const bridgeSource = readFileSync(path.resolve(__dirname, "../SidebarSearchExperienceBridge.tsx"), "utf8");
-const settingsSource = readFileSync(path.resolve(__dirname, "../SettingsModal.tsx"), "utf8");
+const preferencesSource = readFileSync(path.resolve(__dirname, "../settings/preferences/PreferencesPanel.tsx"), "utf8");
+const layoutPreferencesSource = readFileSync(path.resolve(__dirname, "../settings/preferences/useDeviceLayoutPreferences.ts"), "utf8");
+const preferencesCopy = readFileSync(path.resolve(__dirname, "../../i18n/preferencesTranslations.ts"), "utf8");
 const helperSource = readFileSync(path.resolve(__dirname, "../../lib/mobileKnowledgeTreeViewMode.ts"), "utf8");
 const compactCssSource = readFileSync(path.resolve(__dirname, "../../mobile-knowledge-tree-compact.css"), "utf8");
-const zhSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/zh-CN.json"), "utf8");
-const enSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/en.json"), "utf8");
 const appSource = readFileSync(path.resolve(__dirname, "../../App.tsx"), "utf8");
 const mainSource = readFileSync(path.resolve(__dirname, "../../main.tsx"), "utf8");
 
@@ -30,14 +30,13 @@ describe("mobile knowledge tree mode switch contract", () => {
     expect(compactCssSource).toContain("--nowen-mobile-tree-action-width: 30px");
   });
 
-  it("exposes one clear tree-mode switch in Settings", () => {
-    expect(settingsSource).toContain('const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode]');
-    expect(settingsSource).toContain('checked={mobileKnowledgeTreeMode === "tree"}');
-    expect(settingsSource).toContain('saveMobileKnowledgeTreeViewMode(nextMode)');
-    expect(settingsSource).toContain('t("settings.mobileKnowledgeTreeMode")');
-    expect(settingsSource).toContain('t("settings.mobileKnowledgeTreeModeDesc")');
-    expect(zhSource).toContain('"mobileKnowledgeTreeMode": "移动端使用树形目录"');
-    expect(enSource).toContain('"mobileKnowledgeTreeMode": "Use tree view on mobile"');
+  it("exposes one clear tree-mode switch in Settings → Preferences → Interface & layout", () => {
+    expect(layoutPreferencesSource).toContain('const nextMode: MobileKnowledgeTreeViewMode = treeEnabled ? "tree" : "navigator"');
+    expect(layoutPreferencesSource).toContain("saveMobileKnowledgeTreeViewMode(nextMode)");
+    expect(preferencesSource).toContain('anchorId="mobileKnowledgeTreeMode"');
+    expect(preferencesSource).toContain("checked={device.mobileTreeEnabled}");
+    expect(preferencesCopy).toContain('title: "树形目录"');
+    expect(preferencesCopy).toContain('title: "Tree view"');
   });
 
   it("persists the choice and keeps the new navigator as the default", () => {

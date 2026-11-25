@@ -8,6 +8,10 @@ export * from "./mock.generated.js";
 
 export type JsonObject = Record<string, unknown>;
 export type ActionResult = { success?: boolean; data?: unknown; text?: string } | unknown;
+/** Input of an action referenced by an editor action: only the selected Markdown (absent for selectionMode "none"). */
+export interface EditorActionInput extends JsonObject { text?: string }
+/** Return `text` (Markdown, never rendered as HTML) to insert or replace, or `message` for a notice-only action. */
+export interface EditorActionOutput { text?: string; message?: string }
 
 export interface NoteSummary {
   id: string; notebookId: string; title: string; contentText?: string; contentFormat: string;
@@ -39,3 +43,4 @@ export class NowenPluginError extends Error {
 
 /** 编译期保留完整类型，运行时原样返回，不夹带业务实现或凭证。 */
 export function definePlugin<T extends NowenPluginDefinition>(plugin: T): T { return plugin; }
+export { getPluginAppClient, type PluginAppClient, type PluginInspectorResource, type PluginInspectorMetadata } from "./appUi.js";

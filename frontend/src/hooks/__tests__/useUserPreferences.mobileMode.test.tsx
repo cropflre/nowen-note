@@ -35,6 +35,24 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); Reflect.deleteProperty(window,"Capacitor"); });
 describe("account preferences across Android device-only mode", () => {
+  it("updates code wrapping immediately in both directions and restores the active account choice", async () => {
+    await mount();
+    expect(document.documentElement.dataset.codeBlockWordWrap).toBe("true");
+    await act(async () => preferences.setPref("codeBlockWordWrap", false));
+    expect(document.documentElement.dataset.codeBlockWordWrap).toBe("false");
+    await act(async () => preferences.setPref("codeBlockWordWrap", true));
+    expect(document.documentElement.dataset.codeBlockWordWrap).toBe("true");
+    await act(async () => preferences.setPref("codeBlockWordWrap", false));
+    mocks.get.mockResolvedValue(remote("other"));
+    await act(async () => {
+      localStorage.setItem("nowen-token", token("other"));
+      window.dispatchEvent(new Event("nowen:token-changed"));
+    });
+    expect(preferences.prefs.codeBlockWordWrap).toBe(true);
+    expect(document.documentElement.dataset.codeBlockWordWrap).toBe("true");
+    expect(readAccountPreferenceCache(localStorage, "account")?.prefs.codeBlockWordWrap).toBe(false);
+  });
+
   it("keeps the saved notification choice when an older refresh arrives after the save", async () => {
     mocks.get.mockResolvedValue({ ...remote(), hiddenNavigationModules: ["notifications"] });
     await mount();

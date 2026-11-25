@@ -27,7 +27,7 @@ vi.mock("@/components/knowledgeTreeImport", () => ({
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.template } }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: { createNoteFromTemplate: mock.pluginTemplate } }));
 vi.mock("@/lib/toast", () => ({ toast: { error: mock.error, success: vi.fn() } }));
-vi.mock("@/components/NoteTemplatePickerDialog", () => ({ default: ({ open, onCreate }: { open: boolean; onCreate: (id: string) => Promise<void> }) => open ? <button onClick={() => { void onCreate("template"); }}>选择模板</button> : null }));
+vi.mock("@/components/NoteTemplatePickerDialog", () => ({ default: ({ open, parentId, onCreate }: { open: boolean; parentId: string | null; onCreate: (id: string) => Promise<void> }) => open ? <button data-template-parent-id={parentId ?? ""} onClick={() => { void onCreate("template"); }}>选择模板</button> : null }));
 vi.mock("@/components/EncryptedNoteCreateDialog", () => ({ default: ({ parentId }: { parentId?: string }) => <div role="dialog" data-parent-id={parentId}>新建加密笔记</div> }));
 
 const folder = { id: "folder", resourceId: "book", resourceType: "notebook", nodeType: "folder", title: "目录", access: { capabilities: { canCreate: true } } };
@@ -132,5 +132,20 @@ describe("note list create menu", () => {
     expect(mock.template).toHaveBeenCalledWith("template", "folder");
     await renderMenu(); await pick("加密笔记");
     expect(document.querySelector('[role="dialog"]')?.getAttribute("data-parent-id")).toBe("folder");
+  });
+  it("loads and creates templates in a shared directory from another workspace", async () => {
+    mock.list.mockResolvedValue({ nodes: [] });
+    mock.listShared.mockResolvedValue({ nodes: [{ ...folder, workspaceId: "smt-space", sharedRootId: "folder" }] });
+    await renderMenu(); await pick("从模板新建");
+    expect(document.querySelector("[data-template-parent-id]")?.getAttribute("data-template-parent-id")).toBe("folder");
+    await pick("选择模板");
+    expect(mock.template).toHaveBeenCalledWith("template", "folder");
+    expect(mock.actions.setActiveNote).toHaveBeenCalledWith(note);
+  });
+  it("keeps root template browsing without a directory context", async () => {
+    await renderMenu(null); await pick("从模板新建");
+    expect(document.querySelector("[data-template-parent-id]")?.getAttribute("data-template-parent-id")).toBe("");
+    await pick("选择模板");
+    expect(mock.template).toHaveBeenCalledWith("template", null);
   });
 });

@@ -6,9 +6,13 @@ const sidebarSource = readFileSync(path.resolve(__dirname, "../Sidebar.tsx"), "u
 const quickPanelSource = readFileSync(path.resolve(__dirname, "../MobileKnowledgeTreePanel.tsx"), "utf8");
 const treePanelSource = readFileSync(path.resolve(__dirname, "../KnowledgeTreePanel.tsx"), "utf8");
 const expansionSource = readFileSync(path.resolve(__dirname, "../../lib/knowledgeTreeExpansion.ts"), "utf8");
-const settingsSource = readFileSync(path.resolve(__dirname, "../SettingsModal.tsx"), "utf8");
+const preferencesSource = readFileSync(path.resolve(__dirname, "../settings/preferences/PreferencesPanel.tsx"), "utf8");
+const layoutPreferencesSource = readFileSync(path.resolve(__dirname, "../settings/preferences/useDeviceLayoutPreferences.ts"), "utf8");
+const preferencesCopy = readFileSync(path.resolve(__dirname, "../../i18n/preferencesTranslations.ts"), "utf8");
 const modeSource = readFileSync(path.resolve(__dirname, "../../lib/mobileKnowledgeTreeViewMode.ts"), "utf8");
 const zhSource = readFileSync(path.resolve(__dirname, "../../i18n/locales/zh-CN.json"), "utf8");
+// 界面文案已改走 i18n：源码断言翻译键，zh-CN 断言用户看到的中文
+const zhAudit = JSON.parse(zhSource).auditI18n as Record<string, string>;
 
 describe("desktop knowledge tree browsing mode", () => {
   it("defaults desktop to the recursive tree and persists independently from mobile", () => {
@@ -18,12 +22,12 @@ describe("desktop knowledge tree browsing mode", () => {
     expect(modeSource).toContain("DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT");
   });
 
-  it("places the desktop quick-browse switch in Settings", () => {
-    expect(settingsSource).toContain('checked={desktopKnowledgeTreeMode === "quick"}');
-    expect(settingsSource).toContain('saveDesktopKnowledgeTreeViewMode(nextMode)');
-    expect(settingsSource).toContain('t("settings.desktopKnowledgeTreeMode")');
-    expect(settingsSource).toContain('data-settings-switch="desktop-knowledge-tree"');
-    expect(zhSource).toContain('"desktopKnowledgeTreeMode": "桌面端使用快捷浏览"');
+  it("places the desktop quick-browse switch in Settings → Preferences → Interface & layout", () => {
+    expect(layoutPreferencesSource).toContain('const nextMode: DesktopKnowledgeTreeViewMode = quickEnabled ? "quick" : "tree"');
+    expect(layoutPreferencesSource).toContain("saveDesktopKnowledgeTreeViewMode(nextMode)");
+    expect(preferencesSource).toContain('anchorId="desktopKnowledgeTreeMode"');
+    expect(preferencesSource).toContain("checked={device.desktopQuickBrowse}");
+    expect(preferencesCopy).toContain('title: "快捷浏览"');
   });
 
   it("switches only the desktop sidebar surface", () => {
@@ -61,7 +65,8 @@ describe("desktop knowledge tree browsing mode", () => {
 
   it("shows the Ctrl+K search hint only in desktop quick browse", () => {
     expect(quickPanelSource).toContain('variant === "desktop" && (');
-    expect(quickPanelSource).toContain('aria-label="快捷键 Ctrl+K"');
+    expect(quickPanelSource).toContain('aria-label={t("auditI18n.searchShortcut")}');
+    expect(zhAudit.searchShortcut).toBe("快捷键 Ctrl+K");
     expect(quickPanelSource).toContain("Ctrl K");
   });
 
@@ -83,8 +88,9 @@ describe("desktop knowledge tree browsing mode", () => {
   it("shows the current workspace notebook count in both desktop tree modes", () => {
     expect(treePanelSource).toContain('data-knowledge-tree-notebook-count=""');
     expect(quickPanelSource).toContain('data-mobile-knowledge-tree-notebook-count=""');
-    expect(treePanelSource).toContain('aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}');
-    expect(quickPanelSource).toContain('aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}');
+    expect(treePanelSource).toContain('aria-label={t("auditI18n.notebookCount", { count: ownedNotebookCount })}');
+    expect(quickPanelSource).toContain('aria-label={t("auditI18n.notebookCount", { count: ownedNotebookCount })}');
+    expect(zhAudit.notebookCount).toBe("当前空间共 {{count}} 个笔记本");
   });
 
   it("shows descendant note counts on first-level directory rows", () => {

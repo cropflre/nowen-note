@@ -258,6 +258,24 @@ export function resolveStableFileShare(
   };
 }
 
+/**
+ * Attachments that already have an active, unexpired stable share owned by `ownerId`.
+ * Only reports the caller's own shares; other users' links stay invisible.
+ */
+export function activeStableFileShareAttachmentIds(attachmentIds: string[], ownerId: string): Set<string> {
+  ensureFileSharesTable();
+  const ids = [...new Set(attachmentIds)];
+  if (!ids.length || !ownerId) return new Set();
+  const rows = getDb().prepare(`
+    SELECT s.attachmentId, s.expiresAt
+    FROM file_shares s
+    INNER JOIN attachments a ON a.id = s.attachmentId
+    WHERE s.ownerId = ? AND s.isActive = 1 AND s.noteId = a.noteId
+      AND s.attachmentId IN (${ids.map(() => "?").join(",")})
+  `).all(ownerId, ...ids) as Array<{ attachmentId: string; expiresAt: string | null }>;
+  return new Set(rows.filter((row) => !isExpired(row.expiresAt)).map((row) => row.attachmentId));
+}
+
 export function revokeStableFileShare(attachmentId: string, ownerId: string): boolean {
   ensureFileSharesTable();
   const result = getDb().prepare(`

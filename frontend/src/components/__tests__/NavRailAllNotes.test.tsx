@@ -8,7 +8,7 @@ import { clearDesktopLocalAuth } from '@/lib/desktopBridge';
 import { broadcastLogout } from '@/lib/api';
 
 const mock = vi.hoisted(() => ({
-  desktop:false,serverUrl:'',appInfo:null as AppInfo|null,
+  desktop:false,serverUrl:'',appInfo:null as AppInfo|null,aiMemoryEnabled:false,aiAvailable:false,localMode:false,
   state: { viewMode: "tasks", selectedNotebookId: null as string | null, selectedTagIds: [] as string[], searchQuery: "", noteListCollapsed: true, sidebarCollapsed: false },
   actions: {
     setViewMode: vi.fn(), setSelectedNotebook: vi.fn(), clearSelectedTags: vi.fn(),
@@ -27,12 +27,15 @@ vi.mock("@/lib/desktopBridge", () => ({ isDesktop: () => mock.desktop, getAppInf
 vi.mock("@/lib/offlineQueue", () => ({ clearQueue: vi.fn(), clearLocalIdMap: vi.fn(), getQueueLength: () => 0 }));
 vi.mock("@/lib/accountLoginHistory", () => ({ isAccountLoginHistorySupported: () => false }));
 vi.mock("@/components/AccountLoginHistory", () => ({ AccountLoginHistoryDialog: () => null }));
+vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: { aiMemoryEnabled: mock.aiMemoryEnabled } }) }));
+vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => mock.aiAvailable }));
+vi.mock("@/lib/mobileLocalMode", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/mobileLocalMode")>(), isMobileLocalMode: () => mock.localMode }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); window.history.replaceState({}, "", "/");
-  mock.desktop=false;mock.serverUrl='';mock.appInfo=null;
+  mock.desktop=false;mock.serverUrl='';mock.appInfo=null;mock.aiMemoryEnabled=false;mock.aiAvailable=false;mock.localMode=false;
   Object.assign(mock.state, { viewMode: "tasks", selectedNotebookId: null, selectedTagIds: [], searchQuery: "", noteListCollapsed: true });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
@@ -92,4 +95,38 @@ describe("All Notes primary navigation", () => {
     expect(mock.actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
     expect(localStorage.getItem("nowen-note-workspace-layout")).toBe("standard");
   });
+});
+
+describe("AI conversation archive entry", () => {
+  const archive = () => host.querySelector('[aria-label="aiMemory.navLabel"]');
+  it("stays hidden until an administrator switches the archive on", async () => {
+    mock.aiAvailable = true;
+    await render();
+    expect(archive()).toBeNull();
+    mock.aiMemoryEnabled = true;
+    await render();
+    expect(archive()).not.toBeNull();
+  });
+  it("is not offered in this-device-only mode, which has no server archive", async () => {
+    mock.aiMemoryEnabled = true; mock.localMode = true;
+    await render("mobile");
+    expect(archive()).toBeNull();
+  });
+});
+
+it.each(["desktop", "mobile"] as const)("only shows AI entries with a verified connection on the %s rail", async (variant) => {
+  mock.aiMemoryEnabled = true;
+  const aiEntries = ["sidebar.aiChat", "aiCollaboration.entry", "aiMemory.navLabel"];
+  const entryFor = (label: string) => host.querySelector(`[aria-label="${label}"]`);
+  await render(variant);
+  for (const label of aiEntries) expect(entryFor(label)).toBeNull();
+  expect(entryFor("sidebar.settings")).not.toBeNull();
+
+  mock.aiAvailable = true;
+  await render(variant);
+  for (const label of aiEntries) expect(entryFor(label)).not.toBeNull();
+
+  mock.aiAvailable = false;
+  await render(variant);
+  for (const label of aiEntries) expect(entryFor(label)).toBeNull();
 });

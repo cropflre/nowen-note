@@ -21,6 +21,7 @@ dependencies {
     implementation project(':capacitor-network')
     implementation project(':capacitor-splash-screen')
     implementation project(':capacitor-status-bar')
+    implementation project(':capawesome-capacitor-live-update')
     implementation project(':mhaberler-capacitor-zeroconf-nsd')
 
 }

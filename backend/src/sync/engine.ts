@@ -6,7 +6,9 @@ import {
   SYNC_PUSH_MAX_MUTATIONS,
   syncRetryDelayMs,
 } from "./constants";
-import { SyncError, isRetryableSyncError, isSyncErrorCode } from "./errors";
+import { SyncError, isRetryableSyncError, isSyncErrorCode, type SyncFailureDiagnostic } from "./errors";
+import { classifyApplyFailure, diagnosticLogFields } from "./diagnostics";
+import { relinkNotebookParents } from "./notebookApply";
 import {
   pullAttachmentBlobs,
   pushAttachmentBlobs,
@@ -454,7 +456,10 @@ export class SyncEngine {
    * 关键点：无论哪种失败，本地数据与 Outbox 都保持原样。
    * 同步失败只是"等待同步"，绝不是"保存失败"。
    */
-  private handleCycleError(error: any): void {
+  private handleCycleError(rawError: any): void {
+    // 落库阶段抛出的约束类 SQLite 错误在这里也要归类：它们是 DATA_STRUCTURE（不可重试），
+    // 不能再被当成"服务端错误"按退避无限重试。
+    const error: any = classifyApplyFailure(rawError, { stage: `engine:${this.phase ?? "cycle"}` });
     const code = isSyncErrorCode(error?.code)
       ? error.code
       : "SERVER_ERROR";
@@ -485,8 +490,8 @@ export class SyncEngine {
     this.retryCount += 1;
     logSyncError("engine.cycle-failed", {
       profileId: this.profileId,
-      errorCode: code,
       retryCount: this.retryCount,
+      ...diagnosticLogFields(code, error instanceof SyncError ? error.diagnostic : undefined, isRetryableSyncError(code)),
     });
     if (isRetryableSyncError(code)) {
       this.scheduleNext(syncRetryDelayMs(this.retryCount));
@@ -1050,16 +1055,31 @@ export class SyncEngine {
       && (item.entityType === "notebook" || item.entityType === "task")
       && typeof item.payload?.parentId === "string");
     if (!links.length) return;
-    runWithOutboxSuppressed(()=>runChangeFeedSuppressed(this.db,()=>this.db.transaction(()=>{
-      for(const item of links){
-        const table=item.entityType === "notebook" ? "notebooks" : "tasks";
-        const parentId=String(item.payload!.parentId);
-        const parent=this.db.prepare(`SELECT 1 FROM ${table} WHERE id=? AND workspaceId IS ?`)
-          .get(parentId,scope.workspaceId);
-        if(parent)this.db.prepare(`UPDATE ${table} SET parentId=? WHERE id=? AND workspaceId IS ?`)
-          .run(parentId,item.entityId,scope.workspaceId);
-      }
-    })()));
+    const failure:SyncFailureDiagnostic={stage:"engine:applying"};
+    try {
+      runWithOutboxSuppressed(()=>runChangeFeedSuppressed(this.db,()=>this.db.transaction(()=>{
+        // 目录的父子链接受数据库触发器守卫（父目录必须未删除），不能直接 UPDATE parentId：
+        // 已删除的父目录要由 relinkNotebookParents 按同样的规则临时处理。
+        // 有未上传改动的目录已被 applyRemoteChanges 跳过（交冲突流程），这里同样不能重新挂父目录，
+        // 否则用户尚未上传的"移动"会被远端的父目录悄悄覆盖。
+        const pendingNotebooks=new Set((this.db.prepare(`SELECT DISTINCT entityId FROM sync_outbox
+          WHERE entityType='notebook' AND scopeKey=? AND status IN ('pending','inflight','failed')`)
+          .all(scope.scopeKey) as Array<{entityId:string}>).map((row)=>row.entityId));
+        relinkNotebookParents(this.db,links.filter((item)=>item.entityType === "notebook")
+          .map((item)=>({id:item.entityId,parentId:String(item.payload!.parentId)})),
+        {userId:this.userId,workspaceId:scope.workspaceId},failure,pendingNotebooks);
+        for(const item of links){
+          if(item.entityType !== "task")continue;
+          const parentId=String(item.payload!.parentId);
+          const parent=this.db.prepare("SELECT 1 FROM tasks WHERE id=? AND workspaceId IS ?")
+            .get(parentId,scope.workspaceId);
+          if(parent)this.db.prepare("UPDATE tasks SET parentId=? WHERE id=? AND workspaceId IS ?")
+            .run(parentId,item.entityId,scope.workspaceId);
+        }
+      })()));
+    } catch (error) {
+      throw classifyApplyFailure(error,{...failure});
+    }
   }
 
   private pruneWorkspaceSnapshot(scope:SyncScopeDescriptor,seen:Map<string,Set<string>>):void {

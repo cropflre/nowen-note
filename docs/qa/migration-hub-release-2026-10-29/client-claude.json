@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-29",
+  "platform": "darwin/arm64",
+  "host": "Claude Code",
+  "version": "2.1.187 (Claude Code)",
+  "transport": "stdio",
+  "exitCode": 0,
+  "signal": null,
+  "generatedConfigLoaded": true,
+  "toolCatalogCount": 11,
+  "capabilityCalled": true,
+  "capabilityReturnedToHost": true,
+  "providerCalls": 3,
+  "backendRequests": [
+    {
+      "method": "GET",
+      "path": "/api/notebooks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/notebooks/shared-with-me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/migrations/capabilities"
+    }
+  ],
+  "resultSubtypes": [
+    "success"
+  ],
+  "realProviderCalls": 0,
+  "credentials": "Fresh synthetic API/gateway fixtures only; no inherited provider credentials",
+  "persistence": "--no-session-persistence; private temporary CLAUDE_CONFIG_DIR",
+  "network": "OS sandbox permits outbound loopback only and denies real Claude/Codex config directories",
+  "scope": "Installed host with local synthetic model provider and synthetic Nowen API; not real provider or desktop GUI acceptance",
+  "http": {
+    "exitCode": 0,
+    "signal": null,
+    "generatedConfigLoaded": true,
+    "toolCatalogCount": 11,
+    "capabilityCalled": true,
+    "capabilityReturnedToHost": true,
+    "providerCalls": 3,
+    "backendRequests": [
+      {
+        "method": "GET",
+        "path": "/api/notebooks"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notebooks/shared-with-me"
+      },
+      {
+        "method": "GET",
+        "path": "/api/migrations/capabilities"
+      }
+    ],
+    "unauthenticatedGatewayStatus": 401
+  }
+}

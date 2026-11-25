@@ -19,6 +19,8 @@ export async function installAssetAIQA(userId) {
       let data;
       if (request.url === "/v1/embeddings") {
         data = {data:body.input.map((text,index) => ({index,embedding:/图|design|reference|Reviewed/i.test(text) ? [1,0] : [0,1]}))};
+      } else if (request.url === "/v1/chat/completions" && body.messages.length === 1 && body.messages[0].content === "Hi") {
+        data = {choices:[{message:{content:"Hello from fixture"}}]};
       } else {
         const input = JSON.parse(body.messages[1].content);
         data = {choices:[{message:{content:JSON.stringify({items:input.files.map(file => ({

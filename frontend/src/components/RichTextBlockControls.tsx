@@ -14,7 +14,7 @@ const dragHandlePosition = { placement: "left-start" as const };
 const targets: { key: string; target: BlockTarget; insert: AddBelowType }[] = [
   { key: "paragraph", target: { type: "paragraph" }, insert: "paragraph" },
   ...([1, 2, 3, 4, 5, 6] as const).map((level) => ({ key: `heading${level}`, target: { type: "heading" as const, level }, insert: `heading${level}` as AddBelowType })),
-  ...(["bulletList", "orderedList", "taskList", "blockquote", "codeBlock", "callout", "details", "columns"] as const).map((type) => ({ key: type, target: { type }, insert: type as AddBelowType })),
+  ...(["bulletList", "orderedList", "taskList", "blockquote", "codeBlock", "callout", "textBox", "details", "columns"] as const).map((type) => ({ key: type, target: { type }, insert: type as AddBelowType })),
 ];
 
 export default function RichTextBlockControls({ editor, editable, isMobile }: { editor: Editor; editable: boolean; isMobile: boolean }) {

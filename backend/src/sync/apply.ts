@@ -11,8 +11,9 @@ import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 import { normalizeNoteColorMark } from "../lib/noteColorMark";
+import { normalizeDiaryFileAttachments } from "../lib/diary-file-attachments";
 import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
-import { isRootDocumentNotebookId } from "../services/knowledgeTreeRootDocuments.js";
+import { SERVER_PUSH_MODE, applyNotebookUpserts, withNotebookLive } from "./notebookApply";
 
 /**
  * Sync V2 服务端 mutation 应用层。
@@ -118,50 +119,19 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
     return null;
   }
 
-  const p = input.payload || {};
-  // Existing folders under root documents retain a hidden compatibility
-  // container. UPSERT would rerun the creation guard against that deleted
-  // container even for a rename; update state without reassigning its parent.
-  if (isRootDocumentNotebookId(str(p.parentId)) && db.prepare(`SELECT 1 FROM notebooks
-    WHERE id=? AND parentId=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)`)
-    .get(input.entityId,p.parentId,workspaceIdOf(input),workspaceIdOf(input),input.userId)) {
-    db.prepare(`UPDATE notebooks SET name=?,description=?,icon=?,color=?,sortOrder=?,isExpanded=?,
-      isDeleted=?,deletedAt=?,updatedAt=datetime('now') WHERE id=?`).run(str(p.name,"未命名笔记本"),p.description??null,
-      str(p.icon,"📒"),p.color??null,num(p.sortOrder),bit(p.isExpanded??1),bit(p.isDeleted),p.deletedAt??null,input.entityId);
-    return null;
-  }
-  db.prepare(`
-    INSERT INTO notebooks (
-      id, userId, parentId, name, description, icon, color,
-      sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
-    ON CONFLICT(id) DO UPDATE SET
-      parentId = excluded.parentId,
-      name = excluded.name,
-      description = excluded.description,
-      icon = excluded.icon,
-      color = excluded.color,
-      sortOrder = excluded.sortOrder,
-      isExpanded = excluded.isExpanded,
-      isDeleted = excluded.isDeleted,
-      deletedAt = excluded.deletedAt,
-      updatedAt = datetime('now')
-    WHERE notebooks.workspaceId IS excluded.workspaceId
-      AND (excluded.workspaceId IS NOT NULL OR notebooks.userId = excluded.userId)
-  `).run(
-    input.entityId,
-    input.userId,
-    p.parentId ?? null,
-    str(p.name, "未命名笔记本"),
-    p.description ?? null,
-    str(p.icon, "📒"),
-    p.color ?? null,
-    num(p.sortOrder),
-    bit(p.isExpanded ?? 1),
-    bit(p.isDeleted),
-    p.deletedAt ?? null,
-    p.createdAt ?? null,
-    workspaceIdOf(input),
+  // 目录的父子链接受数据库守卫（父目录必须存在且未删除）。逐条 upsert 会在两种常见情形下被
+  // 守卫拒绝：已删除子树里的子目录（父目录先被推上来标记为已删除），以及挂在根文档隐藏容器下的目录
+  // （重命名也会重写未变化的 parentId）。统一交给 applyNotebookUpserts：只在父目录真的变了才写
+  // parentId，必要时像 activateRootContainer 那样临时让父目录可用。
+  //
+  // 与本机副本不同，这里对"无法兑现的父目录"选择拒绝而不是回退到根：父目录还没推上来时
+  // 客户端的修改留在 Outbox 里等它先到，不能替客户端把 NAS 上的结构改坏。
+  applyNotebookUpserts(
+    db,
+    [{ entityType: "notebook", entityId: input.entityId, operation: "upsert", payload: input.payload ?? {} }],
+    { userId: input.userId, workspaceId: workspaceIdOf(input) },
+    {},
+    SERVER_PUSH_MODE,
   );
   return null;
 }
@@ -286,7 +256,10 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
 
   // 新建：客户端生成 UUID，离线也能创建，不依赖服务端分配 ID。
   const version = Math.max(1, num(p.version, 1));
-  db.prepare(`
+  // 笔记属于一个已删除的目录（例如首次同步上传本机已删除的目录子树）时，目录临时可用：
+  // 知识树镜像只有目录未删除才把笔记的树父节点指向它，否则落到根，
+  // 而客户端那一侧的树父节点仍指向目录，两边的知识树基线会因此判成结构冲突。
+  withNotebookLive(db, { userId: input.userId, workspaceId: workspaceIdOf(input) }, str(p.notebookId), () => db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
@@ -313,7 +286,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     version,
     num(p.sortOrder),
     p.createdAt ?? null,
-  );
+  ));
   return version;
 }
 
@@ -592,7 +565,7 @@ function applyTaskReminder(db: Database.Database, input: ApplyMutationInput): nu
  * 表里只有 createdAt 没有 updatedAt —— 这类内容发布后极少修改。
  * 因此用幂等 upsert 而不做冲突检测：同 ID 就是同一条记录。
  *
- * images / media 是 JSON 数组字符串，元素指向 diary_attachments。
+ * images / media / attachments 是 JSON 数组字符串，元素指向 diary_attachments。
  * 那些附件的二进制走独立通道（与 attachments 同理），
  * 此处只同步引用关系。
  */
@@ -618,26 +591,75 @@ function applyDiary(db: Database.Database, input: ApplyMutationInput): number | 
     }
     return Array.isArray(value) ? JSON.stringify(value) : "[]";
   };
+  // 旧客户端的载荷没有 attachments 字段：保留已有附件，普通编辑不能把附件清空。
+  const attachmentsProvided = Object.prototype.hasOwnProperty.call(p, "attachments");
+  const attachments = normalizeDiaryFileAttachments(p.attachments);
+  const images = asJsonArray(p.images);
+  const media = asJsonArray(p.media);
 
   db.prepare(`
-    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt, workspaceId)
-    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, attachments, createdAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       contentText = excluded.contentText,
       mood = excluded.mood,
       images = excluded.images,
-      media = excluded.media
+      media = excluded.media,
+      attachments = CASE WHEN ? = 1 THEN excluded.attachments ELSE diaries.attachments END
   `).run(
     input.entityId,
     input.userId,
     typeof p.contentText === "string" ? p.contentText : "",
     typeof p.mood === "string" ? p.mood : "",
-    asJsonArray(p.images),
-    asJsonArray(p.media),
+    images,
+    media,
+    JSON.stringify(attachments),
     typeof p.createdAt === "string" ? p.createdAt : null,
     workspaceIdOf(input),
+    attachmentsProvided ? 1 : 0,
   );
+  bindSyncedDiaryUploads(db, input, syncedDiaryMediaIds(images, media), attachments.map((item) => item.id));
   return null;
+}
+
+function syncedDiaryMediaIds(images: string, media: string): string[] {
+  const ids = new Set<string>();
+  for (const item of JSON.parse(media) as unknown[]) {
+    if (item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string") {
+      ids.add((item as { id: string }).id);
+    }
+  }
+  for (const item of JSON.parse(images) as unknown[]) {
+    if (typeof item === "string") ids.add(item);
+  }
+  return [...ids];
+}
+
+/**
+ * Android 等 Local-first 客户端先把媒体/附件直传服务端（此时 diaryId 为 NULL），
+ * 说说本身再经 Sync V2 推送。这里把载荷引用的、属于推送者且仍悬空的上传绑定到
+ * 这条说说；否则 24h 孤儿清理会把它们当成没发布的上传删掉。
+ * 图片/视频只绑 kind='media'，文件附件只绑 kind='file'，与 REST 发布同口径。
+ */
+function bindSyncedDiaryUploads(
+  db: Database.Database,
+  input: ApplyMutationInput,
+  mediaIds: string[],
+  fileIds: string[],
+): void {
+  const bind = (ids: string[], kind: "media" | "file") => {
+    if (ids.length === 0) return;
+    db.prepare(`
+      UPDATE diary_attachments
+         SET diaryId = ?, workspaceId = ?
+       WHERE id IN (${ids.map(() => "?").join(",")})
+         AND userId = ?
+         AND diaryId IS NULL
+         AND kind = ?
+    `).run(input.entityId, workspaceIdOf(input), ...ids, input.userId, kind);
+  };
+  bind(mediaIds, "media");
+  bind(fileIds, "file");
 }
 
 /**

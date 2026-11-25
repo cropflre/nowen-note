@@ -23,14 +23,22 @@ export async function readNativeNoteSyncReceipt(
   if (conflicts.length) return { phase: "conflict", localRevision: null, acknowledgedRevision: null };
   const pending = await db.query<{ status: string; lastError: string | null }>(
     `SELECT status,lastError FROM sync_outbox WHERE profileId=? AND status IN ('pending','failed','inflight') AND (
-      (entityType='note' AND entityId=?) OR (entityType='knowledge_tree_node' AND scopeKey='personal'
+      (entityType='note' AND entityId=?) OR (entityType='attachment' AND json_extract(payload,'$.noteId')=?)
+      OR (entityType='knowledge_tree_node' AND scopeKey='personal'
         AND EXISTS (SELECT 1 FROM json_each(payload,'$.lifecycleNodes') node
           WHERE json_extract(node.value,'$.resourceType')='note' AND json_extract(node.value,'$.resourceId')=?))) LIMIT 20`,
-    [profileId, noteId, noteId],
+    [profileId, noteId, noteId, noteId],
   );
-  if (pending.some((row) => row.status === "failed" || !!row.lastError))
+  // Attachment bytes this device has not uploaded yet. Download-only states
+  // mean the server already has the bytes, so they do not block confirmation.
+  const upload = (await db.query<{ transferStatus: string }>(
+    `SELECT transferStatus FROM attachments WHERE transferStatus IN ('local','pending_upload','uploading','failed')
+      AND noteId=? AND (transferStatus<>'failed' OR available=1) ORDER BY transferStatus='failed' DESC LIMIT 1`,
+    [noteId],
+  ))[0];
+  if (upload?.transferStatus === "failed" || pending.some((row) => row.status === "failed" || !!row.lastError))
     return { phase: "error", localRevision: null, acknowledgedRevision: null };
-  if (pending.length) return { phase: "pending", localRevision: null, acknowledgedRevision: null };
+  if (upload || pending.length) return { phase: "pending", localRevision: null, acknowledgedRevision: null };
   const rows = await db.query<{ value: string }>(
     "SELECT value FROM native_runtime_meta WHERE key=? LIMIT 1", [nativeReceiptKey(profileId, noteId)],
   );

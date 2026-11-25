@@ -1,0 +1,4 @@
+Name,Status,Summary,Due,Formula
+Alpha,Done,"Line one,
+Line ""two""",2026-10-29,"=SUM(1,2)"
+Beta,Todo,Plain summary,2026-10-30,"=HYPERLINK(""https://example.com"")"

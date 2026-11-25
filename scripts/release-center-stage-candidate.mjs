@@ -23,14 +23,7 @@ export function candidateInput({ platform, sha, version, requestId, runId, runAt
 }
 
 function requiredFiles(platform, version) {
-  const result = [...requiredDebugReleaseAssets(platform, version)];
-  if (platform === "windows") result.push(
-    "Nowen-Note-Lite-" + version + "-setup.exe",
-    "Nowen-Note-Lite-" + version + "-portable.exe",
-    "Nowen-Note-Lite-" + version + "-setup.exe.blockmap",
-    "latest-lite.yml",
-  );
-  return result;
+  return [...requiredDebugReleaseAssets(platform, version)];
 }
 
 async function requireRegular(path) {
@@ -51,9 +44,7 @@ export async function stageCandidate(root, input) {
   try {
     const required = requiredFiles(platform, version);
     const sources = new Map();
-    for (const name of required)
-      sources.set(name, join(root, platform === "windows" && name.startsWith("Nowen-Note-Lite-") ||
-        platform === "windows" && name === "latest-lite.yml" ? "dist-electron-lite" : "dist-electron", name));
+    for (const name of required) sources.set(name, join(root, "dist-electron", name));
     // The macOS packager may create separate blockmaps for update ZIPs.
     if (platform === "macos") {
       for (const name of required.filter((value) => /\.(?:dmg|zip)$/.test(value))) {

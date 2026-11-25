@@ -1,0 +1,87 @@
+{
+  "id": "nowenlab.personal-dashboard",
+  "name": "Personal Dashboard",
+  "description": "Personal items, groups, status and links to existing Nowen notes and tasks",
+  "version": "0.1.0",
+  "apiVersion": 3,
+  "publisher": "nowenlab",
+  "engines": {
+    "nowen": ">=1.5.3 <2.0.0"
+  },
+  "runtime": "declarative",
+  "categories": [
+    "productivity"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "MIT",
+  "permissions": [
+    "plugin-storage:read",
+    "plugin-storage:write",
+    "notes:read",
+    "tasks:read"
+  ],
+  "contributes": {
+    "appPages": [
+      {
+        "id": "home",
+        "title": "Personal Dashboard",
+        "entry": "ui/index.html",
+        "platforms": [
+          "web",
+          "desktop"
+        ],
+        "requiredPermissions": [
+          "plugin-storage:read",
+          "plugin-storage:write",
+          "notes:read",
+          "tasks:read"
+        ]
+      }
+    ],
+    "uiAssets": {
+      "ui/app.js": "sha256:a5a6d50b7b1c285db8a156d121da2f34a0b8636bd3604ea91702834e1a761076",
+      "ui/index.html": "sha256:99e82322d0c3346b9d4596dc9b31dcf14630ef00214ff1f50fe17f9eacdf3767",
+      "ui/style.css": "sha256:9e68fb053bc473576aa3f6886582aa14f348d98098b577515183c738fa85bfe4"
+    },
+    "widgets": [
+      {
+        "id": "open",
+        "title": "Personal quick access",
+        "type": "shortcut",
+        "pageId": "home",
+        "defaultSize": "small"
+      },
+      {
+        "id": "count",
+        "title": "Personal item count",
+        "type": "statistic",
+        "pageId": "home",
+        "defaultSize": "small",
+        "collection": "items"
+      },
+      {
+        "id": "status",
+        "title": "Personal status",
+        "type": "status",
+        "pageId": "home",
+        "defaultSize": "small",
+        "collection": "items"
+      },
+      {
+        "id": "recent",
+        "title": "Personal recent items",
+        "type": "list",
+        "pageId": "home",
+        "defaultSize": "medium",
+        "collection": "items"
+      },
+      {
+        "id": "interactive",
+        "title": "Personal interactive",
+        "type": "app",
+        "pageId": "home",
+        "defaultSize": "large"
+      }
+    ]
+  }
+}

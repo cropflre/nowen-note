@@ -1,0 +1,72 @@
+{
+  "browser": "153.0.8010.12",
+  "viewportHeight": 900,
+  "reducedMotion": "reduce",
+  "scope": "Real MigrationHub, McpConnectionPanel migration branch and MigrationConnectionSetup; synthetic API responses and isolated browser storage. Not AI host or physical-device acceptance.",
+  "results": [
+    {
+      "width": 320,
+      "theme": "light",
+      "codexBodyWidth": 320,
+      "httpBodyWidth": 320,
+      "codexConfigCopied": true,
+      "concreteNotebookAndLauncherRequired": true,
+      "claudeHttpConfigCopied": true,
+      "credentialsInUrlBlocked": true,
+      "onlyCurrentServerCapabilityGet": true,
+      "capabilityRequests": 2,
+      "unknownClientMarkedTemplate": true,
+      "timeoutVerified": false,
+      "externalRequests": [],
+      "pageErrors": []
+    },
+    {
+      "width": 320,
+      "theme": "dark",
+      "codexBodyWidth": 320,
+      "httpBodyWidth": 320,
+      "codexConfigCopied": true,
+      "concreteNotebookAndLauncherRequired": true,
+      "claudeHttpConfigCopied": true,
+      "credentialsInUrlBlocked": true,
+      "onlyCurrentServerCapabilityGet": true,
+      "capabilityRequests": 3,
+      "unknownClientMarkedTemplate": true,
+      "timeoutVerified": true,
+      "externalRequests": [],
+      "pageErrors": []
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "codexBodyWidth": 1280,
+      "httpBodyWidth": 1280,
+      "codexConfigCopied": true,
+      "concreteNotebookAndLauncherRequired": true,
+      "claudeHttpConfigCopied": true,
+      "credentialsInUrlBlocked": true,
+      "onlyCurrentServerCapabilityGet": true,
+      "capabilityRequests": 2,
+      "unknownClientMarkedTemplate": true,
+      "timeoutVerified": false,
+      "externalRequests": [],
+      "pageErrors": []
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "codexBodyWidth": 1280,
+      "httpBodyWidth": 1280,
+      "codexConfigCopied": true,
+      "concreteNotebookAndLauncherRequired": true,
+      "claudeHttpConfigCopied": true,
+      "credentialsInUrlBlocked": true,
+      "onlyCurrentServerCapabilityGet": true,
+      "capabilityRequests": 2,
+      "unknownClientMarkedTemplate": true,
+      "timeoutVerified": false,
+      "externalRequests": [],
+      "pageErrors": []
+    }
+  ]
+}

@@ -270,8 +270,9 @@ test("actual task center confirms edited drafts, persists fields, refreshes and 
   expect((await page.request.put(`${server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: provider, ai_api_key: "test-only-key", ai_model: "test-composer-model" } })).ok()).toBe(true);
   const projectResponse = await page.request.post(`${server}/api/task-projects`, { headers, data: { name: "Release review" } });
   expect(projectResponse.ok()).toBe(true); const project = await projectResponse.json();
+  const uiVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
   await page.goto(server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.1"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("composer_browser");
   await page.locator("input[type=password]").fill("composer-browser-test-password");
@@ -296,13 +297,11 @@ test("actual task center confirms edited drafts, persists fields, refreshes and 
   await dialog.getByRole("button", { name: "View all tasks", exact: true }).click();
   await expect(page.getByText("Edited report review", { exact: true }).filter({ visible: true }).first()).toBeVisible();
   // Narrow screens and dark mode exercise the same shared component.
-  await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-note-theme", "dark"); });
   await page.reload();
   await expect(page.getByRole("textbox", { name: "笔记标题", exact: true })).toHaveValue("欢迎使用 Nowen Note");
-  await page.getByRole("button", { name: "返回", exact: true }).click();
-  await page.locator("header button").filter({ has: page.locator("svg.lucide-menu") }).click();
   await page.getByRole("button", { name: "待办事项", exact: true }).filter({ visible: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "AI 生成待办", exact: true }).filter({ visible: true }).click();
   const mobile = page.getByRole("dialog", { name: "AI 智能生成待办", exact: true });
   await mobile.getByLabel("你的计划", { exact: true }).fill("每天记录睡眠，持续14天");

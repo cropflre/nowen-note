@@ -1,7 +1,7 @@
 import { generateNextRepeatedTask } from "../lib/taskRecurrence";
 import { invalidTaskDateField } from "../lib/taskDates";
 import { localDayCompletionFilter, validTaskTimezone } from "../lib/taskLifecycle";
-import { guardTaskRecurrenceWrite, removeTaskOccurrences, taskRemovalRows, type TaskRemovalMode } from "../lib/taskRecurrenceDeletion";
+import { guardTaskRecurrenceWrite, removeTaskOccurrences, taskDeletionPlan, taskRemovalRows, type TaskRemovalMode } from "../lib/taskRecurrenceDeletion";
 import { saveTaskNoteSnapshot, TaskSnapshotError } from "../services/taskNoteSnapshot";
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -748,7 +748,7 @@ tasks.patch("/:id/toggle", (c) => {
 
 // 删除任务
 // Y3: 删除走 canManageResource；children 靠外键 ON DELETE CASCADE 自动清理。
-function removeOccurrences(c: Context, mode: TaskRemovalMode) {
+function removeOccurrences(c: Context, mode: TaskRemovalMode, expectedRevision?: unknown) {
   const db = getDb();
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
@@ -759,16 +759,45 @@ function removeOccurrences(c: Context, mode: TaskRemovalMode) {
     if (!canManageResource(task.userId,task.workspaceId,userId) || rows.some(row => row.workspaceId !== task.workspaceId || !canManageResource(row.userId,row.workspaceId,userId))) {
       return c.json({ error: "无权操作部分任务", code: "FORBIDDEN" }, 403);
     }
+    // 带预览指纹的删除：预览之后任务树或循环系列有任何变化都整体拒绝，不删除任何一条。
+    if (expectedRevision !== undefined && mode !== "stop" && taskDeletionPlan(db,task,mode,rows).revision !== expectedRevision) {
+      return c.json({ error: "任务在预览后已变化，请重新预览", code: "TASK_DELETION_CONFLICT" }, 409);
+    }
     if (mode !== "stop") taskDependenciesRepository.deleteByTaskIds(rows.map(row => row.id));
     const ids = removeTaskOccurrences(db,task,mode);
     return c.json({ success: true, affected: ids.length, ids });
   })();
 }
 tasks.patch("/:id/recurrence/stop", (c) => removeOccurrences(c,"stop"));
-tasks.delete("/:id", (c) => {
+// 删除预览：列出 single/series 删除会移除的全部任务（含各级子任务）及 revision 指纹，不修改数据。
+tasks.get("/:id/deletion-preview", (c) => {
   const mode = c.req.query("mode") || "single";
   if (mode !== "single" && mode !== "series") return c.json({ error: "Invalid deletion mode" }, 400);
-  return removeOccurrences(c,mode);
+  const db = getDb();
+  const userId = c.req.header("X-User-Id")!;
+  const task = db.prepare("SELECT * FROM tasks WHERE id=?").get(c.req.param("id")) as any;
+  if (!task || !canReadTask(task, userId)) return c.json({ error: "Task not found" }, 404);
+  const plan = taskDeletionPlan(db,task,mode);
+  if (!canManageResource(task.userId,task.workspaceId,userId) || plan.rows.some(row => row.workspaceId !== task.workspaceId || !canManageResource(row.userId,row.workspaceId,userId))) {
+    return c.json({ error: "无权操作部分任务", code: "FORBIDDEN" }, 403);
+  }
+  return c.json({
+    taskId: task.id, mode, affected: plan.rows.length, revision: plan.revision,
+    mayGenerateNextOccurrence: plan.mayGenerateNextOccurrence,
+    tasks: plan.rows.map(row => ({
+      id: row.id, title: row.title, parentId: row.parentId ?? null, isCompleted: row.isCompleted,
+      dueDate: row.dueDate ?? null, dueAt: row.dueAt ?? null, repeatRule: row.repeatRule || "none",
+      archivedAt: row.archivedAt ?? null, updatedAt: row.updatedAt,
+    })),
+  });
+});
+tasks.delete("/:id", async (c) => {
+  const mode = c.req.query("mode") || "single";
+  if (mode !== "single" && mode !== "series") return c.json({ error: "Invalid deletion mode" }, 400);
+  // 应用内删除不带请求体；带 expectedRevision 时（MCP / API Token）按预览指纹校验。
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  const expectedRevision = body && typeof body === "object" && Object.hasOwn(body, "expectedRevision") ? body.expectedRevision : undefined;
+  return removeOccurrences(c,mode,expectedRevision);
 });
 
 // batch: complete / delete multiple tasks

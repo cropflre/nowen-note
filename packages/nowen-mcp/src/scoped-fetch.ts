@@ -422,9 +422,20 @@ async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Re
     }
     return originalFetch(request);
   }
+  const deletionPreview = /^\/([A-Za-z0-9-]+)\/deletion-preview$/.exec(resource);
+  if (deletionPreview && method === "GET") {
+    const taskResponse = await originalFetch(new Request(new URL("/api/tasks/" + encodeURIComponent(deletionPreview[1]), baseUrl), {
+      headers: requestAuthHeaders(request),
+    }));
+    if (!taskResponse.ok) throw new ScopeDeniedError("任务不存在或无权限");
+    const task = await readJsonResponse(taskResponse);
+    if (!task || task.workspaceId != null) throw new ScopeDeniedError("MCP 仅允许个人任务");
+    return originalFetch(request);
+  }
   const match = /^\/([A-Za-z0-9-]+)$/.exec(resource);
-  if (!match || !['GET', 'PUT'].includes(method)) throw new ScopeDeniedError('MCP 不允许任务批量或删除操作');
+  if (!match || !['GET', 'PUT', 'DELETE'].includes(method)) throw new ScopeDeniedError('MCP 不允许任务批量操作');
   if (method === 'PUT') policy.assertWritable('修改任务');
+  if (method === 'DELETE') policy.assertWritable('删除任务');
   const record = await originalFetch(new Request(new URL('/api/tasks/' + encodeURIComponent(match[1]), baseUrl), {
     headers: requestAuthHeaders(request),
   }));
@@ -436,6 +447,7 @@ async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Re
     await assertPersonalTaskLinks(body, request);
     return originalFetch(request);
   }
+  if (method === 'DELETE') return originalFetch(request);
   return replaceJsonResponse(record, task);
 }
 // Personal project APIs are separate from notebook scope; never allow workspace projects.
@@ -503,11 +515,12 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
     });
   }
   policy.assertWritable("修改知识树");
-  if (url.searchParams.get("workspaceId") && url.searchParams.get("workspaceId") !== "personal") {
-    throw new ScopeDeniedError("MCP 只允许修改个人知识树");
-  }
+  // 团队目录写入与个人目录同一套本地白名单校验；节点必须属于本次请求声明的空间，
+  // 服务端还会再按 Token 授权、团队成员身份与 ACL 复核。
+  const requestedWorkspace = url.searchParams.get("workspaceId") || "personal";
+  const expectedWorkspaceId = requestedWorkspace === "personal" ? null : requestedWorkspace;
   const catalogResponse = await originalFetch(
-    `${baseUrl}/api/knowledge-tree/?workspaceId=personal&includeDeleted=1`,
+    `${baseUrl}/api/knowledge-tree/?workspaceId=${encodeURIComponent(requestedWorkspace)}&includeDeleted=1`,
     { headers: requestAuthHeaders(request) },
   );
   if (!catalogResponse.ok) throw new ScopeDeniedError("知识树不可读取或 Token 缺少读取权限");
@@ -520,9 +533,9 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
   const body = await readJson(request);
   const assertNode = (id: string): any => {
     const node = byId.get(id);
-    if (!node || !visibleIds.has(id) || node.workspaceId != null
+    if (!node || !visibleIds.has(id) || (node.workspaceId ?? null) !== expectedWorkspaceId
       || !["note", "notebook"].includes(node.resourceType)) {
-      throw new ScopeDeniedError("节点不存在、不属于个人空间或未获授权");
+      throw new ScopeDeniedError("节点不存在、不属于请求的空间或未获授权");
     }
     return node;
   };
@@ -590,6 +603,109 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
   throw new ScopeDeniedError("不允许此知识树操作");
 }
 
+async function handleMigrationRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  if (pathname === "/api/migrations/capabilities" && method === "GET") return originalFetch(request);
+  if (pathname === "/api/migrations") {
+    if (method === "GET") {
+      const response = await originalFetch(request);
+      if (!response.ok) return response;
+      const body = await readJsonResponse(response);
+      return replaceJsonResponse(response, { ...body,
+        items: Array.isArray(body?.items)
+          ? body.items.filter((job: any) => policy.isNotebookAllowed(job.targetNotebookId)) : [],
+      });
+    }
+    if (method !== "POST") throw new ScopeDeniedError("不允许此迁移操作");
+    const body = await readJson(request);
+    policy.assertNotebookAllowed(typeof body.targetNotebookId === "string" ? body.targetNotebookId : null, "准备迁移");
+    if (!policy.includeDescendants) throw new ScopeDeniedError("迁移创建新目录需要 MCP_INCLUDE_DESCENDANTS=true");
+    return originalFetch(request);
+  }
+  const match = /^\/api\/migrations\/([^/]+)(?:\/(items|uploads|preview|report|retry|cancel|pause|resume|upload-sessions)(?:\/([^/]+)(?:\/(chunks|complete|decision))?)?)?$/.exec(pathname);
+  const sessionRequest = match?.[2] === "upload-sessions" && ((!match[3] && method === "POST")
+    || (match[3] && !match[4] && ["GET", "DELETE"].includes(method))
+    || (match[4] === "chunks" && method === "PUT") || (match[4] === "complete" && method === "POST"));
+  const decisionRequest = match?.[2] === "items" && match[3] && match[4] === "decision" && method === "POST";
+  if (!match || !(sessionRequest || decisionRequest || (!match[3] && ((method === "GET" && (!match[2] || match[2] === "report"))
+      || (method === "POST" && match[2] && match[2] !== "report"))))) {
+    throw new ScopeDeniedError("MCP 不允许迁移审批或直接撤销，请在 Nowen Note 中操作");
+  }
+  const jobResponse = await originalFetch(`${baseUrl}/api/migrations/${match[1]}`, { headers: requestAuthHeaders(request) });
+  if (!jobResponse.ok) throw new ScopeDeniedError("迁移任务不存在或未获授权");
+  const job = await readJsonResponse(jobResponse);
+  policy.assertNotebookAllowed(job?.targetNotebookId, "访问迁移任务");
+  // Imports create descendants in the backend worker, outside this client's
+  // createNotebook hook. Refresh after completion so the same scoped client
+  // can discover its authorized results without restarting.
+  if (job?.rootNotebookId && ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"].includes(job.status)) {
+    policy.hydrateDescendants(await fetchNotebookCatalog(request));
+  }
+  if (!match[2] && method === "GET") return jobResponse;
+  return originalFetch(request);
+}
+
+async function handleAIArchiveRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  const headers = requestAuthHeaders(request);
+  // A switched-off archive is not a scope problem: hand the server's answer back so the client sees why.
+  const switchedOff = async (response: Response) => (await readJsonResponse(response))?.code === "AI_MEMORY_DISABLED";
+  // An archive belongs to the notebook of its source; that notebook must be in this MCP's scope.
+  const checkSource = async (sourceId: unknown, operation: string): Promise<Response | null> => {
+    if (typeof sourceId !== "string" || !sourceId) throw new ScopeDeniedError("归档请求缺少来源");
+    const response = await originalFetch(`${baseUrl}/api/ai-memory/sources/${encodeURIComponent(sourceId)}`, { headers });
+    if (!response.ok) {
+      if (await switchedOff(response)) return response;
+      throw new ScopeDeniedError("归档来源不存在或未获授权");
+    }
+    policy.assertNotebookAllowed((await readJsonResponse(response))?.notebookId, operation);
+    return null;
+  };
+  if (pathname === "/api/ai-memory/capabilities" && method === "GET") return originalFetch(request);
+  if (pathname === "/api/ai-memory/sources" && method === "GET") {
+    const response = await originalFetch(request);
+    if (!response.ok) return response;
+    const body = await readJsonResponse(response);
+    return replaceJsonResponse(response, { ...body,
+      items: Array.isArray(body?.items) ? body.items.filter((source: any) => policy.isNotebookAllowed(source.notebookId)) : [] });
+  }
+  const source = /^\/api\/ai-memory\/sources\/([^/]+)$/.exec(pathname);
+  if (source && method === "GET") {
+    return await checkSource(decodeURIComponent(source[1]), "读取归档来源") ?? originalFetch(request);
+  }
+  if (pathname === "/api/ai-memory/conversations" && method === "GET") {
+    const sourceId = url.searchParams.get("sourceId");
+    if (sourceId) return await checkSource(sourceId, "列出对话归档") ?? originalFetch(request);
+    const sources = await originalFetch(`${baseUrl}/api/ai-memory/sources`, { headers });
+    if (!sources.ok) return sources;
+    const allowed = new Set(((await readJsonResponse(sources))?.items || [])
+      .filter((item: any) => policy.isNotebookAllowed(item.notebookId)).map((item: any) => item.id));
+    const response = await originalFetch(request);
+    if (!response.ok) return response;
+    const body = await readJsonResponse(response);
+    const all = Array.isArray(body?.items) ? body.items : [];
+    const items = all.filter((row: any) => allowed.has(row.sourceId));
+    return replaceJsonResponse(response, { ...body, items, total: items.length === all.length ? body.total : items.length });
+  }
+  const archive = /^\/api\/ai-memory\/conversations\/([^/]+)(\/messages)?$/.exec(pathname);
+  if (archive && archive[1] !== "ingest" && method === "GET") {
+    const response = await originalFetch(`${baseUrl}/api/ai-memory/conversations/${archive[1]}`, { headers });
+    if (!response.ok) {
+      if (await switchedOff(response)) return response;
+      throw new ScopeDeniedError("对话归档不存在或未获授权");
+    }
+    return await checkSource((await readJsonResponse(response))?.sourceId, "读取对话归档") ?? originalFetch(request);
+  }
+  if (pathname === "/api/ai-memory/conversations/ingest" && method === "POST") {
+    return await checkSource((await readJson(request)).sourceId, "保存对话归档") ?? originalFetch(request);
+  }
+  throw new ScopeDeniedError("MCP 只能读取归档和保存对话；来源授权、删除、恢复和导入请在 Nowen Note 中操作");
+}
+
 async function scopedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request = new Request(input, init);
   const url = new URL(request.url);
@@ -619,6 +735,12 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
 
     if (url.pathname === "/api/health" || url.pathname === "/api/me") {
       return originalFetch(request);
+    }
+    if (url.pathname === "/api/migrations" || url.pathname.startsWith("/api/migrations/")) {
+      return await handleMigrationRequest(request, url);
+    }
+    if (url.pathname === "/api/ai-memory" || url.pathname.startsWith("/api/ai-memory/")) {
+      return await handleAIArchiveRequest(request, url);
     }
     if (url.pathname === "/api/notebooks" || url.pathname.startsWith("/api/notebooks/")) {
       return await handleNotebookRequest(request, url);

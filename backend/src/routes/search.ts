@@ -21,6 +21,7 @@ import {
   repairSearchContentText,
 } from "../lib/searchIndex";
 import { ensureSearchNotebookExclusionsTable } from "../services/searchNotebookExclusions";
+import { TOKEN_NOTEBOOK_SCOPE_HEADER, tokenNotebookScopeFromHeader } from "../services/apiTokenNotebookAccess";
 import searchExclusionsRouter from "./search-exclusions";
 
 const app = new Hono();
@@ -251,6 +252,31 @@ function buildSearchScope(
           AND shared_nb.isDeleted = 0
       ))) AND (${exclusion.sql})`,
     params: [userId, userId, userId, ...exclusion.params],
+  };
+}
+
+/**
+ * restricted API Token 的搜索范围：中间件下发的笔记本白名单已按当前团队成员身份、
+ * 角色和 ACL 复核。未指定空间时跨个人与团队授权笔记本检索；指定空间时再与该空间求交。
+ */
+function buildTokenSearchScope(
+  workspaceId: string | undefined,
+  userId: string,
+  includeExcluded: boolean,
+  notebookIds: string[],
+): SearchScope | null {
+  const exclusion = exclusionSearchScope(userId, includeExcluded);
+  const notebooks = `n.notebookId IN (${notebookIds.map(() => "?").join(",")})`;
+  if (workspaceId && workspaceId !== "personal") {
+    if (!getUserWorkspaceRole(workspaceId, userId)) return null;
+    return {
+      sql: `(n.workspaceId = ?) AND ${notebooks} AND (${exclusion.sql})`,
+      params: [workspaceId, ...notebookIds, ...exclusion.params],
+    };
+  }
+  return {
+    sql: `${workspaceId === "personal" ? "(n.workspaceId IS NULL) AND " : ""}${notebooks} AND (${exclusion.sql})`,
+    params: [...notebookIds, ...exclusion.params],
   };
 }
 
@@ -1111,7 +1137,11 @@ app.get("/", (c) => {
   if (!q) return c.json([]);
 
   ensureSearchNotebookExclusionsTable(db);
-  const scope = buildSearchScope(workspaceId, userId, includeExcluded);
+  const tokenNotebookScope = tokenNotebookScopeFromHeader(c.req.header(TOKEN_NOTEBOOK_SCOPE_HEADER));
+  if (tokenNotebookScope && tokenNotebookScope.length === 0) return c.json([]);
+  const scope = tokenNotebookScope
+    ? buildTokenSearchScope(workspaceId, userId, includeExcluded, tokenNotebookScope)
+    : buildSearchScope(workspaceId, userId, includeExcluded);
   if (!scope) return c.json({ error: "无权访问该工作区" }, 403);
 
   const terms = splitSearchTerms(q);
@@ -1122,7 +1152,8 @@ app.get("/", (c) => {
   const candidate = collectCandidates(db, terms, scope, userId);
   candidate.ids = filterVisibleCandidates(db, candidate.ids, userId);
   const candidateDurationMs = performance.now() - candidateStarted;
-  const mindMapResults = fetchMindMapResults(
+  // 思维导图不属于任何笔记本，restricted Token 的笔记本授权不覆盖它们。
+  const mindMapResults = tokenNotebookScope ? [] : fetchMindMapResults(
     db,
     userId,
     workspaceId,

@@ -14,6 +14,7 @@ import type { Notebook, NoteListItem } from "@/types";
 import { EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 import { buildNoteDeepLinkUrl } from "@/lib/noteDeepLink";
 import NoteColorMarkDot from "@/components/NoteColorMarkDot";
+import { revealKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 
 type TabContextMenuState = {
   tabId: string;
@@ -629,6 +630,10 @@ export default function NoteTabsBar() {
                 }
                 void openNote(tab.id);
               }}
+              onDoubleClick={(event) => {
+                if (suppressClickRef.current || (event.target as Element).closest('[role="button"]') || tab.isTrashed) return;
+                revealKnowledgeTreeNote(tab.id, true, tab.notebookId);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setContextMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
@@ -683,7 +688,7 @@ export default function NoteTabsBar() {
                   : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
                 draggingTabId === tab.id && "opacity-45"
               )}
-              title={title}
+              title={`${title}\n${t("knowledgeTreeUi.locateByDoubleClick", { defaultValue: "双击在目录中定位" })}`}
             >
               {dragInsertTarget?.tabId === tab.id && dragInsertTarget.edge === "before" && (
                 <span className="pointer-events-none absolute -left-0.5 top-1 bottom-1 z-10 w-0.5 rounded-full bg-accent-primary" />

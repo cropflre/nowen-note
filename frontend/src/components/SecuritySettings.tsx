@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import QRCode from "@/components/ui/QRCode";
 import FolderAutoLockSettings from "@/components/FolderAutoLockSettings";
+import JournalPrivacySettingsCard from "@/components/settings/JournalPrivacySettingsCard";
 import { useTranslation } from "react-i18next";
 import { api, broadcastAuthChanged, withSudo } from "@/lib/api";
 import { getAppInfo } from "@/lib/desktopBridge";
@@ -145,6 +146,7 @@ export default function SecuritySettings() {
       {!isDemo && !isManagedDesktop && <PasswordSection key={`pwd-${currentUserId}`} />}
       {!isDemo && !isManagedDesktop && <TwoFactorSection key={`2fa-${currentUserId}`} />}
       <FolderAutoLockSettings key={`folder-lock-${currentUserId}`} />
+      <JournalPrivacySettingsCard key={`journal-privacy-${currentUserId}`} />
       <SessionsSection key={`sess-${currentUserId}`} />
     </div>
   );

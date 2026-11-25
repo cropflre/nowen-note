@@ -1,5 +1,6 @@
 /*
- * Issue #287: code blocks should keep long lines inside the reading column.
+ * Code blocks stay inside the reading column. Wrapping is enabled by default;
+ * the user's display preference can preserve source lines with local scrolling.
  *
  * `pre-wrap` preserves source indentation and explicit newlines while allowing
  * the browser to wrap a visual line at the available width. `anywhere` covers
@@ -9,6 +10,13 @@
  * to the rich-text editor, Markdown preview, shared notes and legacy fallback
  * code blocks without changing the stored note content.
  */
+html[data-code-block-word-wrap="false"] {
+  --nowen-code-white-space: pre;
+  --nowen-code-overflow-wrap: normal;
+  --nowen-code-word-break: normal;
+  --nowen-code-overflow-x: auto;
+}
+
 .ProseMirror .code-block-wrapper .code-block-content,
 .ProseMirror pre:not(.code-block-pre) > code,
 .nowen-md-preview pre > code,
@@ -16,9 +24,9 @@
 .shared-note-content pre > code {
   min-width: 0;
   max-width: 100%;
-  white-space: pre-wrap !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: var(--nowen-code-white-space, pre-wrap) !important;
+  overflow-wrap: var(--nowen-code-overflow-wrap, anywhere);
+  word-break: var(--nowen-code-word-break, break-word);
 }
 
 /* Syntax highlighters split a line into nested spans. Let every token inherit
@@ -33,12 +41,12 @@
   word-break: inherit;
 }
 
-/* The previous layout deliberately exposed horizontal scrolling. Once code is
- * wrapped, hide the empty horizontal gutter on the dedicated code containers. */
+/* Scroll long source lines inside the code container rather than the page.
+ * Wrapped mode keeps the existing hidden horizontal gutter. */
 .ProseMirror .code-block-pre,
 .ProseMirror pre:not(.code-block-pre),
 .nowen-md-preview pre,
 .shared-note-content .shared-code-pre {
   max-width: 100%;
-  overflow-x: hidden !important;
+  overflow-x: var(--nowen-code-overflow-x, hidden) !important;
 }

@@ -29,6 +29,44 @@ function tokenFor(userId: string): string {
 }
 
 describe("user preference account cache", () => {
+  it("keeps code wrapping enabled for old settings and preserves an explicit no-wrap choice", () => {
+    expect(normalizeUserPreferences({}).codeBlockWordWrap).toBe(true);
+    expect(normalizeUserPreferences({ codeBlockWordWrap: false }).codeBlockWordWrap).toBe(false);
+    expect(normalizeUserPreferences({ codeBlockWordWrap: "false" }).codeBlockWordWrap).toBe(true);
+    expect(sanitizeUserPreferencePatch({ codeBlockWordWrap: false })).toEqual({ codeBlockWordWrap: false });
+    const storage = new MemoryStorage();
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "wrap-user",
+      prefs: { ...DEFAULT_USER_PREFERENCES, codeBlockWordWrap: false },
+      revision: 1,
+      pending: { codeBlockWordWrap: false },
+    });
+    const restored = readAccountPreferenceCache(storage, "wrap-user");
+    expect(restored?.prefs.codeBlockWordWrap).toBe(false);
+    expect(mergePendingPreferences(DEFAULT_USER_PREFERENCES, restored?.pending ?? {}).codeBlockWordWrap).toBe(false);
+    expect(readAccountPreferenceCache(storage, "another-user")).toBeNull();
+  });
+
+  it("keeps templates visible for old settings and restores a pending hidden choice per account", () => {
+    expect(normalizeUserPreferences({}).showTemplateManagement).toBe(true);
+    expect(normalizeUserPreferences({ showTemplateManagement: false }).showTemplateManagement).toBe(false);
+    expect(normalizeUserPreferences({ showTemplateManagement: "false" }).showTemplateManagement).toBe(true);
+    expect(sanitizeUserPreferencePatch({ showTemplateManagement: false })).toEqual({ showTemplateManagement: false });
+    const storage = new MemoryStorage();
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "template-user",
+      prefs: { ...DEFAULT_USER_PREFERENCES, showTemplateManagement: false },
+      revision: 1,
+      pending: { showTemplateManagement: false },
+    });
+    const restored = readAccountPreferenceCache(storage, "template-user");
+    expect(restored?.prefs.showTemplateManagement).toBe(false);
+    expect(mergePendingPreferences(DEFAULT_USER_PREFERENCES, restored?.pending ?? {}).showTemplateManagement).toBe(false);
+    expect(readAccountPreferenceCache(storage, "another-user")).toBeNull();
+  });
+
   it("derives the cache identity from the authenticated JWT", () => {
     expect(decodeUserIdFromToken(tokenFor("user-a"))).toBe("user-a");
     expect(decodeUserIdFromToken("invalid-token")).toBeNull();

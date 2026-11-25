@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./electron/icon.png" alt="Nowen Note" width="104" />
+  <img src="./docs/assets/nowen-note-icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note</h1>
   <p><strong>An open-source, self-hosted knowledge base, collaborative note app, and task management platform</strong></p>
   <p>
@@ -11,7 +11,7 @@
     <a href="https://nowen.cn/#/note/download">Download Center</a> ·
     <a href="https://nowen.cn/#/note/tutorials">Help Center</a> ·
     <a href="http://note.nowen.cn/">Live Demo</a> ·
-    <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
+    <a href="https://github.com/cropflre/nowen-note/releases/latest">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
     <a href="./docs/tutorials/mcp.en.md">MCP Installation</a> ·
     <a href="./.agents/skills/nowen-note-development/SKILL.md">AI Development Skill</a> ·
@@ -21,7 +21,7 @@
 
 <div align="center">
 
-[![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 [![Node.js 24.22.1+ (24.x LTS)](https://img.shields.io/badge/Node.js-24.22.1%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
@@ -33,37 +33,32 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.5 highlights · 2026-11-09
+## v1.6.1 highlights · 2026-11-23
 
-**Improved two-way synchronization across web, desktop, and Android, plus desktop startup recovery and smoother interactions.** [Full release notes](./docs/releases/v1.5.5.md) · [Official v1.5.5 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.5).
+- **Hot updates are now supported.** Install v1.6.1 once on Windows, macOS, Linux, or Android. After that, most updates can be applied inside the app.
+- **Editing and sharing.** The editor supports four-space Tab indentation, alignment shortcuts, and draggable text boxes. Shared pages display highlights, text boxes, columns, and collapsible blocks.
+- **Sign-in and attachments.** Sign-in is simpler with an existing reverse proxy, the sign-in page works better on older Android WebViews, and desktop clients can extract text from PDF attachments again.
+
+[v1.6.1 release notes and downloads](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [Official download center](https://nowen.cn/#/note/download) · [Gitee release and download links](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
+
+This release includes Windows setup and portable packages, macOS packages for Intel and Apple Silicon, Linux AppImage and DEB packages, and Android APK and AAB files. Find Docker images on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) and Feiniu fnOS, UGREEN UGOS, and browser clipper downloads on the [v1.6.0 release page](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0).
 
 > [!IMPORTANT]
-> Back up the database, attachments, and configuration before upgrading, and verify recovery. **Rolling back an application or Docker image does not roll back persistent data.** macOS GitHub downloads are unsigned and unnotarized; direct Windows EXE downloads are unsigned. Live sync depends on online devices connected to the same server and account, and cannot guarantee zero latency or conflicts.
+> Back up the database, attachments, and deployment configuration before upgrading, and verify that you can restore them. **Rolling back the application or Docker image does not roll back persistent data.** GitHub's macOS packages lack Apple Developer ID signing and notarization. Direct Windows EXE downloads are unsigned.
 
-- **Cross-device two-way sync:** Better web / PC / Android change notification and automatic refresh of open notes, backed by three-client tests. Concurrent editing preserves both versions rather than silently overwriting content (#910).
-- **Knowledge-tree recovery:** Safer preflight validation for structural-conflict repair and more consistent first-use/onboarding state.
-- **Desktop reliability:** Clearer first-download progress, local sign-in recovery, backend restart retries, and Lite startup fixes.
-- **Motion and editing:** A shared UI motion system, responsive layout fixes, mobile sharing adjustments, Word pasted-image recovery, and Markdown line breaks.
-- **Permissions and compatibility:** AI-generated content provenance, scoped personal diary APIs, HarmonyOS export, and historical database migration support.
+## Recent releases
 
-**v1.6.0 scope:** The full Workspace, Personal App Studio, and Extension Platform V3 are not newly shipped in v1.5.5. Download options follow actual published assets; store releases remain separate.
-
-[Website changelog](https://nowen.cn/#/note/changelog) · [Download center](https://nowen.cn/#/note/download) · [Full changelog](./CHANGELOG.md)
-
-## Previous stable release · v1.5.4
-
-Released November 2, 2026: reviewable AI edits, Markdown chapter folding, attachment recovery, and desktop NAS offline improvements. [v1.5.4 notes](./docs/releases/v1.5.4.md).
-
-## Earlier stable release · v1.5.3
-
-Released on October 23, 2026, v1.5.3 improved note editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. Read the [v1.5.3 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3).
+- **v1.6.0** (2026-11-21) updated the extension center and settings, improved note imports, AI chat archiving, and Moment attachments, and expanded MCP team-space authorization and personal task operations. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
+- **v1.5.5** (2026-11-09) improved two-way sync across web, desktop, and Android, knowledge-tree conflict recovery, and desktop startup. [Release notes](./docs/releases/v1.5.5.md)
+- **v1.5.4** (2026-11-02) introduced reviewable AI edits and Markdown chapter folding and improved attachment recovery and offline use on desktop. [Release notes](./docs/releases/v1.5.4.md)
+- **v1.5.3** (2026-10-23) improved editing, image handling, encryption controls, calendars and reminders, and cross-platform stability. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)
 
 ## Connect AI clients to Nowen Note
 
-The Nowen Note MCP Server connects to Claude Code, Cursor, VS Code, and other compatible clients. It exposes notes, scoped knowledge-tree resources, personal tasks/projects, personal file management, and personal automations **within Personal API Token permissions**. Sensitive mutations require explicit authorization, preview/confirmation, and concurrency revision checks; dangerous capabilities are disabled by default.
+The Nowen Note MCP Server connects to Claude Code, Cursor, VS Code, and other compatible clients. It exposes notes, scoped knowledge-tree resources, personal tasks/projects, personal file management, and personal automations **within Personal API Token permissions**. A token can access selected team notebooks within the member’s current team role and folder permissions. Sensitive mutations require explicit authorization, preview/confirmation, and concurrency revision checks; dangerous capabilities are disabled by default.
 
-- [MCP Server installation guide](./docs/tutorials/mcp.en.md)
-- [中文安装教程](./docs/tutorials/mcp.md)
+- [MCP Server installation and team-space authorization](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.en.md)
+- [中文安装教程](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.md)
 - [Standalone nowen-mcp package README](./packages/nowen-mcp/README.md)
 
 The supported source-build launcher uses Node.js 24.22.1+ (24.x LTS) and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
@@ -92,7 +87,8 @@ The supported source-build launcher uses Node.js 24.22.1+ (24.x LTS) and `packag
 | **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, My Day, Inbox, offline tasks/habits, Android reminders, and mind maps. v1.5.2 adds confirmed AI task generation, daily completion summaries, task-tree archiving, task details saved as a separate note, Excel/Markdown exports, plus due-date sorting and webhook digests. |
 | **Collaboration, permissions, and sharing** | Yjs + WebSocket collaboration, workspaces and roles, directory ACLs, Restricted access, explicit allow/deny policies, ownership transfer, centralized share management, passwords and expiration, guest comments, public knowledge spaces, and rich-text/Markdown inline comments. |
 | **Sync and edit protection** | Incremental sync, per-note server acknowledgements, persistence receipts, draft recovery, serial saves, revision checks, and offline workspace support. Personal folder-structure sync and recoverable trash flows improve consistency, while invalid cached attachment blobs are quarantined and repaired. |
-| **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
+| **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Logseq, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
+| **Daily records** | Moments, calendar, and journals in one place, with short posts, moods, photos, videos, and file attachments in Moments. |
 | **Attachments and storage** | Explorer-style file-center navigation, masonry view, folders, tags, smart folders, upload progress, scoped moves/renames, recoverable trash, personal attachment-folder synchronization, inserting existing files, and progress-tracked external-image migration. [AI-assisted organization and semantic search](./docs/user/file-ai-organization.md) use file metadata, preview-confirmation and access checks rather than file bytes, with platform limitations. Storage backends include local disk, S3, R2, and MinIO. See [organization](./docs/user/file-asset-organization.md), [recycle bin](./docs/user/file-recycle-bin.md), and [folder sync](./docs/user/file-folder-sync.md). |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, protected attachment access, and concealment of restricted-resource existence. |
 | **Backups, automation, and developer APIs** | Full and scheduled local backups, ZIP verification, email and encrypted WebDAV backups, managed Docker update checks, webhooks, signed/scoped plugins, OpenAPI, TypeScript SDK, CLI, and browser clipper. The [MCP Server](./docs/tutorials/mcp.en.md) supports permission-scoped notes, knowledge-tree, personal task/project and file tools plus opt-in local HTTP transport; sensitive changes require explicit preview-confirm flows. |
@@ -104,17 +100,31 @@ See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/t
 
 ## Screenshots
 
+Captured from a real local Nowen Note instance (demo account, light theme, 2× scale).
+
 ### Desktop
 
-| AI writing assistant | AI provider settings |
+| Workspace overview | Knowledge tree and documents |
 | :---: | :---: |
-| ![Desktop AI writing](./docs/screenshots/desktop-ai-writing.png) | ![AI settings](./docs/screenshots/settings-ai.png) |
+| ![Workspace overview](./docs/screenshots/desktop-overview.png) | ![Knowledge tree](./docs/screenshots/desktop-knowledge-tree.png) |
+
+| Rich-text editor | Markdown split view |
+| :---: | :---: |
+| ![Rich-text editor](./docs/screenshots/desktop-editor.png) | ![Markdown split view](./docs/screenshots/desktop-markdown.png) |
+
+| AI writing assistant | Task center |
+| :---: | :---: |
+| ![AI writing assistant](./docs/screenshots/desktop-ai-writing.png) | ![Task center](./docs/screenshots/desktop-tasks.png) |
+
+![AI provider settings](./docs/screenshots/settings-ai.png)
 
 ### Mobile
 
 | Sidebar | Note list | Editor |
 | :---: | :---: | :---: |
 | ![Mobile sidebar](./docs/screenshots/mobile-sidebar.png) | ![Mobile note list](./docs/screenshots/mobile-list.png) | ![Mobile editor](./docs/screenshots/mobile-editor.png) |
+
+> Screenshots are generated by `node scripts/screenshots/capture-readme.mjs`, which seeds demo data when it connects to a local development instance.
 
 ## Website and demo
 
@@ -189,16 +199,11 @@ docker compose logs -f --tail=200 nowen-note
 
 Create a full backup first and confirm that both the database and attachment directory are persisted.
 
+To pin the image to v1.6.0, set `NOWEN_IMAGE_TAG=v1.6.0` in your Compose `.env` file, then run the following commands. Published tags are listed on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags).
+
 ```bash
 docker compose pull
 docker compose up -d
-```
-
-To pin a Docker image, first verify the tag in [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags). The following example uses the publicly available v1.5.1 tag; replace it only once the v1.5.2 image is published:
-
-```bash
-NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
-NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
 > [!IMPORTANT]
@@ -211,7 +216,7 @@ Managed updates only support the official [`docker-compose.yml`](./docker-compos
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.5.1 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.6.0 docker compose --profile updater up -d
 ```
 
 Administrators can then run preflight checks, create a full backup, update, verify health, and roll back the image from Settings → About → Version.
@@ -229,7 +234,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.5.1
+  cropflre/nowen-note:v1.6.0
 ```
 
 ## Data, backups, and configuration
@@ -421,7 +426,7 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 
 The README documents stable capabilities, recent highlights, and deployment. Complete commit-level history remains in the changelog.
 
-- [Latest release](https://github.com/cropflre/nowen-note/releases)
+- [Latest release](https://github.com/cropflre/nowen-note/releases/latest)
 - [Full changelog](./CHANGELOG.md)
 - [Issues and roadmap](https://github.com/cropflre/nowen-note/issues)
 

@@ -1,5 +1,6 @@
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import { compareKnowledgeTreePinnedPriority } from "@/lib/knowledgeTreeSort";
+import { filterKnowledgeTreeNodes } from "@/lib/sharedKnowledgeTree";
 
 export type MobileKnowledgeTreeSortMode =
   | "updated-desc"
@@ -126,7 +127,7 @@ export function filterMobileKnowledgeTreeNodes(
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return [];
   return sortMobileKnowledgeTreeNodes(
-    nodes.filter((node) => node.isDeleted !== 1 && node.title.toLocaleLowerCase().includes(normalized)),
+    filterKnowledgeTreeNodes(nodes.filter((node) => node.isDeleted !== 1), normalized),
     mode,
   );
 }

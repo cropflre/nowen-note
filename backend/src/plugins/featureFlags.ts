@@ -7,8 +7,8 @@ function envFlag(name: string): boolean {
 }
 
 /**
- * V2.1 capabilities remain opt-in and retain their >=1.6.0 compatibility contract.
- * Feature flags do not override the actual host version.
+ * Legacy V2.1 capabilities remain opt-in and retain their >=1.6.0 compatibility contract.
+ * V3 app pages ship independently in 1.5.3; see applicationV3.ts for their defaults and overrides.
  */
 export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFeatureFlags> {
   const extensionsV21 = envFlag("NOWEN_EXTENSIONS_V21");
@@ -23,6 +23,8 @@ export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFe
     sandboxedPluginUi: uiLayoutEditor && envFlag("NOWEN_SANDBOXED_PLUGIN_UI"),
     fileProcessingExtensions,
     experimentalDocumentTypes: fileProcessingExtensions && envFlag("NOWEN_EXPERIMENTAL_DOCUMENT_TYPES"),
+    // Off by default until the Phase 5 security review (D3); works with executable plugins only.
+    editorActions: envFlag("NOWEN_EDITOR_ACTIONS"),
   });
 }
 

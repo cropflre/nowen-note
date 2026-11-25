@@ -11,33 +11,33 @@ const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const read = path => readFile(resolve(root, path), 'utf8');
 const json = async path => JSON.parse(await read(path));
 
-test('v1.5.5 root and backend package/lock versions are identical', async () => {
+test('v1.6.0 root and backend package/lock versions are identical', async () => {
   for (const prefix of ['', 'backend/']) {
     const pkg = await json(prefix + 'package.json');
     const lock = await json(prefix + 'package-lock.json');
-    assert.equal(pkg.version, '1.5.5', prefix + 'package.json');
+    assert.equal(pkg.version, '1.6.0', prefix + 'package.json');
     assert.equal(lock.version, pkg.version);
     assert.equal(lock.packages[''].version, pkg.version);
     assert.deepEqual(lock.packages[''].engines, pkg.engines);
   }
 });
 
-test('Android identity and versionCode advance beyond released v1.5.4', async () => {
+test('Android identity and versionCode advance beyond released v1.5.5', async () => {
   const gradle = await read('frontend/android/app/build.gradle');
   assert.match(gradle, /applicationId\s+"com\.nowen\.note"/);
-  assert.equal(gradle.match(/versionName\s+"([^"]+)"/)?.[1], '1.5.5');
+  assert.equal(gradle.match(/versionName\s+"([^"]+)"/)?.[1], '1.6.0');
   const code = Number(gradle.match(/versionCode\s+(\d+)/)?.[1]);
-  assert.ok(Number.isSafeInteger(code) && code > 10510, 'must exceed published v1.5.4 code 10510');
+  assert.ok(Number.isSafeInteger(code) && code > 10511, 'must exceed published v1.5.5 code 10511');
 });
 
-test('source Xcode build configurations carry v1.5.5 defaults', async () => {
+test('source Xcode build configurations carry v1.6.0 defaults', async () => {
   const project = await read('frontend/ios/App/App.xcodeproj/project.pbxproj');
   const versions = [...project.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(match => match[1]);
   assert.ok(versions.length >= 2);
-  assert.ok(versions.every(value => value === '1.5.5'));
+  assert.ok(versions.every(value => value === '1.6.0'));
   const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = ([0-9]+);/g)].map(match => Number(match[1]));
   assert.equal(codes.length, versions.length);
-  assert.ok(codes.every(value => value >= 10511));
+  assert.ok(codes.every(value => value >= 10600));
   const workflow = await read('.github/workflows/ios-release.yml');
   assert.match(workflow, /CURRENT_PROJECT_VERSION/);
   assert.equal(workflow.includes('BUILD_NUMBER="${GITHUB_RUN_NUMBER}"'), false);
@@ -68,12 +68,13 @@ test('macOS build steps omit signing credentials for unsigned candidates and ret
   const bin = resolve(directory, 'bin');
   await mkdir(bin);
   const keys = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
+  await writeFile(resolve(bin, 'node'), '#!/bin/sh\nexit 0\n', {mode:0o755});
   await writeFile(resolve(bin, 'npm'), `#!${process.execPath}\n`, {mode:0o755});
   await writeFile(resolve(bin, 'npx'), `#!${process.execPath}\nconst keys=${JSON.stringify(keys)};const values=Object.fromEntries(keys.filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));console.log(JSON.stringify(values));if(Object.values(values).some(value=>value===''))process.exit(1);\n`, {mode:0o755});
   for (const step of steps) for (const signing of [false, true]) {
     const credentials = Object.fromEntries(keys.map(key => [key, signing ? 'fixture' : '']));
     const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-      cwd:root, encoding:'utf8', env:{...process.env,...credentials,CSC_IDENTITY_AUTO_DISCOVERY:String(signing),PATH:`${bin}:${process.env.PATH}`},
+      cwd:directory, encoding:'utf8', env:{...process.env,...credentials,CSC_IDENTITY_AUTO_DISCOVERY:String(signing),PATH:`${bin}:${process.env.PATH}`},
     });
     assert.equal(result.status, 0, `${step.name}: ${result.stderr} ${result.stdout}`);
     assert.deepEqual(JSON.parse(result.stdout), signing ? credentials : {});
@@ -141,8 +142,7 @@ test('FPK manifest uses fnpack-compatible quoted HTML and release version placeh
   const description = manifest.split(/\r?\n/).find(line => /^desc\s*=/.test(line));
   assert.ok(description, 'FPK description required');
   assert.match(description, /^desc\s*=\s*`.*`$/);
-  assert.match(description, /v1\.5\.4/);
-  assert.doesNotMatch(description, /v1\.5\.[23]/);
+  assert.match(description, /releases\/tag\/v\{\{VERSION\}\}/);
 });
 
 test('formal Android release pins the original certificate fingerprint and safely encodes Java properties', async () => {

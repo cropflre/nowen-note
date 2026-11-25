@@ -36,10 +36,6 @@ const STATIC_COPY: ReadonlyArray<readonly [string, string]> = [
   ["已是最新版本", "You're up to date"],
   ["点击放大", "Zoom image"],
   ["关闭 (Esc)", "Close (Esc)"],
-  ["隐藏桌面端菜单栏", "Hide desktop menu bar"],
-  ["仅 Windows/Linux 生效；隐藏后可按 Alt 临时显示菜单栏，快捷键仍然可用。", "Windows/Linux only. Press Alt to temporarily show the menu bar; shortcuts remain available."],
-  ["关闭网页端页面", "Disable Web UI"],
-  ["开启后服务器只保留 API；浏览器访问网页端会显示禁用提示。桌面客户端使用本地界面连接 API，不受影响。", "When enabled, the server exposes only the API and browser visits show a disabled notice. Desktop clients use their local UI and are unaffected."],
   ["快捷键", "Shortcuts"],
   ["离线同步", "Offline Sync"],
 

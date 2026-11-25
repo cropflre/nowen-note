@@ -58,6 +58,33 @@ const test = base.extend<{ server: string }>({
   },
 });
 
+test("registration displays a duplicate username error and allows correction", async ({ page, server }) => {
+  const username = "registration_existing", password = "registration-test-password";
+  const existing = await page.request.post(`${server}/api/auth/register`, { data: { username, password } });
+  expect(existing.status()).toBe(201);
+  await page.addInitScript(() => localStorage.setItem("i18nextLng", "zh-CN"));
+  await page.goto(server);
+  await page.getByRole("button", { name: "注册", exact: true }).click();
+  await page.locator('input[autocomplete="username"]').fill(username);
+  for (const input of await page.locator('input[autocomplete="new-password"]').all()) await input.fill(password);
+  const rejected = page.waitForResponse(response => response.url().endsWith("/api/auth/register") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "创建账号", exact: true }).click();
+  expect((await rejected).status()).toBe(409);
+  await expect(page.getByText("该用户名已被占用", { exact: true })).toBeVisible();
+  await expect.poll(() => page.getByText("该用户名已被占用", { exact: true })
+    .evaluate(element => getComputedStyle(element.parentElement!).opacity)).toBe("1");
+  await expect(page.getByText("登录后的本地会话处理失败，请重试或查看应用日志。", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("nowen-token"))).toBeNull();
+  await expect(page.locator('input[autocomplete="username"]')).toHaveValue(username);
+  await expect(page.locator('input[autocomplete="new-password"]').first()).toHaveValue(password);
+  await page.screenshot({ path: test.info().outputPath("registration-duplicate-username.png"), fullPage: true, animations: "disabled" });
+  await page.locator('input[autocomplete="username"]').fill("registration_corrected");
+  const accepted = page.waitForResponse(response => response.url().endsWith("/api/auth/register") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "创建账号", exact: true }).click();
+  expect((await accepted).status()).toBe(201);
+  await expect(page.locator('input[autocomplete="username"]')).not.toBeVisible();
+});
+
 for (const { width, platform } of [
   { width: 1440, platform: "MacIntel" },
   { width: 1440, platform: "Linux x86_64" },
@@ -236,12 +263,8 @@ for (const width of [1440, 390]) {
       await page.getByPlaceholder("admin", { exact: true }).fill("rich_slash_user");
       await page.locator("input[type=password]").fill(password);
       await page.locator("button[type=submit]").click();
-      if (process.env.SLASH_TEST_DEV === "1") {
-        // StrictMode cancels the welcome-note effect before it writes its marker.
-        await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
-      } else {
-        await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("nowen:onboarding-welcome-opened:v1:")))).toBe(true);
-      }
+      // Onboarding is gated on the server now (no local marker), so wait for the signed-in shell instead.
+      await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
       await page.goto(`${server}/notes/${note.id}`);
       const editor = page.locator(".tiptap[contenteditable=true]").filter({ visible: true });
       await expect(editor).toBeVisible();
@@ -364,7 +387,7 @@ for (const width of [1440, 320, 390]) {
     await page.getByPlaceholder("admin", { exact: true }).fill("slash_user");
     await page.locator("input[type=password]").fill(password);
     await page.locator("button[type=submit]").click();
-    await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("nowen:onboarding-welcome-opened:v1:")))).toBe(true);
+    await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
     await page.goto(`${server}/notes/${note.id}`);
     await page.setViewportSize({ width, height: 852 });
     const editor = page.locator(".cm-editor .cm-content").filter({ visible: true });
@@ -406,5 +429,125 @@ for (const width of [1440, 320, 390]) {
     await page.screenshot({ path: test.info().outputPath(`markdown-slash-${width}.png`) });
     await page.keyboard.press("Escape"); await expect(menu).not.toBeVisible();
     expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [1440, 390]) {
+  test.describe(`Code-block wrapping at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 }, hasTouch: width < 640,
+      ...(width < 640 ? { isMobile: true, userAgent: devices["Pixel 7"].userAgent } : {}),
+    });
+
+    test("keeps source lines horizontally scrollable when wrapping is disabled", async ({ page, server }) => {
+      const password = "code-wrap-browser-test-password";
+      const username = "code_wrap_user";
+      const registration = await page.request.post(`${server}/api/auth/register`, { data: { username, password } });
+      expect(registration.ok()).toBe(true);
+      const account = await registration.json(), headers = { Authorization: `Bearer ${account.token}` };
+      const notebooks = await (await page.request.get(`${server}/api/notebooks`, { headers })).json();
+      const code = `const endpoint = "https://example.test/${"long_path_segment_".repeat(24)}";\nconst label = "second source line";`;
+      const notes = [];
+      for (const contentFormat of ["tiptap-json", "markdown"]) {
+        const content = contentFormat === "markdown" ? `\`\`\`javascript\n${code}\n\`\`\`\n` : JSON.stringify({
+          type: "doc", content: [{ type: "codeBlock", attrs: { language: "javascript" }, content: [{ type: "text", text: code }] }],
+        });
+        const created = await page.request.post(`${server}/api/notes`, { headers, data: {
+          notebookId: notebooks[0].id, title: `Code wrapping ${contentFormat}`, contentFormat, content,
+        } });
+        expect(created.status(), await created.text()).toBe(201);
+        notes.push({ ...(await created.json()), contentFormat });
+      }
+      await page.addInitScript(version => {
+        localStorage.setItem("i18nextLng", "zh-CN");
+        localStorage.setItem("nowen-seen-version", version);
+      }, version);
+      await page.goto(server);
+      await page.getByPlaceholder("admin", { exact: true }).fill(username);
+      await page.locator("input[type=password]").fill(password);
+      await page.locator("button[type=submit]").click();
+      await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20_000 });
+
+      async function setWrapping(enabled: boolean) {
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:open-settings")));
+        const settings = page.locator('[data-swipe-blocker="settings-modal"]');
+        await expect(settings).toBeVisible();
+        await settings.getByRole("button", { name: "使用偏好", exact: true }).filter({ visible: true }).click();
+        const search = settings.getByRole("searchbox", { name: "搜索使用偏好" });
+        await search.fill("代码块自动换行");
+        await search.press("Enter");
+        const checkbox = settings.getByRole("switch", { name: "代码块自动换行", exact: true });
+        await checkbox.setChecked(enabled);
+        await expect.poll(async () => (await (await page.request.get(`${server}/api/user-preferences`, { headers })).json()).codeBlockWordWrap).toBe(enabled);
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent("nowen:close-settings")));
+        await expect(settings).not.toBeVisible();
+      }
+
+      for (const note of notes) {
+        await page.goto(`${server}/notes/${note.id}`);
+        const block = page.locator(note.contentFormat === "markdown" ? ".nowen-md-preview .code-block-wrapper" : ".ProseMirror .code-block-wrapper").first();
+        async function showCode() {
+          if (note.contentFormat === "markdown" && !await block.isVisible()) {
+            await page.getByRole("button", { name: "预览", exact: true }).filter({ visible: true }).click();
+          }
+          await expect(block.locator("code")).toHaveText(code);
+          await expect(block.locator("code span").first()).toBeVisible();
+        }
+        await showCode();
+        const before = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
+        const layout = () => block.locator("pre").evaluate(pre => {
+          const code = pre.querySelector("code")!;
+          const styles = getComputedStyle(code);
+          const range = document.createRange(); range.selectNodeContents(code);
+          return {
+            whiteSpace: styles.whiteSpace,
+            height: range.getBoundingClientRect().height,
+            lineHeight: Number.parseFloat(styles.lineHeight),
+            scrollWidth: pre.scrollWidth,
+            clientWidth: pre.clientWidth,
+            pageWidth: document.documentElement.scrollWidth,
+            viewportWidth: window.innerWidth,
+          };
+        });
+        await expect.poll(async () => (await layout()).whiteSpace).toBe("pre-wrap");
+        const wrapped = await layout();
+        expect(wrapped.height).toBeGreaterThan(wrapped.lineHeight * 2.5);
+        expect(wrapped.scrollWidth).toBeLessThanOrEqual(wrapped.clientWidth + 1);
+
+        await setWrapping(false);
+        await expect.poll(async () => (await layout()).whiteSpace).toBe("pre");
+        const unwrapped = await layout();
+        expect(unwrapped.height).toBeLessThanOrEqual(unwrapped.lineHeight * 2.1);
+        expect(unwrapped.scrollWidth).toBeGreaterThan(unwrapped.clientWidth);
+        expect(unwrapped.pageWidth).toBeLessThanOrEqual(unwrapped.viewportWidth);
+        if (width < 640) {
+          await block.locator("pre").scrollIntoViewIfNeeded();
+          const bounds = (await block.locator("pre").boundingBox())!;
+          const touch = await page.context().newCDPSession(page);
+          const startX = bounds.x + bounds.width - 24, endX = bounds.x + 24;
+          const y = bounds.y + bounds.height / 2;
+          await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: startX, y }] });
+          for (let step = 1; step <= 8; step += 1) {
+            await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: startX + (endX - startX) * step / 8, y }] });
+            await page.waitForTimeout(16);
+          }
+          await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          await touch.detach();
+        } else {
+          await block.locator("pre").evaluate(pre => { pre.scrollLeft = 160; });
+        }
+        await expect.poll(() => block.locator("pre").evaluate(pre => pre.scrollLeft)).toBeGreaterThan(0);
+        await page.screenshot({ path: test.info().outputPath(`code-no-wrap-${note.contentFormat}-${width}.png`) });
+
+        await page.reload();
+        await showCode();
+        await expect.poll(async () => (await layout()).whiteSpace).toBe("pre");
+        await setWrapping(true);
+        await expect.poll(async () => (await layout()).whiteSpace).toBe("pre-wrap");
+        expect((await layout()).scrollWidth).toBeLessThanOrEqual((await layout()).clientWidth + 1);
+        const after = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
+        expect(after.content).toBe(before.content);
+        expect(after.version).toBe(before.version);
+      }
+    });
   });
 }

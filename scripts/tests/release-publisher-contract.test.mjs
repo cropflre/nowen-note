@@ -29,7 +29,7 @@ test("tag 构建工作流不让 electron-builder 直接发布 GitHub Release", a
     .flatMap((job) => job.steps || [])
     .map((step) => step.run)
     .filter((command) => typeof command === "string" && command.includes("electron-builder"));
-  assert.equal(builderCommands.length, 5);
+  assert.equal(builderCommands.length, 4);
   for (const command of builderCommands) assert.match(command, /--publish never\b/);
   assert.doesNotMatch(workflow, /--publish always/);
   assert.ok(jobs.build.if.includes("inputs.mode == 'debug'"));
@@ -52,8 +52,8 @@ test("Windows GitHub Direct EXE never requires third-party signer", async () => 
   assert.match(workflow, /CSC_IDENTITY_AUTO_DISCOVERY: 'false'/);
   assert.match(workflow, /Verify direct Windows SHA-512 metadata and assets/);
   assert.match(workflow, /scripts\/verify-release-update-assets\.mjs local/);
-  assert.match(workflow, /Nowen-Note-Lite-\$version-setup\.exe/);
-  assert.match(workflow, /latest-lite\.yml/);
+  assert.match(workflow, /Nowen-Note-\$version-setup\.exe/);
+  assert.doesNotMatch(workflow, /Nowen-Note-Lite-|latest-lite\.yml/);
   assert.match(workflow, /if-no-files-found: error/);
 });
 

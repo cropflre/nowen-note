@@ -3,18 +3,27 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import AssetDescription from "../AssetDescription";
 
-const state=vi.hoisted(()=>({description:vi.fn(),native:false}));
+const state=vi.hoisted(()=>({description:vi.fn(),native:false,aiAvailable:false}));
 vi.mock("@/lib/api",()=>({api:{files:{organization:state}}}));
+vi.mock("@/lib/aiConnection",()=>({useAIConnectionAvailable:()=>state.aiAvailable}));
 vi.mock("@capacitor/core",()=>({Capacitor:{isNativePlatform:()=>state.native}}));
 vi.mock("react-i18next",()=>({useTranslation:()=>({t:(key:string)=>key})}));
 (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let host:HTMLDivElement,root:Root;
-beforeEach(()=>{vi.clearAllMocks();state.native=false;host=document.createElement("div");document.body.append(host);root=createRoot(host);});
+beforeEach(()=>{vi.clearAllMocks();state.native=false;state.aiAvailable=false;host=document.createElement("div");document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
 it("displays the confirmed description without calling any model",async()=>{
   state.description.mockResolvedValue({description:"User reviewed metadata"});
   await act(async()=>root.render(<AssetDescription id="file"/>));
   expect(state.description).toHaveBeenCalledWith("file");expect(host.textContent).toContain("User reviewed metadata");
+});
+it("hides the AI description prompt while disconnected",async()=>{
+  state.description.mockResolvedValue({description:""});
+  await act(async()=>root.render(<AssetDescription id="file"/>));
+  expect(host.textContent).toBe("");
+  state.aiAvailable=true;
+  await act(async()=>root.render(<AssetDescription id="file"/>));
+  expect(host.textContent).toContain("assetAI.noDescription");
 });
 it("reports unavailable metadata and refuses remote reads in Native mode",async()=>{
   state.description.mockRejectedValue(new Error("Forbidden"));

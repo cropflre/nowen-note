@@ -76,62 +76,63 @@ export default function JournalPrivacySettingsCard() {
 
   return (
     <>
-      <section className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 dark:border-zinc-800 dark:bg-zinc-800/30" data-settings-section="journal-privacy">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              <ShieldCheck size={15} className="text-accent-primary" />
-              {t("settings.journalPrivacyTitle")}
-            </div>
-            <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
-              {t("settings.journalPrivacyDesc")}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void managePassword()}
-            disabled={loading || preparing}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-          >
-            {preparing ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
-            {preparing
-              ? t("settings.journalPrivacyPreparing")
-              : protectedNow
-                ? t("settings.journalPrivacyManage")
-                : t("settings.journalPrivacySetPassword")}
-          </button>
+      <section className="space-y-4" data-settings-section="journal-privacy">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-indigo-500" />
+          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{t("settings.journalPrivacyTitle")}</h3>
         </div>
+        <p className="max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+          {t("settings.journalPrivacyDesc")}
+        </p>
 
-        <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs dark:bg-zinc-900/40">
-          {loading ? (
-            <><Loader2 size={12} className="animate-spin text-zinc-400" /><span className="text-zinc-500">…</span></>
-          ) : (
-            <>
-              <span className={protectedNow ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}>
-                {protectedNow ? t("settings.journalPrivacyProtected") : t("settings.journalPrivacyUnprotected")}
+        <div className="max-w-2xl space-y-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+          <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              {loading ? (
+                <><Loader2 size={14} className="animate-spin text-zinc-400" /><span className="text-zinc-500">…</span></>
+              ) : (
+                <>
+                  <span className={protectedNow ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-zinc-600 dark:text-zinc-300"}>
+                    {protectedNow ? t("settings.journalPrivacyProtected") : t("settings.journalPrivacyUnprotected")}
+                  </span>
+                  {protectedNow && status?.unlocked && <span className="text-xs text-zinc-400">· 当前会话已解锁</span>}
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => void managePassword()}
+              disabled={loading || preparing}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            >
+              {preparing ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+              {preparing
+                ? t("settings.journalPrivacyPreparing")
+                : protectedNow
+                  ? t("settings.journalPrivacyManage")
+                  : t("settings.journalPrivacySetPassword")}
+            </button>
+          </div>
+
+          <label className={`flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-white px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900 ${protectedNow ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                {t("settings.journalLockOnEntry")}
               </span>
-              {protectedNow && status?.unlocked && <span className="text-[10px] text-zinc-400">· 当前会话已解锁</span>}
-            </>
-          )}
+              <span className="mt-1 block text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+                {t("settings.journalLockOnEntryDesc")}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={prefs.journalLockOnEntry}
+              disabled={!protectedNow}
+              onChange={(event) => setPref("journalLockOnEntry", event.target.checked)}
+              className="accent-indigo-600"
+            />
+          </label>
         </div>
-
-        <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1">
-          <input
-            type="checkbox"
-            checked={prefs.journalLockOnEntry}
-            disabled={!protectedNow}
-            onChange={(event) => setPref("journalLockOnEntry", event.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-              {t("settings.journalLockOnEntry")}
-            </div>
-            <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
-              {t("settings.journalLockOnEntryDesc")}
-            </p>
-          </div>
-        </label>
       </section>
 
       {passwordNode && (

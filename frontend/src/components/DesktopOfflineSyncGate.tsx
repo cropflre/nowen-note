@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { automaticallyDownloadDesktopCopy, isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
+import { DesktopDownloadError, automaticallyDownloadDesktopCopy, isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import type { LiteMigrationProgress, NowenDesktopAPI } from '@/lib/desktopBridge';
 import { getAccessToken } from '@/lib/authSession';
 import { getServerUrl } from '@/lib/api';
@@ -14,6 +14,10 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
   const bridge = (window as unknown as {nowenDesktop?:NowenDesktopAPI}).nowenDesktop;
   const [ready,setReady] = useState(!bridge?.isDesktop);
   const [error,setError] = useState('');
+  /** 失败的脱敏诊断，供用户转交支持人员；只在后端给出时才有。 */
+  const [detail,setDetail] = useState('');
+  /** 失败无法靠重试解决：已停止自动重试，只剩手动重试与继续在线使用。 */
+  const [blocked,setBlocked] = useState(false);
   const [failedEdits,setFailedEdits] = useState(0);
   const [busy,setBusy] = useState(false);
   const [progress,setProgress] = useState<LiteMigrationProgress | null>(null);
@@ -25,6 +29,8 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     let running = false;
+    // 最近一次失败是否不可重试：为真时，5 秒定时重试和「网络恢复」事件都不能再自动重跑。
+    let permanent = false;
     const run = async (recover = false) => {
       if (running || cancelled) return;
       clearTimeout(timer);
@@ -60,7 +66,10 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         if (!cancelled) {
           const message = reason instanceof Error ? reason.message : String(reason);
           setError(message);
-          if (!recover && !needsLocalAccountRecovery(message)) timer = setTimeout(()=>void run(),5000);
+          permanent = reason instanceof DesktopDownloadError && !reason.retryable;
+          setBlocked(permanent);
+          setDetail(reason instanceof DesktopDownloadError ? reason.diagnostic ?? '' : '');
+          if (!recover && !permanent && !needsLocalAccountRecovery(message)) timer = setTimeout(()=>void run(),5000);
         }
       } finally {
         running = false;
@@ -68,10 +77,12 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         if (current()) setFailedEdits(getFailedQueueItems().length);
       }
     };
-    const online = () => { clearTimeout(timer); void run(); };
+    const online = () => { if (permanent) return; clearTimeout(timer); void run(); };
     retry.current = () => {
       if (running || cancelled) return;
       retryFailedQueueItems();
+      // 手动重试永远允许：用户可能已经在服务器上修复了数据。
+      permanent = false;
       online();
     };
     recoverLocalAccount.current = () => { void run(true); };
@@ -151,7 +162,8 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         </div>
       </div>}
       {error && <div className="space-y-3 text-sm">
-        <p className="text-tx-tertiary">{t('offlineAvailability.onlineOnlyHint')}</p>
+        <p className="text-tx-tertiary">{t(blocked ? 'offlineAvailability.structureHint' : 'offlineAvailability.onlineOnlyHint')}</p>
+        {detail && <p className="select-text break-words text-xs text-tx-tertiary">{t('offlineAvailability.diagnostic',{detail})}</p>}
         <div className="flex flex-wrap justify-center gap-3">
           {needsLocalAccountRecovery(error) && bridge?.resetLocalAuth && <button type="button" disabled={busy} onClick={()=>recoverLocalAccount.current?.()} className="rounded border border-app-border px-3 py-2 disabled:opacity-50">{t('offlineAvailability.recoverLocalAccount')}</button>}
           <button type="button" disabled={busy} onClick={()=>retry.current?.()} className="rounded border border-app-border px-3 py-2 disabled:opacity-50">{t('offlineAvailability.retryLegacyEdits')}</button>

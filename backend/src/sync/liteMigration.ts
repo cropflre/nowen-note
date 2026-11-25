@@ -24,7 +24,8 @@
 import type Database from "better-sqlite3";
 
 import { logSyncInfo, logSyncWarn } from "./log";
-import { SyncError } from "./errors";
+import { SyncError, isRetryableSyncError, isSyncErrorCode, type SyncFailureDiagnostic } from "./errors";
+import { describeSyncFailure, diagnosticLogFields } from "./diagnostics";
 import type { SyncRemoteClient } from "./remote";
 import type { SyncBlobClient } from "./blob";
 import type { RemoteSnapshotPage } from './remote';
@@ -72,6 +73,15 @@ export interface LiteMigrationProgress {
   snapshotSequence: number;
   /** 失败原因（已截断，不含正文与凭据）。 */
   error: string | null;
+  /** 失败分类（SyncErrorCode）。成功或尚未失败时为 null。 */
+  errorCode: string | null;
+  /**
+   * 失败是否值得自动重试。false 表示同一份数据再试必然得到同样的结果（如 DATA_STRUCTURE），
+   * 调用方应停止自动重试并让用户选择继续在线使用；null 表示没有失败记录。
+   */
+  retryable: boolean | null;
+  /** 失败现场的脱敏诊断（阶段、步骤、原因标记、SQLite 错误码、父目录状态），不含任何内容。 */
+  diagnostic: SyncFailureDiagnostic | null;
   /** 迁移完成后建立的 SyncProfile。 */
   profileId: string | null;
   /** 完整性校验明细，失败时供人工核对。 */
@@ -121,11 +131,20 @@ function ensureStateTable(db: Database.Database): void {
       downloaded INTEGER NOT NULL DEFAULT 0,
       applied INTEGER NOT NULL DEFAULT 0,
       lastError TEXT,
+      lastErrorCode TEXT,
+      lastErrorDiagnostic TEXT,
       verification TEXT,
       startedAt TEXT,
       updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // 这张表是按需建的，老安装里没有失败分类列：补上，已有行与进度原样保留。
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(${MIGRATION_TABLE})`).all() as Array<{ name: string }>).map((column) => column.name),
+  );
+  for (const column of ["lastErrorCode", "lastErrorDiagnostic"]) {
+    if (!columns.has(column)) db.exec(`ALTER TABLE ${MIGRATION_TABLE} ADD COLUMN ${column} TEXT`);
+  }
 }
 
 interface StateRow {
@@ -137,6 +156,8 @@ interface StateRow {
   downloaded: number;
   applied: number;
   lastError: string | null;
+  lastErrorCode: string | null;
+  lastErrorDiagnostic: string | null;
   verification: string | null;
 }
 
@@ -144,7 +165,7 @@ function readState(db: Database.Database): StateRow {
   ensureStateTable(db);
   const row = db.prepare(`
     SELECT stage, remoteUrl, profileId, snapshotSequence, cursor,
-           downloaded, applied, lastError, verification
+           downloaded, applied, lastError, lastErrorCode, lastErrorDiagnostic, verification
       FROM ${MIGRATION_TABLE} WHERE singletonKey = 1
   `).get() as StateRow | undefined;
 
@@ -157,6 +178,8 @@ function readState(db: Database.Database): StateRow {
     downloaded: 0,
     applied: 0,
     lastError: null,
+    lastErrorCode: null,
+    lastErrorDiagnostic: null,
     verification: null,
   };
 }
@@ -168,8 +191,8 @@ function writeState(db: Database.Database, patch: Partial<StateRow>): void {
   db.prepare(`
     INSERT INTO ${MIGRATION_TABLE} (
       singletonKey, stage, remoteUrl, profileId, snapshotSequence, cursor,
-      downloaded, applied, lastError, verification, startedAt, updatedAt
-    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
+      downloaded, applied, lastError, lastErrorCode, lastErrorDiagnostic, verification, startedAt, updatedAt
+    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
       (SELECT startedAt FROM ${MIGRATION_TABLE} WHERE singletonKey = 1),
       datetime('now')
     ), datetime('now'))
@@ -182,6 +205,8 @@ function writeState(db: Database.Database, patch: Partial<StateRow>): void {
       downloaded = excluded.downloaded,
       applied = excluded.applied,
       lastError = excluded.lastError,
+      lastErrorCode = excluded.lastErrorCode,
+      lastErrorDiagnostic = excluded.lastErrorDiagnostic,
       verification = excluded.verification,
       updatedAt = datetime('now')
   `).run(
@@ -193,14 +218,26 @@ function writeState(db: Database.Database, patch: Partial<StateRow>): void {
     next.downloaded,
     next.applied,
     next.lastError,
+    next.lastErrorCode,
+    next.lastErrorDiagnostic,
     next.verification,
   );
+}
+
+function parseDiagnostic(raw: string | null): SyncFailureDiagnostic | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as SyncFailureDiagnostic;
+  } catch {
+    return null;
+  }
 }
 
 /** 当前迁移进度。 */
 export function getLiteMigrationProgress(db: Database.Database): LiteMigrationProgress {
   const state = readState(db);
   const pending = countPendingAttachmentDownloads(db);
+  const code = state.lastErrorCode;
   return {
     stage: state.stage,
     remoteUrl: state.remoteUrl,
@@ -210,6 +247,9 @@ export function getLiteMigrationProgress(db: Database.Database): LiteMigrationPr
     attachmentsPending: pending,
     snapshotSequence: state.snapshotSequence,
     error: state.lastError,
+    errorCode: code,
+    retryable: code ? !isSyncErrorCode(code) || isRetryableSyncError(code) : null,
+    diagnostic: parseDiagnostic(state.lastErrorDiagnostic),
     profileId: state.profileId,
     verification: state.verification
       ? (JSON.parse(state.verification) as LiteVerification)
@@ -312,10 +352,14 @@ export async function runLiteMigration(
     return getLiteMigrationProgress(db);
   }
 
+  // 失败时诊断要报告"实际卡在哪一步"。持久化的 stage 要到第一页落库后才变成 applying，
+  // 不能拿来定位，所以单独跟踪。
+  let phase: LiteMigrationStage = "preparing";
+
   try {
     // ---------------- preparing ----------------
     // 取远端 plan：拿到 sequence 高水位与各实体数量（后者用于最终校验）。
-    writeState(db, { stage: "preparing", remoteUrl, lastError: null });
+    writeState(db, { stage: "preparing", remoteUrl, lastError: null, lastErrorCode: null, lastErrorDiagnostic: null });
 
     // after=0：Lite 用户本地无任何同步游标，从最开始算。
     const plan = await client.plan(0);
@@ -339,51 +383,94 @@ export async function runLiteMigration(
     // 分页下载并**边下边应用**：不把整个知识库堆在内存里。
     // 1000 篇笔记的正文可能有数百 MB，全量入内存会直接 OOM。
     writeState(db, { stage: "downloading" });
+    phase = "downloading";
 
     let cursor = state.cursor;
     let downloaded = state.downloaded;
     let applied = state.applied;
 
+    // 目录（notebook）成段、整体落库。
+    //
+    // Snapshot 先给全部目录再给其它实体，但目录内部的顺序只是 id 顺序：子目录可能在这一页、
+    // 它的父目录却在下一页。逐页落库时父目录还不存在，链接就丢了。目录本身很小，所以把目录段
+    // 攒齐再按依赖顺序一次性写入。
+    //
+    // 攒着的目录只在内存里：此时落库的游标只能停在目录段起点，否则被强杀后续传会直接跳过
+    // 这些"已下载、未写入"的目录（DCC-005：游标不得先于数据落库）。
+    let heldNotebooks: RemoteEntityPayload[] = [];
+    let segmentCursor = cursor;
+    let segmentDownloaded = downloaded;
+
+    const applyPage = (notebooks: RemoteEntityPayload[], others: RemoteEntityPayload[]): void => {
+      // 按依赖顺序分组应用：同一页里可能同时有 notebook 与 note。
+      const byType = new Map<SyncEntityType, RemoteEntityPayload[]>();
+      if (notebooks.length > 0) byType.set("notebook", notebooks);
+      for (const item of others) {
+        const list = byType.get(item.entityType) || [];
+        list.push(item);
+        byType.set(item.entityType, list);
+      }
+
+      db.transaction(() => runWithOutboxSuppressed(() => {
+        runChangeFeedSuppressed(db, () => {
+          for (const entityType of ENTITY_ORDER) {
+            const batch = byType.get(entityType);
+            if (!batch || batch.length === 0) continue;
+            const comparison = reconcile(readLocalState(db, userId, entityType), batch);
+            for (const { local, remote } of comparison.conflicts) {
+              recordConflict(db, { profileId: profile.id, entityType, entityId: remote.entityId,
+                localPayload: local.payload ?? null, remotePayload: remote.payload ?? null, basePayload: null,
+                localVersion: Number(local.payload?.version) || null, remoteVersion: Number(remote.payload?.version) || null });
+            }
+            const result = applyRemoteChanges(db, comparison.toApply, { userId });
+            applied += result.applied;
+          }
+        });
+      }))();
+    };
+
     for (;;) {
+      phase = "downloading";
       const page = await client.snapshot(cursor, snapshotSequence, pageSize);
       validateBootstrapPage(page.items);
-      if (page.items.length > 0) {
-        downloaded += page.items.length;
 
-        // 按依赖顺序分组应用：同一页里可能同时有 notebook 与 note。
-        const byType = new Map<SyncEntityType, RemoteEntityPayload[]>();
-        for (const item of page.items) {
-          const list = byType.get(item.entityType) || [];
-          list.push({
-            entityType: item.entityType,
-            entityId: item.entityId,
-            operation: "upsert",
-            payload: item.payload,
-          });
-          byType.set(item.entityType, list);
+      const others: RemoteEntityPayload[] = [];
+      let sawNotebook = false;
+      const heldBefore = heldNotebooks.length;
+      for (const item of page.items) {
+        const entry: RemoteEntityPayload = {
+          entityType: item.entityType,
+          entityId: item.entityId,
+          operation: "upsert",
+          payload: item.payload,
+        };
+        if (item.entityType === "notebook") {
+          heldNotebooks.push(entry);
+          sawNotebook = true;
+        } else {
+          others.push(entry);
         }
+      }
+      if (heldBefore === 0 && sawNotebook) {
+        segmentCursor = cursor;
+        segmentDownloaded = downloaded;
+      }
+      downloaded += page.items.length;
 
-        db.transaction(() => runWithOutboxSuppressed(() => {
-          runChangeFeedSuppressed(db, () => {
-            for (const entityType of ENTITY_ORDER) {
-              const batch = byType.get(entityType);
-              if (!batch || batch.length === 0) continue;
-              const comparison = reconcile(readLocalState(db, userId, entityType), batch);
-              for (const { local, remote } of comparison.conflicts) {
-                recordConflict(db, { profileId: profile.id, entityType, entityId: remote.entityId,
-                  localPayload: local.payload ?? null, remotePayload: remote.payload ?? null, basePayload: null,
-                  localVersion: Number(local.payload?.version) || null, remoteVersion: Number(remote.payload?.version) || null });
-              }
-              const result = applyRemoteChanges(db, comparison.toApply, { userId });
-              applied += result.applied;
-            }
-          });
-        }))();
+      // 页里已经出现非目录实体，或没有后续页：目录段到此结束，可以整体落库。
+      const segmentOpen = page.hasMore && others.length === 0 && heldNotebooks.length > 0;
+      if (!segmentOpen && (heldNotebooks.length > 0 || others.length > 0)) {
+        phase = "applying";
+        applyPage(heldNotebooks, others);
+        heldNotebooks = [];
       }
 
       cursor = page.nextCursor;
       // 每页都落游标：中途被强杀后从这一页继续，而不是整个重下。
-      writeState(db, { stage: "applying", cursor, downloaded, applied });
+      // 目录段尚未落库时落在段起点（连同对应的已下载计数）。
+      writeState(db, segmentOpen
+        ? { stage: "applying", cursor: segmentCursor, downloaded: segmentDownloaded, applied }
+        : { stage: "applying", cursor, downloaded, applied });
       if (!page.hasMore) break;
     }
 
@@ -409,6 +496,7 @@ export async function runLiteMigration(
     // 附件二进制：限并发、多轮拉取。
     // 不一次性把全部 binary 读入内存（可能是几 GB）。
     writeState(db, { stage: "attachments" });
+    phase = "attachments";
 
     let attachmentRounds = 0;
     const maxRounds = options.maxAttachmentRounds ?? 50;
@@ -439,6 +527,7 @@ export async function runLiteMigration(
     // 只比数量会漏掉"数量对但内容是别人的"这种极端情况，
     // 因此额外抽查 ID 是否真的存在于本地。
     writeState(db, { stage: "verifying" });
+    phase = "verifying";
 
     const remoteIds = new Set<string>();
     const verification = await verifyMigration(db, userId, plan, client, snapshotSequence, remoteIds);
@@ -464,6 +553,7 @@ export async function runLiteMigration(
     // 因此不需要再跑一次全量对账 —— 那会白白重新下载一遍。
     // 直接置 ready 让增量引擎接管。
     writeState(db, { stage: "switching" });
+    phase = "switching";
 
     const device = ensureDevice(db, { profileId: profile.id, platform: process.platform });
 
@@ -478,7 +568,9 @@ export async function runLiteMigration(
       for (const entityType of ENTITY_ORDER) for (const item of readLocalState(db, userId, entityType)) {
         if (remoteIds.has(`${entityType}:${item.entityId}`)) continue;
         const pending = db.prepare('SELECT 1 FROM sync_outbox WHERE profileId=? AND entityType=? AND entityId=? LIMIT 1').get(profile.id, entityType, item.entityId);
-        if (!pending) enqueueMutation(db, { profileId: profile.id, deviceId: device.id, entityType, entityId: item.entityId, operation: 'upsert', baseVersion: 0, payload: item.payload });
+        // 笔记在服务器上还不存在，这是新建，不能带 baseVersion：服务端把"带 baseVersion 的不存在笔记"
+        // 判为"远端笔记已删除"的版本冲突（防止旧设备复活已删除笔记），本机已有笔记就永远传不上去。
+        if (!pending) enqueueMutation(db, { profileId: profile.id, deviceId: device.id, entityType, entityId: item.entityId, operation: 'upsert', baseVersion: entityType === 'note' ? null : 0, payload: item.payload });
       }
       writeState(db, { stage: "complete", profileId: profile.id, lastError: null });
     })();
@@ -490,15 +582,17 @@ export async function runLiteMigration(
 
     return getLiteMigrationProgress(db);
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 200) : "UNKNOWN";
-    const stage: LiteMigrationStage =
-      error instanceof SyncError && error.code === "AUTH_EXPIRED"
-        ? "auth_required"
-        : "failed";
-    writeState(db, { stage, lastError: message });
-    logSyncWarn("lite-migration.failed", {
-      errorCode: error instanceof SyncError ? error.code : "SERVER_ERROR",
+    // 先归类：约束类失败（DATA_STRUCTURE）不可重试；断网、5xx 等保持可重试。
+    // 无论哪一类，本机数据、远端数据与已落库的游标都保持原样。
+    const failure = describeSyncFailure(error, `lite-migration:${phase}`);
+    const stage: LiteMigrationStage = failure.code === "AUTH_EXPIRED" ? "auth_required" : "failed";
+    writeState(db, {
+      stage,
+      lastError: failure.message,
+      lastErrorCode: failure.code,
+      lastErrorDiagnostic: JSON.stringify(failure.diagnostic),
     });
+    logSyncWarn("lite-migration.failed", diagnosticLogFields(failure.code, failure.diagnostic, failure.retryable));
     return getLiteMigrationProgress(db);
   }
 }
@@ -576,6 +670,8 @@ export function resetLiteMigration(db: Database.Database): LiteMigrationProgress
     downloaded: 0,
     applied: 0,
     lastError: null,
+    lastErrorCode: null,
+    lastErrorDiagnostic: null,
     verification: null,
     snapshotSequence: 0,
   });

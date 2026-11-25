@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(AttachmentMediaPlugin.class);
     registerPlugin(EncryptedContentGuardPlugin.class);
     registerPlugin(ServerTlsDiagnosticsPlugin.class);
+    registerPlugin(HotUpdateRuntimePlugin.class);
     super.onCreate(savedInstanceState);
 
     // Keep Android WebView's native long-press selection / ActionMode path enabled.

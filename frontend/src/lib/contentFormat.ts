@@ -24,7 +24,7 @@
 
 import { AiProvenanceMark, addAiProvenanceMarkdownRule } from "@/components/extensions/AiProvenanceMark";
 import { aiMarkdownWithHtmlProvenance } from "@/lib/aiContentProvenance";
-import { generateHTML, generateJSON, Extension } from "@tiptap/core";
+import { generateHTML, generateJSON, Extension, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -42,7 +42,7 @@ import TurndownService from "turndown";
 import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import { parser as baseMdParser } from "@lezer/markdown";
 import { GFM } from "@lezer/markdown";
-import type { SyntaxNode } from "@lezer/common";
+import type { SyntaxNode, Tree } from "@lezer/common";
 import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
@@ -75,67 +75,26 @@ const BlockIdAttrs = Extension.create({
 
 // ---------- 格式识别 ----------
 
-export type ContentFormat = "md" | "tiptap-json" | "html" | "empty";
-
-/**
- * 启发式判断内容格式：
- * - 空串 / "{}" -> empty
- * - 形如 `{"type":"doc"...}` 或 `{"type":"..."}` -> tiptap-json
- * - 以 `<` 开头 + 含标签特征 -> html（历史少见，但 parseContent 里有兼容分支）
- * - 其他 -> md
- *
- * 这里做得比较保守：只有明确识别出 JSON 对象才认定为 tiptap-json，
- * 防止把以 `{` 开头的 MD 内容（极少见）误判。
- */
-export function detectFormat(content: string | null | undefined): ContentFormat {
-  if (content == null) return "empty";
-  // 统一先剥掉首尾空白 + 零宽字符（常见于复制粘贴源污染）
-  const trimmed = content.replace(/^[\s\uFEFF\u200B\u200C\u200D]+|[\s\uFEFF\u200B\u200C\u200D]+$/g, "");
-  if (!trimmed || trimmed === "{}" || trimmed === "[]") return "empty";
-
-  // Tiptap 以 `{` 开头。为减少误判，要求合法 JSON 对象且**明确含 Tiptap 文档特征**。
-  // （`Array.isArray(parsed.content)` 单独一条不够严格——改为 type==="doc" OR
-  // 顶层有 `type` 字段且含 `content` 数组。）
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const looksLikeTiptap =
-          parsed.type === "doc" ||
-          (typeof parsed.type === "string" && Array.isArray(parsed.content));
-        if (looksLikeTiptap) return "tiptap-json";
-      }
-    } catch {
-      /* 不是合法 JSON，往下当 md（例如 "{foo} 这段代码..." 这种 MD 内容） */
-    }
-  }
-
-  // HTML 特征检测：
-  //   1. 完整 HTML 文档：以 `<!DOCTYPE` 或 `<html` 开头（来自 clipper 完全克隆模式）
-  //      注意：早期版本可能在文档前面拼了 HTML 注释（<!-- clipper-xxx -->），
-  //      需要先跳过这些注释再检测。
-  //   2. HTML 片段：以 `<tagname` 开头，且整体必须看起来像一个标签
-  //      正确：<p>…   <div class="x">…   <br/>
-  //      错误：<3 i love md   <= 5 items   < space
-
-  // 跳过开头的 HTML 注释后再做 <!DOCTYPE / <html 检测
-  const stripped = trimmed.replace(/^(\s*<!--[\s\S]*?-->\s*)+/, "");
-  const lower = stripped.slice(0, 20).toLowerCase();
-  if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
-    return "html";
-  }
-  // 也检查原始内容（以 <!-- 开头且后续含 <!DOCTYPE 也算 HTML）
-  if (trimmed.startsWith("<!--") && (lower.startsWith("<!doctype") || lower.startsWith("<html"))) {
-    return "html";
-  }
-  if (trimmed.startsWith("<") && /^<[A-Za-z][A-Za-z0-9-]*(\s|\/|>)/.test(trimmed) && /<[A-Za-z][^<>]*>|<\/[A-Za-z][^<>]*>/.test(trimmed)) {
-    return "html";
-  }
-
-  return "md";
-}
+export { detectFormat, type ContentFormat } from "./detectContentFormat";
+import { detectFormat } from "./detectContentFormat";
 
 // ---------- Tiptap → MD 转换（惰性初始化） ----------
+
+// Tiptap 把原子节点渲染成没有子内容的元素，Turndown 会把它们判为空白节点，走 blankRule（优先于自定义规则），
+// getTurndown() 里的 mathInline / mathBlock 规则就永远触发不了，公式在 RTE→MD 时整段丢失；空白节点还会让
+// collapseWhitespace 吃掉公式旁的一个空格（`f ‹公式› g` 变成 `f g`）。
+// 与 FootnoteExtensions / BlockEmbedExtension 一样，给转换链路里的节点补上文字子节点（写法同 restoreMathPlaceholders），
+// 源码仍从 data-latex 取。只改这份转换用的 renderHTML：编辑器、HTML 导出等用的仍是原节点。
+const MathInlineWithText = MathInline.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    return ["span", mergeAttributes(HTMLAttributes, { "data-math-inline": "true" }), `$${node.attrs.latex || ""}$`];
+  },
+});
+const MathBlockWithText = MathBlock.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-math-block": "true" }), `$$${node.attrs.latex || ""}$$`];
+  },
+});
 
 let _extensions: any[] | null = null;
 export function getTiptapExtensions() {
@@ -147,6 +106,10 @@ export function getTiptapExtensions() {
       codeBlock: false,
       underline: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
+      // 内部笔记链接 `note:<id>`：Link 默认只放行 http / mailto 等协议，缺了它 generateHTML 会把 href 清成空串、
+      // generateJSON 也不把 note: 解析成链接，链接在 RTE↔MD 两个方向都退化成纯文字（nowenNoteLink 规则走不到）。
+      // 与 TiptapEditor 的 link.protocols 对齐，只补 note；javascript: 等其他协议仍然不放行。
+      link: { protocols: ["note"] },
     }),
     Image.extend({
       addAttributes() {
@@ -202,8 +165,8 @@ export function getTiptapExtensions() {
     BlockIdAttrs,
     // 数学公式：与 TiptapEditor 保持一致，避免 generateHTML 时 math 节点被 schema
     // 过滤掉。MathInline / MathBlock 都是 atom 节点，仅用属性 `latex` 携带源码。
-    MathInline,
-    MathBlock,
+    MathInlineWithText,
+    MathBlockWithText,
     // 脚注：与 TiptapEditor 对齐，generateHTML 时不能让 footnote 节点被过滤
     FootnoteReference,
     FootnoteDefinition,
@@ -219,6 +182,27 @@ export function getTiptapExtensions() {
     ...getRichTextExtensions(),
   ];
   return _extensions;
+}
+
+// 相邻的同类列表若用同一个列表符号，在 Markdown 里会合并成一个列表（任务项退化成普通项，后一个有序列表丢掉起始编号）；
+// 紧跟在另一个同类列表之后的列表交替换一个符号（无序「-」/「*」，有序「.」/「)」），转回富文本时仍是独立的列表。
+function followsSameKindOfList(list: Element | null): boolean {
+  let run = 0;
+  for (let prev = list?.previousElementSibling; prev && prev.nodeName === list?.nodeName; prev = prev.previousElementSibling) run++;
+  return run % 2 === 1;
+}
+
+function bulletMarkerOf(list: Element | null): "-" | "*" {
+  return followsSameKindOfList(list) ? "*" : "-";
+}
+
+function orderedDelimiterOf(list: Element | null): "." | ")" {
+  return followsSameKindOfList(list) ? ")" : ".";
+}
+
+// 以 HTML 保留的块写成一行：HTML 块遇到空行就结束，代码里的空行会让后半段被当成 Markdown 解析。
+function oneLineHtml(el: Element): string {
+  return el.outerHTML.replace(/\r?\n/g, "&#10;");
 }
 
 let _turndown: TurndownService | null = null;
@@ -241,7 +225,9 @@ function getTurndown(): TurndownService {
     replacement: (content, node) => {
       const checked = (node as Element).getAttribute("data-checked") === "true";
       const cleanContent = content.replace(/^\n+/, "").replace(/\n+$/, "");
-      return `${checked ? "- [x]" : "- [ ]"} ${cleanContent}\n`;
+      // 续行（嵌套列表、后续段落）缩进到「- 」之后的内容列，否则会脱离该任务项被拍平
+      const indented = cleanContent.replace(/\n(?=[^\n])/g, "\n  ");
+      return `${bulletMarkerOf((node as Element).parentElement)} ${checked ? "[x]" : "[ ]"} ${indented}\n`;
     },
   });
 
@@ -339,10 +325,10 @@ function getTurndown(): TurndownService {
    * 段落 / 标题的 TextAlign：
    *   Tiptap 的 TextAlign 扩展会在 <p> / <h1-3> 上渲染 style="text-align:center|right|justify"。
    *   Markdown 没有原生对齐语法；如果完全按默认规则 turndown 会把 style 丢掉。
-   *   为了让 RTE→MD→RTE 回路能无损保留对齐，这里把带对齐的段落/标题"用 HTML 包一层"
-   *   重新输出：
-   *     - 标题：<h2 style="text-align:center">foo</h2>  —— Tiptap 的 HTML parser 会直接识别
-   *     - 段落：<p style="text-align:center">foo</p>
+   *   为了让 RTE→MD→RTE 回路能无损保留对齐，这里把带对齐的段落/标题写成一行编辑器 HTML：
+   *     - 标题：<h2 style="text-align: center;">foo</h2>  —— Tiptap 的 HTML parser 会直接识别
+   *     - 段落：<p style="text-align: center;">foo <strong>bar</strong></p>
+   *   行内格式也必须是 HTML：HTML 块里的内容不按 Markdown 解析，包进去的 `**bar**` 会变成字面符号。
    *   MD 渲染器（我们自己的 @lezer 解析 + markdownToHtml）遇到块级 HTML 会原样输出，
    *   Tiptap generateJSON 再解析时能恢复 textAlign 属性。
    *
@@ -361,12 +347,8 @@ function getTurndown(): TurndownService {
       if (node.nodeName !== "P") return false;
       return !!alignOf(node as Element);
     },
-    replacement: (content, node) => {
-      const align = alignOf(node as Element);
-      const inner = content.replace(/^\n+|\n+$/g, "");
-      // 用块级 HTML 形式保留对齐；前后空行保证被 MD 解析器当作块级 HTML 而不是行内
-      return `\n\n<p style="text-align:${align}">${inner}</p>\n\n`;
-    },
+    // 前后空行保证被 MD 解析器当作块级 HTML 而不是行内
+    replacement: (_content, node) => `\n\n${oneLineHtml(node as Element)}\n\n`,
   });
 
   td.addRule("alignedHeading", {
@@ -374,11 +356,79 @@ function getTurndown(): TurndownService {
       if (!/^H[1-6]$/.test(node.nodeName)) return false;
       return !!alignOf(node as Element);
     },
-    replacement: (content, node) => {
-      const align = alignOf(node as Element);
-      const tag = node.nodeName.toLowerCase();
-      const inner = content.replace(/^\n+|\n+$/g, "");
-      return `\n\n<${tag} style="text-align:${align}">${inner}</${tag}>\n\n`;
+    replacement: (_content, node) => `\n\n${oneLineHtml(node as Element)}\n\n`,
+  });
+
+  /**
+   * GFM 表格。Tiptap 输出 `<table><colgroup>…</colgroup><tbody><tr><th|td><p>…</p></th|td></tr></tbody></table>`，
+   * 表头单元格也在 <tbody> 里；没有这条规则时 Turndown 会把单元格拍平成零散段落。
+   * - 表头：GFM 必须有表头行，首行一律输出为表头行。没有表头行的表格不补空表头（不凭空多出一行），
+   *   代价是转回富文本后首行变成表头单元格；其余行里的表头单元格（表头列）按普通单元格输出。
+   * - 单元格：每个段落单独转成行内 Markdown，段落之间与硬换行都用 `<br>` 连接，保证单元格只占一行；
+   *   转回富文本后多个段落合并为一个带硬换行的段落。
+   * - `|`：正文、行内代码、链接地址里的 `|` 写成 `\|`。公式（data-latex）和内部链接 `[[…|别名]]` 里的 `|`
+   *   会在 markdownToHtml 解析表格之前被预处理掉，转义反而改坏内容，所以不碰。
+   * - 列对齐：单元格 align 属性（TableFidelityExtension）整列一致时输出 `:---` / `:---:` / `---:`。
+   * - 列宽、行高、表格布局属性以及单元格内段落的对齐 / 缩进 GFM 无法表达，按管道表格输出时不保留。
+   * - GFM 无法表达的表格保留为 HTML（同 Details / Callout 等容器），保证内容不丢：合并单元格、单元格里有
+   *   段落以外的块（列表、代码块、图片、嵌套表格等）、行内代码含 `\|`（GFM 表格里的行内代码写不出 `\|`）。
+   *   HTML 块遇到空行就结束，所以换行写成 `&#10;`，整张表保持一行。
+   * - blockId：表格各行在后端 Markdown 块模型里是同一个块，一行又只能带一个标记，所以表格 ID 写在最后一行行尾，
+   *   单元格段落的 ID 不写出（转回后由编辑器重新分配）；只有表头行时最后一行是分隔行，接上标记就不再是表格，不写。
+   *   保留为 HTML 时，表格与单元格段落的 ID 都随属性保留，行尾同样写表格 ID 供后端识别。
+   */
+  const PIPE_PLACEHOLDER = "\u0000";
+  const markPipes = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      node.nodeValue = (node.nodeValue || "").replace(/\|/g, PIPE_PLACEHOLDER);
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    const href = node.getAttribute("href");
+    if (href) node.setAttribute("href", href.replace(/\|/g, PIPE_PLACEHOLDER));
+    node.childNodes.forEach(markPipes);
+  };
+  const cellParagraphToMarkdown = (paragraph: Element): string => {
+    const clone = paragraph.cloneNode(true) as HTMLElement;
+    markPipes(clone);
+    return td.turndown(clone).split(PIPE_PLACEHOLDER).join("\\|").replace(/[ \t]*\n[ \t]*/g, "<br>");
+  };
+  const fitsGfmCell = (cell: Element): boolean =>
+    Number(cell.getAttribute("colspan") || 1) <= 1 &&
+    Number(cell.getAttribute("rowspan") || 1) <= 1 &&
+    Array.from(cell.children).every((child) => child.nodeName === "P") &&
+    !Array.from(cell.querySelectorAll("code")).some((code) => (code.textContent || "").includes("\\|"));
+  const delimiterOf = (align: string | null): string =>
+    align === "left" ? ":---" : align === "center" ? ":---:" : align === "right" ? "---:" : "---";
+
+  td.addRule("gfmTable", {
+    filter: "table",
+    replacement: (_content, node) => {
+      const table = node as HTMLElement;
+      const rows = Array.from(table.children).flatMap((child) =>
+        child.nodeName === "TR"
+          ? [child]
+          : /^T(HEAD|BODY|FOOT)$/.test(child.nodeName)
+            ? Array.from(child.children).filter((row) => row.nodeName === "TR")
+            : [],
+      );
+      const grid = rows.map((row) => Array.from(row.children).filter((cell) => cell.nodeName === "TH" || cell.nodeName === "TD"));
+      const id = table.getAttribute("data-block-id");
+      // 表格是带 ID 的引用块的最后一个块时，这一行行尾留给引用块的标记
+      const quote = table.parentElement;
+      const lineOwnedByQuote = quote?.nodeName === "BLOCKQUOTE" && quote.lastElementChild === table && !!quote.getAttribute("data-block-id");
+      const marker = id && !lineOwnedByQuote ? ` ^${id}` : "";
+      if (!grid[0]?.length || !grid.every((cells) => cells.every(fitsGfmCell))) {
+        return `\n\n${table.outerHTML.replace(/\n/g, "&#10;")}${marker}\n\n`;
+      }
+      const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+      const delimiter = grid[0].map((_cell, column) => {
+        const aligns = new Set(grid.map((cells) => cells[column]?.getAttribute("data-nowen-cell-align") ?? null));
+        return delimiterOf(aligns.size === 1 ? [...aligns][0] : null);
+      });
+      const lines = grid.map((cells) => line(cells.map((cell) => Array.from(cell.children).map(cellParagraphToMarkdown).join("<br>"))));
+      lines.splice(1, 0, line(delimiter));
+      return `\n\n${lines.join("\n")}${grid.length > 1 ? marker : ""}\n\n`;
     },
   });
 
@@ -412,7 +462,9 @@ function getTurndown(): TurndownService {
     replacement: (_content, node) => {
       const latex = (node as Element).getAttribute("data-latex") || "";
       if (!latex) return "";
-      return `\n\n$$\n${latex}\n$$\n\n`;
+      // ID 与代码块相同，独占一行写在结束 `$$` 之后：写在结束行行尾，这一行就不再闭合公式
+      const id = (node as Element).getAttribute("data-block-id");
+      return `\n\n$$\n${latex}\n$$${id ? `\n^${id}` : ""}\n\n`;
     },
   });
 
@@ -490,18 +542,66 @@ function getTurndown(): TurndownService {
   // 标准 HTML 音频块在两种编辑器之间往返时保留媒体及元数据。
   td.keep(["audio"]);
 
+  // 紧跟在另一个同类列表之后的列表换一个符号：无序改用「*」，有序改用「1)」（与 Turndown 默认的列表项规则一致，只换符号）
+  td.addRule("alternateListItem", {
+    filter: (node) => {
+      const list = node.parentElement;
+      if (node.nodeName !== "LI" || node.getAttribute("data-type") === "taskItem" || node.getAttribute("data-block-id")) return false;
+      return list?.nodeName === "OL" ? orderedDelimiterOf(list) === ")" : list?.nodeName === "UL" && bulletMarkerOf(list) === "*";
+    },
+    replacement: (content, node) => {
+      const list = node.parentElement as Element;
+      const prefix = list.nodeName === "OL"
+        ? `${Number(list.getAttribute("start") || 1) + Array.from(list.children).indexOf(node as Element)})  `
+        : "*   ";
+      const paragraph = /\n$/.test(content);
+      const body = content.replace(/^\n+|\n+$/g, "") + (paragraph ? "\n" : "");
+      return prefix + body.replace(/\n/gm, `\n${" ".repeat(prefix.length)}`) + (node.nextSibling ? "\n" : "");
+    },
+  });
+
+  // 列表项的首段：listItem 渲染为 <li><p>…</p>…</li>，taskItem 渲染为 <li><label>…</label><div><p>…</p>…</div></li>
+  const listItemOfLeadParagraph = (p: Element): Element | null => {
+    const parent = p.parentElement;
+    if (!parent || parent.firstElementChild !== p) return null;
+    if (parent.nodeName === "LI") return parent;
+    const item = parent.parentElement;
+    return parent.nodeName === "DIV" && item?.nodeName === "LI" && item.getAttribute("data-type") === "taskItem" ? item : null;
+  };
+  // 首段已在行尾写出 ID 的列表项（Turndown 先转换子节点，再转换列表项本身）
+  const listItemsWithLeadMarker = new WeakSet<Element>();
+
   // Persist universal block identity in Markdown using the compatible `^blk_xxx` suffix.
   td.addRule("nowenBlockId", {
     filter: (node) => {
       if (!(node instanceof Element)) return false;
-      if (!node.getAttribute("data-block-id")) return false;
-      return /^(H[1-6]|P|LI|BLOCKQUOTE|PRE)$/.test(node.nodeName);
+      if (node.getAttribute("data-block-id")) return /^(H[1-6]|P|LI|BLOCKQUOTE|PRE)$/.test(node.nodeName);
+      // 首段自己没有 ID（如 MD 转回的富文本）时，仍要替带 ID 的列表项写出标记
+      return node.nodeName === "P" && Boolean(listItemOfLeadParagraph(node)?.getAttribute("data-block-id"));
     },
     replacement: (content, node) => {
       const el = node as Element;
       const id = el.getAttribute("data-block-id") || "";
       const clean = content.replace(/^\n+|\n+$/g, "").trim();
+      const item = el.nodeName === "P" ? listItemOfLeadParagraph(el) : null;
+      if (item) {
+        // 首段与列表项共用一行，一行只能带一个标记：写列表项的 ID，首段自己的 ID 不写出，
+        // 转回富文本后由编辑器重新分配（后端的 Markdown 块模型也把这一行的标记当作列表项 ID）
+        const itemId = item.getAttribute("data-block-id");
+        if (!itemId) return content;
+        listItemsWithLeadMarker.add(item);
+        // 起始编号不是 1 的有序列表不能打断段落（CommonMark）：紧跟在首段后面时要空一行，否则被当成这一段的续行而丢掉列表
+        const next = el.nextElementSibling;
+        const gap = next?.nodeName === "OL" && Number(next.getAttribute("start") || 1) !== 1 ? "\n\n" : "";
+        return `${clean} ^${itemId}${gap}`;
+      }
       if (!id) return content;
+      // 对齐与代码块标题只能用 HTML 表达：保留编辑器 HTML（自带 data-block-id），不能被 ID 规则吞掉。
+      // 引用块末段对齐时也用 HTML：自己的 ID 随属性保留，行尾仍留给引用块的标记
+      if ((el.nodeName === "P" || /^H[1-6]$/.test(el.nodeName)) && alignOf(el)) return `\n\n${oneLineHtml(el)}\n\n`;
+      if (el.nodeName === "PRE" && el.getAttribute("data-title")) return `\n\n${oneLineHtml(el)}\n\n`;
+      // 引用块最后一段与引用块共用标记行，一行只能带一个标记：写引用块的 ID，这一段自己的 ID 不写出
+      if (el.nodeName === "P" && el.parentElement?.nodeName === "BLOCKQUOTE" && el.parentElement.lastElementChild === el) return `\n\n${clean}\n\n`;
       if (/^H[1-6]$/.test(el.nodeName)) {
         const level = Number(el.nodeName.slice(1));
         return `\n\n${"#".repeat(level)} ${clean} ^${id}\n\n`;
@@ -509,10 +609,23 @@ function getTurndown(): TurndownService {
       if (el.nodeName === "LI") {
         const task = el.getAttribute("data-type") === "taskItem";
         const checked = el.getAttribute("data-checked") === "true";
-        const marker = task ? `- [${checked ? "x" : " "}]` : (el.parentElement?.nodeName === "OL" ? "1." : "-");
-        return `\n${marker} ${clean} ^${id}\n`;
+        const list = el.parentElement;
+        const ordered = list?.nodeName === "OL";
+        // 有序列表按起始编号顺排（与 Turndown 默认规则一致）：写死「1.」会丢掉起始编号不是 1 的列表的编号
+        const number = Number(list?.getAttribute("start") || 1) + Array.from(list?.children ?? []).indexOf(el);
+        const marker = task ? `${bulletMarkerOf(list)} [${checked ? "x" : " "}]` : (ordered ? `${number}${orderedDelimiterOf(list)}` : bulletMarkerOf(list));
+        const body = content.replace(/^\n+|\n+$/g, "");
+        // 首段为空时 Turndown 把它当空白节点跳过，没有写出 ID：补在标记之后
+        const withId = listItemsWithLeadMarker.has(el) ? body : ` ^${id}${body ? `\n\n${body}` : ""}`;
+        // 续行缩进到内容列（「- 」后 2 格，「1. 」后 3 格，「10. 」后 4 格），否则嵌套列表和后续段落会脱离该项被拍平
+        return `${marker} ${withId.replace(/\n(?=[^\n])/g, `\n${" ".repeat(ordered ? marker.length + 1 : 2)}`)}\n`;
       }
-      if (el.nodeName === "BLOCKQUOTE") return `\n\n> ${clean.replace(/\n/g, "\n> ")} ^${id}\n\n`;
+      if (el.nodeName === "BLOCKQUOTE") {
+        // 引用块的标记写在最后一行行尾。末块是标题、列表项或代码块时，它们自己的标记已占着这一行
+        // （末段的已在上面让出）：一行只能带一个标记，保留末块的，引用块的 ID 不写出，转回富文本后由编辑器重新分配
+        const lastLineHasMarker = /(?:^|\s)\^blk_[A-Za-z0-9_-]{6,}$/.test(clean);
+        return `\n\n> ${clean.replace(/\n/g, "\n> ")}${lastLineHasMarker ? "" : ` ^${id}`}\n\n`;
+      }
       if (el.nodeName === "PRE") {
         const code = el.querySelector("code");
         const source = (code?.textContent || el.textContent || "").replace(/\n$/, "");
@@ -521,7 +634,6 @@ function getTurndown(): TurndownService {
         const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
         return `\n\n${fence}${language}\n${source}\n${fence}\n^${id}\n\n`;
       }
-      if (el.parentElement?.nodeName === "LI") return content;
       return `\n\n${clean} ^${id}\n\n`;
     },
   });
@@ -562,7 +674,11 @@ export function tiptapJsonToMarkdown(jsonOrString: unknown): string {
     if (!json || typeof json !== "object") return "";
     const html = generateHTML(json as any, getTiptapExtensions());
     if (!html) return "";
-    return getTurndown().turndown(html).trim();
+    // Turndown 与 trim 会吃掉文末空任务项「- [ ] 」的尾随空格；GFM 要求任务标记后有空白，
+    // 否则转回富文本会变成内容为「[ ]」的普通列表项。
+    // 开头只去掉普通空白：String.trim 也会删掉不间断空格，首段用 Tab 插入的缩进会丢失。
+    return getTurndown().turndown(html).replace(/^[\r\n\t ]+/, "").trimEnd()
+      .replace(/(^|\n)([ \t>]*- \[[ x]\])$/, "$1$2 ");
   } catch (err) {
     console.warn("[contentFormat] tiptapJsonToMarkdown failed:", err);
     return "";
@@ -706,6 +822,14 @@ function escapeAttr(str: string): string {
 }
 
 /**
+ * 还原反斜杠转义（`\_` → `_`）。链接地址与 URL 节点的原文不会拆出 Escape 子节点，
+ * 而 Turndown 会转义正文与链接文字里的 `_`、`*` 等字符、链接地址里的括号。
+ */
+function unescapeMarkdown(str: string): string {
+  return str.replace(/\\([!-/:-@[-`{-~])/g, "$1");
+}
+
+/**
  * 取某节点在原文里覆盖的文本
  */
 function sliceText(src: string, node: { from: number; to: number }): string {
@@ -736,7 +860,6 @@ function isMarkNode(name: string): boolean {
     name === "LinkMark" ||
     name === "ListMark" ||
     name === "QuoteMark" ||
-    name === "URL" ||
     name === "LinkLabel" ||
     name === "LinkTitle" ||
     name === "CodeInfo" ||
@@ -761,7 +884,7 @@ function isMarkNode(name: string): boolean {
  *   "# H1"  → "<h1># H1</h1>"      （# 漏出）
  *   "**bold**" → "<strong>**bold**</strong>" （** 漏出）
  */
-function renderInlineChildren(src: string, parent: SyntaxNode): string {
+function renderInlineChildren(src: string, parent: SyntaxNode, keepMarks = false): string {
   const allKids = childrenOf(parent);
   let out = "";
   let cursor = parent.from;
@@ -770,7 +893,8 @@ function renderInlineChildren(src: string, parent: SyntaxNode): string {
       out += escapeHtml(src.slice(cursor, child.from));
     }
     if (isMarkNode(child.name)) {
-      // 跳过标记符（`**`、`#`、`` ` `` 等），不输出
+      // 跳过标记符（`**`、`#`、`` ` `` 等）；keepMarks 时作为普通文字输出
+      if (keepMarks) out += escapeHtml(sliceText(src, child));
     } else {
       out += renderInlineNode(src, child);
     }
@@ -802,8 +926,13 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
       // 链接文字本身是 URL 时会出现两个 URL 子节点，最后一个才是目标地址。
       const url = findLastChildText(src, node, "URL");
       const inner = renderLinkLabel(src, node);
-      if (!url) return inner;
-      return `<a href="${escapeAttr(url)}">${inner}</a>`;
+      if (url) return `<a href="${escapeAttr(unescapeMarkdown(url))}">${inner}</a>`;
+      // `[a]()`：目标为空的行内链接，只保留文字
+      if (childrenOf(node).some((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "(")) return inner;
+      // 引用式 `[t][ref]` / `[t][]` / `[t]`：有定义才是链接，否则按 CommonMark 是普通文字，保留方括号
+      const href = resolveLinkReference(src, node);
+      if (href) return `<a href="${escapeAttr(href)}">${inner}</a>`;
+      return renderInlineChildren(src, node, true);
     }
     case "Image": {
       // 结构：Image [ "!", "[", alt..., "]", "(", URL, ")" ]
@@ -814,11 +943,20 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
     }
     case "Autolink":
     case "URL": {
-      const text = sliceText(src, node).replace(/^[<]|[>]$/g, "");
-      return `<a href="${escapeAttr(text)}">${escapeHtml(text)}</a>`;
+      // URL 节点：<…> 自动链接的地址，或 GFM 识别出的裸 URL / www. / 邮箱。
+      // 裸 URL 里的 `\_` 等来自 Turndown 对正文的转义，需要还原；<…> 内按 CommonMark 不处理转义
+      const raw = sliceText(src, node).replace(/^[<]|[>]$/g, "");
+      const text = name === "URL" ? unescapeMarkdown(raw) : raw;
+      let href = text;
+      if (/^www\./i.test(text)) href = `http://${text}`;
+      else if (!/^[a-z][a-z0-9+.-]*:/i.test(text) && text.includes("@")) href = `mailto:${text}`;
+      return `<a href="${escapeAttr(href)}">${escapeHtml(text)}</a>`;
     }
     case "HardBreak":
       return "<br>";
+    case "Escape":
+      // `\[`、`\*` 等反斜杠转义只输出被转义的字符（Turndown 输出 Markdown 时会转义这些字符）
+      return escapeHtml(sliceText(src, node).slice(1));
     case "HTMLTag":
     case "HTMLBlock":
       // 原样输出 HTML 片段（让 Tiptap 自己决定如何 parse）
@@ -832,6 +970,40 @@ function renderInlineNode(src: string, node: SyntaxNode): string {
   }
 }
 
+/**
+ * 当前文档的链接引用定义（规范化标签 → URL），只在 markdownToHtml 同步渲染期间有效。
+ */
+let linkReferenceUrls = new Map<string, string>();
+
+function normalizeLinkLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function collectLinkReferenceUrls(src: string, tree: Tree): Map<string, string> {
+  const urls = new Map<string, string>();
+  tree.iterate({
+    enter: (ref) => {
+      if (ref.name !== "LinkReference") return;
+      const label = normalizeLinkLabel(findChildText(src, ref.node, "LinkLabel")?.slice(1, -1) ?? "");
+      const url = findChildText(src, ref.node, "URL")?.replace(/^<([\s\S]*)>$/, "$1");
+      // 同一标签有多个定义时以第一个为准（CommonMark）
+      if (label && url && !urls.has(label)) urls.set(label, url);
+      return false;
+    },
+  });
+  return urls;
+}
+
+function resolveLinkReference(src: string, node: SyntaxNode): string | undefined {
+  // `[t][ref]` 用 ref；折叠式 `[t][]` 与简写式 `[t]` 用链接文字本身
+  const label = findChildText(src, node, "LinkLabel")?.slice(1, -1);
+  const kids = childrenOf(node);
+  const open = kids.find((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "[");
+  const close = kids.find((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "]");
+  const text = open && close ? src.slice(open.to, close.from) : "";
+  return linkReferenceUrls.get(normalizeLinkLabel(label || text));
+}
+
 function renderLinkLabel(src: string, node: SyntaxNode): string {
   const kids = childrenOf(node);
   const open = kids.findIndex((kid) => kid.name === "LinkMark" && sliceText(src, kid) === "[");
@@ -842,7 +1014,7 @@ function renderLinkLabel(src: string, node: SyntaxNode): string {
   let cursor = kids[open].to;
   for (const child of kids.slice(open + 1, close)) {
     if (child.from > cursor) html += escapeHtml(src.slice(cursor, child.from));
-    if (child.name === "URL") html += escapeHtml(sliceText(src, child));
+    if (child.name === "URL") html += escapeHtml(unescapeMarkdown(sliceText(src, child)));
     else if (!isMarkNode(child.name)) html += renderInlineNode(src, child);
     cursor = child.to;
   }
@@ -1026,6 +1198,11 @@ function renderListItem(src: string, item: SyntaxNode): string {
       if (c.name === "Paragraph") {
         return `<p>${renderInlineChildren(src, c)}</p>`;
       }
+      if (c.name === "Task") {
+        // 混合列表（只有部分项是任务）按普通列表渲染：任务标记作为文字保留，其余行内内容照常渲染
+        const marker = findChildText(src, c, "TaskMarker") ?? "";
+        return `<p>${escapeHtml(marker)}${renderInlineChildren(src, c)}</p>`;
+      }
       return renderBlock(src, c);
     })
     .join("");
@@ -1049,14 +1226,19 @@ function renderTaskItem(src: string, item: SyntaxNode): string {
     c = c.nextSibling;
   }
   if (taskNode) {
-    const text = sliceText(src, taskNode);
-    checked = /\[[xX]\]/.test(text);
+    // 只看 TaskMarker：正文里的 `[x]` 是普通文字，不代表勾选
+    checked = /^\[[xX]\]$/.test(findChildText(src, taskNode, "TaskMarker") ?? "");
   }
 
   // 渲染 item 内容（去掉 Task 节点本身）
   const inner = childrenOf(item)
     .filter((c) => !isMarkNode(c.name))
     .map((c) => {
+      if (c.name === "Task") {
+        // @lezer/markdown GFM 把 Task 直接挂在 ListItem 下（取代首个 Paragraph），
+        // 子节点是 TaskMarker + 行内节点；TaskMarker 属于标记节点，渲染时跳过。
+        return `<p>${renderInlineChildren(src, c).trim()}</p>`;
+      }
       if (c.name === "Paragraph") {
         // 跳过 Task 子节点
         let html = "";
@@ -1100,6 +1282,23 @@ function extractCodeText(src: string, node: SyntaxNode): string {
   return raw.replace(/^```[^\n]*\n?/, "").replace(/```\s*$/, "");
 }
 
+/** 分隔行每列的对齐：`:---` 左、`:---:` 居中、`---:` 右，没有冒号为空串 */
+function parseTableAligns(delimiterRow: string): string[] {
+  return delimiterRow.trim().replace(/^\||\|$/g, "").split("|").map((spec) => {
+    const s = spec.trim();
+    if (s.startsWith(":")) return s.endsWith(":") ? "center" : "left";
+    return s.endsWith(":") ? "right" : "";
+  });
+}
+
+/** GFM 规定单元格里的 `\|` 在行内代码中同样表示 `|`；lezer 只在普通文字里按转义处理，这里补上 */
+function renderTableCellInline(src: string, cell: SyntaxNode): string {
+  return renderInlineChildren(src, cell).replace(
+    /<code>([^<]*)<\/code>/g,
+    (_m, code: string) => `<code>${code.replace(/\\\|/g, "|")}</code>`,
+  );
+}
+
 function renderTable(src: string, node: SyntaxNode): string {
   // GFM Table 结构：
   //   Table
@@ -1110,23 +1309,38 @@ function renderTable(src: string, node: SyntaxNode): string {
   //       TableCell*
   let header: SyntaxNode | null = null;
   const rows: SyntaxNode[] = [];
+  // 分隔行决定各列对齐，写成单元格的 align 属性（TableFidelityExtension 会解析）
+  let aligns: string[] = [];
   let c = node.firstChild;
   while (c) {
     if (c.name === "TableHeader") header = c;
     else if (c.name === "TableRow") rows.push(c);
+    else if (c.name === "TableDelimiter") aligns = parseTableAligns(sliceText(src, c));
     c = c.nextSibling;
   }
 
   const renderRow = (row: SyntaxNode, tag: "th" | "td") => {
-    const cells: string[] = [];
+    // 按 `|` 分隔符切出单元格：lezer 不给空单元格生成 TableCell 节点，直接跳过会让后面的单元格错列
+    const cells: Array<SyntaxNode | null> = [];
+    let pending: SyntaxNode | null = null;
+    let atRowStart = true;
     let cc = row.firstChild;
     while (cc) {
-      if (cc.name === "TableCell") {
-        cells.push(`<${tag}>${renderInlineChildren(src, cc)}</${tag}>`);
+      if (cc.name === "TableCell") pending = cc;
+      else if (cc.name === "TableDelimiter") {
+        // 行首的 `|` 前面没有单元格
+        if (pending || !atRowStart) cells.push(pending);
+        pending = null;
+        atRowStart = false;
       }
       cc = cc.nextSibling;
     }
-    return `<tr>${cells.join("")}</tr>`;
+    if (pending) cells.push(pending);
+    const html = cells.map((cell, i) => {
+      const align = aligns[i] ? ` align="${aligns[i]}"` : "";
+      return `<${tag}${align}>${cell ? renderTableCellInline(src, cell) : ""}</${tag}>`;
+    });
+    return `<tr>${html.join("")}</tr>`;
   };
 
   let html = "<table>";
@@ -1152,6 +1366,78 @@ function renderTable(src: string, node: SyntaxNode): string {
   return html;
 }
 
+// 块级公式可能写在引用块或列表项里，每个续行都带着容器前缀（`> `、缩进）。整段被抽成占位符时，这些前缀要一起去掉，
+// 否则会混进公式源码，渲染出错，并随往返逐轮累积。前缀以结束行 `$$` 前面的那一段为准（容器里每一行的前缀都相同）；
+// 结束 `$$` 前面是公式文字、无从判断时保持原样，所以顶层公式自带的缩进、以 `>` 开头的行不受影响。
+function stripMathContainerPrefix(body: string): string {
+  const lines = body.split("\n");
+  const prefix = lines[lines.length - 1];
+  if (lines.length < 2 || !prefix || /[^ \t>]/.test(prefix)) return body;
+  // `>` 后面的空格可以省略（引用块里的空行写成 `>`）
+  const bare = prefix.trimEnd();
+  return lines
+    .map((line, index) => (index === 0 ? line : line.startsWith(prefix) ? line.slice(prefix.length) : line.startsWith(bare) ? line.slice(bare.length) : line))
+    .join("\n");
+}
+
+// 围栏代码块（``` / ~~~）和行内代码在 Markdown 里的范围，按位置排序、互不重叠。公式抽取要绕开它们：shell 里的 `$$`（进程号）、
+// 代码示例里的 `$x$` 都不是公式，不绕开的话代码块被掏空，两个 `$$` 之间的正文还会被吞成一个假公式。
+function findMarkdownCodeRanges(md: string): Array<[number, number]> {
+  if (!md.includes("`") && !md.includes("~~~")) return [];
+  // 围栏行可以带引用块、列表前缀。结束围栏与开头同一种字符、不短于开头（四个反引号的围栏里可以有三个反引号的行）；
+  // 没有结束围栏时一直到文末
+  const fence = /^(?:[ \t]*>)*[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})([^\n]*)$/;
+  const fenced: Array<[number, number]> = [];
+  let open: { from: number; run: string } | null = null;
+  for (let from = 0; from <= md.length; ) {
+    const newline = md.indexOf("\n", from);
+    const to = newline < 0 ? md.length : newline;
+    const line = fence.exec(md.slice(from, to));
+    if (!open) {
+      // 反引号围栏的信息串里不能再有反引号，否则是行内代码
+      if (line && !(line[1][0] === "`" && line[2].includes("`"))) open = { from, run: line[1] };
+    } else if (line && line[1][0] === open.run[0] && line[1].length >= open.run.length && !line[2].trim()) {
+      fenced.push([open.from, to]);
+      open = null;
+    }
+    from = to + 1;
+  }
+  if (open) fenced.push([open.from, md.length]);
+
+  // 行内代码：n 个反引号开头、同样 n 个反引号结尾，不能跨段落（空行）、不能跨围栏；开头被反斜杠转义的反引号是普通字符
+  const inline: Array<[number, number]> = [];
+  const blankLine = /\n[ \t>\r]*\n/g;
+  let blankAt = -1;
+  let regionStart = 0;
+  for (const [fenceFrom, fenceTo] of [...fenced, [md.length, md.length] as [number, number]]) {
+    const runs: Array<[number, number]> = [];
+    const ticks = /`+/g;
+    const region = md.slice(regionStart, fenceFrom);
+    for (let tick = ticks.exec(region); tick; tick = ticks.exec(region)) {
+      const start = regionStart + tick.index;
+      let slashes = 0;
+      while (md[start - 1 - slashes] === "\\") slashes += 1;
+      if (start + (slashes % 2) < start + tick[0].length) runs.push([start + (slashes % 2), start + tick[0].length]);
+    }
+    for (let i = 0; i < runs.length; i += 1) {
+      const [openFrom, openTo] = runs[i];
+      if (openTo > blankAt) {
+        blankLine.lastIndex = openTo;
+        blankAt = blankLine.exec(md)?.index ?? md.length;
+      }
+      for (let j = i + 1; j < runs.length && runs[j][0] < blankAt; j += 1) {
+        if (runs[j][1] - runs[j][0] === openTo - openFrom) {
+          inline.push([openFrom, runs[j][1]]);
+          i = j;
+          break;
+        }
+      }
+    }
+    regionStart = fenceTo;
+  }
+  return [...fenced, ...inline].sort((a, b) => a[0] - b[0]);
+}
+
 /**
  * Markdown 字符串 → HTML 字符串
  *
@@ -1163,6 +1449,7 @@ function renderTable(src: string, node: SyntaxNode): string {
  * 公式段提取出来用占位符替换，渲染完 HTML 再回填为 `<span data-math-inline>`
  * 或 `<div data-math-block>`，让 Tiptap 的 MathInline/MathBlock parseHTML
  * 能识别。占位符用 NUL 字符 + 自增 id，保证不会与正文冲突。
+ * 围栏代码块和行内代码原样保留，不在其中抽公式。
  */
 function extractMathPlaceholders(md: string): {
   text: string;
@@ -1171,11 +1458,22 @@ function extractMathPlaceholders(md: string): {
 } {
   const blocks: string[] = [];
   const inlines: string[] = [];
+  // 公式不会跨过代码段，所以代码段之间的每一片正文单独抽取
+  let text = "";
+  let cursor = 0;
+  for (const [from, to] of findMarkdownCodeRanges(md)) {
+    text += extractMathFromProse(md.slice(cursor, from), blocks, inlines) + md.slice(from, to);
+    cursor = to;
+  }
+  text += extractMathFromProse(md.slice(cursor), blocks, inlines);
+  return { text, blocks, inlines };
+}
 
+function extractMathFromProse(md: string, blocks: string[], inlines: string[]): string {
   // 先抽块级 `$$...$$`（支持跨行；非贪婪；要求两侧都是 `$$`）
   // 注意：必须先于 inline，否则 `$$x$$` 会被 inline 规则错切。
   let text = md.replace(/\$\$([\s\S]+?)\$\$/g, (_m, body) => {
-    const idx = blocks.push(body.trim()) - 1;
+    const idx = blocks.push(stripMathContainerPrefix(body).trim()) - 1;
     return `\u0000MATHBLOCK${idx}\u0000`;
   });
 
@@ -1194,7 +1492,13 @@ function extractMathPlaceholders(md: string): {
     }
   );
 
-  return { text, blocks, inlines };
+  return text;
+}
+
+// 块级公式可以有多行。escapeAttr 会把换行压成空格，多行公式 RTE→MD→RTE 后就被拍平成一行（`%` 注释还会吞掉后面的内容），
+// 所以换行写成字符引用，由 parseHTML 里的 getAttribute 原样读回。
+function escapeBlockLatexAttr(latex: string): string {
+  return escapeAttr(latex.replace(/\n/g, "&#10;"));
 }
 
 function restoreMathPlaceholders(
@@ -1212,18 +1516,21 @@ function restoreMathPlaceholders(
   // 块级：放到 <div data-math-block>，外面通常被 renderBlock 包了 <p>，
   // 这里需要把"包着公式占位的段落"剥掉 <p>，否则 Tiptap parseHTML 会把
   // mathBlock 嵌进段落（block-in-inline）而被丢弃。
+  // 公式块的 ID 标记（结束 `$$` 后独占一行，或旧版接在结束行行尾）与公式落在同一段：
+  // 拆成公式后面只含标记的段落，由块 ID 还原挂到公式块上，不留空段落
   out = out.replace(
-    /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*<\/p>/g,
-    (_m, idx) => {
+    // eslint-disable-next-line no-control-regex -- Match the NUL-delimited internal math placeholder.
+    /<p>\s*\u0000MATHBLOCK(\d+)\u0000\s*(NOWENBLOCKIDTOKEN\d+END)?\s*<\/p>/g,
+    (_m, idx, token?: string) => {
       const latex = blocks[Number(idx)] || "";
-      const enc = escapeAttr(latex);
-      return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>`;
+      const enc = escapeBlockLatexAttr(latex);
+      return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>${token ? `<p>${token}</p>` : ""}`;
     }
   );
   // 兜底：如果块级占位没被段落包住（例如出现在表格里）
   out = out.replace(/\u0000MATHBLOCK(\d+)\u0000/g, (_m, idx) => {
     const latex = blocks[Number(idx)] || "";
-    const enc = escapeAttr(latex);
+    const enc = escapeBlockLatexAttr(latex);
     return `<div data-math-block="true" data-latex="${enc}">$$${escapeHtml(latex)}$$</div>`;
   });
   return out;
@@ -1361,25 +1668,156 @@ interface MarkdownBlockIdPlaceholderResult {
 
 function extractMarkdownBlockIdPlaceholders(md: string): MarkdownBlockIdPlaceholderResult {
   const ids: string[] = [];
-  const text = md.replace(/(?:\s+|^)\^(blk_[A-Za-z0-9_-]{6,})\s*$/gm, (_match, id) => {
-    const index = ids.push(id) - 1;
-    return ` NOWENBLOCKIDTOKEN${index}END`;
+  // 只吃本行里的空白：用 \s 会跨行吞掉块之间的空行（相邻段落、列表后的段落被并成一段），
+  // 或把代码块后独占一行的标记接到结束围栏上（围栏失效，后文全被吞进代码块）
+  const text = md.replace(/^(.*?)([ \t]*)\^(blk_[A-Za-z0-9_-]{6,})[ \t]*$/gm, (match, before: string, gap: string, id: string) => {
+    if (before && !gap) return match;
+    const token = `NOWENBLOCKIDTOKEN${ids.push(id) - 1}END`;
+    // 独占一行的标记保留缩进，列表项里代码块的标记才不会跑出列表
+    return before ? `${before} ${token}` : `${gap}${token}`;
   });
   return { text, ids };
 }
 
+// 令牌落在这些行内标签里时，向外找它所在的块
+const INLINE_HTML_TAGS = new Set([
+  "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em", "font", "i", "ins", "kbd",
+  "label", "mark", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "sup", "time", "u", "var",
+]);
+const VOID_HTML_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+// 后端生成的块 ID（blk_ 加 UUID），与用户自己写的 ^blk_ 文字区分开
+const GENERATED_BLOCK_ID_RE = /^blk_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}$/i;
+
+interface ScannedHtmlElement {
+  name: string;
+  start: number;
+  openEnd: number;
+  closeStart: number;
+  end: number;
+  parent: ScannedHtmlElement | null;
+  index: number;
+  childCount: number;
+  prev: ScannedHtmlElement | null;
+  lastChild: ScannedHtmlElement | null;
+}
+
+/**
+ * 把占位令牌换回所属块的 data-block-id。归属与 RTE→MD 写标记的约定、后端的 Markdown 块模型一致：
+ *   - 列表项首段行尾 → 列表项（taskItem / listItem）；列表项里的后续段落 → 该段落
+ *   - 代码块结束围栏、块级公式结束 `$$` 后独占一行（渲染成只含令牌的段落）→ 该块，并去掉这个段落；别处独占一行的孤立标记连段落一起去掉
+ *   - 引用块最后一段行尾 → 引用块
+ *   - 表格最后一行行尾（渲染成该行多出来的只含令牌的单元格）→ 表格（表格是引用块的最后一个块时归引用块），并去掉这个单元格
+ *   - 标题、其他段落 → 自身
+ *   - 顶层 HTML 块（对齐段落、带标题的代码块等）同一行末尾 → 该 HTML 块
+ * 代码里形如标记的文字是代码内容，还原成 `^blk_…` 文字；找不到可挂的块时丢弃该 ID。
+ */
 function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string {
-  let out = html;
-  ids.forEach((id, index) => {
-    const token = `NOWENBLOCKIDTOKEN${index}END`;
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`<([a-zA-Z0-9]+)([^>]*)>([\\s\\S]*?)${escaped}([\\s\\S]*?)<\\/\\1>`, "i");
-    out = out.replace(pattern, (_match, tag, attrs, before, after) => {
-      const safeId = escapeAttr(id);
-      return `<${tag}${attrs} data-block-id="${safeId}">${before}${after}</${tag}>`;
-    });
-  });
-  return out;
+  if (ids.length === 0) return html;
+  const open = (name: string, start: number, openEnd: number, parent: ScannedHtmlElement | null): ScannedHtmlElement => {
+    const el: ScannedHtmlElement = { name, start, openEnd, closeStart: -1, end: -1, parent, index: 0, childCount: 0, prev: null, lastChild: null };
+    if (parent) {
+      el.index = parent.childCount++;
+      el.prev = parent.lastChild;
+      parent.lastChild = el;
+    }
+    return el;
+  };
+  const root = open("", 0, 0, null);
+  const stack = [root];
+  const tokens: Array<{ id: string; start: number; end: number; container: ScannedHtmlElement; prev: ScannedHtmlElement | null }> = [];
+  for (const match of html.matchAll(/<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w:-]*)(?:"[^"]*"|'[^']*'|[^"'>])*>|NOWENBLOCKIDTOKEN(\d+)END/g)) {
+    const at = match.index ?? 0;
+    const name = match[2]?.toLowerCase();
+    if (match[3] !== undefined) {
+      const id = ids[Number(match[3])];
+      const container = stack[stack.length - 1];
+      if (id) tokens.push({ id, start: at, end: at + match[0].length, container, prev: container.lastChild });
+    } else if (name && match[1]) {
+      const depth = stack.map((el) => el.name).lastIndexOf(name);
+      if (depth > 0) {
+        for (const el of stack.splice(depth)) {
+          el.closeStart = at;
+          el.end = at + match[0].length;
+        }
+      }
+    } else if (name) {
+      const el = open(name, at, at + match[0].length, stack[stack.length - 1]);
+      if (!VOID_HTML_TAGS.has(name) && !match[0].endsWith("/>")) stack.push(el);
+    }
+  }
+
+  const edits: Array<{ from: number; to: number; insert: string }> = [];
+  const assigned = new Set<ScannedHtmlElement>();
+  for (const token of tokens) {
+    const ancestors: ScannedHtmlElement[] = [];
+    for (let el: ScannedHtmlElement | null = token.container; el && el !== root; el = el.parent) ancestors.push(el);
+    const pre = ancestors.find((el) => el.name === "pre");
+    if (pre || ancestors.some((el) => el.name === "code")) {
+      // 代码里形如标记的文字是代码内容，原样还原。只有编辑器生成的带标题代码块 HTML 例外：
+      // 旧版保存时按空行切块，把系统标记写进了代码中间，这里不再显示成代码文字（后端下次保存时也会清掉）
+      const editorCodeHtml = pre && /\sdata-(?:title|block-id)=/.test(html.slice(pre.start, pre.openEnd));
+      if (editorCodeHtml && GENERATED_BLOCK_ID_RE.test(token.id)) {
+        let from = token.start;
+        while (from > 0 && (html[from - 1] === " " || html[from - 1] === "\t")) from--;
+        edits.push({ from, to: token.end, insert: "" });
+      } else {
+        edits.push({ from: token.start, to: token.end, insert: `^${token.id}` });
+      }
+      continue;
+    }
+    let removeFrom = token.start;
+    while (removeFrom > 0 && (html[removeFrom - 1] === " " || html[removeFrom - 1] === "\t")) removeFrom--;
+    let removeTo = token.end;
+    let target: ScannedHtmlElement | null = null;
+    const block = ancestors.find((el) => !INLINE_HTML_TAGS.has(el.name));
+    const prev = token.prev;
+    if (token.container === root && prev && prev.end >= 0 && !INLINE_HTML_TAGS.has(prev.name) && /^[ \t]*$/.test(html.slice(prev.end, token.start))) {
+      // 顶层 HTML 块（对齐段落、带标题的代码块等）同一行末尾的标记属于这个块：HTML 里没带 data-block-id 时（如后端补的标记）也不丢
+      target = prev;
+    } else if (block?.name === "p") {
+      const parent = block.parent;
+      const tokenOnly = block.end >= 0 && html.slice(block.openEnd, block.closeStart).trim() === html.slice(token.start, token.end);
+      if (parent?.name === "li" && block.index === 0) {
+        target = parent;
+      } else if (tokenOnly) {
+        // 独占一行的标记只在代码块、块级公式后有意义；别处的孤立标记（后端保存时也会删掉）不生成空段落
+        const prevIsMath = block.prev?.name === "div" && /\sdata-math-block=/.test(html.slice(block.prev.start, block.prev.openEnd));
+        if (block.prev?.name === "pre" || prevIsMath) target = block.prev;
+        removeFrom = block.start;
+        removeTo = block.end;
+      } else if (parent?.name === "blockquote" && block.index === parent.childCount - 1) {
+        target = parent;
+      } else {
+        target = block;
+      }
+    } else if (block && (block.name === "td" || block.name === "th")) {
+      const table = ancestors.find((el) => el.name === "table") ?? null;
+      const quote = table?.parent;
+      // 表格是引用块的最后一个块时，行尾的标记属于引用块（同引用块最后一段）
+      target = quote?.name === "blockquote" && table?.index === quote.childCount - 1 ? quote : table;
+      if (block.end >= 0 && html.slice(block.openEnd, block.closeStart).trim() === html.slice(token.start, token.end)) {
+        removeFrom = block.start;
+        removeTo = block.end;
+      }
+    } else if (block && /^(h[1-6]|li|blockquote)$/.test(block.name)) {
+      target = block;
+    }
+    if (target && !assigned.has(target) && !/\sdata-block-id\s*=/i.test(html.slice(target.start, target.openEnd))) {
+      assigned.add(target);
+      edits.push({ from: target.openEnd - 1, to: target.openEnd - 1, insert: ` data-block-id="${escapeAttr(token.id)}"` });
+    }
+    edits.push({ from: removeFrom, to: removeTo, insert: "" });
+  }
+  // 编辑互不重叠，按位置一次拼接（大笔记里有上万个标记，逐个切片会退化成平方复杂度）
+  let out = "";
+  let cursor = 0;
+  for (const edit of edits.sort((a, b) => a.from - b.from)) {
+    out += html.slice(cursor, edit.from) + edit.insert;
+    cursor = edit.to;
+  }
+  out += html.slice(cursor);
+  // 落在标签属性里、扫描不到的令牌（如脚注定义的内容）直接去掉
+  return out.replace(/[ \t]*NOWENBLOCKIDTOKEN(\d+)END/g, (match, index: string) => (Number(index) < ids.length ? "" : match));
 }
 
 export function markdownToHtml(md: string): string {
@@ -1396,6 +1834,7 @@ export function markdownToHtml(md: string): string {
     const { text: preprocessed, refs, defs } = extractFootnotePlaceholders(afterMath);
 
     const tree = getMdParser().parse(preprocessed);
+    linkReferenceUrls = collectLinkReferenceUrls(preprocessed, tree);
     // Document 是根节点；它的直接子就是块级节点
     let out = "";
     const doc = tree.topNode;
@@ -1417,6 +1856,8 @@ export function markdownToHtml(md: string): string {
   } catch (err) {
     console.warn("[contentFormat] markdownToHtml failed:", err);
     return `<p>${escapeHtml(md)}</p>`;
+  } finally {
+    linkReferenceUrls = new Map();
   }
 }
 

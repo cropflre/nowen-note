@@ -8,9 +8,11 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { AI_CONTENT_LABEL, readAiProvenance, stripAiProvenanceComments } from "../../backend/src/lib/aiContentProvenance";
 
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
+const { version: uiVersion } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { version: string };
 const providerFile = process.env.NOWEN_AGENT_LIVE_PROVIDER_FILE;
 function liveProvider(file: string): { url: string; key: string; model: string } {
   try {
@@ -54,6 +56,11 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
       request.on("data", chunk => { raw += chunk; });
       request.on("end", async () => {
         const body = JSON.parse(raw);
+        if (!body.stream && body.messages?.length === 1 && body.messages[0].content === "Hi") {
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify({ choices: [{ message: { content: "Connected" } }] }));
+          return;
+        }
         if (!body.tools && body.messages?.[0]?.content?.includes("You compose task DRAFTS")) {
           response.setHeader("Content-Type", "application/json");
           response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ tasks: [{ title: "Review workflow sources", priority: 3 }, { title: "Publish workflow summary", priority: 2 }] }) } }] }));
@@ -127,7 +134,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`editor Agent ${
   const response = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Agent test note", notebookId: books[0].id, contentFormat: format, content, contentText: "Agent original sentence Keep link" } });
   expect(response.ok()).toBe(true); const note = await response.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_browser");
   await page.locator("input[type=password]").fill("agent-browser-test-password");
@@ -200,7 +207,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`AI assistant en
   const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Assistant layout review", notebookId: books[0].id, contentFormat: format, content: format === "markdown" ? "" : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }), contentText: "" } });
   expect(created.ok()).toBe(true); const note = await created.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("assistant_ux");
   await page.locator("input[type=password]").fill("assistant-ux-test-password");
@@ -289,7 +296,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`live model opti
   const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "中文优化验收", notebookId: books[0].id, contentFormat: format, content } });
   expect(created.ok()).toBe(true); const note = await created.json();
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_natural");
   await page.locator("input[type=password]").fill("agent-natural-test-password");
@@ -342,7 +349,7 @@ test("existing Q&A history and streaming survive Agent tab switches and process 
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_chat");
   await page.locator("input[type=password]").fill("agent-chat-test-password");
@@ -395,7 +402,7 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   const originalCount = (await noteList()).length;
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload();
   await page.getByPlaceholder("admin", { exact: true }).fill("workflow_browser");
   await page.locator("input[type=password]").fill("workflow-browser-test-password");
@@ -435,7 +442,9 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   expect(createdNote).toBeTruthy(); expect((await noteList()).length).toBe(originalCount + 1);
   const tasks = await (await page.request.get(`${product.server}/api/tasks`, { headers })).json();
   expect(tasks).toHaveLength(1); expect(tasks.every((task: { noteId: string }) => task.noteId === createdNote.id)).toBe(true);
-  expect(tasks[0]).toMatchObject({ title: "Review selected workflow evidence", description: "Reviewed by the user before creation.", priority: 1 });
+  expect(tasks[0]).toMatchObject({ title: "Review selected workflow evidence", priority: 1 });
+  expect(readAiProvenance(tasks[0].description)).toBeTruthy();
+  expect(stripAiProvenanceComments(tasks[0].description).trim()).toBe(`> ${AI_CONTENT_LABEL}\n\nReviewed by the user before creation.`);
   await panel.getByRole("button", { name: "Open task 1", exact: true }).click();
   await expect(page.getByText("Review selected workflow evidence", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "AI Chat", exact: true }).click();
@@ -466,7 +475,7 @@ test("P2 template UI and signed webhook generate an approval-bound workflow", as
   const noteList = async () => { const value = await (await page.request.get(`${product.server}/api/notes`, { headers })).json(); return Array.isArray(value) ? value : value.notes; };
   const original = (await noteList()).length;
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("p2_browser");
   await page.locator("input[type=password]").fill("p2-browser-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
@@ -558,7 +567,7 @@ test("live P2 template retrieves two notes and persists an approved summary", as
   expect(proposed.preview.tasks).toBeUndefined(); expect(proposed.preview.extensionCalls || []).toHaveLength(0);
   expect((await noteList()).length).toBe(before);
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("p2_live");
   await page.locator("input[type=password]").fill("p2-live-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
@@ -616,7 +625,7 @@ test("live notebook Agent reviews individual drafts and persists only the approv
   expect(await taskList()).toHaveLength(0); expect((await noteList()).length).toBe(before);
 
   await page.goto(product.server);
-  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.5"); });
+  await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, uiVersion);
   await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("task_review_live");
   await page.locator("input[type=password]").fill("task-review-live-test-password"); await page.locator("button[type=submit]").click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
@@ -649,7 +658,10 @@ test("live notebook Agent reviews individual drafts and persists only the approv
   await expect(panel.getByRole("button", { name: "Open task 2", exact: true })).toBeVisible();
   const completed = await workflow(); expect(completed.status).toBe("completed");
   const tasks = await taskList(); expect(tasks).toHaveLength(2);
-  expect(tasks.find((task: { title: string }) => task.title === title)).toMatchObject({ description: "保留原技术要求，完成后人工核查。用户在审批前修改。", priority: 3, dueDate: "2026-11-02", dueAt: "2026-11-02T09:30", repeatRule: "weekly", repeatInterval: 2, repeatEndCount: 4 });
+  const selectedTask = tasks.find((task: { title: string }) => task.title === title);
+  expect(selectedTask).toMatchObject({ priority: 3, dueDate: "2026-11-02", dueAt: "2026-11-02T09:30", repeatRule: "weekly", repeatInterval: 2, repeatEndCount: 4 });
+  expect(readAiProvenance(selectedTask.description)).toBeTruthy();
+  expect(stripAiProvenanceComments(selectedTask.description).trim()).toBe(`> ${AI_CONTENT_LABEL}\n\n保留原技术要求，完成后人工核查。用户在审批前修改。`);
   expect(tasks.every((task: { noteId: string }) => task.noteId === sources[0].id)).toBe(true);
   expect(tasks.some((task: { title: string }) => task.title === proposed.preview.tasks.tasks[2].title)).toBe(false);
   expect((await noteList()).length).toBe(before);

@@ -1,6 +1,6 @@
 {
   "name": "nowen-note",
-  "version": "1.5.5",
+  "version": "1.6.1",
   "description": "Nowen Note - A modern note-taking application",
   "author": "Nowen",
   "private": true,
@@ -30,8 +30,6 @@
     "electron:dev": "npm run rebuild:native && npm run build:all && NOWEN_DEV_BACKEND_URL=http://127.0.0.1:3001 electron .",
     "electron:build": "npm run rebuild:native && npm run build:all && electron-builder --config electron/builder.config.js && node build/verifyUpdateArtifactsCli.js dist-electron",
     "electron:build:safe": "node scripts/safe-build.mjs",
-    "electron:build:lite": "node scripts/build-lite.mjs",
-    "electron:build:lite:safe": "node scripts/build-lite.mjs --safe",
     "build:frontend": "cd frontend && npm run build",
     "build:web": "cd frontend && npm run build:web",
     "build:harmony:web": "node scripts/build-harmony-web.mjs",
@@ -39,7 +37,7 @@
     "test:harmony:emulator": "node scripts/test-harmony-emulator.mjs",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "test:update-release": "node --test scripts/tests/fetch-node.test.mjs scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-ci-assets.test.mjs scripts/tests/release-ci-guard.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/release-github.test.mjs scripts/tests/in-app-changelog.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs",
+    "test:update-release": "node --test scripts/tests/fetch-node.test.mjs scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-ci-assets.test.mjs scripts/tests/release-ci-guard.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/release-github.test.mjs scripts/tests/in-app-changelog.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs scripts/tests/desktop-ffmpeg.test.mjs",
     "verify:update-release": "node scripts/verify-release-update-assets.mjs",
     "migrate:attachments:object": "node scripts/migrate-attachments-to-object-storage.mjs",
     "test:object-storage": "node scripts/test-object-storage.mjs",
@@ -53,6 +51,7 @@
     "zip:jszip": "node scripts/export-zip-jszip.mjs",
     "fpk": "node scripts/fpk/build-fpk.mjs",
     "build:upk": "node scripts/upk/build-upk.mjs",
+    "test:hot-update": "node --test scripts/tests/hot-update-zip.test.mjs scripts/tests/hot-update-signing.test.mjs scripts/tests/hot-update-fingerprint.test.mjs scripts/tests/hot-update-pipeline.test.mjs scripts/tests/hot-update-workflows.test.mjs scripts/tests/hot-update-desktop-updater.test.cjs electron/__tests__/hotUpdateRuntime.test.mjs electron/__tests__/hotUpdateDatabaseGuard.test.js scripts/tests/hot-update-update-mode.test.mjs scripts/tests/hot-update-desktop-anchors.test.mjs",
     "test:microsoft-store": "node --test scripts/tests/microsoft-store-config.test.cjs scripts/tests/microsoft-store-updater.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs",
     "electron:build:store": "npm run fetch:node && npm run build:all && npm run rebuild:native && electron-builder --config electron/builder.store.config.js --win appx --publish never"
   },

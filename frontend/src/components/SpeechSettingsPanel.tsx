@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { voiceApi, type SpeechSettings } from "@/lib/api";
+import { getSpeechConnectionScope, refreshSpeechConnectionAfterSave, verifySpeechConnection } from "@/lib/speechConnection";
 
 export default function SpeechSettingsPanel() {
   const { t } = useTranslation();
@@ -11,12 +12,17 @@ export default function SpeechSettingsPanel() {
   const [message, setMessage] = useState("");
   useEffect(() => { void voiceApi.settings().then(setSettings).catch((error: Error) => setMessage(error.message)); }, []);
   const save = async (test: boolean) => {
+    const scope = getSpeechConnectionScope();
     setBusy(true); setMessage("");
     try {
       const updated = await voiceApi.saveSettings({ apiUrl: settings.apiUrl.trim(), model: settings.model.trim(), language: settings.language || null, ...(clearKey ? { apiKey: "" } : key ? { apiKey: key } : {}) });
       setSettings(updated); setKey(""); setClearKey(false);
-      window.dispatchEvent(new Event("nowen:speech-settings-changed"));
-      if (test) await voiceApi.test();
+      if (test) {
+        if (!await verifySpeechConnection(scope, updated.configured)) {
+          if (scope === getSpeechConnectionScope()) setMessage(t("voice.configure"));
+          return;
+        }
+      } else refreshSpeechConnectionAfterSave(scope);
       setMessage(t(test ? "voice.testSuccess" : "voice.configSaved"));
     } catch (error) { setMessage((error as Error).message); } finally { setBusy(false); }
   };

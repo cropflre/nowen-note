@@ -1,7 +1,7 @@
 <!-- 此文件由 scripts/generate-plugin-host-api.mjs 生成，请勿手动修改。 -->
 # Contribution 合同
 
-合同版本：4
+合同版本：5
 
 运行时键统一为 `<pluginId>/<contributionId>`。声明式 Contribution 由 Host 渲染和执行，不授予任意 React、DOM、CSS 或 Node Runtime。
 
@@ -9,6 +9,7 @@
 | --- | --- | --- | --- | --- |
 | `automationTemplates` | 2.0 | 是 | `declarative`, `sandbox-js`, `node-action` | Static automation templates installed by explicit user action |
 | `commands` | 2.0 | 否 | `sandbox-js`, `node-action` | Command palette and host command registrations |
+| `editorActions` | 2.2 | 否 | `sandbox-js`, `node-action` | Host-rendered editor actions (slash menu, selection bubble, editor toolbar) that run a declared command or prompt and return bounded Markdown text |
 | `inboundWebhooks` | 2.0 | 否 | `sandbox-js`, `node-action` | Host-owned capability-token HTTP callbacks with bounded requests and responses |
 | `menus` | 2.0 | 否 | `sandbox-js`, `node-action` | Host-owned menu placements referencing declared commands |
 | `noteTemplates` | 2.1 | 是 | `declarative`, `sandbox-js`, `node-action` | Static note templates rendered/imported by the host |
@@ -17,4 +18,4 @@
 | `settings` | 2.0 | 是 | `declarative`, `sandbox-js`, `node-action` | Host-rendered extension settings |
 | `uiComponents` | 2.1 | 是 | `declarative`, `sandbox-js`, `node-action` | Host-rendered UI actions placed in user-controlled extension slots |
 
-Note Theme 最大数量：20；Note Template 最大正文：262144 字节；Prompt 最大正文：65536 字节。
+Note Theme 最大数量：20；Note Template 最大正文：262144 字节；Prompt 最大正文：65536 字节；Editor Action 每插件最多 30 个，选区最大 32768 字节，结果最大 65536 字节。

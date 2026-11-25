@@ -90,6 +90,74 @@ describe("PR #821 native committed-write receipt notifications", () => {
   });
 });
 
+describe("native receipt attachment upload evidence", () => {
+  const phase = async (noteId: string) => (await readNativeNoteSyncReceipt(db, "profile", noteId)).phase;
+  const setTransfer = (id: string, status: string, available = 1) =>
+    db.run("UPDATE attachments SET transferStatus=?,available=? WHERE id=?", [status, available, id]);
+  /** A note whose own mutation is already ACKed, plus an image saved through the real repository. */
+  async function ackedNoteWithImage(noteId: string, attachmentId: string) {
+    await insertNote(noteId);
+    await db.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)", [
+      nativeReceiptKey("profile", noteId), JSON.stringify({ mutationId:"note-ack", serverVersion:9 }), "now",
+    ]);
+    const files = {
+      save: async ({ attachmentId: id }: { attachmentId: string }) =>
+        ({ attachmentId:id, path:`files/${id}`, size:3, sha256:"abc", mtime:0, uri:`file:///${id}` }),
+      resolveUrl: async () => null,
+      remove: async () => undefined,
+    };
+    const writer = new NativeLocalRepository({ db, attachments: files as never, accountId: "account", userId: "user", getScopeKey: () => "personal" });
+    await writer.attachments.save({ id:attachmentId, noteId, filename:"photo.jpg", mimeType:"image/jpeg", blob:new Blob(["img"]) });
+  }
+  beforeEach(async () => {
+    await db.run("INSERT INTO sync_profiles (id,name,serverUrl,remoteUserId,enabled,createdAt,updatedAt) VALUES ('profile','A','https://example.com','user',1,'now','now')");
+    await db.run("INSERT INTO sync_devices (profileId,deviceId,platform,createdAt) VALUES ('profile','device','android','now')");
+  });
+
+  it("keeps the native receipt pending until this note's attachment bytes reach the server", async () => {
+    await ackedNoteWithImage("photo-note", "photo");
+    // The attachment metadata mutation is still queued.
+    expect(await phase("photo-note")).toBe("pending");
+    // Metadata ACK dequeues the mutation, but the bytes are still only on this device.
+    await db.run("DELETE FROM sync_outbox WHERE entityType='attachment' AND entityId='photo'");
+    expect(await phase("photo-note")).toBe("pending");
+    await setTransfer("photo", "uploading");
+    expect(await phase("photo-note")).toBe("pending");
+    await setTransfer("photo", "uploaded");
+    expect(await readNativeNoteSyncReceipt(db, "profile", "photo-note")).toMatchObject({
+      phase: "confirmed", acknowledgedRevision: 9,
+    });
+  });
+
+  it("reports a failed attachment upload as a sync error, not cloud confirmation", async () => {
+    await ackedNoteWithImage("photo-note", "photo");
+    await db.run("UPDATE sync_outbox SET status='failed',lastError='NETWORK_UNAVAILABLE' WHERE entityType='attachment'");
+    expect(await phase("photo-note")).toBe("error");
+    await db.run("DELETE FROM sync_outbox WHERE entityType='attachment'");
+    // Upload failed while the local bytes are still available for retry.
+    await setTransfer("photo", "failed");
+    expect(await phase("photo-note")).toBe("error");
+    await db.run("INSERT INTO sync_conflicts (id,profileId,scopeKey,entityType,entityId,createdAt) VALUES ('conflict','profile','personal','note','photo-note','now')");
+    expect(await phase("photo-note")).toBe("conflict");
+  });
+
+  it("ignores download-only attachment states and other notes' uploads", async () => {
+    await ackedNoteWithImage("photo-note", "photo");
+    await ackedNoteWithImage("other-note", "other-photo");
+    await db.run("DELETE FROM sync_outbox WHERE entityType='attachment'");
+    await setTransfer("photo", "uploaded");
+    expect(await phase("photo-note")).toBe("confirmed");
+    expect(await phase("other-note")).toBe("pending");
+    // The server already holds these bytes; only this device's copy is missing.
+    for (const status of ["pending_download", "downloading", "failed", "remote"]) {
+      await setTransfer("photo", status, 0);
+      expect(await phase("photo-note")).toBe("confirmed");
+    }
+    await setTransfer("photo", "ready");
+    expect(await phase("photo-note")).toBe("confirmed");
+  });
+});
+
 describe("native note list bridge payloads", () => {
   it("bounds raw list results for many large notes while detail reads preserve the entire body", async () => {
     const body = "正文".repeat(64_000);

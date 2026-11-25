@@ -89,10 +89,14 @@ PhotoKit 原生 Live Photo 选择器。可选择已导出的两份原件，直�
 
 ## 转码运行时与限制
 
-Web/Docker 使用系统 FFmpeg（Docker 安装 `ffmpeg` 并设置
-`FFMPEG_PATH=/usr/bin/ffmpeg`）；Electron 保留 `ffmpeg-static` 运行时二进制和许可
-文件。桌面安装包会因内置 FFmpeg 增大，发布构建需安装目标平台/架构的依赖。
-FFmpeg 发行二进制及其许可随包分发，适用许可见依赖目录中的 LICENSE/README。
+Docker 镜像与桌面发布包都使用只含所需组件的 FFmpeg 8.0.1（libx264 静态链接，GPL），
+组件清单在 `scripts/ffmpeg/minimal-configure-flags.txt`。Docker 在构建阶段编译并设置
+`FFMPEG_PATH=/usr/bin/ffmpeg`；桌面发布构建用 `scripts/ffmpeg/build-desktop.sh` 从固定
+SHA-256 的源码为各平台编译，再由 `release-cloud-ffmpeg.mjs --install` 放到 `ffmpeg-static`
+的位置。本地开发构建仍用 `ffmpeg-static` 下载的完整版。改转码参数或支持新的输入格式时，
+先确认清单里有对应的解码器和滤镜（ffmpeg 会自动插入 trim、transpose、aresample 等），
+再用 `scripts/ffmpeg/smoke-motion.mjs` 验证。源码地址与许可见上述脚本，`ffmpeg-static`
+的 LICENSE/README 仍随包分发。
 
 兼容 MP4 使用 H.264/yuv420p 和 AAC，faststart，最多 1920px 宽、15 秒、50MiB；
 超出部分仍保留在原件内。单任务两线程、90 秒超时；临时文件只在本地缓存目录，

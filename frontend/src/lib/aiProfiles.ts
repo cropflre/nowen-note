@@ -99,14 +99,16 @@ export interface AIProxyStatus {
 
 export const aiProfiles = {
   proxyStatus: () => request<AIProxyStatus>("/proxy-status", undefined, "/ai"),
-  available: async (): Promise<AvailableAIProfiles> => {
+  testActive: (signal?: AbortSignal) => request<{ success: boolean }>("/test?chatOnly=1", { method: "POST", signal }, "/ai"),
+  available: async ({ signal, activeOnly = false }: { signal?: AbortSignal; activeOnly?: boolean } = {}): Promise<AvailableAIProfiles> => {
     try {
-      const result = await request<AvailableAIProfiles>("/profiles/available", undefined, "/ai");
+      const path = "/profiles/available" + (activeOnly ? "?activeOnly=1" : "");
+      const result = await request<AvailableAIProfiles>(path, { signal }, "/ai");
       if (!Array.isArray(result.personalProfiles) || !Array.isArray(result.sharedProfiles) || !result.active || !["personal", "shared"].includes(result.active.scope)) throw new Error("Invalid AI profile directory");
       return result;
     } catch (error) {
       if ((error as { status?: number }).status !== 404) throw error;
-      const personal = await aiProfiles.list();
+      const personal = await aiProfiles.list(signal);
       return { personalProfiles: personal.profiles, sharedProfiles: [], active: { scope: "personal", id: personal.activeProfileId }, unavailable: false, sharedSupported: false, isAdmin: false, aiEnabled: true };
     }
   },
@@ -123,7 +125,7 @@ export const aiProfiles = {
     test: (id: string) =>
       request<{ success: boolean; message?: string; error?: string }>(`/shared-profiles/${encodeURIComponent(id)}/test`, { method: "POST", body: "{}" }, "/ai"),
   },
-  list: () => request<{ profiles: AIProfile[]; activeProfileId: string }>(""),
+  list: (signal?: AbortSignal) => request<{ profiles: AIProfile[]; activeProfileId: string }>("", { signal }),
 
   create: (draft: AIProfileDraft, activate = true) =>
     request<{ profile: AIProfile; activeProfileId: string }>("", {

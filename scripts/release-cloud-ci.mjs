@@ -49,6 +49,10 @@ async function plan() {
   if (input.targets.includes('ios') && e.RC_IOS_SIGNING_READY !== 'true') throw Error('iOS 签名 Secrets 不完整');
   if (input.targets.includes('macos') && e.RC_MAC_SIGNING_ENABLED === 'true' && e.RC_MAC_SIGNING_READY !== 'true') throw Error('macOS 签名/公证 Secrets 不完整');
   if (input.targets.includes('fpk') && (!/^https:\/\//.test(e.FNPACK_URL || '') || !/^[a-f0-9]{64}$/.test(e.FNPACK_SHA256 || ''))) throw Error('FPK 构建需要 FNPACK_URL 与 FNPACK_SHA256 仓库变量');
+  if (input.targets.includes('hot')) {
+    if (e.RC_HOT_UPDATE_SIGNING_READY !== 'true') throw Error('热更新构建需要 Secret NOWEN_HOT_UPDATE_PRIVATE_KEY（见 docs/architecture/hot-update.md）');
+    if (!((await json('hot-update/public-keys.json')).keys?.length > 0)) throw Error('热更新构建需要先提交 hot-update/public-keys.json 里的公钥');
+  }
   await prepare();
   await appendFile(e.GITHUB_OUTPUT, `targets=${JSON.stringify(input.targets)}\nplatforms=${JSON.stringify(input.targets.filter(t => ['windows', 'macos', 'linux'].includes(t)))}\n`);
 }
@@ -94,11 +98,38 @@ async function androidStage() {
       !badging.includes(`versionName='${e.RC_VERSION}'`) || !badging.includes(`versionCode='${expectedCode}'`)) {
     throw Error('Android APK application ID / versionName / versionCode 不匹配');
   }
+  // 热更新信任锚点：APK 写入的壳指纹和公钥必须与本次提交一致，否则装上后永远收不到热更新。
+  const nativeConfig = JSON.parse(run('unzip', ['-p', apk, 'assets/capacitor.config.json']));
+  const { computeRuntimeVersions, gitTreeReader } = await import('./hot-update/lib/fingerprint.mjs');
+  const activeKey = (await json('hot-update/public-keys.json')).keys?.[0];
+  const anchors = nativeConfig.plugins?.NowenHotUpdateRuntime;
+  if (anchors?.runtimeVersion !== computeRuntimeVersions(gitTreeReader(process.cwd())).android ||
+      (anchors?.publicKey ?? '') !== (activeKey?.pem ?? '') || (nativeConfig.plugins?.LiveUpdate?.publicKey ?? '') !== (activeKey?.pem ?? '')) {
+    throw Error('Android APK 的热更新壳指纹或公钥与源码不一致');
+  }
+  console.log(`Android hot-update anchors verified: runtime ${anchors.runtimeVersion}, key ${activeKey?.id ?? 'none'}`);
   await mkdir('release-android', { recursive: true });
   await copyFile(apk, `release-android/Nowen-Note-${e.RC_VERSION}.apk`);
   const aab = 'frontend/android/app/build/outputs/bundle/release/app-release.aab';
   if (!run('jarsigner', ['-verify', aab], { env: { ...e, LC_ALL: 'C' } }).includes('jar verified.')) throw Error('AAB 签名验证失败');
   await copyFile(aab, `release-android/Nowen-Note-${e.RC_VERSION}.aab`);
+}
+// Docker Hub stores and serves layers exactly as pushed. `docker save` on an overlay2
+// runner exports uncompressed layers, which is how v1.5.4–v1.6.0 arm64 images reached
+// Docker Hub at ~2.6x their gzip size. Reject such archives before they are staged.
+export function assertGzipLayers(archive, read = member => run('tar', ['-xOf', archive, member])) {
+  const pending = [...JSON.parse(read('index.json')).manifests];
+  let layers = 0;
+  while (pending.length) {
+    const node = JSON.parse(read(`blobs/sha256/${pending.shift().digest.replace(/^sha256:/, '')}`));
+    pending.push(...(node.manifests || []));
+    for (const layer of node.layers || []) {
+      if (!/^application\/vnd\.(oci\.image\.layer\.v1|docker\.image\.rootfs\.diff)\.tar/.test(layer.mediaType)) continue;
+      if (!/gzip$/.test(layer.mediaType)) throw Error(`Docker 镜像层未压缩：${layer.mediaType}`);
+      layers += 1;
+    }
+  }
+  if (!layers) throw Error('Docker 镜像归档里没有找到镜像层');
 }
 async function dockerStage() {
   if (!['amd64', 'arm64'].includes(e.RC_ARCH)) throw Error('无效 Docker 架构');
@@ -107,7 +138,8 @@ async function dockerStage() {
   if (image.Architecture !== e.RC_ARCH || image.Os !== 'linux' || image.Config.Labels['org.opencontainers.image.revision'] !== e.GITHUB_SHA || image.Config.Labels['org.opencontainers.image.version'] !== e.RC_VERSION) throw Error('Docker 镜像来源不一致');
   await mkdir('release-docker', { recursive: true });
   run('docker', ['run', '--rm', '--entrypoint', 'node', ref, '-e', "const Database=require('./backend/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close(); require('./backend/node_modules/sharp')({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer().catch(()=>process.exit(1));"]);
-  run('docker', ['save', '-o', 'release-docker/image.tar', ref]);
+  // The archive is written by BuildKit (see release-build.yml), not `docker save`.
+  assertGzipLayers('release-docker/image.tar');
   // Docker's image ID may be represented differently across runner image stores;
   // pin the exact transferred archive rather than trusting cross-runner Id equality.
   const archive = await fileDigest('release-docker/image.tar');

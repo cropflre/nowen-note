@@ -10,9 +10,8 @@ test('Android WebView audio capture has both required manifest permissions', () 
   assert.match(manifest, /android.permission.RECORD_AUDIO/);
   assert.match(manifest, /android.permission.MODIFY_AUDIO_SETTINGS/);
 });
-test('iOS and both macOS builds declare microphone use', () => {
+test('iOS and macOS builds declare microphone use', () => {
   assert.match(read('frontend/ios/App/App/Info.plist'), /NSMicrophoneUsageDescription/);
   assert.match(read('electron/builder.base.config.js'), /NSMicrophoneUsageDescription/);
-  assert.match(read('electron/builder.lite.base.config.js'), /NSMicrophoneUsageDescription/);
   assert.match(read('build/entitlements.mac.plist'), /com.apple.security.device.audio-input/);
 });

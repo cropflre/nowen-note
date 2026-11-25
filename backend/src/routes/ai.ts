@@ -16,7 +16,7 @@ import {
 } from "../services/vec-store";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embedding-index-diagnostics";
-import { callAIChat, callAIChatStream, requestAIChat, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
+import { AI_SHORT_TASK_MAX_TOKENS, callAIChat, callAIChatStream, requestAIChat, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
 import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings, setUserAISettings } from "../services/user-ai-settings";
 import { parseEmbeddingTimeoutSeconds } from "../services/embedding-timeout";
@@ -241,6 +241,7 @@ ai.post("/embeddings/test", async (c) => {
 // ===== AI 连接测试 =====
 ai.post("/test", async (c) => {
   const userId = c.req.header("X-User-Id")!;
+  const chatOnly = c.req.query("chatOnly") === "1";
   if (!isManualAIEnabled(userId)) {
     return c.json({
       success: false,
@@ -258,7 +259,7 @@ ai.post("/test", async (c) => {
 
   try {
     const text = await callAIChat(settings, [{ role: "user", content: "Hi" }], {
-      max_tokens: 10,
+      max_tokens: AI_SHORT_TASK_MAX_TOKENS,
       timeout_ms: 15000,
     });
 
@@ -270,7 +271,7 @@ ai.post("/test", async (c) => {
   } catch (err: any) {
     const msg = err?.message || "连接失败";
     // 补充 Ollama 原生 API 回退
-    if (settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
+    if (!chatOnly && settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
       const ollamaBase = settings.ai_api_url.replace(/\/+$/, "").replace(/\/v1$/, "");
       try {
         const fallbackRes = await aiOutboundFetch(`${ollamaBase}/api/tags`, {
@@ -391,10 +392,9 @@ ai.post("/chat", async (c) => {
 
   messages.push({ role: "user", content: `${systemPrompt}\n\n${text}` });
   const temperature = action === "fix_grammar" ? 0.1 : action === "format_code" ? 0.2 : 0.7;
-  const max_tokens = action === "title" ? 200 : action === "tags" ? 300 : action === "summarize" ? 800 : action === "mermaid_mindmap" ? 1500 : action === "mermaid_flowchart" ? 1500 : action === "custom" ? 4000 : 2000;
-
   // title / tags / summarize 短任务 → non-stream，更稳定
   const isShortAction = action === "title" || action === "tags" || action === "summarize" || action === "mermaid_mindmap" || action === "mermaid_flowchart";
+  const max_tokens = isShortAction ? AI_SHORT_TASK_MAX_TOKENS : action === "custom" ? 4000 : 2000;
 
   try {
     if (isShortAction) {

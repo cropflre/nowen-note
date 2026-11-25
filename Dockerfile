@@ -26,6 +26,23 @@ RUN --mount=type=secret,id=github_token,required=false \
     && sed -i '/^typedef u_int[0-9]*_t uint[0-9]*_t;$/d' sqlite-vec.c \
     && cc -O3 -fPIC -shared sqlite-vec.c -o vec0.so -lm
 
+# ---------- ffmpeg: 只编译动态照片转码用到的组件 ----------
+# Alpine 的 ffmpeg 包会连带 x265、AV1、Vulkan、字幕渲染等约 97MB 依赖；精简版约 8MB。
+# 组件清单与桌面安装包共用，说明见 scripts/ffmpeg/minimal-configure-flags.txt。
+# 版本与 Alpine 3.23 的 ffmpeg 8.0.1 相同；源码 SHA-256 已与 aports 记录的 SHA-512 交叉核对。
+FROM alpine:3.23 AS ffmpeg-build
+WORKDIR /build
+RUN apk add --no-cache build-base curl nasm pkgconf x264-dev zlib-dev
+COPY scripts/ffmpeg/minimal-configure-flags.txt /minimal-configure-flags.txt
+RUN curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 300 \
+      https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o ffmpeg.tar.xz \
+    && echo "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41  ffmpeg.tar.xz" | sha256sum -c - \
+    && tar -xJf ffmpeg.tar.xz --strip-components=1 \
+    && ./configure $(grep -v -e '^#' -e '^$' /minimal-configure-flags.txt) \
+      --enable-pthreads --enable-zlib --optflags=-O3 \
+    && make -j"$(nproc)" ffmpeg \
+    && strip ffmpeg
+
 # ---------- Stage 1: 前端构建 ----------
 FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS frontend-build
 ARG TARGETARCH
@@ -60,41 +77,70 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build:web
 
 # ---------- Stage 2: 后端构建（包含 updater 专用入口） ----------
-FROM node:24.22.1-alpine3.23 AS backend-build
+# 只编译 TypeScript，与架构无关；运行时依赖由 backend-deps 按目标架构安装。类型声明运行时用不到。
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS backend-build
 WORKDIR /app/backend
-RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
-RUN apk add --no-cache ffmpeg
 COPY backend/package.json backend/package-lock.json ./
-RUN FFMPEG_BIN=/usr/bin/ffmpeg npm ci --no-audit --no-fund
+RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY backend/ .
-RUN npx tsc \
+RUN npx tsc --declaration false \
     && cp src/plugins/runner-child.mjs src/plugins/sandbox-child.mjs dist/plugins/
-RUN apk del .build-deps
+
+# ---------- 后端生产依赖：按目标架构安装，只保留运行时需要的文件 ----------
+FROM node:24.22.1-alpine3.23 AS backend-deps
+WORKDIR /app/backend
+# 官方 musl 版 node 带完整符号表（约 18MB）；剥离后仍保留原生模块链接所需的动态符号。
+RUN apk add --no-cache python3 make g++ linux-headers \
+    && strip /usr/local/bin/node
+COPY backend/package.json backend/package-lock.json ./
+# ffmpeg-static 的安装脚本会下载一份完整 ffmpeg，而镜像用 FFMPEG_PATH 指向上面的精简版，
+# 所以跳过安装脚本，只为两个原生模块单独执行。
+# 锁文件没有记录 libc，Alpine 上会连 glibc 版 sharp/libvips 一起装（约 16MB），musl 用不到。
+# better-sqlite3 的 SQLite/C++ 源码只在编译时使用；@types、文档、source map、TS 源码运行时都不加载。
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && npm rebuild better-sqlite3 sharp \
+    && rm -rf node_modules/@img/sharp-linux-* node_modules/@img/sharp-libvips-linux-* \
+       node_modules/better-sqlite3/deps node_modules/better-sqlite3/src node_modules/@types \
+    && find node_modules -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.map' \
+       -o -name '*.ts' -o -name '*.mts' -o -name '*.cts' \) ! -iname 'licen[cs]e*' -delete
+COPY --from=sqlite-vec-build /build/vec0.so /tmp/vec0.so
+# 保持 sqlite-vec 的标准加载路径，同时兼容 amd64/arm64 npm 平台包。
+RUN node -e "require('node:fs').copyFileSync('/tmp/vec0.so', require('sqlite-vec').getLoadablePath())"
+
+# ---------- MCP: optional embedded HTTP transport ----------
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS mcp-build
+WORKDIR /app/packages/nowen-mcp
+COPY packages/nowen-mcp/package.json packages/nowen-mcp/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY packages/nowen-mcp/src ./src
+COPY packages/nowen-mcp/tsconfig.json ./
+RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
 # ---------- Stage 3: 运行时镜像 ----------
-FROM node:24.22.1-alpine3.23
+# 基于纯 Alpine，只从 node 镜像拷 node 可执行文件：npm、yarn、corepack 和 C 头文件运行时用不到（约 33MB）。
+# 保留官方 node 镜像的 node 用户（uid/gid 1000），兼容以 --user node 运行的部署。
+FROM alpine:3.23
+RUN addgroup -g 1000 node \
+    && adduser -u 1000 -G node -s /bin/sh -D node \
+    && apk add --no-cache libstdc++ tini tzdata x264-libs
+COPY --from=backend-deps /usr/local/bin/node /usr/local/bin/node
+COPY --from=ffmpeg-build /build/ffmpeg /usr/bin/ffmpeg
 WORKDIR /app
-RUN apk add --no-cache tini tzdata ffmpeg
 
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
-RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
-    && cd backend && FFMPEG_BIN=/usr/bin/ffmpeg npm ci --omit=dev --no-audit --no-fund \
-    && apk del .build-deps \
-    && npm cache clean --force \
-    && rm -rf /root/.npm /tmp/* /var/cache/apk/*
-
+COPY --from=backend-deps /app/backend/node_modules ./backend/node_modules
 COPY --from=backend-build /app/backend/dist ./backend/dist
+COPY --from=mcp-build /app/packages/nowen-mcp/package.json ./packages/nowen-mcp/package.json
+COPY --from=mcp-build /app/packages/nowen-mcp/dist ./packages/nowen-mcp/dist
+COPY --from=mcp-build /app/packages/nowen-mcp/node_modules ./packages/nowen-mcp/node_modules
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
-COPY backend/scripts/smoke-plugin-artifacts.cjs ./backend/scripts/smoke-plugin-artifacts.cjs
-COPY --from=sqlite-vec-build /build/vec0.so /tmp/vec0.so
-COPY backend/scripts/smoke-sqlite-vec.cjs ./backend/scripts/smoke-sqlite-vec.cjs
-# 保持 sqlite-vec 的标准加载路径，同时兼容 amd64/arm64 npm 平台包。
-RUN cd backend \
-    && node -e "require('node:fs').copyFileSync('/tmp/vec0.so', require('sqlite-vec').getLoadablePath())" \
-    && rm /tmp/vec0.so \
-    && node scripts/smoke-sqlite-vec.cjs
+COPY backend/scripts/smoke-plugin-artifacts.cjs backend/scripts/smoke-sqlite-vec.cjs ./backend/scripts/
+# 在最终镜像里确认原生模块、sqlite-vec 扩展和 ffmpeg 的动态库都齐全。
+RUN node backend/scripts/smoke-sqlite-vec.cjs \
+    && node -e "require('./backend/node_modules/sharp')" \
+    && ffmpeg -hide_banner -version > /dev/null
 # 仅使用生产依赖与 dist；没有 src，避免开发入口兜底掩盖遗漏的运行器。
 RUN node backend/scripts/smoke-plugin-artifacts.cjs
 

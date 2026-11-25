@@ -7,7 +7,8 @@
 ## 先看结论
 
 - MCP 功能仍然受支持，服务端代码位于 `packages/nowen-mcp/`。
-- 当前官方仓库提供的是**源码安装方式**，需要 Node.js 24.22.1+（24.x LTS）、Git 和 npm。
+- 包含内置 MCP 的新 Docker 镜像可在设置页开启固定 `/mcp` 地址，无需宿主机安装 Node.js 或 npm，参见 [Docker 内置 MCP](./docker-deploy.md#docker-内置-mcp包含此功能的新镜像)。旧镜像需升级。
+- 以下**独立源码安装方式**需要 Node.js 24.22.1+（24.x LTS）、Git 和 npm，仍可继续使用。
 - 不要直接照抄 `/path/to/...`。客户端配置中的脚本路径必须替换为你电脑上的**绝对路径**。
 - 如果 Nowen Note 部署在 NAS 或其他服务器，`NOWEN_URL` 应填写该设备能从当前电脑访问的地址，例如 `http://192.168.1.20:3001`，而不是 `localhost`。
 - 推荐使用独立的 restricted Personal API Token，不要把管理员密码写进 MCP 配置。
@@ -340,7 +341,7 @@ MCP: List Servers
 - Linux、macOS 和 WSL 的绝对路径必须以 `/` 开头，不能写成 `home/user/...`。
 - Windows JSON 路径中的 `\` 必须转义为 `\\`。
 - 当前 Claude Desktop 更推荐通过 Settings → Extensions 安装 DXT 扩展；Nowen Note 目前仍以源码 stdio Server 为正式可用方式。使用 Claude Desktop 的本地开发者 MCP 配置时，请以客户端当前版本提供的入口为准。
-- Claude.ai / Claude Desktop 的远程 Connector 不能直接连接这个本地 stdio 脚本；远程 MCP 需要单独的 HTTP 传输和认证实现。
+- 远程 Connector 不能直接连接这个本地 stdio 脚本。支持 Streamable HTTP + Bearer Header 的客户端可连接 Docker 内置 `/mcp`，使用个人 API Token；独立 HTTP 网关仍使用独立网关密钥。仅支持 OAuth 的客户端暂不适用。
 
 官方参考：[Claude Desktop local MCP](https://support.anthropic.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)
 
@@ -434,10 +435,10 @@ npm run build
 服务端最终权限为：
 
 ```text
-用户 ACL ∩ Token scopes ∩ Token 笔记本资源授权
+Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关
 ```
 
-restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。历史 Token 默认保持 `unrestricted`，兼容升级前行为。
+restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。历史 Token 默认保持 `unrestricted`，兼容升级前行为。团队空间的授权规则见下一节。
 
 最简配置：
 
@@ -482,25 +483,91 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
 
 ---
 
+## 团队空间授权（v1.6.0）
+
+可以把自己有权访问的团队笔记本授权给 AI 助手，让它读取、搜索、新建和修改其中的笔记。团队笔记本默认不授权，必须由你主动勾选。
+
+### 如何授权团队空间
+
+1. 打开「设置 → 连接 AI 助手」，选择 AI 助手。
+2. 在「选择 AI 助手可以访问的笔记」中：「个人空间」默认全选；「团队空间」下按团队列出笔记本，默认收起、不勾选。展开团队后勾选需要的笔记本，或勾选团队名称一次选中该团队全部笔记本。
+3. 点击「连接」。系统自动创建受限 Token、保存所选笔记本，并实际调用 `nowen_list_notebooks` 检测连接；创建或检测失败时显示错误，不会显示“准备好了”。
+
+勾选了团队笔记本时，界面会提示：“AI 助手将可以访问你选中的团队笔记。请确认团队内容允许接入该助手。”请先确认团队允许接入该助手。
+
+### 只读与读写
+
+- 每个笔记本旁显示「可编辑」或「只读」，依据是你此刻在该团队中的角色和该目录的权限。
+- 团队 owner、admin、editor 可以授予读写；commenter、viewer 只能授予只读，服务端会拒绝为只读成员创建写入授权。
+- 所选笔记本全部只读时，界面显示「只读连接」，Token 不申请写入范围，AI 只能查看。
+- 对可编辑笔记本只授予只读、自动包含子笔记本、目录结构写入（`notebooks:write`）等高级设置，请在「设置 → 账号安全 → 开发者访问令牌」中创建或编辑令牌。快速连接不会授予目录结构写入。
+
+### 权限如何计算
+
+```text
+最终权限 = Token scopes ∩ Token 笔记本授权 ∩ 当前团队成员权限 ∩ 资源 ACL ∩ MCP 服务写入开关
+```
+
+- 团队成员身份和角色在**每次请求**时重新校验，不只在创建令牌时检查。
+- 系统管理员身份、工作区所有者字段、笔记作者字段、笔记本单独共享，都不能代替团队成员身份。
+- 历史 `unrestricted` Token 不会因为升级获得团队目录写入等新能力；团队授权只对显式勾选了团队笔记本的 restricted Token 生效。
+- Token 不能管理团队成员、角色、邀请、分享或服务器配置，也不能创建、扩展或修改自己的授权。
+
+### 团队成员变化如何影响 Token
+
+| 变化 | 下一次请求起的效果 |
+|---|---|
+| 被移出团队 | 该团队的笔记本从笔记本列表、笔记列表、搜索和知识树中消失，读写都被拒绝；个人空间授权不受影响 |
+| 降为 viewer / commenter | 只能读取，所有写入被拒绝，即使令牌里保存的是读写授权 |
+| 重新加入或升级角色 | 原授权按新角色重新生效，但不会超过当初授予的级别 |
+| 笔记本被删除或移出授权 | 立即拒绝访问 |
+| Token 吊销、过期或删除 | 立即返回 401，已配置的 AI 客户端连接同时失效 |
+
+### MCP 工具如何区分空间
+
+- `nowen_list_notebooks` 返回 `notebookId`、`notebookName`、`workspaceId`（个人空间为 `personal`，团队为工作区 ID，他人共享给你的为 `null`）、`workspaceName`、`permission`（`read` / `write`）、`parentId` 和 `noteCount`。个人空间和团队中可能有同名笔记本，请用 `notebookId` 和 `workspaceId` 区分。
+- `nowen_list_notes`、`nowen_search` 不指定空间时只在已授权笔记本内工作；可选的 `workspaceId` 用于限定某个空间。旧的调用方式不变。
+- `nowen_get_knowledge_tree`：连接只覆盖一个空间时可以省略 `workspaceId`；覆盖多个空间时必须指定，否则工具会列出可选空间，要求 AI 明确选择。
+- 目录写入工具（`nowen_preview_knowledge_tree_change`、`nowen_apply_knowledge_tree_change`）处理团队目录时要传 `workspaceId`，仍然需要预览、版本前置条件和确认词；不能跨空间移动；团队中移动和移入回收站默认只有团队管理员可以执行。
+- 任务、自动化、个人网盘、迁移等工具仍只支持个人空间。
+
+### AI 无法访问团队笔记时怎么排查
+
+1. 确认在「连接 AI 助手」或开发者令牌页勾选了该团队笔记本。子笔记本需要单独勾选，或在开发者令牌页开启“自动包含子笔记本”。
+2. 确认你仍是该团队成员；写入需要 editor 及以上角色。
+3. 让 AI 调用 `nowen_list_notebooks`，查看该笔记本的 `workspaceId` 和 `permission`。
+4. 直接建在团队根目录下的文档不属于任何笔记本，暂时不能授权给 AI，请先移入某个团队笔记本。
+5. 目录操作返回 `MCP_TREE_VERSION_CONFLICT`：重新预览后再执行；如果目录里有未授权的子目录，需要一并授权。
+6. 返回 `API_TOKEN_CROSS_SPACE_DENIED`：AI 尝试跨空间创建或移动内容，请在同一空间内操作。
+7. 管理员可以在审计日志中查看 `api_token_request` 事件，其中记录 Token ID、操作、涉及的空间（`spaces`）和结果（`allowed` / `failed` / `denied`）。
+
+### 撤销与安全
+
+- 在「连接 AI 助手 → 你的助手」点「断开」，或在开发者令牌页吊销，立即生效。
+- 团队管理员发现某个成员的 AI 访问不合适时，移除该成员或降低其角色，即可立即收回其 Token 的团队权限。
+- 审计日志不记录 Token 明文、查询内容和笔记正文。
+
+---
+
 ## 可用工具
 
 ### 笔记本
 
 | 工具 | 说明 |
 |---|---|
-| `nowen_list_notebooks` | 列出当前 Token 可以访问的笔记本 |
+| `nowen_list_notebooks` | 列出当前 Token 可以访问的笔记本，含所属空间（`workspaceId` / `workspaceName`）和读写权限 |
 | `nowen_create_notebook` | 创建笔记本；restricted 模式下需拥有目标父笔记本写权限 |
 
 ### 笔记与搜索
 
 | 工具 | 说明 |
 |---|---|
-| `nowen_list_notes` | 列出授权范围内的笔记 |
+| `nowen_list_notes` | 列出授权范围内的笔记；可选 `workspaceId` 限定空间 |
 | `nowen_read_note` | 读取笔记，服务端根据 `noteId` 校验资源范围 |
 | `nowen_create_note` | 在拥有写权限的笔记本创建笔记 |
 | `nowen_update_note` | 更新授权范围内笔记 |
 | `nowen_delete_note` | 删除授权范围内笔记 |
-| `nowen_search` | 全文搜索，结果自动限定在授权范围内 |
+| `nowen_search` | 全文搜索，结果自动限定在授权范围内（含已授权的团队笔记本）；可选 `workspaceId` 限定空间 |
 
 ### 附件与标签
 
@@ -648,10 +715,10 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 
 新的个人任务工具可使用长期访问令牌：
 
-- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`、`nowen_list_task_reminders`。
-- `tasks:write`：创建/更新任务与子任务、完成任务，以及 `nowen_create_task_reminder`。
-- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**；任务授权与笔记本白名单相互独立。
-- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作、跨工作区移动与删除操作。
+- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`、`nowen_list_task_reminders`，以及 `nowen_delete_task` 的预览。
+- `tasks:write`：创建/更新任务与子任务、完成任务、`nowen_create_task_reminder`，以及确认后用 `nowen_delete_task` 删除任务。删除不需要额外的 Scope。
+- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**（包括删除）；任务授权与笔记本白名单相互独立。
+- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作与跨工作区移动；删除只能逐个进行，而且必须先预览。
 - MCP 的写入工具应由客户端获取用户确认；服务端继续执行令牌 Scope 与任务归属检查。
 
 例如问 Agent：“列出今天的个人待办，并统计逾期任务。”确认授权后，工具会查询 Nowen Note 服务端的真实任务数据。
@@ -659,6 +726,13 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 创建含提醒的任务时，先调用 `nowen_create_task` 或 `nowen_create_subtask`，传入 `dueDate: "2026-10-21"` 和可选的 `dueAt: "2026-10-21T09:30"`；再以返回的任务 ID 调用 `nowen_create_task_reminder`。例如提前 30 分钟、UTC+8 用户使用 `offsetMinutes: 30, timezoneOffsetMinutes: -480`（与 JS `getTimezoneOffset()` 符号一致，按截止日期的时区计算）。这两次写入分别返回结果；提醒失败时保留已建任务，可单独重试提醒，不要重复建任务。设备仍需授予通知权限。
 
 任务与笔记读取结果中的 `createdAt` / `updatedAt` 等数据库 UTC 时间带有明确的 `Z` 后缀，例如 `01:30Z` 对应北京时间 `09:30`。`dueDate` 是本地日期，`dueAt` 是不带时区的本地截止时间，不进行 UTC 平移；`nowen_update_task` 支持修改 `dueAt`，传 `null` 可清除具体时间。
+
+建错或重复的任务用 `nowen_delete_task` 删除（v1.6.0）。任务没有回收站，删除后无法恢复，所以分两步：
+
+1. 先只传 `taskId`（可选 `mode`）。工具返回预览：将被删除的任务及其全部子任务、数量 `affected` 和 `revision`，不修改任何数据。`mode: "series"` 删除整个循环系列；默认的 `single` 删除一个未完成的循环任务时，可能按规则生成下一次。
+2. 向用户说明预览内容并取得同意后，以相同的 `taskId` 和 `mode` 再调用一次，传 `dryRun: false`、`expectedRevision`（预览返回的 `revision`）和 `confirmation: "DELETE_TASK"`。返回 `affected` 和被删除的 `ids`。
+
+预览之后任务被修改、多了子任务或循环生成了新的一次，服务端返回 409 `TASK_DELETION_CONFLICT`，一条都不删，需要重新预览。直接调用 REST 时，令牌同样必须先请求 `GET /api/tasks/{id}/deletion-preview`，再在 `DELETE /api/tasks/{id}` 的请求体里提交 `expectedRevision` 与 `confirmation: "DELETE_TASK"`。已完成的顶层任务也可以改用 `nowen_archive_task` 归档，之后仍可恢复；只改标题、日期、优先级、描述或状态时用 `nowen_update_task`，它不会改动空间、项目或父子关系。
 
 早晚计划 / 任务到点 Webhook：在「设置 → 自动化 → 每日任务简报」配置时间、时区并绑定 HTTPS URL，具体参见 [Task Digest 示例插件](../../examples/plugins/task-digest/README.md)。
 

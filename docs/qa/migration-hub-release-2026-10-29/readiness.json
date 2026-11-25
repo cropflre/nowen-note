@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-29",
+  "sourceCommit": "a254635abf70f4cbec61270f0cd907a6274da2d6",
+  "branch": "codex/ai-migration-hub-v160",
+  "releaseReady": false,
+  "packageVersions": {
+    "app": "1.5.3",
+    "backend": "1.5.3"
+  },
+  "checks": {
+    "historicalUpgrade": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "evidence": "upgrade.json"
+    },
+    "claudeCli": {
+      "version": "2.1.187 (Claude Code)",
+      "stdioExit": 0,
+      "httpExit": 0,
+      "tools": 11,
+      "provider": "isolated synthetic loopback",
+      "businessWrites": 0,
+      "realModelCalls": 0,
+      "evidence": "client-claude.json"
+    },
+    "linuxProxy": {
+      "status": "passed",
+      "notes": 100,
+      "assetBytes": 109051904,
+      "crashRestarts": 2,
+      "lostAcks": 1,
+      "duplicateNotes": 0,
+      "memoryPressure": true,
+      "evidence": "deployment.json"
+    },
+    "objectProtocol": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 1,
+      "requestCount": 40,
+      "signatureCryptography": "not-verified",
+      "evidence": "storage.json"
+    },
+    "newTypescript": "strict noEmit passed for deployment script, upgrade fixtures and storage integration",
+    "runnerSyntax": "node --check passed for both mjs runners",
+    "dcc": {
+      "invariants": 12,
+      "testReferences": 244,
+      "status": "passed"
+    },
+    "lint": "Product/frontend unchanged this round; P2 source baseline had 0 added errors, global generated files had 96 unresolved errors",
+    "desktopProbe": {
+      "applications": [
+        "WorkBuddy",
+        "Qoder CN"
+      ],
+      "isolatedStartAttempted": true,
+      "mcpHandshake": false,
+      "existingProfilesModified": false,
+      "evidence": "client-desktop-probe.json"
+    }
+  },
+  "remaining": [
+    "Production v1.6.0 version synchronization and candidate artifacts",
+    "Target commit CI and packaged/signed Electron/Android installation upgrades",
+    "Physical NAS/Android/Huawei, TLS/proxy/storage and sustained memory pressure acceptance",
+    "Real SigV4-validating MinIO/cloud S3 endpoint",
+    "Codex/WorkBuddy/Qoder/Doubao full client acceptance and real-model/file-migration flows"
+  ],
+  "publication": {
+    "pushedByThisStage": false,
+    "merged": false,
+    "released": false
+  },
+  "data": {
+    "privateNotesUsed": false,
+    "realProviderCredentialsUsed": false,
+    "userConfigurationChanged": false,
+    "isolatedServicesAndVolumesCleaned": true
+  }
+}

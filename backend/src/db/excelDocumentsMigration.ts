@@ -1,7 +1,7 @@
 import type { Migration } from "./migrations.impl.js";
 
 export const excelDocumentsMigration: Migration = {
-  version: 141, // 官方 v1.5.1 占 123、v1.5.3 占 124-135、v1.5.4 占 136-140（editorAgent=136），避让改号；幂等迁移，改号安全
+  version: 148, // 官方 v1.5.1 占 123、v1.5.3 占 124-135、v1.5.4 占 136-140、v1.6.x 占 141-147，避让改号；幂等迁移，改号安全
   name: "excel-univer-documents",
   up: (db) => {
     db.exec(`

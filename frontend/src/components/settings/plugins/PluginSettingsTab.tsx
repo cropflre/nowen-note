@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import JSZip from "jszip";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Code2, KeyRound, Loader2, PackagePlus, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from "lucide-react";
-import { pluginApi, type InstalledPlugin, type PluginAction, type PluginConnection, type PluginExecution, type PluginUpdate, type RegistryPlugin, type RegistrySource } from "@/lib/pluginApi";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Code2, KeyRound, Loader2, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { pluginApi, type InstalledPlugin, type PluginAction, type PluginConnection, type PluginExecution, type PluginUpdate, type RegistrySource } from "@/lib/pluginApi";
 import { getPluginRuntimePresentation } from "@/lib/pluginRuntimePresentation";
 import { WechatCaptureSettings } from "./WechatCaptureSettings";
 import { PluginInboundSettings } from "./PluginInboundSettings";
 import { PluginRuntimePolicySettings } from "./PluginRuntimePolicySettings";
-import { PluginMarketplaceInstallButton } from "./PluginMarketplaceInstallButton";
 
 const permissionLabels: Record<string, string> = {
   "notes:read": "读取笔记", "notes:write": "创建和修改笔记",
@@ -73,8 +72,8 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
     const next = !expanded; setExpanded(next);
     if (next) {
       const [runs, configured, settings] = await Promise.all([
-        runtimePresentation.declarative ? Promise.resolve([] as PluginExecution[]) : pluginApi.executions(plugin.id).catch(() => []),
-        runtimePresentation.declarative ? Promise.resolve([] as PluginConnection[]) : pluginApi.connections(plugin.id).catch(() => []),
+        runtimePresentation.canExecuteActions ? pluginApi.executions(plugin.id).catch(() => []) : Promise.resolve([] as PluginExecution[]),
+        runtimePresentation.canExecuteActions ? pluginApi.connections(plugin.id).catch(() => []) : Promise.resolve([] as PluginConnection[]),
         pluginApi.settings(plugin.id).catch(() => ({})),
       ]);
       setExecutions(runs); setConnections(configured); setSettingValues(settings);
@@ -95,7 +94,7 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
         <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-indigo-600 dark:text-indigo-300">{runtimePresentation.runtimeLabel}</span>
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">{runtimePresentation.executionLabel}</span>
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">{runtimePresentation.permissionLabel}</span>
-      </> : <span>{runtimePresentation.executionLabel}</span>}
+      </> : <span>{plugin.apiVersion === 3 ? t("pluginApps.executionLabel") : runtimePresentation.executionLabel}</span>}
     </div>
     {runtimePresentation.declarative && <div className="rounded-md border border-emerald-200/70 bg-emerald-50 p-2.5 text-xs leading-relaxed text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300"><div className="flex gap-2"><ShieldCheck className="mt-0.5 shrink-0" size={14} /><span>此扩展只注册声明式资源：不会启动 Worker / Node / QuickJS，不可执行 Action，也不能申请笔记、附件、网络或密钥数据权限。</span></div></div>}
     {plugin.nodeRuntimeConfirmedAt && <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">Node Runtime 已由 {plugin.nodeRuntimeConfirmedBy || "管理员"} 于 {new Date(plugin.nodeRuntimeConfirmedAt).toLocaleString()} 确认。</div>}
@@ -106,9 +105,10 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
       <button onClick={toggleDetails} className="inline-flex items-center gap-1 rounded-md border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs">详情 {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</button>
       {isAdmin && plugin.status === "enabled" && <button disabled={busy} onClick={() => act(() => pluginApi.disable(plugin.id))} className="rounded-md border px-2.5 py-1.5 text-xs">禁用</button>}
       {isAdmin && plugin.status !== "enabled" && <button disabled={busy} onClick={() => act(async () => { if (runtimePresentation.requiresPermissionConfirmation) await pluginApi.grant(plugin.id, plugin.permissions.map((item) => item.permission)); await pluginApi.enable(plugin.id); })} className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs text-white">{runtimePresentation.enableLabel}</button>}
-      {isAdmin && !runtimePresentation.declarative && <button disabled={busy} onClick={() => act(() => pluginApi.reload(plugin.id))} className="rounded-md border px-2.5 py-1.5 text-xs disabled:opacity-40"><RefreshCw size={12} /></button>}
+      {isAdmin && runtimePresentation.canExecuteActions && <button disabled={busy} onClick={() => act(() => pluginApi.reload(plugin.id))} aria-label={t("extensionCenter.action.reload")} className="rounded-md border px-2.5 py-1.5 text-xs disabled:opacity-40"><RefreshCw size={12} /></button>}
       {isAdmin && plugin.previousVersion && <button disabled={busy} onClick={() => window.confirm(`回滚到 ${plugin.previousVersion}？插件数据不会回滚。`) && act(() => pluginApi.rollback(plugin.id, plugin.previousVersion || undefined))} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs"><RotateCcw size={12} />回滚 {plugin.previousVersion}</button>}
-      {isAdmin && <button disabled={busy} onClick={() => window.confirm(`确定卸载 ${plugin.name}？`) && act(() => pluginApi.uninstall(plugin.id))} className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-600"><Trash2 size={12} /></button>}
+      {isAdmin && <button disabled={busy} onClick={() => window.confirm(plugin.contributes?.appPages?.length ? t("pluginApps.uninstallRetain", { name: plugin.name }) : `确定卸载 ${plugin.name}？`) && act(() => pluginApi.uninstall(plugin.id, false, Boolean(plugin.contributes?.appPages?.length)))} aria-label={t(plugin.contributes?.appPages?.length ? "extensionCenter.action.uninstallRetain" : "extensionCenter.action.uninstall")} className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-600"><Trash2 size={12} /></button>}
+      {isAdmin && plugin.contributes?.appPages?.length && <button disabled={busy} onClick={() => window.confirm(t("pluginApps.uninstallData", { name: plugin.name })) && act(() => pluginApi.uninstall(plugin.id, true))} className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-600">{t("pluginApps.deleteWithData")}</button>}
     </div>
     {expanded && <div className="space-y-4 border-t border-zinc-200 dark:border-zinc-800 pt-3">
       {plugin.id !== "nowenlab.wechat-capture" && !!plugin.contributes?.inboundWebhooks?.length && <PluginInboundSettings plugin={plugin} />}
@@ -124,7 +124,8 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
 }
 
 export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
-  const [tab, setTab] = useState<"installed" | "discover" | "updates" | "developer">("installed");
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<"installed" | "updates" | "developer">("installed");
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PendingPackage | null>(null);
@@ -133,12 +134,6 @@ export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
   const [developerModeAvailable, setDeveloperModeAvailable] = useState(false);
   const [devDirectory, setDevDirectory] = useState("");
   const [sources, setSources] = useState<RegistrySource[]>([]);
-  const [sourceId, setSourceId] = useState("official-v2");
-  const [catalog, setCatalog] = useState<RegistryPlugin[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogError, setCatalogError] = useState("");
-  const [nodeRuntimeAllowed, setNodeRuntimeAllowed] = useState<boolean | null>(null);
-  const [search, setSearch] = useState("");
   const [newSourceName, setNewSourceName] = useState("");
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [newSourceKeyId, setNewSourceKeyId] = useState("");
@@ -148,24 +143,11 @@ export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => { setPlugins(await pluginApi.list()); setLoading(false); }, []);
   useEffect(() => { void refresh().catch(() => setLoading(false)); if (isAdmin) void pluginApi.getDeveloperMode().then((value) => { setDeveloperMode(value.enabled); setDeveloperModeAvailable(value.available); }).catch(() => {}); }, [isAdmin, refresh]);
+  // Browsing and installing from sources happens in the Extension Center's "Discover"; this page keeps the administrator tooling.
   useEffect(() => {
-    if (tab === "installed" || tab === "updates") return;
-    void pluginApi.registrySources().then((next) => {
-      setSources(next);
-      if (!next.some((source) => source.id === sourceId) && next[0]) setSourceId(next[0].id);
-    }).catch(() => setSources([]));
-    if (tab !== "discover") return;
-    setCatalogLoading(true);
-    setCatalogError("");
-    void pluginApi.registryCatalog(sourceId).then(setCatalog).catch((error) => {
-      setCatalog([]);
-      setCatalogError(error instanceof Error ? error.message : String(error));
-    }).finally(() => setCatalogLoading(false));
-  }, [sourceId, tab]);
-  const visibleCatalog = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return catalog.filter((plugin) => !needle || `${plugin.name} ${plugin.id} ${plugin.description || ""} ${(plugin.keywords || []).join(" ")}`.toLowerCase().includes(needle));
-  }, [catalog, search]);
+    if (tab !== "developer") return;
+    void pluginApi.registrySources().then(setSources).catch(() => setSources([]));
+  }, [tab]);
   const pendingRuntimePresentation = pending ? getPluginRuntimePresentation(pending.manifest) : null;
   const choosePackage = async (file?: File) => {
     if (!file) return;
@@ -209,12 +191,11 @@ export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
     setTab("installed");
   };
   return <div className="space-y-5">
-    <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-bold">扩展生态</h2><p className="mt-1 text-sm text-zinc-500">V2 可执行插件默认运行在 QuickJS/WASM 沙箱；声明式扩展不执行代码、零数据权限。签名、权限变化和安全公告会在安装前核验。</p></div>{isAdmin && tab === "installed" && <><input ref={inputRef} type="file" accept=".nowen-plugin" className="hidden" onChange={(event) => void choosePackage(event.target.files?.[0])} /><button onClick={() => inputRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white"><PackagePlus size={14} />安装插件</button></>}</div>
-    <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">{(["installed", "discover", "updates", "developer"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${tab === item ? "bg-white shadow-sm dark:bg-zinc-800" : "text-zinc-500"}`}>{item === "installed" ? "已安装" : item === "discover" ? "市场" : item === "updates" ? "更新与安全" : "开发者"}</button>)}</div>
-    {isAdmin && (tab === "discover" || tab === "installed") && <PluginRuntimePolicySettings onPolicyChange={setNodeRuntimeAllowed} />}
+    <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-bold">{t("extensionCenter.advanced.title")}</h2><p className="mt-1 text-sm text-zinc-500">{t("extensionCenter.advanced.description")}</p></div>{isAdmin && tab === "installed" && <><input ref={inputRef} type="file" accept=".nowen-plugin" className="hidden" onChange={(event) => void choosePackage(event.target.files?.[0])} /><button onClick={() => inputRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white"><PackagePlus size={14} />{t("pluginApps.install")}</button></>}</div>
+    <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">{(["installed", "updates", "developer"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${tab === item ? "bg-white shadow-sm dark:bg-zinc-800" : "text-zinc-500"}`}>{item === "installed" ? "调试与恢复" : item === "updates" ? "更新与安全" : "来源与开发者"}</button>)}</div>
+    {isAdmin && tab === "installed" && <PluginRuntimePolicySettings />}
     {tab === "installed" && (loading ? <div className="flex items-center gap-2 py-12 text-sm text-zinc-500"><Loader2 className="animate-spin" size={16} />正在加载插件</div> : plugins.length ? <div className="grid gap-3">{plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} isAdmin={isAdmin} refresh={refresh} />)}</div> : <div className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 py-12 text-center text-sm text-zinc-500">尚未安装插件</div>)}
     {tab === "updates" && <div className="space-y-3 rounded-xl border p-4 dark:border-zinc-800"><div><h3 className="text-sm font-semibold">更新与安全</h3><p className="mt-1 text-xs text-zinc-500">仅接受签名 Registry 的不可变版本；新增权限、Runtime 或 API 变化必须人工确认。</p></div><div className="flex gap-2"><input value={updateSource} onChange={(event) => setUpdateSource(event.target.value)} placeholder="V2 Registry Source ID" className="min-w-0 flex-1 rounded-md border bg-transparent px-3 py-2 text-xs dark:border-zinc-700" /><button disabled={!isAdmin} onClick={async () => { try { setUpdates(await pluginApi.checkUpdates(updateSource)); } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); } }} className="rounded-md bg-indigo-600 px-3 py-2 text-xs text-white disabled:opacity-50">检查更新</button></div>{updates.length ? <div className="space-y-2">{updates.map((update) => <div key={update.pluginId} className="rounded-lg bg-zinc-100 p-3 text-xs dark:bg-zinc-900"><div className="font-mono">{update.pluginId}</div><div className="mt-1">{update.currentVersion} → {update.availableVersion}</div>{update.permissionDiff.added.length > 0 && <div className="mt-1 text-amber-600">新增权限：{update.permissionDiff.added.join("、")}</div>}<div className="mt-1 text-zinc-500">{update.confirmationRequired ? "需要管理员确认" : "符合自动更新条件"}</div></div>)}</div> : <p className="text-xs text-zinc-500">尚未检查，或没有可用更新。</p>}</div>}
-    {tab === "discover" && <div className="space-y-3"><div className="flex gap-2"><div className="relative flex-1"><Search size={14} className="absolute left-3 top-2.5 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索插件、分类或关键词" className="w-full rounded-lg border bg-transparent py-2 pl-9 pr-3 text-sm dark:border-zinc-700" /></div><select value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="rounded-lg border bg-transparent px-2 text-xs dark:border-zinc-700">{sources.map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></div>{catalogLoading ? <div className="flex items-center gap-2 py-10 text-sm text-zinc-500"><Loader2 size={15} className="animate-spin" />加载 Registry</div> : catalogError ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-8 text-center text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300"><div className="font-medium">Registry 加载失败</div><div className="mt-1 text-xs opacity-80">{catalogError}</div></div> : visibleCatalog.length ? <div className="grid gap-3 md:grid-cols-2">{visibleCatalog.map((plugin) => <div key={plugin.id} className="rounded-xl border p-4 dark:border-zinc-800"><div className="flex items-start justify-between gap-2"><div><h3 className="font-semibold">{plugin.name}</h3><p className="font-mono text-[10px] text-zinc-400">{plugin.id}</p></div><span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] dark:bg-zinc-900">{plugin.trustLevel || "community"}</span></div><p className="mt-2 text-xs text-zinc-500">{plugin.description || "暂无说明"}</p><div className="mt-3 flex items-center justify-between text-xs"><span>v{plugin.latestVersion}</span>{isAdmin && <PluginMarketplaceInstallButton sourceId={sourceId} plugin={plugin} nodeRuntimeAllowed={nodeRuntimeAllowed} onInstalled={async () => { await refresh(); setTab("installed"); }} />}</div></div>)}</div> : <div className="rounded-xl border border-dashed py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">Registry 暂无可显示插件。</div>}</div>}
     {tab === "developer" && (isAdmin && developerModeAvailable ? <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-3"><div className="flex items-center justify-between"><div><h3 className="flex items-center gap-2 text-sm font-semibold"><Code2 size={15} />开发者模式</h3><p className="mt-1 text-xs text-zinc-500">本地目录仍需 Validate、Preflight 和权限确认；开发插件不进入备份。</p></div><input type="checkbox" checked={developerMode} onChange={async (event) => { const enabled = event.target.checked; await pluginApi.setDeveloperMode(enabled); setDeveloperMode(enabled); }} /></div>{developerMode && <div className="flex gap-2"><input value={devDirectory} onChange={(event) => setDevDirectory(event.target.value)} placeholder="D:\\Projects\\nowen-plugin-test" className="min-w-0 flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-3 py-2 text-xs" /><button onClick={() => void loadDevelopment().catch((error) => window.alert(error instanceof Error ? error.message : String(error)))} className="rounded-md border px-3 py-2 text-xs">Validate & Load</button></div>}</div> : <div className="rounded-xl border border-dashed py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">开发者模式仅对管理员和本地 Desktop Backend 开放。</div>)}
     {tab === "developer" && isAdmin && <div className="rounded-xl border p-4 dark:border-zinc-800">
       <h3 className="text-sm font-semibold">Registry 来源与国内镜像</h3>

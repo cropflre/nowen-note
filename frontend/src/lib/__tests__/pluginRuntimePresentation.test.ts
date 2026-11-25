@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { getPluginRuntimePresentation, isDeclarativePluginRuntime } from "../pluginRuntimePresentation";
 
 describe("plugin runtime presentation", () => {
+  it("never describes V3 UI as zero-code or skips permission confirmation", () => {
+    for (const plugin of [{ apiVersion: 3, runtime: "declarative" }, { runtime: "declarative", executionMode: "sandboxed-ui" }]) {
+      const presentation = getPluginRuntimePresentation(plugin);
+      expect(presentation.declarative).toBe(false);
+      expect(presentation.requiresPermissionConfirmation).toBe(true);
+      expect(presentation.canExecuteActions).toBe(false);
+      expect(presentation.executionLabel).not.toBe("不执行代码");
+    }
+  });
   it("identifies declarative extensions by runtime or execution mode", () => {
     expect(isDeclarativePluginRuntime({ runtime: "declarative" })).toBe(true);
     expect(isDeclarativePluginRuntime({ executionMode: "declarative-zero-code" })).toBe(true);

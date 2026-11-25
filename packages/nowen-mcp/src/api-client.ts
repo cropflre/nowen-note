@@ -3,13 +3,26 @@
  * 封装对 Nowen Note 后端 REST API 的调用
  */
 
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
+import { openAsBlob, createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 export interface NowenApiConfig {
   baseUrl: string;   // 例如 http://localhost:3001
   username: string;
   password: string;
+  apiToken?: string;
+  fetch?: typeof globalThis.fetch;
+  runtime?: McpRuntime;
+}
+
+export interface McpRuntime {
+  transport: "stdio" | "streamable-http";
+  accessMode: "read-only" | "read-write";
+  notebookScopeConfigured: boolean;
+  includeDescendants: boolean;
+  dangerousToolsEnabled: boolean;
 }
 
 export interface AttachmentUploadResult {
@@ -35,12 +48,27 @@ export class NowenApiClient {
   private username: string;
   private password: string;
   private token: string | null = null;
+  private readonly personalApiToken: boolean;
+  private readonly fetch: typeof globalThis.fetch;
+  readonly runtime: McpRuntime;
+
+  get hasPersonalApiToken(): boolean { return this.personalApiToken; }
+  get hasMigrationApiToken(): boolean { return this.personalApiToken && Boolean(this.token?.startsWith("nkn_")); }
 
   constructor(config: NowenApiConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.username = config.username;
     this.password = config.password;
-    this.token = process.env.NOWEN_API_TOKEN?.trim() || null;
+    this.token = (config.apiToken ?? process.env.NOWEN_API_TOKEN)?.trim() || null;
+    this.personalApiToken = Boolean(this.token);
+    this.fetch = config.fetch ?? globalThis.fetch;
+    this.runtime = config.runtime ?? {
+      transport: process.env.NOWEN_MCP_TRANSPORT === "streamable-http" ? "streamable-http" : "stdio",
+      accessMode: process.env.MCP_ACCESS_MODE === "read-only" ? "read-only" : "read-write",
+      notebookScopeConfigured: Object.prototype.hasOwnProperty.call(process.env, "ALLOWED_NOTEBOOK_IDS"),
+      includeDescendants: process.env.MCP_INCLUDE_DESCENDANTS === "true",
+      dangerousToolsEnabled: process.env.MCP_ENABLE_DANGEROUS_TOOLS === "true",
+    };
   }
 
   /** 登录获取 JWT Token */
@@ -48,7 +76,7 @@ export class NowenApiClient {
     if (!this.username || !this.password) {
       throw new Error("请设置 NOWEN_API_TOKEN，或显式配置 NOWEN_USERNAME 和 NOWEN_PASSWORD；MCP 不再尝试默认管理员凭据");
     }
-    const res = await fetch(`${this.baseUrl}/api/auth/login`, {
+    const res = await this.fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: this.username, password: this.password }),
@@ -88,7 +116,7 @@ export class NowenApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const res = await fetch(url, {
+    const res = await this.fetch(url, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -96,13 +124,13 @@ export class NowenApiClient {
 
     // Token 过期，重新登录后重试
     if (res.status === 401) {
-      if (process.env.NOWEN_API_TOKEN?.trim()) {
+      if (this.personalApiToken) {
         throw new Error("NOWEN_API_TOKEN 无效、已过期或权限不足；不会自动回退到账号密码");
       }
       this.token = null;
       await this.login();
       headers["Authorization"] = `Bearer ${this.token}`;
-      const retryRes = await fetch(url, {
+      const retryRes = await this.fetch(url, {
         method: options.method || "GET",
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
@@ -148,16 +176,17 @@ export class NowenApiClient {
       "Authorization": `Bearer ${this.token}`,
     };
 
-    const res = await fetch(url, {
+    const res = await this.fetch(url, {
       method: "POST",
       headers,
       body: form,
     });
 
     if (res.status === 401) {
+      if (this.personalApiToken) throw new Error("API Token 无效、已过期或已吊销；不会回退到账号密码");
       this.token = null;
       await this.login();
-      const retryRes = await fetch(url, {
+      const retryRes = await this.fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${this.token}` },
         body: form,
@@ -212,19 +241,108 @@ export class NowenApiClient {
     return `[${label}](/api/attachments/${id}?download=1)`;
   }
 
-  // ==================== 笔记本 ====================
+  // ==================== 迁移中心 ====================
 
-  /** 获取所有笔记本 */
-  async listNotebooks(): Promise<any[]> {
-    return this.request("/api/notebooks");
+  migrationCapabilities(): Promise<any> {
+    return this.request("/api/migrations/capabilities");
   }
 
-  /** 创建笔记本 */
+  createMigration(params: { operationId: string; source: { platform: string; exportId: string }; name?: string; workspaceId?: string | null; targetNotebookId?: string | null }): Promise<any> {
+    return this.request("/api/migrations", { method: "POST", body: params });
+  }
+
+  stageMigrationItems(id: string, items: unknown[]): Promise<any> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/items`, { method: "POST", body: { items } });
+  }
+
+  migrationAction(id: string, action: "status" | "preview" | "retry" | "cancel" | "pause" | "resume"): Promise<any> {
+    const base = `/api/migrations/${encodeURIComponent(id)}`;
+    return action === "status" ? this.request(base) : this.request(`${base}/${action}`, { method: "POST", body: {} });
+  }
+
+  // ==================== AI 对话归档 ====================
+
+  aiArchiveCapabilities(): Promise<any> {
+    return this.request("/api/ai-memory/capabilities");
+  }
+
+  aiArchiveSources(): Promise<{ items: any[] }> {
+    return this.request("/api/ai-memory/sources");
+  }
+
+  aiArchiveSource(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/sources/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveConversations(query: { sourceId?: string; externalConversationId?: string; q?: string; limit?: number; offset?: number }): Promise<{ items: any[]; total: number }> {
+    return this.request("/api/ai-memory/conversations", { query });
+  }
+
+  aiArchiveConversation(id: string): Promise<any> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}`);
+  }
+
+  aiArchiveMessages(id: string): Promise<{ items: any[] }> {
+    return this.request(`/api/ai-memory/conversations/${encodeURIComponent(id)}/messages`);
+  }
+
+  aiArchiveIngest(body: unknown): Promise<any> {
+    return this.request("/api/ai-memory/conversations/ingest", { method: "POST", body });
+  }
+
+  /** Caller must enforce stdio-only access before accepting a user-authorized local path. */
+  async uploadMigrationFile(id: string, params: { filePath: string; filename?: string; assetPath?: string; sha256?: string }): Promise<any> {
+    await this.ensureAuth();
+    const info = await lstat(params.filePath);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("迁移上传需要普通文件，不接受目录或符号链接");
+    const capabilities = await this.migrationCapabilities();
+    const maxBytes = capabilities?.limits?.uploadBytes ?? capabilities?.limits?.maxUploadBytes;
+    if (typeof maxBytes === "number" && info.size > maxBytes) throw new Error("文件超过服务器迁移上传限额");
+    const filename = params.filename || path.basename(params.filePath);
+    const body = await openAsBlob(params.filePath);
+    if (capabilities?.resumableUploads) {
+      const digest = createHash("sha256");
+      for await (const chunk of createReadStream(params.filePath)) digest.update(chunk);
+      const fileHash = digest.digest("hex");
+      if (params.sha256 && params.sha256.toLowerCase() !== fileHash) throw new Error("迁移文件 SHA-256 与预期不一致");
+      const base = `/api/migrations/${encodeURIComponent(id)}/upload-sessions`;
+      const operationId = createHash("sha256").update(JSON.stringify([filename, info.size, fileHash, params.assetPath || null])).digest("hex");
+      let session = await this.request<any>(base, { method: "POST", body: { operationId, filename, size: info.size, sha256: fileHash, ...(params.assetPath ? { assetPath: params.assetPath } : {}) } });
+      const sessionPath = `${base}/${encodeURIComponent(session.id)}`;
+      while (session.offset < info.size) {
+        if (session.jobId !== id || session.sha256 !== fileHash || !Number.isSafeInteger(session.offset) || session.offset < 0
+          || !Number.isSafeInteger(session.chunkBytes) || session.chunkBytes < 1 || session.chunkBytes > 4 * 1024 * 1024) throw new Error("迁移上传偏移无效");
+        const offset = session.offset;
+        const chunk = body.slice(offset, offset + session.chunkBytes);
+        const hash = createHash("sha256").update(new Uint8Array(await chunk.arrayBuffer())).digest("hex");
+        const response = await this.fetch(this.buildUrl(`${sessionPath}/chunks`, { offset }), { method: "PUT", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream", "X-Chunk-SHA256": hash }, body: chunk });
+        if (!response.ok) throw new Error(`迁移分块上传失败 (${response.status})`);
+        session = await response.json();
+        if (session.offset <= offset || session.offset > info.size) throw new Error("迁移上传偏移无效");
+      }
+      return this.request(`${sessionPath}/complete`, { method: "POST", body: {} });
+    }
+    const response = await this.fetch(this.buildUrl(`/api/migrations/${encodeURIComponent(id)}/uploads`, {
+      filename, assetPath: params.assetPath, sha256: params.sha256,
+    }), { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" }, body });
+    if (!response.ok) throw new Error(`迁移上传失败 (${response.status}): ${await response.text()}`);
+    return response.json();
+  }
+
+  // ==================== 笔记本 ====================
+
+  /** 获取笔记本；restricted Token 返回全部授权笔记本（含团队），可按 workspaceId 过滤。 */
+  async listNotebooks(workspaceId?: string): Promise<any[]> {
+    return this.request("/api/notebooks", { query: { workspaceId } });
+  }
+
+  /** 创建笔记本；子笔记本必须与父笔记本同一空间（workspaceId 取自父笔记本）。 */
   async createNotebook(params: {
     name: string;
     parentId?: string;
     icon?: string;
     color?: string;
+    workspaceId?: string | null;
   }): Promise<any> {
     return this.request("/api/notebooks", { method: "POST", body: params });
   }
@@ -246,9 +364,10 @@ export class NowenApiClient {
 
   // ==================== 笔记 ====================
 
-  /** 获取笔记列表 */
+  /** 获取笔记列表；workspaceId 为 personal 或团队 ID，不传时由服务端按 Token 授权范围决定。 */
   async listNotes(params?: {
     notebookId?: string;
+    workspaceId?: string;
     isFavorite?: string;
     isTrashed?: string;
     tagId?: string;
@@ -305,36 +424,37 @@ export class NowenApiClient {
     });
   }
 
+  /** 目录写入都带上节点所在空间；后端会复核节点、父节点与该空间及 Token 授权一致。 */
   async createKnowledgeNode(params: {
     parentId: string | null; title: string; nodeType: "folder" | "markdown";
-  }): Promise<any> {
+  }, workspaceId = "personal"): Promise<any> {
     return this.request("/api/knowledge-tree/nodes", {
-      method: "POST", query: { workspaceId: "personal" }, body: params,
+      method: "POST", query: { workspaceId }, body: params,
     });
   }
 
   /** 版本预条件由后端 PAT 中间件在业务写入前验证。 */
-  async renameKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async renameKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
-      method: "PATCH", query: { workspaceId: "personal" }, body: payload,
+      method: "PATCH", query: { workspaceId }, body: payload,
     });
   }
 
-  async moveKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async moveKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/move`, {
-      method: "PUT", query: { workspaceId: "personal" }, body: payload,
+      method: "PUT", query: { workspaceId }, body: payload,
     });
   }
 
-  async trashKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async trashKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}`, {
-      method: "DELETE", query: { workspaceId: "personal", mode: "subtree" }, body: payload,
+      method: "DELETE", query: { workspaceId, mode: "subtree" }, body: payload,
     });
   }
 
-  async restoreKnowledgeNode(nodeId: string, payload: Record<string, unknown>): Promise<any> {
+  async restoreKnowledgeNode(nodeId: string, payload: Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request(`/api/knowledge-tree/nodes/${encodeURIComponent(nodeId)}/restore`, {
-      method: "POST", query: { workspaceId: "personal" }, body: payload,
+      method: "POST", query: { workspaceId }, body: payload,
     });
   }
 
@@ -461,6 +581,20 @@ export class NowenApiClient {
     });
   }
 
+  /** 删除预览：返回会被删除的全部任务和 revision，不修改数据。 */
+  async previewTaskDeletion(taskId: string, mode: "single" | "series"): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}/deletion-preview`, { query: { mode } });
+  }
+
+  /** 永久删除个人任务（任务没有回收站）；服务端按预览 revision 校验，任务树有变化即拒绝。 */
+  async deleteTask(taskId: string, mode: "single" | "series", expectedRevision: string): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+      query: { mode },
+      body: { expectedRevision, confirmation: "DELETE_TASK" },
+    });
+  }
+
   /** MCP Token 的项目操作仅支持本人个人空间。 */
   async listTaskProjects(): Promise<any[]> {
     return this.request("/api/task-projects", { query: { workspaceId: "personal" } });
@@ -550,9 +684,9 @@ export class NowenApiClient {
 
   // ==================== 搜索 ====================
 
-  /** 全文搜索笔记 */
-  async search(q: string): Promise<any[]> {
-    return this.request("/api/search", { query: { q } });
+  /** 全文搜索笔记；不传 workspaceId 时 restricted Token 在全部授权笔记本内检索。 */
+  async search(q: string, workspaceId?: string): Promise<any[]> {
+    return this.request("/api/search", { query: { q, workspaceId } });
   }
 
   // ==================== 附件 / 文件 ====================
@@ -651,7 +785,7 @@ export class NowenApiClient {
   async askKnowledge(question: string): Promise<{ answer: string; references: { id: string; title: string }[] }> {
     await this.ensureAuth();
 
-    const res = await fetch(`${this.baseUrl}/api/ai/ask`, {
+    const res = await this.fetch(`${this.baseUrl}/api/ai/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -714,7 +848,7 @@ export class NowenApiClient {
   }): Promise<string> {
     await this.ensureAuth();
 
-    const res = await fetch(`${this.baseUrl}/api/ai/chat`, {
+    const res = await this.fetch(`${this.baseUrl}/api/ai/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

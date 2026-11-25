@@ -5,7 +5,8 @@
  * - 继续重试（网络/服务端临时故障）；
  * - 进入冲突中心（VERSION_CONFLICT）；
  * - 回退到 snapshot 重建（SYNC_RESET_REQUIRED）；
- * - 暂停同步但保持本地可用（AUTH_EXPIRED）。
+ * - 暂停同步但保持本地可用（AUTH_EXPIRED）；
+ * - 停止自动重试、保持本地可用并等待人工处理（DATA_STRUCTURE）。
  *
  * 任何情况下这些错误都不得升级为"保存失败"：本地写入成功即为保存成功。
  */
@@ -46,6 +47,13 @@ export const SYNC_ERROR_CODES = [
    * 因此不能据此把本地记录删掉。
    */
   "BLOB_NOT_READY",
+  /**
+   * 远端数据与本机的目录/引用结构无法自动合并（数据库约束、外键、结构守卫触发器）。
+   *
+   * 不可重试：同一份载荷再应用一次必然得到同一个结果，无限重试只会掩盖问题。
+   * 本机数据与服务器数据都不得因此被改动或删除，同步游标也不得推进。
+   */
+  "DATA_STRUCTURE",
 ] as const;
 
 export type SyncErrorCode = (typeof SYNC_ERROR_CODES)[number];
@@ -66,6 +74,7 @@ export function isRetryableSyncError(code: SyncErrorCode): boolean {
   // BLOB_NOT_READY 可重试：对端上传完成后自然成功。
   // VALIDATION_FAILED 刻意不可重试：重传同一份坏内容只会一直失败，
   // 无限重试还会掩盖真正的数据损坏问题。
+  // DATA_STRUCTURE 同理：同一份载荷再应用一次必然撞上同一个约束。
   return (
     code === "NETWORK_UNAVAILABLE"
     || code === "SERVER_ERROR"
@@ -95,13 +104,38 @@ export function classifyHttpStatus(status: number, serverCode?: unknown): SyncEr
   return "SERVER_ERROR";
 }
 
+/**
+ * 失败现场的安全诊断。
+ *
+ * 只允许放"可外发"的内容：阶段名、固定枚举、SQLite 错误码，以及已经过
+ * redactEntityId 脱敏的实体标识。绝不放笔记正文、标题、令牌或原始 SQL 参数。
+ */
+export interface SyncFailureDiagnostic {
+  /** 失败所在的流程阶段，例如 lite-migration:applying。 */
+  stage?: string;
+  /** 阶段内的具体步骤，例如 notebook.link。 */
+  step?: string;
+  /** 经白名单清洗的原因标记，例如 NOTEBOOK_PARENT_NOT_FOUND。 */
+  reason?: string;
+  sqliteCode?: string;
+  entityType?: string;
+  /** 已脱敏。 */
+  entityId?: string;
+  /** 已脱敏。 */
+  parentId?: string;
+  /** root / live / deleted / missing / other-scope / self / cycle。 */
+  parentState?: string;
+}
+
 export class SyncError extends Error {
   readonly code: SyncErrorCode;
+  readonly diagnostic?: SyncFailureDiagnostic;
 
-  constructor(code: SyncErrorCode, message?: string) {
+  constructor(code: SyncErrorCode, message?: string, diagnostic?: SyncFailureDiagnostic) {
     super(message || code);
     this.name = "SyncError";
     this.code = code;
+    this.diagnostic = diagnostic;
   }
 
   get retryable(): boolean {

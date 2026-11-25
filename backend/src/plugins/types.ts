@@ -1,5 +1,5 @@
 export const PLUGIN_API_VERSION = 2;
-export const NOWEN_VERSION = "1.5.3";
+export const NOWEN_VERSION = "1.6.0";
 export const EXTENSION_V21_TARGET_NOWEN_VERSION = "1.6.0";
 
 export interface ExtensionPlatformFeatureFlags {
@@ -10,6 +10,8 @@ export interface ExtensionPlatformFeatureFlags {
   sandboxedPluginUi: boolean;
   fileProcessingExtensions: boolean;
   experimentalDocumentTypes: boolean;
+  /** Editor actions (contribution contract v5); fail-closed, independent of the V2.1 declarative gate. */
+  editorActions: boolean;
 }
 
 export const PLUGIN_PERMISSIONS = [
@@ -189,6 +191,27 @@ export interface PluginUiActionContribution {
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
 }
 
+export type PluginEditorActionPlacement = "editor.slash" | "editor.selection" | "editor.toolbar.actions";
+export type PluginEditorKind = "tiptap" | "markdown";
+export type PluginEditorSelectionMode = "none" | "text" | "optional-text";
+export type PluginEditorResultMode = "none" | "insert" | "replace-selection" | "open-preview";
+/** Runs a declared command (sandboxed code) or prompt (host AI); the host only passes the selection as text. */
+export interface PluginEditorActionContribution {
+  id: string;
+  command?: string;
+  prompt?: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  keywords?: string[];
+  placements: PluginEditorActionPlacement[];
+  appliesTo: PluginEditorKind[];
+  selectionMode: PluginEditorSelectionMode;
+  resultMode: PluginEditorResultMode;
+  requiresConfirmation?: boolean;
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
+
 export interface PluginContributionManifest {
   inboundWebhooks?: PluginInboundWebhookContribution[];
   commands?: PluginCommandContribution[];
@@ -199,6 +222,7 @@ export interface PluginContributionManifest {
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
   uiComponents?: PluginUiActionContribution[];
+  editorActions?: PluginEditorActionContribution[];
 }
 
 export interface PluginInboundWebhookContribution {
@@ -265,10 +289,46 @@ export interface PluginManifestV2Declarative extends PluginManifestV2Base {
 }
 
 export type PluginManifestV2 = PluginManifestV2Executable | PluginManifestV2Declarative;
-export type PluginManifest = PluginManifestV1 | PluginManifestV2;
+export interface PluginManifestV3 {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  apiVersion: 3;
+  publisher: string;
+  engines: { nowen: string };
+  runtime: "declarative";
+  categories: string[];
+  repository: string;
+  license: string;
+  keywords?: string[];
+  homepage?: string;
+  icon?: string;
+  screenshots?: string[];
+  permissions: PluginPermission[];
+  permissionConfig?: never;
+  main?: never;
+  connections?: never;
+  actions?: never;
+  contributes: {
+    appPages: Array<{
+      id: string;
+      title: string;
+      entry: string;
+      platforms: Array<"web" | "desktop" | "android" | "ios">;
+      requiredPermissions: PluginPermission[];
+    }>;
+    uiAssets: Record<string, string>;
+    widgets?: import("./dashboardV3.js").PluginWidgetV3[];
+    inspectors?: import("./inspectorV3.js").PluginInspectorV3[];
+  };
+}
 
-export function isDeclarativePluginManifest(manifest: PluginManifest): manifest is PluginManifestV2Declarative {
-  return manifest.apiVersion === 2 && manifest.runtime === "declarative";
+// V3 apps have no Node/QuickJS entry; UI scripts are isolated browser assets.
+export type PluginManifest = PluginManifestV1 | PluginManifestV2 | PluginManifestV3;
+
+export function isDeclarativePluginManifest(manifest: PluginManifest): manifest is PluginManifestV2Declarative | PluginManifestV3 {
+  return manifest.runtime === "declarative";
 }
 
 export function pluginManifestMain(manifest: PluginManifest): string {

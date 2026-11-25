@@ -158,7 +158,7 @@ describe("NoteWorkspaceLayoutController", () => {
 
   it("updates native layout controls across narrow, portrait and landscape windows", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 680 });
-    (window as any).Capacitor = { isNativePlatform: () => true };
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true } });
     localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();

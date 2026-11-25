@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { User } from "@/types";
 import { toast } from "@/lib/toast";
 import { formatServerTime } from "@/lib/dateTime";
+import AdminWebUiSetting from "@/components/settings/AdminWebUiSetting";
 
 type StatusFilter = "all" | "active" | "disabled";
 type RoleFilter = "all" | "admin" | "user";
@@ -429,6 +430,9 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
           />
         </button>
       </div>
+
+      {/* 网页端访问：服务器级开关，仅管理员 */}
+      <AdminWebUiSetting />
 
       {/* 过滤 */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -960,11 +964,11 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                   const { sudoToken } = await api.requestSudoToken(sudoPwd);
                   sudoAsk.resolve(sudoToken);
                   setSudoAsk(null);
-                } catch (err: any) {
-                  if (err?.status === 429) {
+                } catch (err) {
+                  if (typeof err === "object" && err !== null && "status" in err && err.status === 429) {
                     setSudoError(t("userManagement.sudoRateLimited"));
                   } else {
-                    setSudoError(err?.message || t("userManagement.sudoWrongPassword"));
+                    setSudoError((err instanceof Error && err.message) || t("userManagement.sudoWrongPassword"));
                   }
                 } finally {
                   setSudoSubmitting(false);

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import type { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
-import { openNativeDatabase } from "../nativeDatabase";
+import { getNativeDatabaseOpenFailure, NativeDatabaseUpgradeRequiredError, openNativeDatabase } from "../nativeDatabase";
 import { NATIVE_TASK_REPEAT_FIELDS, nativeTaskRepeatValues } from "../nativeTaskFields";
 import { cacheConfirmedNativeTasks } from "../nativeTaskComposerCache";
 import type { Task } from "@/types";
@@ -12,6 +12,7 @@ import { api } from "../api";
 import { NativeLocalRepository } from "../nativeLocalRepository";
 import { ensureMobileLocalTaskSchema } from "../mobileLocalAdvancedTaskBridge";
 import { updateRepeatingTaskOnline } from "../taskComposerApi";
+import { MobileSyncEngine } from "../mobileSyncEngine";
 
 vi.mock("../taskComposerApi", () => ({ registerTaskComposerCache: () => () => undefined, updateRepeatingTaskOnline: vi.fn(), getTaskComposerContext: () => ({}), isTaskComposerContextCurrent: () => true, TaskComposerApiError: class extends Error {} }));
 vi.mock("../mobileLocalMode", () => ({ isMobileLocalMode: () => false }));
@@ -303,4 +304,86 @@ it.each([false, true])("schema 11 signed-order migration preserves tree and queu
   }
   expect(fixture.raw.prepare("SELECT * FROM native_knowledge_tree_nodes").all()).toEqual(tree);
   expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(queue);
+});
+
+const diaryAttachment = { id: "file-1", filename: "合同.pdf", mimeType: "application/pdf", size: 12 };
+
+it("DCC-009: opening a schema 13 database adds diary attachments in place without touching diaries or pending mutations", async () => {
+  fixture.raw.exec(`PRAGMA user_version=13;
+    INSERT INTO diaries(id,scopeKey,userId,contentText,mood,images,media,createdAt)
+      VALUES ('old-diary','personal','u','旧说说','happy','["img"]','[{"id":"img","type":"image"}]','2026-11-01T00:00:00.000Z')`);
+  const diaries = fixture.raw.prepare("SELECT * FROM diaries").all();
+  const pending = fixture.raw.prepare("SELECT * FROM sync_outbox").all();
+  const db = await openNativeDatabase("diary-attachments-fixture");
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+  expect(fixture.raw.prepare("SELECT * FROM diaries").all()).toEqual(diaries.map((row) => ({ ...(row as object), attachments: "[]" })));
+  expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(pending);
+  await db.close();
+  const reopened = await openNativeDatabase("diary-attachments-fixture");
+  expect(fixture.raw.prepare("SELECT name FROM pragma_table_info('diaries') WHERE name='attachments'").all()).toHaveLength(1);
+  await reopened.close();
+});
+
+it("DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them", async () => {
+  const db = await openNativeDatabase("diary-bridge-fixture");
+  const requestSync = vi.fn();
+  const restore = installMobileLocalModuleBridge({ sync: { requestSync } } as never, db, "u");
+  try {
+    const created = await api.postDiary({ contentText: "带附件的说说", attachments: [diaryAttachment] });
+    expect(created.attachments).toEqual([diaryAttachment]);
+    const stored = await db.query<{ attachments: string }>("SELECT attachments FROM diaries WHERE id=?", [created.id]);
+    expect(JSON.parse(stored[0].attachments)).toEqual([diaryAttachment]);
+    const queued = await db.query<{ payload: string }>("SELECT payload FROM sync_outbox WHERE entityType='diary' ORDER BY rowid");
+    expect(queued).toHaveLength(1);
+    expect(JSON.parse(queued[0].payload).attachments).toEqual([diaryAttachment]);
+    expect(requestSync).toHaveBeenCalled();
+
+    await api.updateDiary(created.id, { contentText: "只改了文字" });
+    const edited = (await api.getDiaryTimeline()).items.find((item) => item.id === created.id);
+    expect(edited?.contentText).toBe("只改了文字");
+    expect(edited?.attachments).toEqual([diaryAttachment]);
+    const latest = await db.query<{ payload: string }>("SELECT payload FROM sync_outbox WHERE entityType='diary' ORDER BY rowid DESC LIMIT 1");
+    expect(JSON.parse(latest[0].payload).attachments).toEqual([diaryAttachment]);
+
+    await api.updateDiary(created.id, { attachments: [] });
+    expect((await api.getDiaryTimeline()).items.find((item) => item.id === created.id)?.attachments).toEqual([]);
+  } finally { restore(); await db.close(); }
+});
+
+it("native diary pulls keep local attachments when an older server payload has no attachments field", async () => {
+  const db = await openNativeDatabase("diary-pull-fixture");
+  const engine = new MobileSyncEngine({
+    db, attachments: {} as never, serverUrl: "http://localhost", token: "t", userId: "u", profileId: "p", deviceId: "d",
+  }) as unknown as {
+    applyEntity: (target: unknown, scope: unknown, entry: { entityType: string; entityId: string; payload: Record<string, unknown> }) => Promise<void>;
+  };
+  const scope = { scopeKey: "personal", workspaceId: null, workspaceName: null, role: null, canWrite: true, accessFingerprint: "test" };
+  try {
+    await engine.applyEntity(db, scope, { entityType: "diary", entityId: "remote-diary", payload: { contentText: "远端第一版", attachments: JSON.stringify([diaryAttachment]) } });
+    await engine.applyEntity(db, scope, { entityType: "diary", entityId: "remote-diary", payload: { contentText: "旧服务端没有附件字段" } });
+    expect(await db.query("SELECT contentText, attachments FROM diaries WHERE id='remote-diary'")).toEqual([
+      { contentText: "旧服务端没有附件字段", attachments: JSON.stringify([diaryAttachment]) },
+    ]);
+    await engine.applyEntity(db, scope, { entityType: "diary", entityId: "remote-diary", payload: { contentText: "删掉附件", attachments: "[]" } });
+    expect(await db.query("SELECT attachments FROM diaries WHERE id='remote-diary'")).toEqual([{ attachments: "[]" }]);
+  } finally { await db.close(); }
+});
+
+it("DCC-013: a database newer than this code is refused without writes and reported for the guard page", async () => {
+  fixture.raw.exec("PRAGMA user_version=99");
+  const snapshot = () => ({
+    version: fixture.raw.prepare("PRAGMA user_version").get(),
+    outbox: fixture.raw.prepare("SELECT * FROM sync_outbox").all(),
+    conflicts: fixture.raw.prepare("SELECT * FROM sync_conflicts").all(),
+  });
+  const before = snapshot();
+  const refused = openNativeDatabase("newer-schema-account");
+  await expect(refused).rejects.toBeInstanceOf(NativeDatabaseUpgradeRequiredError);
+  await expect(refused).rejects.toMatchObject({ code: "NATIVE_DATABASE_UPGRADE_REQUIRED", databaseVersion: 99 });
+  expect(getNativeDatabaseOpenFailure()).toBeInstanceOf(NativeDatabaseUpgradeRequiredError);
+  expect(snapshot()).toEqual(before);
+  // 换回能打开它的版本（这里用旧库模拟）后可以正常打开，失败记录随之清除。
+  fixture.raw.exec("PRAGMA user_version=6");
+  await openNativeDatabase("newer-schema-account");
+  expect(getNativeDatabaseOpenFailure()).toBeNull();
 });

@@ -208,6 +208,30 @@ test('Docker promotes verified archives across runner image IDs and rejects corr
  assert.equal(calls.filter(args=>args.includes('create')||args[0]==='push').length,writes);
 });
 
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { assertGzipLayers } from '../release-cloud-ci.mjs';
+test('Docker staging accepts gzip layers and rejects the uncompressed layers docker save emits on overlay2', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'nowen-docker-layers-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const archive=async(name,layerType,nested=false)=>{
+  const root=join(directory,name),blobs=join(root,'blobs','sha256');await mkdir(blobs,{recursive:true});
+  const blob=async(mediaType,value)=>{const text=JSON.stringify(value),digest=createHash('sha256').update(text).digest('hex');await writeFile(join(blobs,digest),text);return {mediaType,digest:`sha256:${digest}`,size:text.length};};
+  let descriptor=await blob('application/vnd.oci.image.manifest.v1+json',{schemaVersion:2,config:{mediaType:'application/vnd.oci.image.config.v1+json',digest:`sha256:${'c'.repeat(64)}`,size:2},
+   layers:[{mediaType:'application/vnd.oci.image.layer.v1.tar+gzip',digest:`sha256:${'1'.repeat(64)}`,size:1},{mediaType:layerType,digest:`sha256:${'2'.repeat(64)}`,size:1}]});
+  if(nested)descriptor=await blob('application/vnd.oci.image.index.v1+json',{schemaVersion:2,manifests:[descriptor]});
+  await writeFile(join(root,'index.json'),JSON.stringify({schemaVersion:2,manifests:[descriptor]}));
+  execFileSync('tar',['-cf',`${root}.tar`,'-C',root,'index.json','blobs']);
+  return `${root}.tar`;
+ };
+ assertGzipLayers(await archive('buildkit','application/vnd.oci.image.layer.v1.tar+gzip'));
+ assertGzipLayers(await archive('docker-media-types','application/vnd.docker.image.rootfs.diff.tar.gzip',true));
+ const saved=await archive('docker-save','application/vnd.oci.image.layer.v1.tar');
+ assert.throws(()=>assertGzipLayers(saved),/未压缩：application\/vnd\.oci\.image\.layer\.v1\.tar$/);
+ const nestedSaved=await archive('nested-docker-save','application/vnd.docker.image.rootfs.diff.tar',true);
+ assert.throws(()=>assertGzipLayers(nestedSaved),/未压缩/);
+ assert.throws(()=>assertGzipLayers(saved,member=>member==='index.json'?'{"manifests":[]}':''),/没有找到镜像层/);
+});
+
 test('calling the new shell entry without arguments only displays usage on system Bash', () => {
  const entry=fileURLToPath(new URL('../release.sh',import.meta.url));
  const result=spawnSync('bash',[entry],{encoding:'utf8'});

@@ -1,4 +1,4 @@
-import i18n from "../i18n";
+import i18n from "i18next";
 
 /**
  * 统一时间解析与本地输入转换工具。

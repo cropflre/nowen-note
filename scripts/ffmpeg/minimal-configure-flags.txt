@@ -1,0 +1,23 @@
+# 精简 FFmpeg 的组件清单，Docker 镜像（Dockerfile 的 ffmpeg-build 阶段）与桌面安装包
+#（scripts/ffmpeg/build-desktop.sh）共用。
+# 后端只用 ffmpeg 把实况/动态照片里的 MOV/MP4 转成 H.264/AAC MP4（backend/src/services/modern-media.ts）。
+# 滤镜除了命令里的 scale/format，还包括 ffmpeg 自动插入的：-t 用 trim/atrim，按显示矩阵
+# 旋转用 transpose/hflip/vflip/rotate，容器裁剪用 crop，格式转换用 aformat/aresample，无滤镜时用 null/anull。
+# 每行一个参数，# 开头为注释；线程、zlib、交叉编译等平台相关参数由各自的构建流程追加。
+--disable-everything
+--disable-autodetect
+--disable-doc
+--disable-debug
+--disable-ffplay
+--disable-ffprobe
+--disable-avdevice
+--disable-network
+--enable-gpl
+--enable-libx264
+--enable-protocol=file,pipe
+--enable-demuxer=mov
+--enable-muxer=mp4
+--enable-decoder=h263,h264,hevc,mjpeg,mpeg4,vp8,vp9,aac,aac_fixed,aac_latm,alac,amrnb,amrwb,flac,mp3,mp3float,opus,vorbis,pcm_alaw,pcm_mulaw,pcm_s16be,pcm_s16le,pcm_s24be,pcm_s24le,pcm_s32be,pcm_s32le,pcm_f32be,pcm_f32le,pcm_u8
+--enable-parser=h263,h264,hevc,mjpeg,mpeg4video,vp8,vp9,aac,aac_latm,flac,mpegaudio,opus,vorbis
+--enable-encoder=libx264,aac
+--enable-filter=aformat,anull,aresample,atrim,crop,format,hflip,null,rotate,scale,transpose,trim,vflip

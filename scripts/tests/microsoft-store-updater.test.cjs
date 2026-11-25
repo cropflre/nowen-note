@@ -44,6 +44,7 @@ function createRuntime({ windowsStore, portable = false }) {
       if (name === "electron-updater") return { autoUpdater: fakeUpdater };
       if (name === "./storeChannel") return channelModule.exports;
       if (name === "./updaterPolicy") return require(path.join(root, "electron/updaterPolicy.js"));
+      if (name === "./db-backup") return require(path.join(root, "electron/db-backup.js"));
       return require(name);
     },
     console: { warn() {}, log() {}, error() {} },

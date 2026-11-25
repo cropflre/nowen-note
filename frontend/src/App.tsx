@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { fetchWebUiEnabled } from "@/lib/webUiAccess";
+import WebUiDisabledPage from "@/components/WebUiDisabledPage";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, Sparkles } from "lucide-react";
+import { Archive, Menu, Sparkles } from "lucide-react";
 import useReducedMotion from "@/hooks/useReducedMotion";
 import { useViewSwitchFade } from "@/hooks/useViewSwitchFade";
 import { MOTION_DURATION, MOTION_EASE, MOTION_SPRING, overlayMotion } from "@/lib/motion";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
+import AIMemoryCenter from "@/components/AIMemoryCenter";
+import { openAIMemory } from "@/lib/aiMemory";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
@@ -61,6 +66,9 @@ import {
   shortcutMatchesEvent,
 } from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
+import ShortcutHelpCenter from "@/components/ShortcutHelpCenter";
+import ShortcutRuntimeBridge from "@/components/ShortcutRuntimeBridge";
+import NoteCardTouchSelectionGuard from "@/components/NoteCardTouchSelectionGuard";
 import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
@@ -71,6 +79,8 @@ import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
 import FloatingLayerHost from "@/components/FloatingLayerHost";
+import PluginApps from "@/components/PluginApps";
+import { parsePluginAppPath } from "@/lib/pluginApps";
 import { isNativeClientRuntime, stripServerBasePath } from "@/lib/serverUrl";
 import { reportBootStage } from "@/lib/bootSplash";
 import {
@@ -212,32 +222,6 @@ function getTokenExpiresAt(token: string): number | null {
   } catch {
     return null;
   }
-}
-
-async function fetchWebUiEnabled(): Promise<boolean> {
-  try {
-    const baseUrl = getBaseUrl();
-    const res = await fetch(`${baseUrl}/settings`, { cache: "no-store" });
-    if (!res.ok) return true;
-    const data = await res.json().catch(() => ({}));
-    return data?.web_ui_enabled !== "false";
-  } catch {
-    // 网络/后端异常时不做前端自锁，避免误伤本地开发和临时故障恢复。
-    return true;
-  }
-}
-
-function WebUiDisabledPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 px-6 text-center text-zinc-600">
-      <main className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-zinc-900 mb-3">网页端已被管理员关闭</h1>
-        <p className="text-sm leading-7">
-          当前服务器仅提供 API 服务。请使用 Nowen Note 桌面客户端连接该服务器。
-        </p>
-      </main>
-    </div>
-  );
 }
 
 function SidebarResizeHandle() {
@@ -418,16 +402,29 @@ function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
-const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExcelAppRoute());
+  const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExcelAppRoute());
+  const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
   const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
   const [notificationCount, setNotificationCount] = useState(0);
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
+    const resetPluginApp = () => {
+      if (!parsePluginAppPath(resolveCurrentAppPathname()).matched) return;
+      replaceAppPathState("/"); actions.setViewMode("all");
+    };
+    window.addEventListener("nowen:token-changed", resetPluginApp);
+    return () => window.removeEventListener("nowen:token-changed", resetPluginApp);
+  }, [actions]);
+
+  useEffect(() => {
     const applyRoute = (event?: Event) => {
       const pathname = resolveCurrentAppPathname();
+      const nextPluginAppRoute = parsePluginAppPath(pathname);
+      setPluginAppRoute(nextPluginAppRoute);
       const route = parseMindMapAppPath(pathname);
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
@@ -437,7 +434,11 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
-      if (pathname === "/trash") {
+      if (nextPluginAppRoute.matched) {
+        actions.setViewMode("plugin-apps");
+        actions.setEditorFullscreen(false);
+        actions.setMobileSidebar(false);
+      } else if (pathname === "/trash") {
         actions.setViewMode("trash");
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
@@ -474,6 +475,12 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
 
   useEffect(() => {
     if (!appPathReady) return;
+    const currentPluginAppRoute = parsePluginAppPath(resolveCurrentAppPathname());
+    if (state.viewMode === "plugin-apps") {
+      if (!currentPluginAppRoute.matched) replaceAppPathState("/apps");
+      return;
+    }
+    if (currentPluginAppRoute.matched) replaceAppPathState("/");
     const currentRoute = getCurrentMindMapAppRoute();
     const currentIssueRoute = parseIssueAppPath(resolveCurrentAppPathname());
     if (state.viewMode === "trash") {
@@ -511,7 +518,13 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
   const isExcelView = excelRoute.matched && excelRoute.excelId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
-  const isAIChatView = state.viewMode === "ai-chat";
+  const isAIChatView = aiAvailable && state.viewMode === "ai-chat";
+  useEffect(() => {
+    if (state.viewMode === "ai-chat" && !aiAvailable) {
+      actions.setViewMode("all");
+      actions.setMobileView("list");
+    }
+  }, [actions, aiAvailable, state.viewMode]);
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
@@ -581,6 +594,7 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
    */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"extensions" | undefined>(undefined);
   useEffect(() => {
     const onOpen = () => setCommandPaletteOpen(true);
     window.addEventListener("nowen:open-command-palette", onOpen);
@@ -588,7 +602,10 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
   }, []);
 
   useEffect(() => {
-    const onOpen = () => setSettingsOpen(true);
+    const onOpen = (event: Event) => {
+      setSettingsTab((event as CustomEvent<{ tab?: string } | null>).detail?.tab === "extensions" ? "extensions" : undefined);
+      setSettingsOpen(true);
+    };
     window.addEventListener("nowen:open-settings", onOpen);
     return () => window.removeEventListener("nowen:open-settings", onOpen);
   }, []);
@@ -802,6 +819,7 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
       actions.setMobileView("list");
       actions.setSearchQuery("");
       actions.clearNoteTabs();
+      if (parsePluginAppPath(resolveCurrentAppPathname()).matched) replaceAppPathState("/");
       actions.refreshNotes();
       actions.refreshNotebooks();
     };
@@ -919,7 +937,7 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
       {/* 折叠 / 展开时外层宽度在 0 与内容宽度之间过渡，内层保持固定宽度，侧栏文字不会被挤压重排。
           动画结束后外层回到 width:auto，拖拽调整宽度仍是 1:1 跟手。首次渲染不播放。 */}
       <AnimatePresence initial={false}>
-        {showSidebar && !mediumNoteWorkspace && !isFilesView && (
+        {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && (
           <motion.div
             key="desktop-sidebar"
             className="hidden md:flex shrink-0 overflow-hidden"
@@ -938,10 +956,12 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
           </motion.div>
         )}
       </AnimatePresence>
-      {showSidebar && !mediumNoteWorkspace && !isFilesView && <SidebarResizeHandle />}
+      {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
-      {state.viewMode === "trash" ? (
+      {state.viewMode === "plugin-apps" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} discover={pluginAppRoute.discover} studio={pluginAppRoute.studio} studioId={pluginAppRoute.studioId} personalId={pluginAppRoute.personalId} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+      ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
           <TrashPage />
@@ -1066,6 +1086,8 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
         </div>
       )}
 
+      {aiAvailable && <AICollaborationCenter />}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <AIMemoryCenter />}
       <CommentManagementCenter onOpenComment={handleOpenComment} />
       <NotificationCenter onUnreadChange={setNotificationCount} onOpenComment={handleOpenComment} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
 
@@ -1077,8 +1099,15 @@ const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExce
         onClose={() => setCommandPaletteOpen(false)}
       />
 
+      {/* 快捷键运行时与帮助中心要常驻：构建里 CommandPalette 是关闭时不渲染的懒加载壳，
+          挂在它里面会让自定义键位、帮助和工具栏快捷键提示全部失效。 */}
+      <ShortcutRuntimeBridge />
+      <ShortcutHelpCenter />
+      {/* 同理：手机长按笔记卡片的选字守卫原本也挂在命令面板里，构建中从未生效。 */}
+      <NoteCardTouchSelectionGuard />
+
       <AnimatePresence>
-        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+        {settingsOpen && <SettingsModal defaultTab={settingsTab} onClose={() => setSettingsOpen(false)} />}
       </AnimatePresence>
 
       {/* 无 UI 的网络探活、离线队列重放与同步后数据刷新 */}
@@ -1100,6 +1129,7 @@ function MobileTopBar() {
   const { t } = useTranslation();
   const actions = useAppActions();
   const { siteConfig } = useSiteSettings();
+  const aiAvailable = useAIConnectionAvailable();
   return (
     <header className="flex items-center px-4 py-3 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
       <button
@@ -1109,7 +1139,8 @@ function MobileTopBar() {
         <Menu size={24} />
       </button>
       <span className="ml-3 min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{siteConfig.title}</span>
-      <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>
+      {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
+      {aiAvailable && siteConfig.aiMemoryEnabled && <button onClick={() => openAIMemory()} aria-label={t("aiMemory.title")} title={t("aiMemory.title")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Archive size={18} /></button>}
     </header>
   );
 }
@@ -1587,7 +1618,6 @@ function AuthGate() {
   return (
     <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
-      <AICollaborationCenter />
       <SidebarSearchExperienceBridge />
       {user && <WechatClipboardBridge key={`${getServerUrl() || "local"}:${user.id}`} />}
       <TooltipProvider>

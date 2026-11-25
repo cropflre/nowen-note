@@ -3,6 +3,10 @@ import { z } from "zod";
 import { getExtensionPlatformFeatureFlags, isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
+import { widgetV3Schema } from "./dashboardV3.js";
+import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
+import { inspectorV3Schema, INSPECTOR_PERMISSIONS } from "./inspectorV3.js";
+import { EXTENSION_CAPABILITY_CATALOG } from "./capabilityCatalog.generated.js";
 
 const inputFieldSchema = z.object({
   type: z.enum(["string", "number", "boolean", "object", "array"]),
@@ -171,6 +175,33 @@ const uiComponentSchema = z.object({
   }
 });
 
+/** Editor actions (contribution contract v5): enums and limits come from the generated contract. */
+export const EDITOR_ACTION_LIMITS = EXTENSION_CAPABILITY_CATALOG.contributions.editorAction;
+const editorActionSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  command: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150).optional(),
+  prompt: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/).optional(),
+  label: z.string().min(1).max(60),
+  description: z.string().max(200).optional(),
+  icon: z.enum(EDITOR_ACTION_LIMITS.icons).optional(),
+  keywords: z.array(z.string().min(1).max(30)).max(10).optional(),
+  placements: z.array(z.enum(EDITOR_ACTION_LIMITS.placements)).min(1).max(EDITOR_ACTION_LIMITS.placements.length),
+  appliesTo: z.array(z.enum(EDITOR_ACTION_LIMITS.editors)).min(1).max(EDITOR_ACTION_LIMITS.editors.length),
+  selectionMode: z.enum(EDITOR_ACTION_LIMITS.selectionModes),
+  resultMode: z.enum(EDITOR_ACTION_LIMITS.resultModes),
+  requiresConfirmation: z.boolean().optional(),
+  uiPlatform: z.array(z.enum(["web", "desktop", "android", "ios"])).min(1).max(4).optional(),
+}).strict().superRefine((action, ctx) => {
+  const issue = (path: Array<string | number>, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+  if (Boolean(action.command) === Boolean(action.prompt)) issue([], "Editor Action 必须且只能引用一个 command 或 prompt");
+  if (new Set(action.placements).size !== action.placements.length) issue(["placements"], "Editor Action placements 不能重复");
+  if (new Set(action.appliesTo).size !== action.appliesTo.length) issue(["appliesTo"], "Editor Action appliesTo 不能重复");
+  if (action.placements.includes("editor.slash") && action.selectionMode === "text") issue(["placements"], "斜杠菜单没有选区，selectionMode 不能为 text");
+  if (action.placements.includes("editor.selection") && action.selectionMode === "none") issue(["placements"], "选区菜单中的动作必须读取选区");
+  if (action.resultMode === "replace-selection" && action.selectionMode !== "text") issue(["resultMode"], "replace-selection 需要 selectionMode 为 text");
+  if (action.prompt && (action.selectionMode !== "text" || action.resultMode === "none")) issue(["prompt"], "Prompt 动作需要选区文本并返回结果");
+});
+
 const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
   name: z.string().min(1).max(100), description: z.string().max(1000).default(""),
@@ -202,6 +233,7 @@ const executableContributesSchema = z.object({
   noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
   promptPacks: z.array(promptPackSchema).max(100).optional(),
   uiComponents: z.array(uiComponentSchema).max(50).optional(),
+  editorActions: z.array(editorActionSchema).max(EDITOR_ACTION_LIMITS.maxActionsPerPlugin).optional(),
 }).strict().optional();
 
 const declarativeContributesSchema = z.object({
@@ -265,11 +297,100 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });
   const commandIds = new Set((manifest.contributes?.commands || []).map((command) => command.id));
   for (const menu of manifest.contributes?.menus || []) if (!commandIds.has(menu.command)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "menus"], message: `Menu Command 不存在: ${menu.command}` });
+  const editorActions = manifest.contributes?.editorActions || [];
+  if (new Set(editorActions.map((item) => item.id)).size !== editorActions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "editorActions"], message: "Editor Action id 不能重复" });
+  for (const [index, editorAction] of editorActions.entries()) {
+    const issue = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "editorActions", index], message });
+    if (editorAction.command) {
+      const command = (manifest.contributes?.commands || []).find((item) => item.id === editorAction.command);
+      const action = command && manifest.actions.find((item) => item.id === command.action);
+      if (!action) { issue(`Editor Action Command 不存在: ${editorAction.command}`); continue; }
+      if (action.execution === "background") issue("Editor Action 不能引用后台 Action");
+      const fields = Object.entries(action.input || {});
+      // The host passes exactly { text } (or {} when no selection is read); nothing else can be required.
+      if (editorAction.selectionMode !== "none" && action.input?.text?.type !== "string") issue("读取选区的 Editor Action 必须声明 string 类型的 text 输入");
+      if (fields.some(([key, field]) => field.required && (key !== "text" || editorAction.selectionMode === "none"))) issue("Editor Action 引用的 Action 不能有 Host 无法提供的必填输入");
+    } else if (editorAction.prompt) {
+      const prompt = (manifest.contributes?.promptPacks || []).find((item) => item.id === editorAction.prompt);
+      if (!prompt) { issue(`Editor Action Prompt 不存在: ${editorAction.prompt}`); continue; }
+      if ((prompt.context || []).some((item) => item !== "selection")) issue("Editor Action Prompt 只能使用选区上下文");
+      if ((prompt.inputs || []).some((field) => field.required && field.default === undefined)) issue("Editor Action Prompt 的输入必须有默认值");
+    }
+  }
   for (const handler of manifest.eventHandlers || []) if (!actionIds.has(handler.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["eventHandlers"], message: `Event Handler Action 不存在: ${handler.action}` });
   if (manifest.connections?.length && !manifest.permissions.includes("secrets:use")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "声明 connections 必须请求 secrets:use" });
   const normalized = manifest.main.replace(/\\/g, "/");
   if (path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["main"], message: "main 必须位于插件目录内" });
   if (manifest.runtime === "sandbox-js" && !normalized.endsWith(".js")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["main"], message: "sandbox-js 入口必须是 .js IIFE bundle" });
+});
+
+export const pluginManifestV3Schema = z.object({
+  id: v2BaseShape.id,
+  name: v2BaseShape.name,
+  description: v2BaseShape.description,
+  version: v2BaseShape.version,
+  apiVersion: z.literal(3),
+  publisher: v2BaseShape.publisher,
+  engines: v2BaseShape.engines,
+  categories: v2BaseShape.categories,
+  keywords: v2BaseShape.keywords,
+  repository: v2BaseShape.repository,
+  homepage: v2BaseShape.homepage,
+  license: v2BaseShape.license,
+  icon: v2BaseShape.icon,
+  screenshots: v2BaseShape.screenshots,
+  runtime: z.literal("declarative"),
+  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16),
+  contributes: z.object({
+    appPages: z.array(z.object({
+      id: z.string(), title: z.string(), entry: z.string(),
+      platforms: z.array(z.enum(["web", "desktop", "android", "ios"])),
+      requiredPermissions: z.array(z.enum(PLUGIN_PERMISSIONS)),
+    }).strict()).min(1).max(16),
+    widgets: z.array(widgetV3Schema).max(8).optional(),
+    inspectors: z.array(inspectorV3Schema).max(8).optional(),
+    uiAssets: z.record(z.string().regex(/^sha256:[a-f0-9]{64}$/))
+      .refine((v) => Object.keys(v).length > 0 && Object.keys(v).length <= 200),
+  }).strict(),
+}).strict().superRefine((manifest, ctx) => {
+  if (!manifest.id.startsWith(manifest.publisher + ".")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
+  if (new Set(manifest.permissions).size !== manifest.permissions.length ||
+    manifest.permissions.some((p) => !isV2SupportedPluginPermission(p))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "V3 权限必须是允许的现有 Host API 权限且不能重复" });
+  }
+  try {
+    parseAppPageDeclarationsV3(manifest.id, manifest.contributes.appPages, manifest.permissions);
+  } catch (error) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages"], message: (error as Error).message });
+  }
+  for (const asset of Object.keys(manifest.contributes.uiAssets)) {
+    try { validateUiAssetPathV3(asset); }
+    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiAssets", asset], message: (error as Error).message }); }
+  }
+  for (const page of manifest.contributes.appPages) {
+    if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, page.entry)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages", page.id], message: "应用 HTML 入口必须在 uiAssets 中声明 SHA-256" });
+    }
+  }
+  const widgetIds = new Set<string>();
+  const inspectorIds = new Set<string>();
+  for (const inspector of manifest.contributes.inspectors || []) {
+    if (inspectorIds.has(inspector.id) || !manifest.contributes.appPages.some(page => page.id === inspector.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inspectors"], message: "Inspector ID 重复或关联页面不存在" });
+    if (inspector.resourceTypes.some(type => !manifest.permissions.includes(INSPECTOR_PERMISSIONS[type]))) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "Inspector 需要对应资源的读取权限" });
+    inspectorIds.add(inspector.id);
+  }
+  for (const widget of manifest.contributes.widgets || []) {
+    if (widgetIds.has(widget.id) || !manifest.contributes.appPages.some(page => page.id === widget.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "widgets"], message: "Widget ID 重复或关联页面不存在" });
+    if (["statistic", "status", "list"].includes(widget.type) && !manifest.permissions.includes("plugin-storage:read")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "数据卡片需要 plugin-storage:read" });
+    widgetIds.add(widget.id);
+  }
+  for (const image of [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => item !== undefined)) {
+    try { validatePackagedImageV3(image); }
+    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: image === manifest.icon ? ["icon"] : ["screenshots"], message: (error as Error).message }); }
+    if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, image)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiAssets", image], message: "V3 图标和截图必须在 uiAssets 中声明 SHA-256" });
+    }
+  }
 });
 
 function parseVersion(value: string): [number, number, number] | null {
@@ -306,15 +427,38 @@ export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): b
   });
 }
 
+function requiresApplicationV3Version(range: string): boolean {
+  // V3 accepts the existing AND comparator syntax, with complete stable versions.
+  const clauses = range.trim().split(/\s+/).map((clause) => /^(>=|<=|>|<|=|\^|~)?(\d+\.\d+\.\d+)$/.exec(clause));
+  if (clauses.some((clause) => !clause || !parseVersion(clause[2])!.every(Number.isSafeInteger))) return false;
+  const minimum = parseVersion(APPLICATION_V3_TARGET_NOWEN)!;
+  return clauses.some((clause) => {
+    const operator = clause![1] || "=";
+    return !["<", "<="].includes(operator) && compareVersion(parseVersion(clause![2])!, minimum) >= 0;
+  });
+}
+
 export interface ParsePluginManifestOptions {
   currentVersion?: string;
   extensionsV21?: boolean;
   uiExtensions?: boolean;
+  editorActions?: boolean;
 }
 
 export function parsePluginManifest(value: unknown, options: ParsePluginManifestOptions = {}): PluginManifest {
   const apiVersion = Number((value as { apiVersion?: unknown } | null)?.apiVersion);
-  const manifest = (apiVersion === 1 ? pluginManifestV1Schema.parse(value) : apiVersion === 2 ? pluginManifestV2Schema.parse(value) : (() => { throw new Error(`不支持 Plugin API V${apiVersion || "unknown"}`); })()) as PluginManifest;
+  const manifest = (apiVersion === 1 ? pluginManifestV1Schema.parse(value)
+    : apiVersion === 2 ? pluginManifestV2Schema.parse(value)
+      : apiVersion === 3 ? pluginManifestV3Schema.parse(value)
+        : (() => { throw new Error(`不支持 Plugin API V${apiVersion || "unknown"}`); })()) as PluginManifest;
+  if (manifest.apiVersion === 3) {
+    if (!getApplicationV3FeatureFlags().appPages) {
+      throw Object.assign(new Error("V3 应用级插件尚未启用完整沙箱功能"), { code: "PLUGIN_V3_FEATURE_DISABLED" });
+    }
+    if (!requiresApplicationV3Version(manifest.engines.nowen)) {
+      throw Object.assign(new Error(`V3 插件必须声明真实 Nowen >=${APPLICATION_V3_TARGET_NOWEN} 兼容范围`), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+    }
+  }
   if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {
     if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
@@ -335,6 +479,10 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
       throw Object.assign(new Error("UI Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
+  }
+  if (manifest.apiVersion === 2 && (manifest.contributes as { editorActions?: unknown[] } | undefined)?.editorActions?.length && !(options.editorActions ?? getExtensionPlatformFeatureFlags().editorActions)) {
+    // Fail closed like UI contributions: a disabled host never stores an unrenderable editor contract.
+    throw Object.assign(new Error("Editor Action Contribution 当前未启用"), { code: "PLUGIN_EDITOR_ACTIONS_DISABLED" });
   }
   const currentVersion = options.currentVersion || NOWEN_VERSION;
   if (!nowenVersionSatisfies(manifest.engines.nowen, currentVersion)) throw new Error(`插件要求 Nowen ${manifest.engines.nowen}，当前版本为 ${currentVersion}`);

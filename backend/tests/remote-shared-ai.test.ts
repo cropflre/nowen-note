@@ -70,6 +70,26 @@ test("DCC-006: Full uses the bound remote account and stores only public shared 
   assert.equal(requests.length, 2);
 });
 
+test("availability skips the remote directory until a remote shared profile is selected", async () => {
+  const app = new Hono();
+  app.route("/ai", (await import("../src/routes/shared-ai-profiles")).default);
+  const readActive = () => app.request("/ai/profiles/available?activeOnly=1", { headers: { "X-User-Id": "local-user" } });
+  let remoteCalls = 0;
+  globalThis.fetch = async () => { remoteCalls++; return directoryReply(); };
+
+  const personal = await readActive();
+  assert.equal(personal.status, 200);
+  assert.equal((await personal.json()).active.scope, "personal");
+  assert.equal(remoteCalls, 0);
+
+  const id = await select();
+  const callsBefore = remoteCalls;
+  const shared = await readActive();
+  assert.equal(shared.status, 200);
+  assert.deepEqual((await shared.json()).active, { scope: "shared", id });
+  assert.equal(remoteCalls, callsBefore + 1);
+});
+
 test("model channel preserves long text, streaming and local Agent tool requests without secrets", async () => {
   await select();
   const settings = remote.resolveRemoteSharedChatSettings("local-user")!;

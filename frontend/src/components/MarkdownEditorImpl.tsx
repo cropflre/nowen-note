@@ -78,6 +78,7 @@ import * as Y from "yjs";
 
 import { useTranslation } from "react-i18next";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   Bold,
   CheckSquare,
@@ -162,6 +163,7 @@ import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/li
 import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
+import { shouldHandleFormatEvent } from "@/lib/formatEventTarget";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { buildWikiNoteLink, detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { getMarkdownDailyRecordSlashCommands } from "@/components/daily-records/markdownDailyRecordSlashCommands";
@@ -181,6 +183,7 @@ import {
   insertLink,
   insertImage,
   replaceSelection,
+  replaceRange,
   applyMarkdownCjkTypography,
 } from "@/lib/markdownCommands";
 import {
@@ -191,6 +194,9 @@ import {
   emptySlashState,
   getDefaultMdSlashItems,
 } from "@/components/MarkdownSlashMenu";
+import { useMarkdownEditorActions } from "@/components/editor-actions/markdownEditorActions";
+import { useAIAssistantAnchor, type AIApplyOutcome } from "@/hooks/useAIAssistantAnchor";
+import { createMarkdownEditorActionAdapter } from "@/lib/editorActions/markdownAdapter";
 
 export function normalizeFormatHeadingLevel(level: number): 1 | 2 | 3 | 4 | 5 | 6 {
   const normalized = Number.isFinite(level) ? Math.trunc(level) : 1;
@@ -676,6 +682,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   awareness,
 }, ref) {
   const { t: tr, i18n } = useTranslation();
+  const aiAvailable = useAIConnectionAvailable();
   const { prefs: userPrefs } = useUserPreferences();
   const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
   remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
@@ -858,10 +865,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiFullText, setAiFullText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number }>({ top: 100, left: 100 });
+  useEffect(() => {
+    if (!aiAvailable) setAiOpen(false);
+  }, [aiAvailable]);
+  // 助手打开时记下选区：结果回来后只往这段原文写入，笔记或原文变了就拒绝（见 useAIAssistantAnchor）。
+  const { capture: captureAIAnchor, apply: applyAIAnchor } = useAIAssistantAnchor(aiOpen, note.id);
 
   /** �� AI ���㣺���ⲿ�ṩ onAIAssistant ��ת���ⲿ */
   const openAIAssistant = useCallback(() => {
-    if (isGuest) return;
+    if (!aiAvailable || isGuest) return;
     if (onAIAssistant) {
       onAIAssistant();
       return;
@@ -880,26 +892,29 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       // Shared assistant owns viewport clamping (including mobile keyboards).
       setAiPosition({ top: coords.top + 24, left: coords.left });
     }
+    captureAIAnchor((getNoteId) => createMarkdownEditorActionAdapter(() => viewRef.current, getNoteId));
     setAiOpen(true);
-  }, [isGuest, onAIAssistant]);
+  }, [aiAvailable, captureAIAnchor, isGuest, onAIAssistant]);
 
   /** AI ���������ݲ��뵽��ǰѡ��β�� */
-  const handleAIInsert = useCallback((text: string) => {
-    const view = viewRef.current;
-    if (!view) return;
-    const { to } = view.state.selection.main;
-    view.dispatch({
-      changes: { from: to, to, insert: text },
-    });
-    queueMicrotask(() => view.focus());
-  }, []);
+  const handleAIInsert = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("insert", ({ to }) => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        changes: { from: to, to, insert: text },
+      });
+      queueMicrotask(() => view.focus());
+    })
+  ), [applyAIAnchor]);
 
   /** AI �����������滻��ǰѡ�� */
-  const handleAIReplace = useCallback((text: string) => {
-    const view = viewRef.current;
-    if (!view) return;
-    replaceSelection(view, text);
-  }, []);
+  const handleAIReplace = useCallback((text: string): AIApplyOutcome => (
+    applyAIAnchor("replace", ({ from, to }) => {
+      const view = viewRef.current;
+      if (view) replaceRange(view, from, to, text);
+    })
+  ), [applyAIAnchor]);
 
   const openTaskCapture = useCallback(() => {
     const view = viewRef.current;
@@ -1008,6 +1023,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     view.focus();
   }, [editable, isGuest, note.id]);
 
+  // Plugin editor actions (contract v5): the same registry and runner as the rich-text editor.
+  const editorActions = useMarkdownEditorActions(viewRef, { noteId: note.id, editable, guest: isGuest, trashed: Boolean(note.isTrashed), aiAvailable });
+
   const slashItems: MdSlashItem[] = useMemo(
     () => [
       ...getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
@@ -1016,12 +1034,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         },
         onAttachmentLibrary: openAttachmentLibrary,
         onVoiceRecord: editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined,
-        onAIAssistant: isGuest ? undefined : openAIAssistant,
+        onAIAssistant: aiAvailable && !isGuest ? openAIAssistant : undefined,
       }),
       ...getMarkdownDailyRecordSlashCommands(),
+      ...editorActions.slashItems,
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder],
+    [tr, aiAvailable, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder, editorActions.slashItems],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -2012,6 +2031,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const handler = (ev: Event) => {
       const view = viewRef.current;
       if (!view) return;
+      // Split view may mount another editor; only the focused one handles shortcuts.
+      if (!shouldHandleFormatEvent(view.dom)) return;
       const detail = (ev as CustomEvent<FormatMenuPayload>).detail;
       if (!detail) return;
 
@@ -2515,6 +2536,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <ClipboardPlus size={iconSize} className="text-blue-500" />
               </ToolbarButton>
+              {editorActions.menu("editor.toolbar.actions", { iconSize })}
             </>
           )}
 
@@ -2767,12 +2789,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton
-                onClick={openAIAssistant}
-                title={tr("agent.quickRewrite")}
-              >
-                <Sparkles size={14} className="text-violet-500" />
-              </ToolbarButton>
+              {aiAvailable && (
+                <ToolbarButton
+                  onClick={openAIAssistant}
+                  title={tr("agent.quickRewrite")}
+                >
+                  <Sparkles size={14} className="text-violet-500" />
+                </ToolbarButton>
+              )}
+              {editorActions.menu("editor.selection", { iconSize: 14, compact: true })}
             </>
           )}
         </div>
@@ -2780,7 +2805,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
 
       {/* AI д���������ڸ��㣨���Ƿÿ� & δ���� onAIAssistant ����ʱ���ã� */}
-      {!isGuest && aiOpen && (
+      {aiAvailable && !isGuest && aiOpen && (
         <AIWritingAssistant
           selectedText={aiSelectedText}
           fullText={aiFullText}
@@ -2790,6 +2815,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           position={aiPosition}
         />
       )}
+      {editorActions.host}
 
       {/*
         �ƶ��˸����������������������Ϸ���

@@ -1,0 +1,67 @@
+{
+  "browser": "Chromium 153.0.8010.12",
+  "viewportHeight": 900,
+  "scope": "Real MigrationHub component; Playwright mock API and synthetic files, no real user account or service data",
+  "results": [
+    {
+      "width": 320,
+      "theme": "light",
+      "reviewBodyWidth": 320,
+      "uploadBodyWidth": 320,
+      "unresolvedApprovalBlocked": true,
+      "decisionResetsApproval": true,
+      "resolvedApprovalEnabled": true,
+      "resumedChunkOffsets": [
+        4194304,
+        8388608
+      ],
+      "newJobsCreated": 0,
+      "pageErrors": []
+    },
+    {
+      "width": 320,
+      "theme": "dark",
+      "reviewBodyWidth": 320,
+      "uploadBodyWidth": 320,
+      "unresolvedApprovalBlocked": true,
+      "decisionResetsApproval": true,
+      "resolvedApprovalEnabled": true,
+      "resumedChunkOffsets": [
+        4194304,
+        8388608
+      ],
+      "newJobsCreated": 0,
+      "pageErrors": []
+    },
+    {
+      "width": 1280,
+      "theme": "light",
+      "reviewBodyWidth": 1280,
+      "uploadBodyWidth": 1280,
+      "unresolvedApprovalBlocked": true,
+      "decisionResetsApproval": true,
+      "resolvedApprovalEnabled": true,
+      "resumedChunkOffsets": [
+        4194304,
+        8388608
+      ],
+      "newJobsCreated": 0,
+      "pageErrors": []
+    },
+    {
+      "width": 1280,
+      "theme": "dark",
+      "reviewBodyWidth": 1280,
+      "uploadBodyWidth": 1280,
+      "unresolvedApprovalBlocked": true,
+      "decisionResetsApproval": true,
+      "resolvedApprovalEnabled": true,
+      "resumedChunkOffsets": [
+        4194304,
+        8388608
+      ],
+      "newJobsCreated": 0,
+      "pageErrors": []
+    }
+  ]
+}

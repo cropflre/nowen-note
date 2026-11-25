@@ -22,8 +22,12 @@
 | `ios-release.yml` | reusable/manual iOS 签名与 IPA 构建，只输出 artifact；TestFlight 上传归统一发布工作流 | 否 |
 | `microsoft-store-appx.yml` | 独立 AppX 候选打包和 manifest 校验 | 否，不自动提交 Partner Center |
 | `sync-gitee-release.yml` | GitHub Release 已正式发布后镜像允许的小文件 | 否，发布后的异步镜像 |
+| `sync-r2-hot-update.yml` | 由 `release-publish.yml` 在 GitHub Release 成功后调用（也可手动按 Tag 重跑）；按 Tag 源码复核热更新签名与壳指纹，复制到 R2 `hot/<tag>/`，渠道地址 `hot/stable/<target>/<runtimeVersion>.json` 只向前移动 | 否，发布后的异步镜像 |
+| `hot-update-ci.yml` | 热更新脚本、配置和相关工作流改动时，用临时密钥跑完整的打包、签名、校验测试 | 否 |
 
 **唯一正式路径：** `release-build.yml` → 人工复核候选产物 → `release-publish.yml`。不得用 Tag push、旧 `publish.yml`、旧 `release-assets` 或本地 legacy 脚本绕过该路径。v1.5.4 冻结期间不触发任何发布工作流。
+
+构建目标 `hot`（热更新包）需要 Secret `NOWEN_HOT_UPDATE_PRIVATE_KEY` 和已提交的 `hot-update/public-keys.json`，缺一个 plan 阶段就会失败；产物为 `release-hot`，随 GitHub Release 一起发布。格式、信任模型和密钥管理见 [热更新](./hot-update.md)。
 
 Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量 `NOWEN_ANDROID_CERT_SHA256` 校验证书 SHA-256；Java `keystore.properties` 的密码、Alias 等字段使用可往返的 Unicode 转义。仅 `apksigner verify` 成功不等于签名身份正确。
 
@@ -35,12 +39,12 @@ Android 正式 APK/AAB 构建必须使用原有 keystore，并通过仓库变量
 | --- | --- | --- |
 | `scripts/release.sh` | 包装 legacy 发布入口，Node 堆内存与原生/Android 工具链基线；Draft 编排 | 真实发布会清理指定旧构建目录；dispatch 同 Tag 的 GitHub 汇总/校验任务，本地只核对回执和当前资产清单，通过后可将 Draft 转为正式；[新流程与启用边界](../releases/github-release-assets.md) |
 | `scripts/release-legacy.sh` | 约 2,900 行；Docker、PC、Android、Lite、FPK/UPK 等组合 | 可 fetch/rebase/merge、改写版本、commit、push HEAD/Tag、Docker push、创建 Release；已有 Release 可 `upload --clobber`。`--build-only` 是 Docker 模式，支持推自定义 registry，并非“所有平台无发布”通用开关 |
-| `release.yml` | `v*.*.*` Tag push，手动 dispatch 默认 `debug`；独立 `release-assets` 模式 | Tag 构建正式 Windows Full/Lite、macOS/Linux；builder 只读且 `--publish never`；独立汇总任务有 Draft 资产写权限，复核同 Tag/Commit、执行远端验证并上传小型回执，不将 Draft 转正式 |
+| `release.yml` | `v*.*.*` Tag push，手动 dispatch 默认 `debug`；独立 `release-assets` 模式 | Tag 构建正式 Windows、macOS/Linux；builder 只读且 `--publish never`；独立汇总任务有 Draft 资产写权限，复核同 Tag/Commit、执行远端验证并上传小型回执，不将 Draft 转正式 |
 | `microsoft-store-appx.yml` | 指定分支和 paths 的 PR、手动 dispatch | 合同与类型检查后 AppX 打包、manifest/identity 校验；输出 `nowen-note-store-appx`，7 天；无 GitHub EXE 发布、无自动商店提交 |
 | `ios-release.yml` | `v*.*.*-ios` 和通用 `v*.*.*` Tag、手动 dispatch | 签名 IPA artifact `nowen-note-ios`，14 天；**Tag push 自动上传 TestFlight**；手动上传开关默认 false |
 | `verify-release-update-assets.mjs` | local / remote 校验 | remote 经 gh 下载；校验命名、SHA-512、大小、blockmap、Full/Lite 隔离；Windows + Linux 更新元数据同时存在时还要求完整 macOS 资产 |
 
-正式 Windows 资产命名：`Nowen-Note-<v>-setup.exe`、`portable.exe`、`setup.exe.blockmap`、`latest.yml`，Lite 独立 `Nowen-Note-Lite-*` 与 `latest-lite.yml`。macOS 要求 x64/arm64 的 `.dmg`、`.zip` 与 `latest-mac.yml`；Linux 配置为 x64 `.AppImage`、`.deb` 与 `latest-linux.yml`。同名并不证明资产来自同一 SHA，已有守卫依赖同 Tag CI 与远端内容校验。
+正式 Windows 资产命名：`Nowen-Note-<v>-setup.exe`、`portable.exe`、`setup.exe.blockmap`、`latest.yml`；1.6.1 起不再打包 Lite 版（`Nowen-Note-Lite-*`、`latest-lite.yml`）。macOS 要求 x64/arm64 的 `.dmg`、`.zip` 与 `latest-mac.yml`；Linux 配置为 x64 `.AppImage`、`.deb` 与 `latest-linux.yml`。同名并不证明资产来自同一 SHA，已有守卫依赖同 Tag CI 与远端内容校验。
 
 首次审计 root/backend/Android 版本均为 `1.5.1`；root lockfile 顶层和根 package entry 仍是 `1.5.0`。`frontend/package.json` 的 `0.0.0` 是前端工程版本，不冒充应用发行版本。本次不自动同步或修复版本。CHANGELOG 的未发布内容与 QA 文档中的 NO-GO 不能视为发布许可。
 

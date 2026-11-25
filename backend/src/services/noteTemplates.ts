@@ -13,6 +13,7 @@ import {
   resolveNotePermission,
 } from "../middleware/acl.js";
 import { createKnowledgeChild, type KnowledgeTreeNode } from "./knowledgeTree.js";
+import { resolveKnowledgeNodeAccess } from "./knowledgeCapabilities.js";
 import { enqueueAttachment } from "./embedding-worker.js";
 import {
   cleanupCopiedAttachmentObjects,
@@ -98,6 +99,29 @@ function requireWorkspaceAccess(userId: string, workspaceId: string | null): voi
   throw new NoteTemplateError("NOTE_TEMPLATE_WORKSPACE_FORBIDDEN", 403, "无权访问该工作区的模板");
 }
 
+function resolveTemplateUseWorkspace(
+  db: Database.Database,
+  input: { userId: string; workspaceId?: string | null; parentId?: string | null },
+): string | null {
+  const workspaceId = normalizeWorkspaceId(input.workspaceId);
+  if (!input.parentId) {
+    requireWorkspaceAccess(input.userId, workspaceId);
+    return workspaceId;
+  }
+  const parent = db.prepare(`
+    SELECT workspaceId FROM knowledge_tree_nodes WHERE id = ? AND isDeleted = 0
+  `).get(input.parentId) as { workspaceId: string | null } | undefined;
+  if (!parent) throw new NoteTemplateError("NOTE_TEMPLATE_PARENT_NOT_FOUND", 404, "目标目录不存在");
+  const targetWorkspaceId = normalizeWorkspaceId(parent.workspaceId);
+  if (input.workspaceId !== undefined && targetWorkspaceId !== workspaceId) {
+    throw new NoteTemplateError("NOTE_TEMPLATE_TARGET_SCOPE_MISMATCH", 409, "模板与目标目录不在同一空间");
+  }
+  if (!resolveKnowledgeNodeAccess(input.parentId, input.userId, db).capabilities.canCreate) {
+    throw new NoteTemplateError("NOTE_TEMPLATE_TARGET_FORBIDDEN", 403, "没有在此处从模板新建内容的权限");
+  }
+  return targetWorkspaceId;
+}
+
 function canManageTemplate(template: Pick<NoteTemplateRow, "createdBy" | "workspaceId">, userId: string): boolean {
   if (template.createdBy === userId || isSystemAdmin(userId)) return true;
   if (!template.workspaceId) return false;
@@ -180,10 +204,10 @@ function readTemplate(db: Database.Database, templateId: string): NoteTemplateRo
 export function listNoteTemplates(input: {
   userId: string;
   workspaceId?: string | null;
+  parentId?: string | null;
 }): NoteTemplateSummary[] {
   const db = getDb();
-  const workspaceId = normalizeWorkspaceId(input.workspaceId);
-  requireWorkspaceAccess(input.userId, workspaceId);
+  const workspaceId = resolveTemplateUseWorkspace(db, input);
   const rows = (workspaceId
     ? db.prepare(`
         SELECT template.*, COUNT(asset.id) AS attachmentCount
@@ -354,23 +378,13 @@ export async function createNoteFromTemplate(input: {
   parentId: string | null;
 }): Promise<{ noteId: string; node: KnowledgeTreeNode }> {
   const db = getDb();
-  const workspaceId = normalizeWorkspaceId(input.workspaceId);
-  requireWorkspaceAccess(input.userId, workspaceId);
+  const workspaceId = resolveTemplateUseWorkspace(db, input);
   const template = readTemplate(db, input.templateId);
   if (normalizeWorkspaceId(template.workspaceId) !== workspaceId) {
     throw new NoteTemplateError("NOTE_TEMPLATE_SCOPE_MISMATCH", 404, "模板不存在或已删除");
   }
   if (!workspaceId && template.createdBy !== input.userId) {
     throw new NoteTemplateError("NOTE_TEMPLATE_FORBIDDEN", 403, "无权使用该模板");
-  }
-  if (input.parentId) {
-    const parent = db.prepare(`
-      SELECT workspaceId FROM knowledge_tree_nodes WHERE id = ? AND isDeleted = 0
-    `).get(input.parentId) as { workspaceId: string | null } | undefined;
-    if (!parent) throw new NoteTemplateError("NOTE_TEMPLATE_PARENT_NOT_FOUND", 404, "目标目录不存在");
-    if (normalizeWorkspaceId(parent.workspaceId) !== workspaceId) {
-      throw new NoteTemplateError("NOTE_TEMPLATE_TARGET_SCOPE_MISMATCH", 409, "模板与目标目录不在同一空间");
-    }
   }
 
   const templateAssets = db.prepare(`
@@ -391,6 +405,7 @@ export async function createNoteFromTemplate(input: {
       if (!db.prepare("SELECT 1 AS ok FROM note_templates WHERE id = ?").get(template.id)) {
         throw new NoteTemplateError("NOTE_TEMPLATE_NOT_FOUND", 404, "模板不存在或已删除");
       }
+      resolveTemplateUseWorkspace(db, { ...input, workspaceId });
       const created = createKnowledgeChild({
         actorUserId: input.userId,
         workspaceId,

@@ -43,6 +43,7 @@ export interface UserPreferences {
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
   codeBlockCollapseMode: CodeBlockCollapseMode;
+  codeBlockWordWrap: boolean;
   noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
@@ -50,6 +51,7 @@ export interface UserPreferences {
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
+  showTemplateManagement: boolean;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -83,6 +85,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
   codeBlockCollapseMode: "long",
+  codeBlockWordWrap: true,
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: ["notifications"],
@@ -90,6 +93,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,
   showNoteListDividers: false,
+  showTemplateManagement: true,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -184,6 +188,9 @@ export function normalizeUserPreferences(
       raw.codeBlockCollapseMode,
       fallback.codeBlockCollapseMode,
     ),
+    codeBlockWordWrap: typeof raw.codeBlockWordWrap === "boolean"
+      ? raw.codeBlockWordWrap
+      : fallback.codeBlockWordWrap,
     noteTheme: isNoteThemeId(raw.noteTheme) ? raw.noteTheme : fallback.noteTheme,
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly
@@ -200,6 +207,9 @@ export function normalizeUserPreferences(
     journalLockOnEntry: typeof raw.journalLockOnEntry === "boolean"
       ? raw.journalLockOnEntry
       : fallback.journalLockOnEntry,
+    showTemplateManagement: typeof raw.showTemplateManagement === "boolean"
+      ? raw.showTemplateManagement
+      : fallback.showTemplateManagement,
     showNoteListDividers: typeof raw.showNoteListDividers === "boolean"
       ? raw.showNoteListDividers
       : fallback.showNoteListDividers,

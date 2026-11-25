@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { escapeJavaProperty } from "../release-cloud-ci.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { computeRuntimeVersions, gitTreeReader } from "../hot-update/lib/fingerprint.mjs";
+import { createZip } from "../hot-update/lib/zip.mjs";
 
 test("Android signing secrets round-trip through Java Properties without truncation", (t) => {
   if (spawnSync("java", ["--version"]).status !== 0) {
@@ -69,7 +71,17 @@ test("Android staging uses the installed pinned SDK even when a newer SDK is pre
   fs.mkdirSync(path.join(app, "build/outputs/apk/release"), { recursive:true });
   fs.mkdirSync(path.join(app, "build/outputs/bundle/release"), { recursive:true });
   fs.writeFileSync(path.join(app, "build.gradle"), 'versionCode 10510\nversionName "1.5.4"\n');
-  fs.writeFileSync(path.join(app, "build/outputs/apk/release/app-release.apk"), "fixture-apk");
+  const repository = fileURLToPath(new URL("../..", import.meta.url));
+  const reader = gitTreeReader(repository);
+  const keysPath = "hot-update/public-keys.json";
+  const keys = reader.read(keysPath).toString("utf8");
+  const publicKey = JSON.parse(keys).keys[0]?.pem ?? "";
+  const runtimeVersion = computeRuntimeVersions(reader).android;
+  const config = { plugins: { NowenHotUpdateRuntime: { runtimeVersion, publicKey }, LiveUpdate: { publicKey } } };
+  const apk = createZip([{ path: "assets/capacitor.config.json", data: Buffer.from(JSON.stringify(config), "utf8") }]);
+  fs.mkdirSync(path.join(directory, "hot-update"));
+  fs.writeFileSync(path.join(directory, keysPath), keys, "utf8");
+  fs.writeFileSync(path.join(app, "build/outputs/apk/release/app-release.apk"), apk);
   fs.writeFileSync(path.join(app, "build/outputs/bundle/release/app-release.aab"), "fixture-aab");
   const fingerprint = "ab".repeat(32), sdk = path.join(directory, "sdk"), bin = path.join(directory, "bin");
   const command = (file, body) => { fs.mkdirSync(path.dirname(file), { recursive:true }); fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode:0o700 }); };
@@ -77,10 +89,26 @@ test("Android staging uses the installed pinned SDK even when a newer SDK is pre
   command(path.join(sdk, "build-tools/36.0.0/apksigner"), 'if [ "$2" = "--print-certs" ]; then echo "Signer #1 certificate SHA-256 digest: $FIXTURE_CERT"; fi');
   command(path.join(sdk, "build-tools/36.0.0/aapt"), "echo \"package: name='com.nowen.note' versionCode='10510' versionName='1.5.4'\"");
   command(path.join(bin, "jarsigner"), "echo 'jar verified.'");
-  const run = certificate => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-stage"], { cwd:directory, encoding:"utf8", env:{...process.env,PATH:`${bin}:${process.env.PATH}`,GITHUB_ACTIONS:"true",GITHUB_REPOSITORY:"cropflre/nowen-note",ANDROID_HOME:sdk,RC_VERSION:"1.5.4",NOWEN_ANDROID_CERT_SHA256:fingerprint,FIXTURE_CERT:certificate} });
+  const gitDirectory = execFileSync("git", ["-C", repository, "rev-parse", "--absolute-git-dir"], { encoding: "utf8" }).trim();
+  const run = certificate => spawnSync(process.execPath, [fileURLToPath(new URL("../release-cloud-ci.mjs", import.meta.url)), "android-stage"], {
+    cwd: directory,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: directory,
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "cropflre/nowen-note",
+      ANDROID_HOME: sdk,
+      RC_VERSION: "1.5.4",
+      NOWEN_ANDROID_CERT_SHA256: fingerprint,
+      FIXTURE_CERT: certificate,
+    },
+  });
   const accepted = run(fingerprint);
   assert.equal(accepted.status, 0, accepted.stderr);
-  assert.equal(fs.readFileSync(path.join(directory, "release-android/Nowen-Note-1.5.4.apk"), "utf8"), "fixture-apk");
+  assert.deepEqual(fs.readFileSync(path.join(directory, "release-android/Nowen-Note-1.5.4.apk")), apk);
   fs.rmSync(path.join(directory, "release-android"), { recursive:true });
   const rejected = run("cd".repeat(32));
   assert.notEqual(rejected.status, 0);

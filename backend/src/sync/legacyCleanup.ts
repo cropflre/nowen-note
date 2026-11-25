@@ -53,9 +53,9 @@ export const LEGACY_CLEANUP_PLAN: CleanupItem[] = [
     risk: "Lite 用户失去更换服务器的能力，且无法回到本地模式",
   },
   {
-    target: "isLiteOnlyBuild / builder.lite.config.js",
-    location: "electron/main.js, electron/builder.lite*.config.js",
-    precondition: "停止发布 Lite-only 安装包，且存量用户已升级到完整版",
+    target: "isLiteOnlyBuild",
+    location: "electron/main.js",
+    precondition: "存量 Lite 用户已升级到完整版（Lite 安装包自 1.6.1 起已停止打包）",
     risk: "已安装 Lite 包的用户升级后无法启动（缺少内置后端）",
   },
   {

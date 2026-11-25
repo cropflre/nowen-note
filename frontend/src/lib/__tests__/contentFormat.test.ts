@@ -10,7 +10,7 @@
  *   - RTE→MD→RTE 回路上关键结构（高亮颜色 / 段落对齐）不丢失
  */
 import { describe, expect, it } from "vitest";
-import { generateJSON } from "@tiptap/core";
+import { generateHTML, generateJSON, type JSONContent } from "@tiptap/core";
 import {
   detectFormat,
   getTiptapExtensions,
@@ -137,6 +137,105 @@ describe("markdownToHtml", () => {
     expect(html).toContain('data-type="taskItem"');
     expect(html).toContain('data-checked="true"');
     expect(html).toContain('data-checked="false"');
+  });
+
+  it("GFM 任务项：去掉任务标记，只保留正文", () => {
+    expect(markdownToHtml("- [ ] 待补充")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>待补充</p></li></ul>',
+    );
+    expect(markdownToHtml("- [x] b")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>b</p></li></ul>',
+    );
+  });
+
+  it("GFM 任务项：多项各自保留勾选状态（含大写 X）", () => {
+    expect(markdownToHtml("- [ ] a\n- [X] b\n- [ ] c")).toBe(
+      '<ul data-type="taskList">' +
+        '<li data-type="taskItem" data-checked="false"><p>a</p></li>' +
+        '<li data-type="taskItem" data-checked="true"><p>b</p></li>' +
+        '<li data-type="taskItem" data-checked="false"><p>c</p></li>' +
+        "</ul>",
+    );
+  });
+
+  it("GFM 任务项：勾选状态只看任务标记，正文里的 [x] 不算勾选", () => {
+    const html = markdownToHtml("- [ ] 把 [x] 改掉\n- [ ] 写成 [X] 也一样");
+    expect(html.match(/data-checked="\w+"/g)).toEqual(['data-checked="false"', 'data-checked="false"']);
+  });
+
+  it("GFM 任务项：嵌套与缩进的任务同样去掉标记", () => {
+    expect(markdownToHtml("- [ ] parent\n  - [x] child")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>parent</p>' +
+        '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>child</p></li></ul>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("- parent\n  - [ ] child task")).toBe(
+      '<ul><li><p>parent</p><ul data-type="taskList">' +
+        '<li data-type="taskItem" data-checked="false"><p>child task</p></li>' +
+        "</ul></li></ul>",
+    );
+    expect(markdownToHtml("   - [x] indented")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="true"><p>indented</p></li></ul>',
+    );
+  });
+
+  it("GFM 任务项：正文的行内格式与链接照常渲染，后续段落不受影响", () => {
+    expect(markdownToHtml("- [ ] **粗体** 与 [链接](https://example.com) 和 `code`")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        '<p><strong>粗体</strong> 与 <a href="https://example.com">链接</a> 和 <code>code</code></p>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("- [ ] first\n\n  second para")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        "<p>first</p><p>second para</p>" +
+        "</li></ul>",
+    );
+  });
+
+  it("混合列表（只有部分项是任务）：任务标记作为文字保留，行内格式照常渲染", () => {
+    expect(markdownToHtml("- 普通项\n- [ ] **粗体** 与 `code`")).toBe(
+      "<ul><li><p>普通项</p></li><li><p>[ ] <strong>粗体</strong> 与 <code>code</code></p></li></ul>",
+    );
+    expect(markdownToHtml("1. 普通项\n2. [x] *斜体*")).toBe(
+      "<ol><li><p>普通项</p></li><li><p>[x] <em>斜体</em></p></li></ol>",
+    );
+  });
+
+  it("没有 URL 的方括号文字原样保留（段落、列表项、任务项）", () => {
+    expect(markdownToHtml("见 [备注]")).toBe("<p>见 [备注]</p>");
+    expect(markdownToHtml("- 见 [备注]")).toBe("<ul><li><p>见 [备注]</p></li></ul>");
+    expect(markdownToHtml("- [ ] 把 [x] 改成 [**重点**]")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        "<p>把 [x] 改成 [<strong>重点</strong>]</p>" +
+        "</li></ul>",
+    );
+  });
+
+  it("裸 URL（GFM 自动链接）渲染为链接，不再从正文里消失", () => {
+    expect(markdownToHtml("见 https://example.com/a?b=1 文档")).toBe(
+      '<p>见 <a href="https://example.com/a?b=1">https://example.com/a?b=1</a> 文档</p>',
+    );
+    expect(markdownToHtml("# 标题 https://h.example.com")).toBe(
+      '<h1>标题 <a href="https://h.example.com">https://h.example.com</a></h1>',
+    );
+    expect(markdownToHtml("- [ ] 打开 www.example.com")).toBe(
+      '<ul data-type="taskList"><li data-type="taskItem" data-checked="false">' +
+        '<p>打开 <a href="http://www.example.com">www.example.com</a></p>' +
+        "</li></ul>",
+    );
+    expect(markdownToHtml("联系 foo@example.com 或 <bar@example.com>")).toBe(
+      '<p>联系 <a href="mailto:foo@example.com">foo@example.com</a> 或 <a href="mailto:bar@example.com">bar@example.com</a></p>',
+    );
+  });
+
+  it("引用式链接：有定义时渲染为链接，没有定义时保留方括号原文", () => {
+    const html = markdownToHtml("[文档][ref]、[Ref][]、[REF] 与 [未定义][missing]\n\n[ref]: https://example.com/doc");
+    const link = (text: string) => `<a href="https://example.com/doc">${text}</a>`;
+    expect(html).toContain(`<p>${link("文档")}、${link("Ref")}、${link("REF")} 与 [未定义][missing]</p>`);
+  });
+
+  it("反斜杠转义按字面字符渲染，反斜杠不进入富文本", () => {
+    expect(markdownToHtml("见 \\[备注\\] 与 \\*非强调\\* 和 C:\\\\temp")).toBe("<p>见 [备注] 与 *非强调* 和 C:\\temp</p>");
   });
 
   it("围栏代码块带 language", () => {
@@ -269,6 +368,129 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(items[1].attrs?.checked).toBe(false);
   });
 
+  it("MD → Tiptap JSON：任务项段落文本不含任务标记，行内 mark 保留", () => {
+    const json: JSONContent = markdownToTiptapJSON("- [ ] 待补充\n- [x] **完成** 见 [链接](https://example.com)");
+    const taskList = json.content?.find((b) => b.type === "taskList");
+    const items = taskList?.content ?? [];
+    expect(items.map((item) => item.attrs?.checked)).toEqual([false, true]);
+
+    const inlineOf = (item: JSONContent) => item.content?.[0]?.content ?? [];
+    const firstInline = inlineOf(items[0]);
+    expect(firstInline.map((n) => n.text).join("")).toBe("待补充");
+
+    const secondInline = inlineOf(items[1]);
+    expect(secondInline.map((n) => n.text).join("")).toBe("完成 见 链接");
+    expect(secondInline[0]).toMatchObject({ text: "完成", marks: [{ type: "bold" }] });
+    expect(secondInline[2]).toMatchObject({
+      text: "链接",
+      marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+    });
+  });
+
+  it("MD → Tiptap JSON：裸 URL 保留为带 link mark 的文字", () => {
+    const json: JSONContent = markdownToTiptapJSON("见 https://example.com 文档");
+    const inline = json.content?.[0]?.content ?? [];
+    expect(inline.map((n) => n.text).join("")).toBe("见 https://example.com 文档");
+    expect(inline[1]).toMatchObject({
+      text: "https://example.com",
+      marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+    });
+  });
+
+  it("MD → RTE → MD：任务列表往返稳定，不会逐次累积转义的任务标记", () => {
+    const md = "- [ ] 待补充\n- [x] **完成** 见 [链接](https://example.com)";
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON(md));
+    expect(once).toBe(md);
+    expect(tiptapJsonToMarkdown(markdownToTiptapJSON(once))).toBe(md);
+  });
+
+  it("RTE → MD → RTE：含 Markdown 特殊字符的文字往返不累积反斜杠", () => {
+    const text = "见 [备注] 与 *星号* 和 snake_case 及 C:\\temp";
+    const md = tiptapJsonToMarkdown({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(back.content?.[0]?.content?.map((n) => n.text).join("")).toBe(text);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON("- [ ] 把 [x] 改掉"));
+    const onceJson: JSONContent = markdownToTiptapJSON(once);
+    const task = onceJson.content?.[0]?.content?.[0];
+    expect(task?.attrs?.checked).toBe(false);
+    expect(task?.content?.[0]?.content?.map((n) => n.text).join("")).toBe("把 [x] 改掉");
+    expect(tiptapJsonToMarkdown(onceJson)).toBe(once);
+  });
+
+  it("RTE → MD → RTE：链接文字、链接地址与裸 URL 里的转义同样还原", () => {
+    const inlineOf = (json: JSONContent) =>
+      (json.content?.[0]?.content ?? []).map((n) => [n.text, n.marks?.[0]?.attrs?.href ?? null]);
+    const twice = (inline: JSONContent[]) => {
+      const once: JSONContent = markdownToTiptapJSON(
+        tiptapJsonToMarkdown({ type: "doc", content: [{ type: "paragraph", content: inline }] }),
+      );
+      const again: JSONContent = markdownToTiptapJSON(tiptapJsonToMarkdown(once));
+      expect(inlineOf(again)).toEqual(inlineOf(once));
+      return inlineOf(once);
+    };
+    const link = (text: string, href: string): JSONContent => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+
+    expect(twice([link("https://x.com/a_b", "https://x.com/a_b")])).toEqual([["https://x.com/a_b", "https://x.com/a_b"]]);
+    expect(twice([link("Foo", "https://en.wikipedia.org/wiki/Foo_(bar)")])).toEqual([
+      ["Foo", "https://en.wikipedia.org/wiki/Foo_(bar)"],
+    ]);
+    expect(twice([{ type: "text", text: "见 https://x.com/a_b 文档" }])).toEqual([
+      ["见 ", null],
+      ["https://x.com/a_b", "https://x.com/a_b"],
+      [" 文档", null],
+    ]);
+  });
+
+  it("Tiptap→MD：嵌套任务列表与任务项的后续段落保持缩进，不被拍平", () => {
+    const para = (text: string): JSONContent => ({ type: "paragraph", content: [{ type: "text", text }] });
+    const item = (checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { checked }, content });
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            item(false, [para("parent"), { type: "taskList", content: [item(true, [para("child")])] }]),
+            item(false, [para("first"), para("second para")]),
+          ],
+        },
+      ],
+    };
+    expect(tiptapJsonToMarkdown(doc)).toBe("- [ ] parent\n\n  - [x] child\n- [ ] first\n\n  second para");
+  });
+
+  it("MD → RTE → MD：嵌套任务列表往返后仍保持嵌套", () => {
+    const once = tiptapJsonToMarkdown(markdownToTiptapJSON("- [ ] parent\n  - [x] child\n- [ ] sibling"));
+    expect(once).toBe("- [ ] parent\n\n  - [x] child\n- [ ] sibling");
+
+    const json: JSONContent = markdownToTiptapJSON(once);
+    const items = json.content?.[0]?.content ?? [];
+    expect(items).toHaveLength(2);
+    expect(items[0].content?.[1]).toMatchObject({ type: "taskList", content: [{ attrs: { checked: true } }] });
+    expect(tiptapJsonToMarkdown(json)).toBe(once);
+  });
+
+  it("Tiptap→MD：文末的空任务项保留标记后的空格，转回后仍是任务项", () => {
+    const para = (text?: string): JSONContent => ({ type: "paragraph", content: text ? [{ type: "text", text }] : undefined });
+    const item = (checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { checked }, content });
+
+    const flat = tiptapJsonToMarkdown({ type: "doc", content: [{ type: "taskList", content: [item(false, [para("a")]), item(true, [para()])] }] });
+    expect(flat).toBe("- [ ] a\n- [x] ");
+    const flatBack: JSONContent = markdownToTiptapJSON(flat);
+    expect(flatBack.content?.[0]?.type).toBe("taskList");
+    expect(flatBack.content?.[0]?.content?.map((node) => node.attrs?.checked)).toEqual([false, true]);
+
+    const nested = tiptapJsonToMarkdown({
+      type: "doc",
+      content: [{ type: "taskList", content: [item(false, [para("parent"), { type: "taskList", content: [item(false, [para()])] }])] }],
+    });
+    expect(nested).toBe("- [ ] parent\n\n  - [ ] ");
+    const nestedBack: JSONContent = markdownToTiptapJSON(nested);
+    expect(nestedBack.content?.[0]?.content?.[0]?.content?.[1]?.type).toBe("taskList");
+  });
+
   it("MD→Tiptap JSON：表格结构正确", () => {
     const md = "| A | B |\n|---|---|\n| 1 | 2 |";
     const json = markdownToTiptapJSON(md);
@@ -339,5 +561,719 @@ describe("RTE ↔ MD 回路（关键结构保留）", () => {
     expect(text).toContain("红色");
     expect(text).not.toContain("<span");
     expect(text).not.toContain("style=");
+  });
+});
+
+// 编辑器给每个 taskItem / listItem / paragraph 等块分配 blockId，MD 笔记保存后后端也会给每块补上 ^blk_ 标记，
+// 所以真实笔记的转换都走带 blockId 的路径。
+describe("带 blockId 的 RTE ↔ MD 往返", () => {
+  type Outline = { type?: string; checked?: boolean; blockId?: string; text?: string; content?: Outline[] };
+  const outline = (node: JSONContent): Outline => ({
+    type: node.type,
+    ...(node.type === "taskItem" ? { checked: Boolean(node.attrs?.checked) } : {}),
+    ...(node.attrs?.blockId ? { blockId: String(node.attrs.blockId) } : {}),
+    ...(node.text ? { text: node.text } : {}),
+    ...(node.content?.length ? { content: node.content.map(outline) } : {}),
+  });
+  const textOf = (node: JSONContent): string => [node.text ?? "", ...(node.content ?? []).map(textOf)].join("\n");
+  const para = (blockId: string | null, text?: string): JSONContent => ({
+    type: "paragraph",
+    ...(blockId ? { attrs: { blockId } } : {}),
+    ...(text ? { content: [{ type: "text", text }] } : {}),
+  });
+  const taskItem = (blockId: string, checked: boolean, content: JSONContent[]): JSONContent => ({ type: "taskItem", attrs: { blockId, checked }, content });
+  const listItem = (blockId: string, content: JSONContent[]): JSONContent => ({ type: "listItem", attrs: { blockId }, content });
+
+  // 列表项首段与列表项共用一行，一行只写一个标记：写列表项的 ID，首段自己的 ID 不写出，
+  // 转回富文本后首段没有 ID（编辑器会重新分配）。下面用 leadIds=false 构造往返后的预期。
+  it("嵌套任务列表与文末空任务项：任务项 ID 写在各自行尾，往返后嵌套、勾选与 ID 不变，正文不出现标记", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "taskList",
+        content: [
+          taskItem("blk_item01", false, [
+            para(leadIds ? "blk_para01" : null, "parent"),
+            { type: "taskList", content: [taskItem("blk_item02", true, [para(leadIds ? "blk_para02" : null, "child")])] },
+          ]),
+          taskItem("blk_item03", false, [para(leadIds ? "blk_para03" : null)]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- [ ] parent ^blk_item01\n\n  - [x] child ^blk_item02\n- [ ]  ^blk_item03");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("多段任务项：后续段落缩进并保留自己的 ID，列表后的段落不被并进任务项", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [
+        { type: "taskList", content: [taskItem("blk_item01", true, [para(leadIds ? "blk_para01" : null, "first"), para("blk_para02", "second")])] },
+        para("blk_para09", "after"),
+      ],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- [x] first ^blk_item01\n\n  second ^blk_para02\n\nafter ^blk_para09");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("普通列表项（无序、有序、嵌套、多段）同样把 ID 写在列表项所在行，往返后结构与 ID 不变", () => {
+    const doc = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [
+          listItem("blk_li0001", [
+            para(leadIds ? "blk_lp0001" : null, "one"),
+            { type: "orderedList", content: [listItem("blk_li0002", [para(leadIds ? "blk_lp0002" : null, "two"), para("blk_lp0003", "two-b")])] },
+          ]),
+          listItem("blk_li0004", [para(leadIds ? "blk_lp0004" : null, "three")]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- one ^blk_li0001\n  1. two ^blk_li0002\n\n     two-b ^blk_lp0003\n- three ^blk_li0004");
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual(outline(doc(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+  });
+
+  it("有序列表：按起始编号顺排并随标记宽度缩进续段，往返后起始编号、续段与 ID 不变", () => {
+    const list = (leadIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "orderedList",
+        attrs: { start: 9 },
+        content: [
+          listItem("blk_item01", [para(leadIds ? "blk_para01" : null, "a")]),
+          // 「10. 」的内容列是 4，续段缩进 3 格就会脱离该项
+          listItem("blk_item02", [para(leadIds ? "blk_para02" : null, "b"), para("blk_para03", "b2")]),
+          listItem("blk_item03", [para(leadIds ? "blk_para04" : null, "c")]),
+        ],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(list(true));
+    expect(md).toBe(["9. a ^blk_item01", "10. b ^blk_item02", "", "    b2 ^blk_para03", "11. c ^blk_item03"].join("\n"));
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(back.content?.[0]).toMatchObject({ type: "orderedList", attrs: { start: 9 } });
+    expect(outline(back)).toEqual(outline(list(false)));
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    // 没有起始编号的列表从 1 顺排，与不带 ID 的列表一致
+    const plain: JSONContent = { type: "doc", content: [{ type: "orderedList", content: [listItem("blk_item04", [para(null, "x")]), listItem("blk_item05", [para(null, "y")])] }] };
+    expect(tiptapJsonToMarkdown(plain)).toBe("1. x ^blk_item04\n2. y ^blk_item05");
+  });
+
+  it("有序列表：起始编号不是 1 的嵌套列表与上一段之间要有空行，否则被当成上一段的续行而丢掉列表", () => {
+    const doc = (withIds: boolean): JSONContent => ({
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [{
+          type: "listItem",
+          ...(withIds ? { attrs: { blockId: "blk_item01" } } : {}),
+          content: [
+            para(null, "x"),
+            { type: "orderedList", attrs: { start: 4 }, content: [{ type: "listItem", ...(withIds ? { attrs: { blockId: "blk_item02" } } : {}), content: [para(null, "y")] }] },
+          ],
+        }],
+      }],
+    });
+    const md = tiptapJsonToMarkdown(doc(true));
+    expect(md).toBe("- x ^blk_item01\n\n  4. y ^blk_item02");
+    for (const source of [md, tiptapJsonToMarkdown(doc(false))]) {
+      const back: JSONContent = markdownToTiptapJSON(source);
+      expect(back.content?.[0]?.content?.[0]?.content?.[1]).toMatchObject({ type: "orderedList", attrs: { start: 4 } });
+      expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+      expect(tiptapJsonToMarkdown(back)).toBe(source);
+    }
+  });
+
+  it("引用块：末段与引用块共用最后一行，只写引用块的 ID；往返后各段 ID 归位、正文无标记、输出稳定", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [{ type: "blockquote", attrs: { blockId: "blk_quot01" }, content: [para("blk_para01", "q1"), para("blk_para02", "q2")] }],
+    };
+    const md = tiptapJsonToMarkdown(doc);
+    // 非末段保留自己的 ID；末段自己的不写出，转回后由编辑器重新分配
+    expect(md).toBe(["> q1 ^blk_para01", "> ", "> q2 ^blk_quot01"].join("\n"));
+
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(outline(back)).toEqual({
+      type: "doc",
+      content: [{
+        type: "blockquote",
+        blockId: "blk_quot01",
+        content: [
+          { type: "paragraph", blockId: "blk_para01", content: [{ type: "text", text: "q1" }] },
+          { type: "paragraph", content: [{ type: "text", text: "q2" }] },
+        ],
+      }],
+    });
+    expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+
+    const solo: JSONContent = { type: "doc", content: [{ type: "blockquote", attrs: { blockId: "blk_quot02" }, content: [para("blk_para03", "solo")] }] };
+    expect(tiptapJsonToMarkdown(solo)).toBe("> solo ^blk_quot02");
+  });
+
+  it("引用块末块是列表、标题或代码块：末块自己的标记占着最后一行，引用块的 ID 不写出；往返后无可见标记、输出稳定", () => {
+    const text = (value: string): Outline[] => [{ type: "text", text: value }];
+    const cases: Array<{ last: JSONContent; md: string[]; lastOutline: Outline }> = [
+      {
+        last: { type: "bulletList", content: [listItem("blk_item01", [para("blk_para02", "item")])] },
+        md: ["> intro ^blk_para01", "> ", "> - item ^blk_item01"],
+        lastOutline: { type: "bulletList", content: [{ type: "listItem", blockId: "blk_item01", content: [{ type: "paragraph", content: text("item") }] }] },
+      },
+      {
+        last: { type: "heading", attrs: { level: 2, blockId: "blk_head01" }, content: [{ type: "text", text: "h" }] },
+        md: ["> intro ^blk_para01", "> ", "> ## h ^blk_head01"],
+        lastOutline: { type: "heading", blockId: "blk_head01", content: text("h") },
+      },
+      {
+        last: { type: "codeBlock", attrs: { language: "js", blockId: "blk_code01" }, content: [{ type: "text", text: "x()" }] },
+        md: ["> intro ^blk_para01", "> ", "> ```js", "> x()", "> ```", "> ^blk_code01"],
+        lastOutline: { type: "codeBlock", blockId: "blk_code01", content: text("x()") },
+      },
+    ];
+    for (const { last, md: expected, lastOutline } of cases) {
+      const doc: JSONContent = {
+        type: "doc",
+        content: [{ type: "blockquote", attrs: { blockId: "blk_quot01" }, content: [para("blk_para01", "intro"), last] }],
+      };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe(expected.join("\n"));
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      // 末块的 ID 归末块；引用块的 ID 不写出，转回后由编辑器重新分配
+      expect(outline(back)).toEqual({
+        type: "doc",
+        content: [{ type: "blockquote", content: [{ type: "paragraph", blockId: "blk_para01", content: text("intro") }, lastOutline] }],
+      });
+      expect(textOf(back)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    }
+  });
+
+  it("MD→RTE：标题、段落、引用、代码块的 ID 各归原节点，块间空行不被吞，代码块后的正文不进代码", () => {
+    const md = [
+      "## Title ^blk_head01", "", "alpha ^blk_para01", "", "beta ^blk_para02", "", "> quoted ^blk_quot01", "",
+      "```ts", "const a = 1;", "```", "^blk_code01", "", "tail ^blk_para03",
+    ].join("\n");
+    const text = (value: string): Outline[] => [{ type: "text", text: value }];
+    expect(outline(markdownToTiptapJSON(md))).toEqual({
+      type: "doc",
+      content: [
+        { type: "heading", blockId: "blk_head01", content: text("Title") },
+        { type: "paragraph", blockId: "blk_para01", content: text("alpha") },
+        { type: "paragraph", blockId: "blk_para02", content: text("beta") },
+        { type: "blockquote", blockId: "blk_quot01", content: [{ type: "paragraph", content: text("quoted") }] },
+        { type: "codeBlock", blockId: "blk_code01", content: text("const a = 1;") },
+        { type: "paragraph", blockId: "blk_para03", content: text("tail") },
+      ],
+    });
+  });
+
+  it("MD→RTE：代码块里形如块标记的文字是代码内容，原样保留", () => {
+    const md = "```md\n- [ ] 示例 ^blk_sample01\n```\n^blk_code01";
+    expect(outline(markdownToTiptapJSON(md))).toEqual({
+      type: "doc",
+      content: [{ type: "codeBlock", blockId: "blk_code01", content: [{ type: "text", text: "- [ ] 示例 ^blk_sample01" }] }],
+    });
+  });
+});
+
+describe("表格 RTE ↔ MD", () => {
+  const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
+  const para = (...content: JSONContent[]): JSONContent => (content.length ? { type: "paragraph", content } : { type: "paragraph" });
+  const th = (content: JSONContent[], attrs?: JSONContent["attrs"]): JSONContent => ({ type: "tableHeader", ...(attrs ? { attrs } : {}), content });
+  const td = (content: JSONContent[], attrs?: JSONContent["attrs"]): JSONContent => ({ type: "tableCell", ...(attrs ? { attrs } : {}), content });
+  const tableDoc = (...rows: JSONContent[][]): JSONContent => ({
+    type: "doc",
+    content: [{ type: "table", content: rows.map((cells) => ({ type: "tableRow", content: cells })) }],
+  });
+  const tableOf = (json: JSONContent) => json.content?.find((node) => node.type === "table");
+  // 每个单元格摘要为「th/td:文字」，段落之间记为 ¶，硬换行记为 ⏎
+  const cellText = (cell: JSONContent) =>
+    (cell.content ?? []).map((block) => (block.content ?? []).map((n) => (n.type === "hardBreak" ? "⏎" : n.text ?? "")).join("")).join("¶");
+  const grid = (json: JSONContent) =>
+    tableOf(json)?.content?.map((row) => row.content?.map((cell) => `${cell.type === "tableHeader" ? "th" : "td"}:${cellText(cell)}`));
+  // RTE → MD → RTE，并要求第二次转成 MD 与第一次完全一致
+  const roundTrip = (doc: JSONContent) => {
+    const md = tiptapJsonToMarkdown(doc);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+
+  it("普通表格输出为 GFM 管道表格，往返后结构与内容一致", () => {
+    const doc = tableDoc(
+      [th([para(text("A"))]), th([para(text("B"))])],
+      [td([para(text("1"))]), td([para(text("2"))])],
+      [td([para(text("3"))]), td([para(text("4"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |");
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("没有表头行的表格把首行输出为表头行：不多出空行，转回后首行成为表头", () => {
+    const doc = tableDoc(
+      [td([para(text("1"))]), td([para(text("2"))])],
+      [td([para(text("3"))]), td([para(text("4"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| 1 | 2 |\n| --- | --- |\n| 3 | 4 |");
+    expect(grid(back)).toEqual([["th:1", "th:2"], ["td:3", "td:4"]]);
+  });
+
+  it("单元格里的 | 转义为 \\|，粗体、链接、行内代码往返不变", () => {
+    const doc = tableDoc(
+      [th([para(text("文字"))]), th([para(text("格式"))]), th([para(text("代码"))])],
+      [
+        td([para(text("a|b"))]),
+        td([para(text("加粗", [{ type: "bold" }]), text(" 与 "), text("链接", [{ type: "link", attrs: { href: "https://example.com/?q=a|b" } }]))]),
+        td([para(text("ls | wc", [{ type: "code" }]))]),
+      ],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md.split("\n")[2]).toBe("| a\\|b | **加粗** 与 [链接](https://example.com/?q=a\\|b) | `ls \\| wc` |");
+    const inline = (json: JSONContent) =>
+      tableOf(json)?.content?.[1]?.content?.map((cell) =>
+        (cell.content?.[0]?.content ?? []).map((n) => [n.text, n.marks?.map((m) => m.type) ?? [], n.marks?.[0]?.attrs?.href ?? null]),
+      );
+    expect(inline(back)).toEqual(inline(doc));
+  });
+
+  it("内部链接 [[…|别名]] 里的 | 不转义：解析表格前已被预处理，不会拆开单元格", () => {
+    const href = "note:00000000-0000-4000-8000-000000000001";
+    const md = normalizeToMarkdown(
+      `<table><tbody><tr><th><p>笔记</p></th><th><p>说明</p></th></tr>` +
+        `<tr><td><p><a href="${href}" rel="nowen-title-alias">别名</a></p></td><td><p>x</p></td></tr></tbody></table>`,
+    );
+    expect(md).toBe(`| 笔记 | 说明 |\n| --- | --- |\n| [[${href}|别名]] | x |`);
+    expect(markdownToHtml(md)).toMatch(/<tr><td><a href="note:[^"]+"[^>]*>别名<\/a><\/td><td>x<\/td><\/tr>/);
+  });
+
+  it("单元格里的多个段落与硬换行用 <br> 连接，每个单元格只占一行", () => {
+    const doc = tableDoc(
+      [th([para(text("段落"))]), th([para(text("换行"))])],
+      [td([para(text("one")), para(), para(text("two"))]), td([para(text("a"), { type: "hardBreak" }, text("b"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| 段落 | 换行 |\n| --- | --- |\n| one<br><br>two | a<br>b |");
+    // GFM 单元格只能放行内内容：转回后多个段落合并为一个带硬换行的段落，文字与换行位置不变
+    expect(grid(back)).toEqual([["th:段落", "th:换行"], ["td:one⏎⏎two", "td:a⏎b"]]);
+  });
+
+  it("空单元格不会让后面的单元格错列", () => {
+    const fromMd: JSONContent = markdownToTiptapJSON("| A | B | C |\n| --- | --- | --- |\n|  | 2 |  |");
+    expect(grid(fromMd)).toEqual([["th:A", "th:B", "th:C"], ["td:", "td:2", "td:"]]);
+
+    const doc = tableDoc([th([para(text("A"))]), th([para()]), th([para(text("C"))])], [td([para()]), td([para(text("2"))]), td([para()])]);
+    const { md, back } = roundTrip(doc);
+    expect(md).toBe("| A |  | C |\n| --- | --- | --- |\n|  | 2 |  |");
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("单元格对齐属性与 GFM 列对齐互转；同一列对齐不一致时不输出对齐标记", () => {
+    const md = "| L | C | R | N |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |";
+    const json: JSONContent = markdownToTiptapJSON(md);
+    expect(tableOf(json)?.content?.map((row) => row.content?.map((cell) => cell.attrs?.align ?? null))).toEqual([
+      ["left", "center", "right", null],
+      ["left", "center", "right", null],
+    ]);
+    expect(tiptapJsonToMarkdown(json)).toBe(md);
+
+    const mixed = tableDoc([th([para(text("H"))], { align: "center" })], [td([para(text("1"))])]);
+    expect(tiptapJsonToMarkdown(mixed)).toBe("| H |\n| --- |\n| 1 |");
+  });
+
+  it("合并单元格保留为 HTML 表格，往返后合并与内容不丢", () => {
+    const doc = tableDoc(
+      [th([para(text("合并"))], { colspan: 2 })],
+      [td([para(text("1"))]), td([para(text("2"))])],
+    );
+    const { md, back } = roundTrip(doc);
+    expect(md.startsWith("<table")).toBe(true);
+    expect(md).toContain('colspan="2"');
+    expect(tableOf(back)?.content?.[0]?.content?.[0]?.attrs?.colspan).toBe(2);
+    expect(grid(back)).toEqual(grid(doc));
+  });
+
+  it("单元格里有段落以外的块，或行内代码含 \\| 时保留为单行 HTML 表格，内容不丢", () => {
+    const item = (value: string): JSONContent => ({ type: "listItem", content: [para(text(value))] });
+    const blocks = tableDoc(
+      [th([para(text("列表"))]), th([para(text("代码"))])],
+      [td([{ type: "bulletList", content: [item("x"), item("y")] }]), td([{ type: "codeBlock", content: [text("a\n\nb")] }])],
+    );
+    const { md, back } = roundTrip(blocks);
+    // 整个表格在一行里：HTML 块遇到空行就会结束，代码里的空行不能原样写出
+    expect(md.startsWith("<table")).toBe(true);
+    expect(md).not.toContain("\n");
+    const [listCell, codeCell] = tableOf(back)?.content?.[1]?.content ?? [];
+    expect(listCell?.content?.[0]?.type).toBe("bulletList");
+    expect(listCell?.content?.[0]?.content).toHaveLength(2);
+    expect(codeCell?.content?.[0]).toMatchObject({ type: "codeBlock", content: [{ text: "a\n\nb" }] });
+
+    const regex = tableDoc([th([para(text("正则"))])], [td([para(text("a\\|b", [{ type: "code" }]))])]);
+    const { md: regexMd, back: regexBack } = roundTrip(regex);
+    expect(regexMd.startsWith("<table")).toBe(true);
+    expect(tableOf(regexBack)?.content?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.text).toBe("a\\|b");
+  });
+
+  // 编辑器里的表格和每个单元格段落都带 blockId。一行只能带一个标记，表格各行又是同一个块（后端 Markdown 块模型），
+  // 所以表格 ID 写在最后一行行尾，单元格段落的 ID 不写出，转回后由编辑器重新分配。
+  describe("带 blockId 的表格", () => {
+    const idPara = (blockId: string, value: string): JSONContent => ({ type: "paragraph", attrs: { blockId }, ...(value ? { content: [text(value)] } : {}) });
+    const withId = (doc: JSONContent, blockId: string): JSONContent => ({
+      ...doc,
+      content: doc.content?.map((node) => (node.type === "table" ? { ...node, attrs: { blockId } } : node)),
+    });
+    const noMarkerText = (json: JSONContent) => expect(JSON.stringify(json)).not.toMatch(/\^blk_|NOWENBLOCKIDTOKEN/);
+
+    it("管道表格：表格 ID 写在最后一行行尾，往返后 ID 归表格，单元格不多不少", () => {
+      const table = withId(
+        tableDoc([th([idPara("blk_cell01", "A")]), th([idPara("blk_cell02", "B")])], [td([idPara("blk_cell03", "1")]), td([idPara("blk_cell04", "")])]),
+        "blk_table01",
+      );
+      const doc: JSONContent = { ...table, content: [...(table.content ?? []), idPara("blk_para09", "after")] };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe("| A | B |\n| --- | --- |\n| 1 |  | ^blk_table01\n\nafter ^blk_para09");
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      expect(tableOf(back)?.attrs?.blockId).toBe("blk_table01");
+      expect(grid(back)).toEqual([["th:A", "th:B"], ["td:1", "td:"]]);
+      expect(back.content?.[1]).toMatchObject({ type: "paragraph", attrs: { blockId: "blk_para09" } });
+      expect(JSON.stringify(back)).not.toContain("blk_cell");
+      noMarkerText(back);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    });
+
+    it("表格是带 ID 的引用块的最后一个块时，最后一行行尾的标记属于引用块（同引用块最后一段）", () => {
+      const table = tableOf(withId(tableDoc([th([idPara("blk_cell01", "A")])], [td([idPara("blk_cell02", "1")])]), "blk_table04"));
+      const doc: JSONContent = { type: "doc", content: [{ type: "blockquote", attrs: { blockId: "blk_quote01" }, content: table ? [table] : [] }] };
+      const md = tiptapJsonToMarkdown(doc);
+      expect(md).toBe("> | A |\n> | --- |\n> | 1 | ^blk_quote01");
+
+      const back: JSONContent = markdownToTiptapJSON(md);
+      expect(back.content?.[0]).toMatchObject({ type: "blockquote", attrs: { blockId: "blk_quote01" } });
+      expect(grid(back.content?.[0] ?? {})).toEqual([["th:A"], ["td:1"]]);
+      noMarkerText(back);
+      expect(tiptapJsonToMarkdown(back)).toBe(md);
+    });
+
+    it("只有表头行的表格不写标记：分隔行后接上标记就不再是表格", () => {
+      const md = tiptapJsonToMarkdown(withId(tableDoc([th([idPara("blk_cell01", "A")])]), "blk_table02"));
+      expect(md).toBe("| A |\n| --- |");
+      expect(grid(markdownToTiptapJSON(md))).toEqual([["th:A"]]);
+    });
+
+    it("保留为 HTML 的表格：表格与单元格段落的 ID 随属性往返，行尾另写表格 ID", () => {
+      const doc = withId(
+        tableDoc([th([idPara("blk_cell01", "合并")], { colspan: 2 })], [td([idPara("blk_cell02", "1")]), td([idPara("blk_cell03", "2")])]),
+        "blk_table03",
+      );
+      const { md, back } = roundTrip(doc);
+      expect(md.startsWith("<table")).toBe(true);
+      expect(md.endsWith("</table> ^blk_table03")).toBe(true);
+      expect(tableOf(back)?.attrs?.blockId).toBe("blk_table03");
+      expect(tableOf(back)?.content?.map((row) => row.content?.map((cell) => cell.content?.[0]?.attrs?.blockId))).toEqual([
+        ["blk_cell01"],
+        ["blk_cell02", "blk_cell03"],
+      ]);
+      noMarkerText(back);
+    });
+  });
+});
+
+// Tiptap 把公式渲染成没有子内容的 <span data-math-inline> / <div data-math-block>，Turndown 把它们当空白节点，
+// 自定义规则永远走不到，整段公式在 RTE→MD 时丢失。MD→RTE 由 extractMathPlaceholders 处理。
+describe("公式 RTE ↔ MD", () => {
+  const text = (value: string): JSONContent => ({ type: "text", text: value });
+  const para = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
+  const inlineMath = (latex: string): JSONContent => ({ type: "mathInline", attrs: { latex } });
+  const blockMath = (latex: string): JSONContent => ({ type: "mathBlock", attrs: { latex } });
+  const doc = (...content: JSONContent[]): JSONContent => ({ type: "doc", content });
+  // RTE → MD → RTE，并要求第二次转成 MD 与第一次完全一致
+  const roundTrip = (source: JSONContent) => {
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+
+  it("行内公式写成 $…$，前后空格保留，公式里的 | 不丢，往返后源码不变", () => {
+    const source = doc(para(text("f "), inlineMath("|x|"), text(" g")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("f $|x|$ g");
+    expect(back.content?.[0]).toMatchObject({
+      type: "paragraph",
+      content: [{ type: "text", text: "f " }, { type: "mathInline", attrs: { latex: "|x|" } }, { type: "text", text: " g" }],
+    });
+  });
+
+  it("块级公式写成独立的 $$ 块，上下段落不被并入，往返后源码不变", () => {
+    const source = doc(para(text("前")), blockMath("\\int_0^1 x\\,dx"), para(text("后")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("前\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n后");
+    expect(back.content?.map((node) => node.type)).toEqual(["paragraph", "mathBlock", "paragraph"]);
+    expect(back.content?.[1]?.attrs?.latex).toBe("\\int_0^1 x\\,dx");
+  });
+
+  it("多行块级公式、整段只有一个行内公式、紧贴中文的行内公式都不丢", () => {
+    const aligned = "a &= b \\\\\nc &= d";
+    const source = doc(blockMath(aligned), para(inlineMath("E=mc^2")), para(text("设"), inlineMath("x^2"), text("与"), inlineMath("y_1"), text("。")));
+    const { md, back } = roundTrip(source);
+    expect(md).toBe(`$$\n${aligned}\n$$\n\n$E=mc^2$\n\n设$x^2$与$y_1$。`);
+    expect(back.content?.[0]?.attrs?.latex).toBe(aligned);
+    expect(back.content?.[1]?.content).toEqual([inlineMath("E=mc^2")]);
+    expect(back.content?.[2]?.content?.map((node) => (node.type === "mathInline" ? `$${node.attrs?.latex}$` : node.text))).toEqual(["设", "$x^2$", "与", "$y_1$", "。"]);
+  });
+
+  it("表格单元格里的公式：| 不拆开单元格，往返后源码不变", () => {
+    const cell = (type: string, ...content: JSONContent[]): JSONContent => ({ type, content: [para(...content)] });
+    const source = doc({
+      type: "table",
+      content: [
+        { type: "tableRow", content: [cell("tableHeader", text("A")), cell("tableHeader", text("B"))] },
+        { type: "tableRow", content: [cell("tableCell", text("f "), inlineMath("|x|")), cell("tableCell", text("2"))] },
+      ],
+    });
+    const { md, back } = roundTrip(source);
+    expect(md).toBe("| A | B |\n| --- | --- |\n| f $|x|$ | 2 |");
+    const table = back.content?.[0];
+    expect(table?.content?.[1]?.content?.length).toBe(2);
+    expect(table?.content?.[1]?.content?.[0]?.content?.[0]?.content).toEqual([text("f "), inlineMath("|x|")]);
+  });
+
+  it("列表项和引用块里的行内公式不丢", () => {
+    const source = doc(
+      { type: "bulletList", content: [{ type: "listItem", content: [para(text("项 "), inlineMath("a|b"))] }] },
+      { type: "blockquote", content: [para(text("引 "), inlineMath("c^2"))] },
+    );
+    const { md, back } = roundTrip(source);
+    // 无序列表的标记与缩进由 Turndown 默认规则决定，这里只关心公式与内容
+    expect(md).toContain("项 $a|b$");
+    expect(md).toContain("> 引 $c^2$");
+    expect(back.content?.[0]?.content?.[0]?.content?.[0]?.content).toEqual([text("项 "), inlineMath("a|b")]);
+    expect(back.content?.[1]?.content?.[0]?.content).toEqual([text("引 "), inlineMath("c^2")]);
+  });
+
+  // 块级公式写在引用块 / 列表项里时，每个续行都带着容器前缀（`> `、缩进）。MD→RTE 整段抽取 `$$…$$` 时
+  // 要把这些前缀一起去掉，否则前缀混进公式源码（渲染出错），并随往返逐轮累积。
+  describe("引用块与列表里的块级公式", () => {
+    const quote = (...content: JSONContent[]): JSONContent => ({ type: "blockquote", content });
+    const item = (...content: JSONContent[]): JSONContent => ({ type: "listItem", content });
+    // 深度优先取出文档里所有块级公式的源码
+    const latexOf = (json: JSONContent): string[] => (json.type === "mathBlock" ? [String(json.attrs?.latex)] : (json.content ?? []).flatMap(latexOf));
+    const aligned = "a &= b \\\\\nc &= d";
+
+    it("引用块里的块级公式：续行的 `> ` 不混进公式源码，往返稳定", () => {
+      const { md, back } = roundTrip(doc(quote(para(text("定理")), blockMath("x^2"), blockMath(aligned))));
+      expect(md).toContain("> $$\n> x^2\n> $$");
+      expect(md).toContain("> $$\n> a &= b \\\\\n> c &= d\n> $$");
+      expect(back.content?.map((node) => node.type)).toEqual(["blockquote"]);
+      expect(latexOf(back)).toEqual(["x^2", aligned]);
+    });
+
+    it("嵌套引用块、列表项里的引用块里的块级公式也不受前缀影响", () => {
+      const { md, back } = roundTrip(
+        doc(quote(quote(blockMath("x"))), { type: "bulletList", content: [item(para(text("项")), quote(blockMath("p\nq")))] }),
+      );
+      expect(md).toContain("> > $$\n> > x\n> > $$");
+      expect(latexOf(back)).toEqual(["x", "p\nq"]);
+    });
+
+    it("无序 / 有序列表项里的多行块级公式：续行缩进不混进公式源码，往返后缩进不增长", () => {
+      const { back } = roundTrip(
+        doc(
+          { type: "bulletList", content: [item(para(text("项")), blockMath(aligned))] },
+          { type: "orderedList", content: [item(para(text("项")), blockMath("a\nb"))] },
+        ),
+      );
+      expect(latexOf(back)).toEqual([aligned, "a\nb"]);
+    });
+
+    it("手写 Markdown：引用块里的块级公式；顶层公式自带的缩进和以 > 开头的行属于公式源码，不能当前缀去掉", () => {
+      expect(latexOf(markdownToTiptapJSON("> $$\n> E=mc^2\n> $$"))).toEqual(["E=mc^2"]);
+      expect(latexOf(markdownToTiptapJSON(">$$\n>a\n>b\n>$$"))).toEqual(["a\nb"]);
+      // 引用块里公式内部的空行写成 `>`（没有后面的空格）
+      expect(latexOf(markdownToTiptapJSON("> $$\n> a\n>\n> b\n> $$"))).toEqual(["a\n\nb"]);
+      const own = "\\begin{aligned}\n  a &= b\n> c\n\\end{aligned}";
+      expect(latexOf(markdownToTiptapJSON(`$$\n${own}\n$$`))).toEqual([own]);
+    });
+  });
+});
+
+// MD→RTE 抽取公式前必须绕开围栏代码块和行内代码：shell 里的 `$$`（进程号）、代码示例里的 `$x$` 都不是公式。
+// 不绕开时代码块被掏空，两个 `$$` 之间的正文还会被吞成一个假公式。
+describe("代码里的 $ 不是公式（MD→RTE）", () => {
+  const text = (value: string): JSONContent => ({ type: "text", text: value });
+  // 代码块的文字
+  const codeOf = (node: JSONContent | undefined): string => (node?.content ?? []).map((child) => child.text ?? "").join("");
+  // 段落内容摘要：公式记为 $源码$，行内代码记为 `源码`
+  const inlineOf = (node: JSONContent | undefined): Array<string | undefined> =>
+    (node?.content ?? []).map((child) => (child.type === "mathInline" ? `$${child.attrs?.latex}$` : child.marks?.some((mark) => mark.type === "code") ? `\`${child.text}\`` : child.text));
+  const typesOf = (node: JSONContent | undefined): Array<string | undefined> => (node?.content ?? []).map((child) => child.type);
+
+  it("围栏代码块里的 $$（shell 进程号）不是公式：代码块不被掏空，两个代码块之间的正文不被吞掉", () => {
+    const back: JSONContent = markdownToTiptapJSON("```bash\necho $$\n```\n\n正文段落\n\n```bash\necho $$\n```");
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(back.content?.[0])).toBe("echo $$");
+    expect(back.content?.[1]?.content).toEqual([text("正文段落")]);
+    expect(codeOf(back.content?.[2])).toBe("echo $$");
+  });
+
+  it("围栏里成对的 $$…$$ 和 $x$ 保持为代码内容（``` 与 ~~~ 围栏）", () => {
+    const back: JSONContent = markdownToTiptapJSON("```latex\n$$\nx\n$$\n```\n\n~~~\n$x$ 和 $y$\n~~~");
+    expect(typesOf(back)).toEqual(["codeBlock", "codeBlock"]);
+    expect(back.content?.map((node) => codeOf(node))).toEqual(["$$\nx\n$$", "$x$ 和 $y$"]);
+    // 围栏必须由同一种字符结束：反引号围栏里的 ~~~ 行不会结束它
+    const mixed: JSONContent = markdownToTiptapJSON("```md\n~~~\n$$\nx\n$$\n~~~\n```");
+    expect(typesOf(mixed)).toEqual(["codeBlock"]);
+    expect(codeOf(mixed.content?.[0])).toBe("~~~\n$$\nx\n$$\n~~~");
+  });
+
+  it("行内代码里的 $$、$x$ 不是公式（含双反引号包着反引号），代码外的公式照常识别", () => {
+    const back: JSONContent = markdownToTiptapJSON("用 `echo $$` 取进程号，再用 `echo $$` 打印；变量 `$x$` 不是公式，而 $y$ 是。");
+    expect(typesOf(back)).toEqual(["paragraph"]);
+    expect(inlineOf(back.content?.[0])).toEqual(["用 ", "`echo $$`", " 取进程号，再用 ", "`echo $$`", " 打印；变量 ", "`$x$`", " 不是公式，而 ", "$y$", " 是。"]);
+    expect(inlineOf(markdownToTiptapJSON("双反引号 ``a`$$b`` 与 ``$x$`` 都是代码").content?.[0])).toEqual(["双反引号 ", "`a`$$b`", " 与 ", "`$x$`", " 都是代码"]);
+  });
+
+  it("四个反引号的围栏里含三个反引号的行：内部的 $$ 仍是代码，围栏之后的公式照常识别", () => {
+    const back: JSONContent = markdownToTiptapJSON("````md\n```\n$$\nx\n$$\n```\n````\n\n公式 $a$");
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph"]);
+    expect(codeOf(back.content?.[0])).toBe("```\n$$\nx\n$$\n```");
+    expect(inlineOf(back.content?.[1])).toEqual(["公式 ", "$a$"]);
+  });
+
+  it("引用块、列表项里的围栏代码块同样绕开", () => {
+    const quoted: JSONContent = markdownToTiptapJSON("> ```\n> echo $$\n> ```\n>\n> 正文\n>\n> ```\n> echo $$\n> ```");
+    expect(typesOf(quoted.content?.[0])).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(quoted.content?.[0]?.content?.[0])).toBe("echo $$");
+    const listed: JSONContent = markdownToTiptapJSON("- 项\n\n  ```\n  echo $$\n  ```\n\n  正文\n\n  ```\n  echo $$\n  ```");
+    const item = listed.content?.[0]?.content?.[0];
+    expect(typesOf(item)).toEqual(["paragraph", "codeBlock", "paragraph", "codeBlock"]);
+    expect(codeOf(item?.content?.[1])).toBe("echo $$");
+  });
+
+  it("没有结束围栏的代码块一直到文末，里面的 $$ 不是公式", () => {
+    const back: JSONContent = markdownToTiptapJSON("前文 $a$\n\n```\necho $$\n\n后面还是代码 $$");
+    expect(typesOf(back)).toEqual(["paragraph", "codeBlock"]);
+    expect(inlineOf(back.content?.[0])).toEqual(["前文 ", "$a$"]);
+    expect(codeOf(back.content?.[1])).toBe("echo $$\n\n后面还是代码 $$");
+  });
+
+  it("转义的反引号、没有配对的反引号不是代码，公式照常识别；块级公式前后的代码块不影响它", () => {
+    expect(inlineOf(markdownToTiptapJSON("\\`$x$\\`").content?.[0])).toEqual(["`", "$x$", "`"]);
+    expect(inlineOf(markdownToTiptapJSON("a ` b $x$ c").content?.[0])).toEqual(["a ` b ", "$x$", " c"]);
+    // 行首的 ```js foo``` 信息串里有反引号，是行内代码而不是围栏，不会把后面的内容都当成代码
+    expect(typesOf(markdownToTiptapJSON("```js foo``` 与 $$x$$"))).toContain("mathBlock");
+    // 反引号不跨段落配对：前一段里孤立的反引号和后一段里的反引号不构成行内代码
+    const split: JSONContent = markdownToTiptapJSON("a ` b\n\n$x$ c ` d");
+    expect(typesOf(split)).toEqual(["paragraph", "paragraph"]);
+    expect(inlineOf(split.content?.[1])).toEqual(["$x$", " c ` d"]);
+    // CRLF 换行的文档同样按空行分段
+    const crlf: JSONContent = markdownToTiptapJSON("a ` b\r\n\r\n$x$ c ` d");
+    expect(typesOf(crlf)).toEqual(["paragraph", "paragraph"]);
+    expect(inlineOf(crlf.content?.[1])).toEqual(["$x$", " c ` d"]);
+    const back: JSONContent = markdownToTiptapJSON("$$\na\n$$\n\n```\necho $$\n```\n\n$$\nb\n$$");
+    expect(typesOf(back)).toEqual(["mathBlock", "codeBlock", "mathBlock"]);
+    expect([back.content?.[0]?.attrs?.latex, back.content?.[2]?.attrs?.latex]).toEqual(["a", "b"]);
+  });
+
+  it("RTE→MD→RTE：代码块里的 $$ 和 $x$ 往返不变，第二次输出稳定", () => {
+    const code = (value: string): JSONContent => ({ type: "codeBlock", attrs: { language: "bash" }, content: [text(value)] });
+    const source: JSONContent = { type: "doc", content: [code("echo $$"), { type: "paragraph", content: [text("正文")] }, code("echo $$\nx=$y$")] };
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    expect(typesOf(back)).toEqual(["codeBlock", "paragraph", "codeBlock"]);
+    expect([codeOf(back.content?.[0]), codeOf(back.content?.[2])]).toEqual(["echo $$", "echo $$\nx=$y$"]);
+  });
+});
+
+// Tiptap 的 Link 默认只放行 http / mailto 等协议。getTiptapExtensions() 没有补 note 协议时，
+// generateHTML 把 note: 链接的 href 清成空串，generateJSON 也不把 note: 解析成链接，内部链接在两个方向都退化成纯文字。
+describe("内部笔记链接 RTE ↔ MD", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const text = (value: string, marks?: JSONContent["marks"]): JSONContent => ({ type: "text", text: value, ...(marks ? { marks } : {}) });
+  const para = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
+  const doc = (...content: JSONContent[]): JSONContent => ({ type: "doc", content });
+  // 与编辑器插入内部链接时写入的 mark 一致（TiptapEditor handleNoteLinkSelect）
+  const noteLink = (label: string, mode: "alias" | "auto", href = `note:${id}`): JSONContent =>
+    text(label, [{ type: "link", attrs: { href, target: "_blank", rel: `noopener noreferrer nofollow nowen-title-${mode}` } }]);
+  const roundTrip = (source: JSONContent) => {
+    const md = tiptapJsonToMarkdown(source);
+    const back: JSONContent = markdownToTiptapJSON(md);
+    expect(tiptapJsonToMarkdown(back)).toBe(md);
+    return { md, back };
+  };
+  const hasLinkMark = (json: JSONContent) => JSON.stringify(json).includes('"type":"link"');
+
+  it("带别名的内部链接写成 [[note:…|别名]]，往返后仍是带别名的链接", () => {
+    const { md, back } = roundTrip(doc(para(text("见 "), noteLink("别名", "alias"))));
+    expect(md).toBe(`见 [[note:${id}|别名]]`);
+    const [, link] = back.content?.[0]?.content ?? [];
+    expect(link?.text).toBe("别名");
+    expect(link?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+    expect(link?.marks?.[0]?.attrs?.rel).toContain("nowen-title-alias");
+  });
+
+  it("自动标题的内部链接写成 [[note:…]]，块锚点保留，往返后仍是自动标题的链接", () => {
+    const { md, back } = roundTrip(doc(para(noteLink("目标笔记", "auto"), text("、"), noteLink("某一段", "alias", `note:${id}#blk:blk_abc12345`))));
+    expect(md).toBe(`[[note:${id}]]、[[note:${id}#blk:blk_abc12345|某一段]]`);
+    const [auto, , block] = back.content?.[0]?.content ?? [];
+    expect(auto?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+    expect(auto?.marks?.[0]?.attrs?.rel).toContain("nowen-title-auto");
+    expect(block?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}#blk:blk_abc12345` } });
+    expect(block?.text).toBe("某一段");
+  });
+
+  it("表格单元格里的内部链接：别名前的 | 不拆开单元格，往返后链接不丢", () => {
+    const cell = (type: string, ...content: JSONContent[]): JSONContent => ({ type, content: [para(...content)] });
+    const source = doc({
+      type: "table",
+      content: [
+        { type: "tableRow", content: [cell("tableHeader", text("笔记")), cell("tableHeader", text("说明"))] },
+        { type: "tableRow", content: [cell("tableCell", noteLink("别名", "alias")), cell("tableCell", text("x"))] },
+      ],
+    });
+    const { md, back } = roundTrip(source);
+    expect(md).toBe(`| 笔记 | 说明 |\n| --- | --- |\n| [[note:${id}|别名]] | x |`);
+    expect(back.content?.[0]?.content?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.marks?.[0]).toMatchObject({ type: "link", attrs: { href: `note:${id}` } });
+  });
+
+  it("只放行 note 协议：javascript: 等其他协议仍然不是链接，note: 的前缀仿冒也不放行", () => {
+    const extensions = getTiptapExtensions();
+    // 放行：note: 解析成链接
+    expect(hasLinkMark(generateJSON(`<p><a href="note:${id}">x</a></p>`, extensions))).toBe(true);
+    // 拒绝：其他协议在 HTML → JSON 时只剩文字
+    for (const href of ["javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<script>alert(1)</script>", "vbscript:msgbox(1)", `notes:${id}`]) {
+      const json: JSONContent = generateJSON(`<p><a href="${href}">x</a></p>`, extensions);
+      expect(hasLinkMark(json), href).toBe(false);
+      expect(json.content?.[0]?.content).toEqual([text("x")]);
+    }
+    // MD → RTE 同样不放行
+    expect(hasLinkMark(markdownToTiptapJSON("[x](javascript:alert(1))"))).toBe(false);
+    // RTE → HTML：非法 href 被清空，不会带进 Markdown
+    const unsafe = doc(para(text("x", [{ type: "link", attrs: { href: "javascript:alert(1)" } }])));
+    expect(generateHTML(unsafe, extensions)).toContain('href=""');
+    expect(tiptapJsonToMarkdown(unsafe)).toBe("x");
   });
 });

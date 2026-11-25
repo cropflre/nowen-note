@@ -60,6 +60,7 @@ test("reads legacy flat preference rows and upgrades them on the next partial wr
   assert.equal(before.status, 200);
   assert.equal(before.json.noteTitleAsAppTitle, true);
   assert.equal(before.json.readingDensity, "compact");
+  assert.equal(before.json.codeBlockWordWrap, true);
   assert.deepEqual(before.json.hiddenNavigationModules, ["notifications"]);
   assert.equal(before.json.revision, 1);
   assert.equal(before.json.userId, USER_ID);
@@ -187,6 +188,54 @@ test("syncs code block collapse policy per account and rejects invalid values", 
   assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
 });
 
+test("DCC-006: code block word wrap persists per account without changing another user's preference", async () => {
+  const before = await requestJson("GET");
+  assert.equal(before.json.codeBlockWordWrap, true);
+
+  const disabled = await requestJson("PUT", { codeBlockWordWrap: false });
+  assert.equal(disabled.status, 200);
+  assert.equal(disabled.json.codeBlockWordWrap, false);
+  assert.ok(disabled.json.fieldUpdatedAt.codeBlockWordWrap);
+  assert.equal((await requestJson("GET")).json.codeBlockWordWrap, false);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.codeBlockWordWrap, true);
+
+  const stored = db().prepare("SELECT preferencesJson FROM user_preferences WHERE userId = ?").get(USER_ID) as { preferencesJson: string };
+  assert.equal(JSON.parse(stored.preferencesJson).codeBlockWordWrap, false);
+
+  await requestJson("PUT", { codeBlockWordWrap: false }, OTHER_ID);
+  const restored = await requestJson("PATCH", { codeBlockWordWrap: true });
+  assert.equal(restored.status, 200);
+  assert.equal((await requestJson("GET")).json.codeBlockWordWrap, true);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.codeBlockWordWrap, false);
+});
+
+test("rejects invalid code block word wrap values without replacing the saved preference", async () => {
+  const saved = await requestJson("PUT", { codeBlockWordWrap: false });
+  for (const value of ["false", 0, null, {}]) {
+    const invalid = await requestJson("PUT", { codeBlockWordWrap: value });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+  }
+  const after = await requestJson("GET");
+  assert.equal(after.json.codeBlockWordWrap, false);
+  assert.equal(after.json.revision, saved.json.revision);
+});
+
+test("rejects unauthenticated code block word wrap preference reads and writes", async () => {
+  await requestJson("PUT", { codeBlockWordWrap: false });
+  for (const method of ["GET", "PUT", "PATCH"]) {
+    const response = await app.request("/user-preferences", {
+      method,
+      ...(method === "GET" ? {} : {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codeBlockWordWrap: true }),
+      }),
+    });
+    assert.equal(response.status, 401);
+  }
+  assert.equal((await requestJson("GET")).json.codeBlockWordWrap, false);
+});
+
 
 test("syncs navigation visibility preferences and rejects unknown module ids", async () => {
   const before = await requestJson("GET");
@@ -280,4 +329,30 @@ test("syncs note-list divider preference per account", async () => {
   const invalid = await requestJson("PUT", { showNoteListDividers: "yes" });
   assert.equal(invalid.status, 400);
   assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+});
+
+
+test("DCC-006: template management visibility persists per account and rejects invalid or unauthenticated writes", async () => {
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, true);
+  const hidden = await requestJson("PUT", { showTemplateManagement: false });
+  assert.equal(hidden.status, 200);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.showTemplateManagement, true);
+
+  const invalid = await requestJson("PUT", { showTemplateManagement: "yes" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+  const unauthorized = await app.request("/user-preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ showTemplateManagement: true }),
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+
+  await requestJson("PUT", { readingDensity: "compact" });
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, false);
+  const shown = await requestJson("PUT", { showTemplateManagement: true });
+  assert.equal(shown.status, 200);
+  assert.equal((await requestJson("GET")).json.showTemplateManagement, true);
 });

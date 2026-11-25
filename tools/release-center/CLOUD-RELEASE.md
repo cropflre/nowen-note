@@ -21,7 +21,7 @@ bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc,andr
 bash scripts/release.sh --branch release/v1.5.4 --version 1.5.4 --target pc --dry-run
 ```
 
-`--target` 接受 `pc`（三平台桌面）、`windows`（Full/Lite 成套）、`macos`（x64/arm64）、`linux`（x64）、`android`（APK/AAB）、`ios`（IPA）、`store`（AppX）、`docker`（amd64/arm64）、`fpk`、`upk`、`clipper`（Chrome/Edge/Firefox）和 `all`。`lite` 映射为 Windows Full/Lite，`linux-app` 映射为 Linux。
+`--target` 接受 `pc`（三平台桌面）、`windows`（x64）、`macos`（x64/arm64）、`linux`（x64）、`android`（APK/AAB）、`ios`（IPA）、`store`（AppX）、`docker`（amd64/arm64）、`fpk`、`upk`、`clipper`（Chrome/Edge/Firefox）和 `all`。`lite` 映射为 Windows Full/Lite，`linux-app` 映射为 Linux。
 
 NAS 目标自动包含 Docker：FPK 引用本次版本镜像；UPK 从同次构建的两架构 Docker 归档打包，不拉取另一个版本的线上镜像。Docker 构建不登录、不推送镜像。扩展保留自己的 package.json 版本，应用版本和源码由外层清单绑定。
 
@@ -47,7 +47,7 @@ NAS 目标自动包含 Docker：FPK 引用本次版本镜像；UPK 从同次构�
 | `release-testflight` Environment Secrets | `APPSTORE_ISSUER_ID`、`APPSTORE_API_KEY_ID`、`APPSTORE_API_PRIVATE_KEY` | 上传本次已构建的 IPA |
 | `release-github` Environment | 配置所需审批和分支保护 | GitHub 发布 Job 使用最小权限 GITHUB_TOKEN；不使用本机发布 PAT |
 
-Windows GitHub Direct Full/Lite 沿用现有不要求第三方签名的策略。Store AppX 仍为独立提交包，平台上架由 Partner Center 处理。
+Windows GitHub Direct 沿用现有不要求第三方签名的策略（1.6.1 起不再打包 Lite 版）。Store AppX 仍为独立提交包，平台上架由 Partner Center 处理。
 
 iOS Runner 固定为 `macos-26`，使用 Node 24.22.1，并在依赖安装前检查 Xcode 26+，匹配 [Capacitor 8 工具链要求](https://capacitorjs.com/docs/updating/8-0)。
 

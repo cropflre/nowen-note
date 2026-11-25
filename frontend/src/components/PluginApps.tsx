@@ -1,0 +1,149 @@
+import React, { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Blocks } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useAppActions } from "@/store/AppContext";
+import { usePluginApps } from "@/hooks/usePluginApps";
+import { useAIConnectionAvailable } from "@/lib/aiConnection";
+import { getCurrentWorkspace } from "@/lib/api";
+import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
+import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
+import { currentUiPlatform } from "@/lib/pluginUiRegistry";
+import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
+import type { ViewMode } from "@/types";
+// Loaded on demand: the navigation rail imports this module, the workbench is only needed on /apps/dashboard.
+const PluginDashboard = lazy(() => import("./PluginDashboard"));
+import { PersonalStudio, PersonalStudioRuntime } from "./PersonalStudio";
+import { ExtensionCenterLayout } from "./extension-center/ExtensionCenterLayout";
+import ExtensionDiscover from "./extension-center/ExtensionDiscover";
+import MyPlugins from "./extension-center/MyPlugins";
+
+export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
+  const { enabled, centerEnabled, pages, pinned } = usePluginApps();
+  const { t } = useTranslation();
+  const actions = useAppActions();
+  if (!centerEnabled) return null;
+  const open = (path: string) => { pushAppPathState(path); actions.setMobileSidebar(false); };
+  // One entry for the whole Extension Center. The workbench is its "Dashboard" tab, so it has no second rail entry:
+  // two entries opening the same page under the same title made users ask what the difference was.
+  return <>
+    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(enabled ? pages.filter(pinned) : [])].map(page => (
+      <button key={page.runtimeId} data-mobile-drawer-rail-item="" type="button" title={page.title} aria-label={page.title} onClick={() => open(page.route)} className="flex w-10 min-h-10 flex-col items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover">
+        <Blocks size={17} />{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
+      </button>
+    ))}
+  </>;
+}
+
+export function PluginAppFrame({ page, compact = false, inspector, workspaceId }: { page: PluginAppPage; compact?: boolean; inspector?: PluginInspectorContext; workspaceId?: string }) {
+  const { t } = useTranslation();
+  const actions = useAppActions();
+  const aiAvailable = useAIConnectionAvailable();
+  const aiAvailableRef = useRef(aiAvailable);
+  aiAvailableRef.current = aiAvailable;
+  const frame = useRef<HTMLIFrameElement>(null);
+  const connection = useRef<ReturnType<typeof connectPluginAppFrame> | undefined>(undefined);
+  const activeSession = useRef<PluginAppSession | null>(null);
+  const [session, setSession] = useState<PluginAppSession | null>(null);
+  const [error, setError] = useState(false), [ready, setReady] = useState(false), [attempt, setAttempt] = useState(0);
+  const requestController = useRef<AbortController | undefined>(undefined);
+  const failRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    const controller = new AbortController(); requestController.current = controller;
+    let active = true, created: PluginAppSession | null = null;
+    const fail = () => {
+      if (!active) return;
+      connection.current?.close(); activeSession.current = null; setSession(null); setReady(false); setError(true);
+      controller.abort();
+      if (created) void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined);
+    };
+    failRef.current = fail;
+    setError(false); setReady(false);
+    const start = async () => {
+      try {
+        created = await pluginApi.appSession(page, { workspaceId: workspaceId ?? getCurrentWorkspace(), platform: currentUiPlatform(), theme: document.documentElement.classList.contains("dark") ? "dark" : "light", ...(inspector ? { inspector } : {}) }, controller.signal);
+        if (!active || controller.signal.aborted) { void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined); return; }
+        const events = await pluginApi.appEvents(created.instanceId, created.nonce, controller.signal);
+        if (!events.ok || !events.body) throw new Error("PLUGIN_UI_SESSION_REVOKED");
+        activeSession.current = created; setSession(created);
+        const reader = events.body.getReader();
+        try {
+          let pending = "";
+          const decoder = new TextDecoder();
+          while (active && !controller.signal.aborted) {
+            const chunk = await reader.read(); if (chunk.done) break;
+            pending += decoder.decode(chunk.value, { stream: true });
+            if (pending.includes("event: revoked")) { window.dispatchEvent(new Event(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT)); break; }
+            if (pending.length > 2048) pending = pending.slice(-100);
+          }
+        } finally { reader.releaseLock(); }
+        fail();
+      } catch { if (!controller.signal.aborted) fail(); }
+    };
+    void start();
+    window.addEventListener("nowen:token-changed", fail);
+    window.addEventListener("nowen:workspace-changed", fail);
+    window.addEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, fail);
+    const visibility = () => connection.current?.event("visibility.changed", { visible: !document.hidden });
+    const observer = new MutationObserver(() => connection.current?.event("theme.changed", { theme: document.documentElement.classList.contains("dark") ? "dark" : "light" }));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      active = false; controller.abort(); connection.current?.close(); activeSession.current = null;
+      observer.disconnect(); document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("nowen:token-changed", fail); window.removeEventListener("nowen:workspace-changed", fail); window.removeEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, fail);
+      if (created) void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined);
+    };
+  }, [page.pluginId, page.id, attempt, inspector?.id, inspector?.resource.type, inspector?.resource.id, workspaceId]);
+
+  const loaded = () => {
+    const current = activeSession.current;
+    if (!current || !frame.current || connection.current && ready) { failRef.current(); return; }
+    connection.current?.close();
+    connection.current = connectPluginAppFrame(frame.current, current, async message => {
+      const response = await pluginApi.appCall(current.instanceId, message, requestController.current?.signal);
+      if (activeSession.current !== current) throw new Error("PLUGIN_UI_SESSION_REVOKED");
+      if (response.pluginId !== current.pluginId || response.instanceId !== current.instanceId || response.requestId !== message.requestId || response.protocol !== "nowen.plugin-ui.v3" || response.kind !== "response") throw new Error("PLUGIN_UI_INVALID_RESPONSE");
+      if (message.method === "navigation.open" && response.ok) {
+        const target = (response.data as { target?: string })?.target;
+        if (target === "ai-chat" && !aiAvailableRef.current) return response;
+        if (["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"].includes(target || "")) {
+          replaceAppPathState("/"); actions.setViewMode(target as ViewMode); actions.setMobileView("list");
+          const noteId = (response.data as { noteId?: string }).noteId;
+          if (target === "all" && typeof noteId === "string") window.dispatchEvent(new CustomEvent("nowen:open-note-link", { detail: { noteId, blockId: null, href: `nowen://note/${noteId}` } }));
+        }
+      }
+      return response;
+    }, () => failRef.current(), () => setReady(true));
+  };
+  return <div className="flex min-h-0 flex-1 flex-col">
+    {!compact && <div className="flex items-center gap-3 border-b border-app-border p-3">
+      <button onClick={() => pushAppPathState("/apps")} className="rounded px-2 py-1 hover:bg-app-hover">{t("pluginApps.back")}</button><h1 className="font-medium">{page.title}</h1>
+    </div>}
+    {error ? <div role="alert" className="p-6"><p>{t("pluginApps.failed")}</p><button className="mt-3 rounded border border-app-border px-3 py-2" onClick={() => { connection.current = undefined; setAttempt(value => value + 1); }}>{t("pluginApps.retry")}</button></div>
+      : <>{!ready && <p role="status" className="p-4">{t("pluginApps.loading")}</p>}{session && <iframe ref={frame} title={page.title} sandbox="allow-scripts" referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" src={pluginAppDocumentUrl(session)} onLoad={loaded} className="min-h-0 w-full flex-1 border-0 bg-white" />}</>}
+  </div>;
+}
+
+export default function PluginApps({ pluginId, pageId, dashboard = false, discover = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; discover?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
+  const { enabled, centerEnabled, dashboardEnabled, pages, pinned } = usePluginApps();
+  const { t } = useTranslation();
+  const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
+  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} dashboardEnabled={dashboardEnabled} />;
+  // Creating an app is a section of the Extension Center; editing an existing one keeps its full-width page.
+  if (studio && !studioId) return <ExtensionCenterLayout section="create" dashboardEnabled={dashboardEnabled}><PersonalStudio key="new" /></ExtensionCenterLayout>;
+  if (studio) return <PersonalStudio key={studioId} appId={studioId} />;
+  if (dashboard) return <ExtensionCenterLayout section="dashboard" dashboardEnabled={dashboardEnabled}>
+    <Suspense fallback={<p role="status" className="text-sm text-tx-tertiary">{t("pluginApps.loading")}</p>}><PluginDashboard /></Suspense>
+  </ExtensionCenterLayout>;
+  if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
+  const unavailable = <p className="text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>;
+  if (discover) return centerEnabled
+    ? <ExtensionDiscover dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} />
+    : <ExtensionCenterLayout section="discover" dashboardEnabled={dashboardEnabled}>{unavailable}</ExtensionCenterLayout>;
+  // "/apps" and the legacy "/apps/manage" both show the unified "Mine" list.
+  if (!centerEnabled) return <ExtensionCenterLayout section="mine" dashboardEnabled={dashboardEnabled}>
+    {pluginId && <p role="alert" className="mb-4 text-sm text-tx-secondary">{t("pluginApps.unavailable")}</p>}
+    {unavailable}
+  </ExtensionCenterLayout>;
+  return <MyPlugins dashboardAvailable={dashboardEnabled} appPagesAvailable={enabled} pages={pages} pinned={pinned} unavailableApp={!!pluginId} />;
+}

@@ -555,6 +555,7 @@ export const zhCNCoverageTranslations = {
     "restoreLocalAuth": "恢复本地自动登录",
   },
   knowledgeTreeUi: {
+    "locateByDoubleClick": "双击在目录中定位",
     "moved": "已移动",
     "moveFailed": "移动失败",
     "moveTitle": "移动“{{title}}”",
@@ -1184,6 +1185,7 @@ export const enCoverageTranslations = {
     "restoreLocalAuth": "Restore local automatic sign-in",
   },
   knowledgeTreeUi: {
+    "locateByDoubleClick": "Double-click to locate in the tree",
     "moved": "Moved",
     "moveFailed": "Move failed",
     "moveTitle": "Move “{{title}}”",

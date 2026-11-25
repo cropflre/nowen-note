@@ -42,7 +42,7 @@ const ENTITY_TABLES: Array<{
  * 统一带上 baseUpdatedAt：那是冲突检测的依据。
  * 对 UPDATE 用 OLD.updatedAt —— 它正是"本次修改所基于的版本"。
  */
-function payloadExpr(entityType: string, alias: string, baseAlias?: string, archived = false, recurrence = false): string {
+function payloadExpr(entityType: string, alias: string, baseAlias?: string, archived = false, recurrence = false, diaryAttachments = false): string {
   const base = baseAlias
     ? `'baseUpdatedAt', ${baseAlias}.updatedAt,`
     : "";
@@ -87,6 +87,7 @@ function payloadExpr(entityType: string, alias: string, baseAlias?: string, arch
         'mood', ${alias}.mood,
         'images', ${alias}.images,
         'media', ${alias}.media,
+        ${diaryAttachments ? `'attachments', ${alias}.attachments,` : ""}
         'createdAt', ${alias}.createdAt,
         'userId', ${alias}.userId,
         'workspaceId', ${alias}.workspaceId
@@ -158,6 +159,8 @@ export function installSyncPersonalEntitiesTriggers(
     const baseArg = hasUpdatedAt(entityType) ? "OLD" : undefined;
     const archived = entityType === "task" && (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((column) => column.name === "archivedAt");
     const recurrence = entityType === "task" && !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='task_recurrence_state'").get();
+    // v147 才新增 diaries.attachments；更早的迁移重建触发器时该列尚不存在。
+    const diaryAttachments = entityType === "diary" && (db.prepare("PRAGMA table_info(diaries)").all() as Array<{ name: string }>).some((column) => column.name === "attachments");
     const deletePayload = recurrence ? `json_object('repeatGroupId',COALESCE(OLD.repeatGroupId,OLD.id),'recurrenceAction',
       (SELECT action FROM task_recurrence_state WHERE groupId=COALESCE(OLD.repeatGroupId,OLD.id) AND scopeKey=CASE WHEN OLD.workspaceId IS NULL THEN 'personal:' || OLD.userId ELSE 'workspace:' || OLD.workspaceId END))` : "NULL";
 
@@ -220,7 +223,7 @@ export function installSyncPersonalEntitiesTriggers(
           (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(newWorkspace)},
           (SELECT deviceId FROM sync_v2_local_device),
           '${entityType}', NEW.id, 'upsert', NULL,
-          ${payloadExpr(entityType, "NEW", undefined, archived, recurrence)},
+          ${payloadExpr(entityType, "NEW", undefined, archived, recurrence, diaryAttachments)},
           'pending', 0, datetime('now')
         );
       END;
@@ -249,7 +252,7 @@ export function installSyncPersonalEntitiesTriggers(
           (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(newWorkspace)},
           (SELECT deviceId FROM sync_v2_local_device),
           '${entityType}', NEW.id, 'upsert', NULL,
-          ${payloadExpr(entityType, "NEW", baseArg, archived, recurrence)},
+          ${payloadExpr(entityType, "NEW", baseArg, archived, recurrence, diaryAttachments)},
           'pending', 0, datetime('now')
         WHERE ${newScopeCondition};
       END;
