@@ -7,14 +7,25 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z, ZodError } from "zod";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, migrationStageSchema } from "../services/migrationFormat.js";
+import { getRuntimeMigrationLimits } from "../lib/migration-limits.js";
 import { migrationDirectoryBytes, sniffMigrationAsset } from "../services/migrationSourceAdapter.js";
 import { MIGRATION_SOURCE_ADAPTERS, MIGRATION_SOURCE_ADAPTER_API_VERSION } from "../services/migrationSourceAdapters.js";
 import {
   MigrationError, approveMigration, beginMigrationUpload, controlMigration, createMigration, decideMigrationItem,
-  failMigrationUpload, finishMigrationUpload, getMigration, listMigrations, migrationJobDirectory,
-  migrationReport, previewMigration, registerMigrationAsset, stageMigrationItems, undoMigration,
+  failMigrationUpload, finishMigrationUpload, getMigration, isDesktopLocalImportEnabled, listMigrations,
+  migrationJobDirectory, migrationReport, previewMigration, registerMigrationAsset, stageMigrationItems,
+  startLocalDirectoryMigration, undoMigration,
   type MigrationActor,
 } from "../services/migrationService.js";
+
+function verifyDesktopLocalSecret(c: any): boolean {
+  const expected = process.env.ELECTRON_LOCAL_ACCOUNT_SECRET;
+  if (!expected || expected.length < 16) return false;
+  const got = c.req.header("X-Nowen-Desktop-Secret") || "";
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const gotBuf = Buffer.from(got, "utf8");
+  return expectedBuf.length === gotBuf.length && crypto.timingSafeEqual(expectedBuf, gotBuf);
+}
 
 const app = new Hono();
 const actor = (c: any): MigrationActor => ({ userId: c.req.header("X-User-Id") || "", tokenId: c.req.header("X-Auth-Mode") === "api-token" ? c.req.header("X-Api-Token-Id") || "" : null });
@@ -35,7 +46,8 @@ app.get("/capabilities", (c) => c.json({
   schemaVersion: 1, formats: ["markdown", "html", "txt", "zip", "nmf-v1"],
   sourceAdapters: ["notion-markdown-html-csv", "siyuan-native-zip"], resumableUploads: true, uploadChunkBytes: 4 * 1024 * 1024,
   adapterApiVersion: MIGRATION_SOURCE_ADAPTER_API_VERSION, adapters: MIGRATION_SOURCE_ADAPTERS,
-  limits: MIGRATION_LIMITS, strategies: ["new-root", "skip-existing"],
+  limits: getRuntimeMigrationLimits(), strategies: ["new-root", "skip-existing"],
+  localDirectoryImport: isDesktopLocalImportEnabled(),
   humanApprovalRequired: true, remoteFetch: false, overwrite: false,
   requiredScopes: ["export:import", "notes:read", "notes:write", "notebooks:read", "notebooks:write"],
   optionalScopes: { attachments: "attachments:write", tags: "tags:write" },
@@ -44,6 +56,22 @@ app.get("/capabilities", (c) => c.json({
 }));
 app.get("/", (c) => c.json({ items: listMigrations(actor(c)) }));
 app.post("/", async (c) => c.json(createMigration(actor(c), await c.req.json()), 201));
+app.post("/local-directory", async (c) => {
+  if (!verifyDesktopLocalSecret(c)) {
+    throw new MigrationError("MIGRATION_LOCAL_DIR_FORBIDDEN", "仅桌面端本地模式支持直接导入本地文件夹", 403);
+  }
+  const owner = actor(c);
+  if (owner.tokenId) {
+    throw new MigrationError("MIGRATION_HUMAN_APPROVAL_REQUIRED", "请在 Nowen Note 桌面端中选择要导入的文件夹", 403);
+  }
+  const body = z.object({
+    directoryPath: z.string().min(1).max(4096),
+    workspaceId: z.string().max(128).nullable().optional(),
+    targetNotebookId: z.string().max(128).nullable().optional(),
+    name: z.string().max(200).optional(),
+  }).strict().parse(await c.req.json());
+  return c.json(startLocalDirectoryMigration(owner, body), 202);
+});
 app.get("/:id", (c) => c.json(getMigration(actor(c), c.req.param("id"))));
 app.post("/:id/items", async (c) => {
   const body = migrationStageSchema.parse(await c.req.json());
@@ -78,10 +106,11 @@ app.post("/:id/uploads", async (c) => {
   beginMigrationUpload(owner, id);
   const jobDir = migrationJobDirectory(id);
   const diskPath = path.join(jobDir, relative);
-  const maxBytes = assetPath ? MIGRATION_LIMITS.assetBytes : /\.zip$/i.test(filename) ? MIGRATION_LIMITS.uploadBytes : MIGRATION_LIMITS.contentBytes;
+  const runtimeLimits = getRuntimeMigrationLimits();
+  const maxBytes = assetPath ? runtimeLimits.assetBytes : /\.zip$/i.test(filename) ? runtimeLimits.uploadBytes : runtimeLimits.contentBytes;
   const initialBytes = migrationDirectoryBytes(jobDir);
   // One compressed upload and one expanded package fit within this independent temporary quota.
-  const tempBudget = MIGRATION_LIMITS.temporaryBytes;
+  const tempBudget = runtimeLimits.temporaryBytes;
   let bytes = 0;
   let opened = false;
   const uploadStarted = performance.now();

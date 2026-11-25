@@ -158,6 +158,7 @@
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" },
         { "file": "frontend/src/lib/__tests__/mobileAttachmentUploadTransport.test.ts", "case": "DCC-003: Android native HTTP upload stores the original bytes" },
         { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-003: HEAD reports metadata-only bytes as missing so desktop and NAS clients upload them" },
+        { "file": "backend/tests/sync-v2-login-route.test.ts", "case": "DCC-003: Sync V2 持久化 refreshToken，在 15 分钟 Access Token 过期后自动续期并保持数据与连接不中断" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a structural failure is classified non-retryable, rolls the page back, keeps local work and does not advance cursors" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: failure diagnostics carry stage, error kind, redacted ids, parent state and SQLite code but no content or credentials" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a network failure in the middle of the notebook segment keeps the cursor and retries to the same structure" },
@@ -262,6 +263,7 @@
         },
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-005: a crashed in-memory bootstrap rereads every snapshot page" },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness verifies bounded batches of actual files, including when sync is paused" },
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness preserves verified attachment counts across incremental sync updates instead of resetting to zero" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-005: native offline availability checks actual files without treating local edits as server ACKs" },
         { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: the sync test database carries the production notebook parent guards" },
@@ -280,7 +282,8 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
-        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" }
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" },
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-005: 桌面端本地文件夹零拷贝直导支持 Obsidian 独立附件库与相对路径，忽略符号链接且不改动源目录" }
       ]
     },
     {
@@ -289,6 +292,7 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: journal restoration requires identity and keeps other accounts and workspace journals isolated" },
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-006: 本地文件夹直导强制校验桌面密钥与权限，拒绝未授权、API Token 与根目录请求" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: a password protected journal archive stays locked before and after deletion" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder editors list workspace templates and create complete independent notes in inherited targets" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: template use rejects readonly, unrelated, deleted and mismatched targets without writing notes" },

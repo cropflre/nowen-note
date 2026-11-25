@@ -174,6 +174,7 @@ app.post("/settings/server", async (c) => {
     name?: unknown;
     remoteUserId?: unknown;
     token?: unknown;
+    refreshToken?: unknown;
   };
   try {
     body = await c.req.json();
@@ -187,6 +188,9 @@ app.post("/settings/server", async (c) => {
   }
   const remoteUserId = typeof body.remoteUserId === "string" ? body.remoteUserId.trim() : null;
   const token = typeof body.token === "string" ? body.token.trim() : "";
+  const refreshToken = typeof body.refreshToken === "string" && body.refreshToken.trim()
+    ? body.refreshToken.trim()
+    : undefined;
   const userId = c.req.header("X-User-Id") as string;
 
   try {
@@ -224,6 +228,7 @@ app.post("/settings/server", async (c) => {
         profileId: profile.id,
         serverUrl: profile.serverUrl,
         token,
+        refreshToken,
         remoteUserId,
       });
       // 同一 Profile 重新授权时，旧引擎仍持有构造时的旧 token。
@@ -342,6 +347,9 @@ app.post("/settings/server/login", async (c) => {
   }
 
   const token = typeof payload?.token === "string" ? payload.token.trim() : "";
+  const refreshToken = typeof payload?.refreshToken === "string" && payload.refreshToken.trim()
+    ? payload.refreshToken.trim()
+    : null;
   const remoteUserId = typeof payload?.user?.id === "string" ? payload.user.id.trim() : "";
   if (!token || !remoteUserId) {
     return c.json({ error: "远端登录响应缺少 Token 或用户身份", code: "INVALID_PAYLOAD" }, 502);
@@ -377,6 +385,7 @@ app.post("/settings/server/login", async (c) => {
       profileId: configured.profile.id,
       serverUrl,
       token,
+      refreshToken,
       remoteUserId,
     });
 
@@ -618,7 +627,7 @@ app.post("/lite-migration", async (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  let body: { serverUrl?: unknown; token?: unknown };
+  let body: { serverUrl?: unknown; token?: unknown; refreshToken?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -627,6 +636,9 @@ app.post("/lite-migration", async (c) => {
 
   const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
   const token = typeof body.token === "string" ? body.token.trim() : "";
+  const refreshToken = typeof body.refreshToken === "string" && body.refreshToken.trim()
+    ? body.refreshToken.trim()
+    : undefined;
   if (!/^https?:\/\//i.test(serverUrl)) {
     return c.json({ error: "服务器地址必须以 http(s):// 开头", code: "INVALID_PAYLOAD" }, 400);
   }
@@ -668,6 +680,8 @@ app.post("/lite-migration", async (c) => {
         profileId: progress.profileId,
         serverUrl: normalized,
         token,
+        refreshToken,
+        remoteUserId: identity.id,
       });
       const engine = reconcileSyncEngine(db, { userId });
       return c.json({ ...progress, engineRunning: engine !== null });

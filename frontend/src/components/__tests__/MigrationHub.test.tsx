@@ -9,16 +9,25 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(), get: vi.fn(), create: vi.fn(), upload: vi.fn(), preview: vi.fn(), approve: vi.fn(),
   retry: vi.fn(), cancel: vi.fn(), pause: vi.fn(), resume: vi.fn(), undo: vi.fn(), report: vi.fn(),
   imported: vi.fn(), view: vi.fn(), legacy: vi.fn(), confirm: vi.fn(), items: vi.fn(), decide: vi.fn(), tokens: vi.fn(), clipboard: vi.fn(),
-  scope: "server:user-1", openArchive: vi.fn(), archiveOn: false, aiAvailable: true,
+  scope: "server:user-1", baseUrl: "https://nowen.test/api", openArchive: vi.fn(), archiveOn: false, aiAvailable: true,
+  migrationMaxUploadMb: 2048, updateMigrationMaxUploadMb: vi.fn(),
 }));
 vi.mock("@/lib/migrations", async (original) => ({ ...await original<typeof import("@/lib/migrations")>(), migrationApi: { ...mocks, uploadResumable: mocks.upload } }));
-vi.mock("@/lib/api", () => ({ api: { getNotebooks: async () => [{ id: "book-1", name: "Work" }], tokens: { list: mocks.tokens } } }));
+vi.mock("@/lib/api", () => ({
+  getBaseUrl: () => mocks.baseUrl,
+  api: { getNotebooks: async () => [{ id: "book-1", name: "Work" }], tokens: { list: mocks.tokens } },
+}));
 vi.mock("@/lib/offlineScope", () => ({ getOfflineQueueStorageKey: () => mocks.scope }));
 vi.mock("@/lib/reliableExportDownloadBridge", () => ({ scheduleObjectUrlRevocation: vi.fn() }));
 vi.mock("../settings/McpConnectionPanel", () => ({ default: () => <span>Connection guide</span> }));
 vi.mock("../ui/confirm", () => ({ confirm: mocks.confirm }));
 vi.mock("@/lib/aiMemory", () => ({ openAIMemory: (...args: unknown[]) => mocks.openArchive(...args) }));
-vi.mock("@/hooks/useSiteSettings", () => ({ useSiteSettings: () => ({ siteConfig: { aiMemoryEnabled: mocks.archiveOn } }) }));
+vi.mock("@/hooks/useSiteSettings", () => ({
+  useSiteSettings: () => ({
+    siteConfig: { aiMemoryEnabled: mocks.archiveOn, migrationMaxUploadMb: mocks.migrationMaxUploadMb },
+    updateMigrationMaxUploadMb: mocks.updateMigrationMaxUploadMb,
+  }),
+}));
 vi.mock("@/lib/aiConnection", () => ({ useAIConnectionAvailable: () => mocks.aiAvailable }));
 vi.mock("react-i18next", () => { const t = (key: string) => key; return { useTranslation: () => ({ t }) }; });
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,7 +58,9 @@ const chatgptExport = async () => {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.scope = "server:user-1"; mocks.archiveOn = false; mocks.aiAvailable = true;
+  vi.clearAllMocks(); mocks.scope = "server:user-1"; mocks.baseUrl = "https://nowen.test/api"; mocks.archiveOn = false; mocks.aiAvailable = true;
+  mocks.migrationMaxUploadMb = 2048; mocks.updateMigrationMaxUploadMb.mockResolvedValue(undefined);
+  delete (window as unknown as { nowenDesktop?: unknown }).nowenDesktop;
   mocks.view.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([baseJob]); mocks.get.mockResolvedValue(baseJob);
   mocks.create.mockResolvedValue({ ...baseJob, status: "CREATED", previewDigest: null });
@@ -281,5 +292,42 @@ describe("Let AI move it: only what the server actually knows", () => {
     expect(mocks.get).toHaveBeenCalledWith("job-ai");
     expect(host.textContent).toContain("migration.smart.preparedByAssistant");
     expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
+  it("uses native zero-copy desktop local folder import when connected to local desktop backend", async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.baseUrl = "http://127.0.0.1:3001/api";
+    const importLocalFolder = vi.fn().mockResolvedValue({
+      ok: true,
+      cancelled: false,
+      job: { ...baseJob, id: "job-local-dir", status: "CREATED", previewDigest: null },
+    });
+    (window as unknown as { nowenDesktop?: unknown }).nowenDesktop = {
+      isDesktop: true,
+      migration: { importLocalFolder },
+    };
+    mocks.preview.mockResolvedValue({ ...baseJob, id: "job-local-dir", status: "PREVIEW_READY" });
+    await render();
+    expect(host.textContent).toContain("migration.smart.formatsLocalFolder");
+    await click(button("smart.chooseFolder"));
+    await vi.waitFor(() => expect(importLocalFolder).toHaveBeenCalledWith({
+      workspaceId: "personal",
+      token: undefined,
+    }));
+    await vi.waitFor(() => expect(mocks.preview).toHaveBeenCalledWith("job-local-dir"));
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("migration.smart.found");
+  });
+
+  it("lets admins adjust the ZIP upload limit inline and validates bounds", async () => {
+    mocks.list.mockResolvedValue([]);
+    await render({ canConfigureLimits: true });
+    expect(host.textContent).toContain("migration.smart.limitLabel");
+    await click(button("smart.changeLimit"));
+    const preset35 = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === "3.5 GB");
+    expect(preset35).toBeDefined();
+    await click(preset35);
+    expect(mocks.updateMigrationMaxUploadMb).toHaveBeenCalledWith(3584);
+    expect(host.textContent).toContain("migration.smart.limitSaved");
   });
 });

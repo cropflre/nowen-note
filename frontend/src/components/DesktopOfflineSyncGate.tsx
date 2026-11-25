@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DesktopDownloadError, automaticallyDownloadDesktopCopy, isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import type { LiteMigrationProgress, NowenDesktopAPI } from '@/lib/desktopBridge';
-import { getAccessToken } from '@/lib/authSession';
+import { getAccessToken, getRefreshToken } from '@/lib/authSession';
 import { getServerUrl } from '@/lib/api';
 import { exportQueueDiagnostics, getFailedQueueItems, getQueueLength, retryFailedQueueItems } from '@/lib/offlineQueue';
 import { getOfflineQueueStorageKey } from '@/lib/offlineScope';
@@ -49,7 +49,7 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         }
         if (getQueueLength() > 0) await syncNow();
         if (!current()) return;
-        const changed = await automaticallyDownloadDesktopCopy(bridge,serverUrl,token,getQueueLength);
+        const changed = await automaticallyDownloadDesktopCopy(bridge,serverUrl,token,getQueueLength,getRefreshToken());
         if (!current()) return;
         if (changed) {
           const info = await bridge.getAppInfo();

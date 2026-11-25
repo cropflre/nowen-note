@@ -27,6 +27,8 @@ export interface SiteConfig {
   editorFontFamily: string;
   /** 服务端是否开启 AI 对话归档（服务端默认开启，管理员可关闭）；在读到设置前，以及旧版服务端没有这个开关时，视为关闭。 */
   aiMemoryEnabled: boolean;
+  /** 导入笔记单包（ZIP）最大体积（MB，100~3584，默认 2048）。 */
+  migrationMaxUploadMb: number;
 }
 
 const DEFAULT_CONFIG: SiteConfig = {
@@ -43,6 +45,7 @@ const DEFAULT_CONFIG: SiteConfig = {
   filePublicOriginSource: "inherit",
   editorFontFamily: "",
   aiMemoryEnabled: false,
+  migrationMaxUploadMb: 2048,
 };
 
 const MOBILE_LOCAL_SITE_CONFIG_KEY = "nowen-mobile-local-site-config";
@@ -67,6 +70,8 @@ interface SiteSettingsContextValue {
   updateEditorFont: (fontId: string) => Promise<void>;
   /** 管理员开启或关闭 AI 对话归档；服务端拒绝时抛错，界面保持原值。 */
   updateAIMemoryEnabled: (enabled: boolean) => Promise<void>;
+  /** 管理员调整导入笔记单包（ZIP）体积上限（MB，100~3584）。 */
+  updateMigrationMaxUploadMb: (mb: number) => Promise<void>;
   isLoaded: boolean;
 }
 
@@ -77,6 +82,7 @@ const SiteSettingsContext = createContext<SiteSettingsContextValue>({
   updateFilePublicOrigin: async () => {},
   updateEditorFont: async () => {},
   updateAIMemoryEnabled: async () => {},
+  updateMigrationMaxUploadMb: async () => {},
   isLoaded: false,
 });
 
@@ -141,6 +147,12 @@ function applyEditorFont(fontId: string, customFontName?: string) {
   );
 }
 
+function normalizeMigrationMaxUploadMb(raw: unknown, fallback = 2048): number {
+  const parsed = typeof raw === "number" ? raw : typeof raw === "string" && /^\s*\d+\s*$/.test(raw) ? Number(raw.trim()) : NaN;
+  if (!Number.isInteger(parsed) || parsed < 100 || parsed > 3584) return fallback;
+  return parsed;
+}
+
 function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteConfig {
   return {
     title: data?.site_title || "nowen-note",
@@ -156,6 +168,7 @@ function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteCon
     filePublicOriginSource: data?.site_file_public_origin_source || "inherit",
     editorFontFamily: data?.editor_font_family || previous.editorFontFamily || "",
     aiMemoryEnabled: data?.feature_ai_memory_enabled === true || data?.feature_ai_memory_enabled === "true",
+    migrationMaxUploadMb: normalizeMigrationMaxUploadMb(data?.migration_max_upload_mb, previous.migrationMaxUploadMb || 2048),
   };
 }
 
@@ -334,8 +347,14 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     setSiteConfig((previous) => toSiteConfig(data, previous));
   }, []);
 
+  const updateMigrationMaxUploadMb = useCallback(async (mb: number) => {
+    if (isMobileLocalMode()) return;
+    const data = await api.updateSiteSettings({ migration_max_upload_mb: mb });
+    setSiteConfig((previous) => toSiteConfig(data, previous));
+  }, []);
+
   return (
-    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateFilePublicOrigin, updateEditorFont, updateAIMemoryEnabled, isLoaded }}>
+    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateFilePublicOrigin, updateEditorFont, updateAIMemoryEnabled, updateMigrationMaxUploadMb, isLoaded }}>
       {children}
     </SiteSettingsContext.Provider>
   );

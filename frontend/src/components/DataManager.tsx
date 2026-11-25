@@ -1181,6 +1181,7 @@ export default function DataManager() {
         workspaceId={effectiveWorkspaceId}
         disabled={(scope === "personal" && personalImportLocked) || workspaceScopeNotReady}
         localOnly={isMobileLocalMode()}
+        canConfigureLimits={isAdmin}
         onLegacyImport={() => setActiveSubTab("import")}
         onImported={(job) => {
           if ((job.workspaceId || "personal") === (getCurrentWorkspace() || "personal")) {

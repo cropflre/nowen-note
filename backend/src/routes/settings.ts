@@ -5,6 +5,13 @@ import { invalidateFilesQueryDebugCache } from "./files";
 import { systemSettingsRepository } from "../repositories";
 import { AI_MEMORY_FEATURE_KEY } from "../lib/ai-memory-feature";
 import {
+  DEFAULT_MIGRATION_UPLOAD_MB,
+  MAX_MIGRATION_UPLOAD_MB,
+  MIGRATION_MAX_UPLOAD_MB_KEY,
+  MIN_MIGRATION_UPLOAD_MB,
+  parseMigrationMaxUploadMb,
+} from "../lib/migration-limits";
+import {
   resolvePublicWebOriginSettingUpdate,
   syncRuntimePublicWebOriginSetting,
 } from "../lib/public-web-origin";
@@ -48,6 +55,8 @@ export interface SiteSettings {
   web_ui_enabled: string;
   /** AI 对话归档的实例级开关，默认开启；仅管理员可写。 */
   feature_ai_memory_enabled: string;
+  /** 导入笔记单包（ZIP）最大体积（MB，100~3584）；仅管理员可写。 */
+  migration_max_upload_mb: string;
 }
 
 const DEFAULTS: SiteSettings = {
@@ -68,6 +77,7 @@ const DEFAULTS: SiteSettings = {
   debug_files_query: "false",
   web_ui_enabled: "true",
   feature_ai_memory_enabled: "true",
+  migration_max_upload_mb: String(DEFAULT_MIGRATION_UPLOAD_MB),
 };
 
 try {
@@ -89,10 +99,12 @@ function readSettings(): Record<string, string> {
     "debug_",
   ]);
   const webUiSetting = systemSettingsRepository.get("web_ui_enabled");
+  const migrationUploadSetting = systemSettingsRepository.get(MIGRATION_MAX_UPLOAD_MB_KEY);
 
   const result: Record<string, string> = { ...DEFAULTS };
   for (const row of rows) result[row.key] = row.value;
   if (webUiSetting) result[webUiSetting.key] = webUiSetting.value;
+  if (migrationUploadSetting) result[migrationUploadSetting.key] = migrationUploadSetting.value;
   return result;
 }
 
@@ -118,7 +130,8 @@ settings.put("/", async (c) => {
   const wantsDebugFlag = body.debug_files_query !== undefined;
   const wantsWebUiFlag = body.web_ui_enabled !== undefined;
   const wantsAIMemoryFlag = body.feature_ai_memory_enabled !== undefined;
-  if ((wantsDebugFlag || wantsWebUiFlag || wantsAIMemoryFlag) && !isSystemAdmin(userId)) {
+  const wantsMigrationLimit = body.migration_max_upload_mb !== undefined;
+  if ((wantsDebugFlag || wantsWebUiFlag || wantsAIMemoryFlag || wantsMigrationLimit) && !isSystemAdmin(userId)) {
     return c.json({ error: "仅管理员可修改系统开关", code: "FORBIDDEN" }, 403);
   }
 
@@ -202,6 +215,16 @@ settings.put("/", async (c) => {
       return c.json({ error: "AI 对话归档开关必须为布尔值", code: "INVALID_AI_MEMORY_ENABLED" }, 400);
     }
     entries.push({ key: AI_MEMORY_FEATURE_KEY, value: String(raw === true || raw === "true") });
+  }
+  if (body.migration_max_upload_mb !== undefined) {
+    const parsed = parseMigrationMaxUploadMb(body.migration_max_upload_mb);
+    if (parsed === null) {
+      return c.json({
+        error: `导入包大小上限必须为 ${MIN_MIGRATION_UPLOAD_MB} 至 ${MAX_MIGRATION_UPLOAD_MB} MB 的整数`,
+        code: "INVALID_MIGRATION_MAX_UPLOAD_MB",
+      }, 400);
+    }
+    entries.push({ key: MIGRATION_MAX_UPLOAD_MB_KEY, value: String(parsed) });
   }
 
   if (entries.length > 0) systemSettingsRepository.setMany(entries);

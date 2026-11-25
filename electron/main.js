@@ -2338,6 +2338,7 @@ function registerAppIpc() {
     if (isLiteOnlyBuild()) return { ok: false, error: "请安装完整版客户端后下载到本机。" };
     const serverUrl = String(payload?.serverUrl || "").trim().slice(0, 2048).replace(/\/+$/, "");
     const token = String(payload?.token || "").slice(0, 8192);
+    const refreshToken = typeof payload?.refreshToken === "string" ? payload.refreshToken.trim().slice(0, 8192) : "";
     if (!/^https?:\/\//i.test(serverUrl) || !token) {
       return { ok: false, error: "invalid-params" };
     }
@@ -2377,7 +2378,7 @@ function registerAppIpc() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localAuthCache.token}`,
           },
-          body: JSON.stringify({ serverUrl, token }),
+          body: JSON.stringify(refreshToken ? { serverUrl, token, refreshToken } : { serverUrl, token }),
         },
       );
       const data = await res.json().catch(() => ({}));
@@ -2909,6 +2910,53 @@ app.whenReady().then(async () => {
       return { cancelled: true };
     }
     return { cancelled: false, path: result.filePaths[0] };
+  });
+
+  // 桌面端本地文件夹零拷贝直导 IPC：由主进程原生弹窗选目录并附带桌面密钥调用本地后端，
+  // renderer 无法伪造任意路径，也不经过浏览器打包和 HTTP 上传。
+  ipcMain.handle("migration:import-local-folder", async (event, payload) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    if (!backendPort || currentRuntime !== "local") {
+      return { ok: false, code: "MIGRATION_LOCAL_DIR_UNAVAILABLE", error: "仅桌面端本地模式支持直接导入本地文件夹" };
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { ok: true, cancelled: true };
+    }
+    const token = (typeof payload?.token === "string" && payload.token.trim())
+      ? payload.token.trim().slice(0, 8192)
+      : (localAuthCache?.token || "");
+    if (!token) {
+      return { ok: false, code: "UNAUTHENTICATED", error: "请先登录" };
+    }
+    const body = { directoryPath: result.filePaths[0] };
+    if (typeof payload?.workspaceId === "string" && payload.workspaceId.trim()) {
+      body.workspaceId = payload.workspaceId.trim().slice(0, 128);
+    }
+    if (typeof payload?.targetNotebookId === "string" && payload.targetNotebookId.trim()) {
+      body.targetNotebookId = payload.targetNotebookId.trim().slice(0, 128);
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${backendPort}/api/migrations/local-directory`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "X-Nowen-Desktop-Secret": getLocalAccountSecret(),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, status: res.status, code: data?.code || "MIGRATION_REQUEST_FAILED", error: data?.error || "导入本地文件夹失败" };
+      }
+      return { ok: true, cancelled: false, job: data };
+    } catch (err) {
+      return { ok: false, code: "MIGRATION_LOCAL_DIR_FAILED", error: err?.message || String(err) };
+    }
   });
   ipcMain.handle("folder-sync:get-configs", (event) => {
     const reject = assertMainWindowSender(event);

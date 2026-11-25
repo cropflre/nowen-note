@@ -7,7 +7,7 @@ import { enqueue, flushQueue, getQueue, getQueueLength, updateItem } from '@/lib
 const state=vi.hoisted(()=>({flush:vi.fn(),serverUrl:'https://nas.test'}));
 vi.mock('react-i18next',()=>({useTranslation:()=>({t:(key:string,values?:Record<string,unknown>)=>values?`${key} ${JSON.stringify(values)}`:key})}));
 vi.mock('@/lib/api',()=>({getServerUrl:()=>state.serverUrl}));
-vi.mock('@/lib/authSession',()=>({getAccessToken:()=> 'remote-token'}));
+vi.mock('@/lib/authSession',()=>({getAccessToken:()=> 'remote-token',getRefreshToken:()=>null}));
 vi.mock('@/lib/offlineScope',()=>({STORAGE_KEY_PREFIX:'nowen-offline-queue:v2',getOfflineQueueStorageKey:()=> 'nowen-offline-queue:v2:nas:user'}));
 vi.mock('@/lib/syncEngine',()=>({syncNow:state.flush}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;

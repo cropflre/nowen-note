@@ -155,14 +155,23 @@ function joinUrl(serverUrl: string, route: string, query = ""): string {
 export class SyncRemoteClient {
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
+  private readonly getToken?: () => string;
+  private readonly refreshToken?: () => Promise<string | null>;
 
   constructor(
     private readonly credentials: RemoteCredentials,
-    options: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
+    options: {
+      fetchImpl?: FetchLike;
+      timeoutMs?: number;
+      getToken?: () => string;
+      refreshToken?: () => Promise<string | null>;
+    } = {},
   ) {
     this.fetchImpl = options.fetchImpl
       ?? (globalThis.fetch as unknown as FetchLike);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.getToken = options.getToken;
+    this.refreshToken = options.refreshToken;
   }
 
   /**
@@ -170,7 +179,7 @@ export class SyncRemoteClient {
    *
    * 错误分类是这里最重要的职责：
    * - 网络层异常 / 超时 → NETWORK_UNAVAILABLE（可重试）
-   * - 401 / 403        → AUTH_EXPIRED（暂停同步，等重新授权）
+   * - 401 / 403        → 优先尝试 refreshToken 续期并重试一次，仍失效再归为 AUTH_EXPIRED
    * - 404              → 远端未启用 V2，按服务端错误处理，避免误判为"数据不存在"
    * - 5xx              → SERVER_ERROR（可重试）
    * - 其它 4xx         → INVALID_PAYLOAD（重发同样会失败，不该无脑轮询）
@@ -178,9 +187,11 @@ export class SyncRemoteClient {
   private async request<T>(
     route: string,
     init: { method: string; query?: string; body?: unknown },
+    retriedAuth = false,
   ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const activeToken = this.getToken ? this.getToken() : this.credentials.token;
 
     let response: Awaited<ReturnType<FetchLike>>;
     try {
@@ -189,7 +200,7 @@ export class SyncRemoteClient {
         {
           method: init.method,
           headers: {
-            Authorization: `Bearer ${this.credentials.token}`,
+            Authorization: `Bearer ${activeToken}`,
             ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
           },
           body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -209,6 +220,12 @@ export class SyncRemoteClient {
       const remoteCode = typeof payload?.code === "string" ? payload.code : "";
       if (remoteCode === "ACCESS_REVOKED" || remoteCode === "SCOPE_FORBIDDEN") {
         throw new SyncError(remoteCode, payload?.error || remoteCode);
+      }
+      if (response.status === 401 && !retriedAuth && this.refreshToken) {
+        const refreshed = await this.refreshToken();
+        if (refreshed) {
+          return this.request<T>(route, init, true);
+        }
       }
       if (response.status === 401 || response.status === 403) {
         throw new SyncError("AUTH_EXPIRED", `远端拒绝访问（${response.status}）`);

@@ -408,11 +408,15 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
    *   failed         失败，仍可继续用 Lite，可重试
    *   其它           进行中
    */
-  startLiteMigration(serverUrl, token) {
-    return ipcRenderer.invoke("sync:start-lite-migration", {
+  startLiteMigration(serverUrl, token, refreshToken) {
+    const payload = {
       serverUrl: String(serverUrl || "").slice(0, 2048),
       token: String(token || "").slice(0, 8192),
-    });
+    };
+    if (typeof refreshToken === "string" && refreshToken.trim()) {
+      payload.refreshToken = refreshToken.trim().slice(0, 8192);
+    }
+    return ipcRenderer.invoke("sync:start-lite-migration", payload);
   },
   getLiteMigrationProgress() {
     return ipcRenderer.invoke("sync:lite-migration-progress");
@@ -528,6 +532,17 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
         return Promise.resolve({ ok: false, error: "INVALID_PATH" });
       }
       return ipcRenderer.invoke("folder-sync:get-upload-file", folderId, relativePath);
+    },
+  },
+  migration: {
+    importLocalFolder(options) {
+      const safe = {};
+      if (options && typeof options === "object") {
+        if (typeof options.workspaceId === "string") safe.workspaceId = options.workspaceId.slice(0, 128);
+        if (typeof options.targetNotebookId === "string") safe.targetNotebookId = options.targetNotebookId.slice(0, 128);
+        if (typeof options.token === "string") safe.token = options.token.slice(0, 8192);
+      }
+      return ipcRenderer.invoke("migration:import-local-folder", safe);
     },
   },
 });

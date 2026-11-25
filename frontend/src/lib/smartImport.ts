@@ -12,8 +12,19 @@ const NOTE_EXTENSIONS = [".md", ".markdown", ".html", ".htm", ".txt"];
 // Same list the server accepts as attachments (migrationSourceAdapter `supportedAssets`); SVG is never accepted.
 const ASSET_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".heif", ".pdf", ".csv", ".json",
   ".docx", ".xlsx", ".pptx", ".mp3", ".wav", ".ogg", ".flac", ".m4a", ".mp4", ".mov", ".webm"];
-/** Server limits (MIGRATION_LIMITS) checked before anything is uploaded. */
-export const IMPORT_LIMITS = Object.freeze({ uploadBytes: 512 * 1024 * 1024, files: 20_000 });
+/** Server limits (MIGRATION_LIMITS) checked before anything is uploaded.
+ *  Pre-compressed ZIPs allow up to 2GB; in-browser JSZip folder packaging stays bounded at 512MB to avoid renderer OOM. */
+export const IMPORT_LIMITS = Object.freeze({
+  uploadBytes: 2 * 1024 * 1024 * 1024,
+  packageBytes: 512 * 1024 * 1024,
+  files: 50_000,
+});
+export const MIGRATION_UPLOAD_LIMIT_MB = Object.freeze({ min: 100, max: 3584, default: 2048 });
+
+export function formatUploadLimit(mb: number): string {
+  if (mb >= 1024 && mb % 512 === 0) return `${mb / 1024} GB`;
+  return `${mb} MB`;
+}
 export const IMPORT_ACCEPT = [".zip", ...NOTE_EXTENSIONS, ...ASSET_EXTENSIONS].join(",");
 
 const extension = (name: string) => { const dot = name.lastIndexOf("."); return dot > 0 ? name.slice(dot).toLowerCase() : ""; };
@@ -35,13 +46,14 @@ export type PlannedUpload =
 
 export type ImportPlan =
   | { ok: true; name: string; uploads: PlannedUpload[]; unsupported: string[] }
-  | { ok: false; reason: "empty" | "no-notes" | "unsupported" | "too-large" | "too-many"; unsupported: string[] };
+  | { ok: false; reason: "empty" | "no-notes" | "unsupported" | "too-large" | "folder-too-large" | "too-many"; unsupported: string[] };
 
 /**
  * ZIP files go up as they are. Loose notes are packaged together with the files beside them, so links and images
  * between them still resolve; a single loose note goes up on its own.
  */
-export function planImport(files: ImportFile[], fallbackName: string): ImportPlan {
+export function planImport(files: ImportFile[], fallbackName: string, options?: { maxUploadBytes?: number }): ImportPlan {
+  const maxUploadBytes = options?.maxUploadBytes && options.maxUploadBytes > 0 ? options.maxUploadBytes : IMPORT_LIMITS.uploadBytes;
   const visible = files.filter((entry) => !isIgnoredImportPath(entry.path));
   const zips = visible.filter((entry) => isZipFile(entry.file.name));
   const notes = visible.filter((entry) => isNoteFile(entry.file.name));
@@ -62,8 +74,14 @@ export function planImport(files: ImportFile[], fallbackName: string): ImportPla
     const entries = loose.map((entry) => ({ file: entry.file, path: commonRoot ? entry.path.slice(commonRoot.length + 1) : entry.path }));
     uploads.push({ kind: "package", name, entries });
   }
-  const sizes = uploads.map((upload) => upload.kind === "file" ? upload.file.size : upload.entries.reduce((sum, entry) => sum + entry.file.size, 0));
-  if (sizes.some((size) => size > IMPORT_LIMITS.uploadBytes)) return { ok: false, reason: "too-large", unsupported };
+  for (const upload of uploads) {
+    if (upload.kind === "package") {
+      const total = upload.entries.reduce((sum, entry) => sum + entry.file.size, 0);
+      if (total > IMPORT_LIMITS.packageBytes) return { ok: false, reason: "folder-too-large", unsupported };
+    } else if (upload.file.size > maxUploadBytes) {
+      return { ok: false, reason: "too-large", unsupported };
+    }
+  }
   return { ok: true, name, uploads, unsupported };
 }
 

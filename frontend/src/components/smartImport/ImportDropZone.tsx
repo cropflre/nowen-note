@@ -12,12 +12,18 @@ function canChooseFolder(): boolean {
   return !native && "webkitdirectory" in document.createElement("input");
 }
 
-export default function ImportDropZone({ disabled, onFiles }: { disabled: boolean; onFiles: (files: ImportFile[]) => void }) {
+export default function ImportDropZone({ disabled, onFiles, onPickLocalFolder, maxUploadLabel }: {
+  disabled: boolean;
+  onFiles: (files: ImportFile[]) => void;
+  onPickLocalFolder?: () => void;
+  maxUploadLabel?: string;
+}) {
   const { t } = useTranslation();
   const [dragging, setDragging] = useState(false);
   const files = useRef<HTMLInputElement>(null);
   const folder = useRef<HTMLInputElement>(null);
   const take = (input: HTMLInputElement) => { const chosen = filesFromInput(input.files); input.value = ""; if (chosen.length) onFiles(chosen); };
+  const limit = maxUploadLabel || "2 GB";
   return <div className="space-y-2">
     <button
       type="button" disabled={disabled} data-import-drop-zone=""
@@ -33,9 +39,9 @@ export default function ImportDropZone({ disabled, onFiles }: { disabled: boolea
     >
       <Upload size={26} className="text-tx-secondary" aria-hidden="true" />
       <span className="text-sm font-medium text-tx-primary">{t(dragging ? "migration.smart.dropHere" : "migration.smart.drop")}</span>
-      <span className="text-xs text-tx-secondary">{t("migration.smart.formats")}</span>
+      <span className="text-xs text-tx-secondary">{t(onPickLocalFolder ? "migration.smart.formatsLocalFolder" : "migration.smart.formats", { limit })}</span>
     </button>
-    {canChooseFolder() && <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => folder.current?.click()}>
+    {(onPickLocalFolder || canChooseFolder()) && <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => (onPickLocalFolder ? onPickLocalFolder() : folder.current?.click())}>
       <FolderOpen size={14} className="mr-1.5" aria-hidden="true" />{t("migration.smart.chooseFolder")}
     </Button>}
     <input ref={files} type="file" multiple accept={IMPORT_ACCEPT} className="hidden" aria-label={t("migration.smart.chooseFiles")} disabled={disabled} onChange={(event) => take(event.currentTarget)} />

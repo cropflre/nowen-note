@@ -66,10 +66,11 @@ export interface MigrationUploadSession {
 export type MigrationUploadProgress = { phase: "hashing" | "uploading"; loaded: number; total: number };
 
 async function uploadResumable(id: string, file: File, options: {
-  onProgress?: (progress: MigrationUploadProgress) => void; current?: () => boolean;
+  onProgress?: (progress: MigrationUploadProgress) => void; current?: () => boolean; maxUploadBytes?: number;
 } = {}): Promise<MigrationJob> {
   const initialScope = getOfflineQueueStorageKey();
-  if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > (/\.zip$/i.test(file.name) ? 512 : 2) * 1024 * 1024) throw new Error("MIGRATION_UPLOAD_SIZE");
+  const maxZipBytes = options.maxUploadBytes && options.maxUploadBytes > 0 ? options.maxUploadBytes : 2048 * 1024 * 1024;
+  if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > (/\.zip$/i.test(file.name) ? maxZipBytes : 2 * 1024 * 1024)) throw new Error("MIGRATION_UPLOAD_SIZE");
   const check = () => {
     if (initialScope !== getOfflineQueueStorageKey()) throw new Error("MIGRATION_ACCOUNT_CHANGED");
     if (options.current && !options.current()) throw new Error("MIGRATION_UPLOAD_INTERRUPTED");

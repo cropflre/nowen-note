@@ -18,6 +18,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import { DEFAULT_MIGRATION_UPLOAD_MB } from "./lib/migration-limits";
 import migrationsRouter from "./routes/migrations";
 import aiMemoryRouter from "./routes/ai-memory";
 import migrationUploadsRouter from "./routes/migration-uploads";
@@ -379,7 +380,7 @@ app.get("/api/openapi.json", (c) => c.json(generateOpenAPISpec()));
 // 站点设置（GET 无需 JWT，允许未登录时加载品牌信息）
 app.get("/api/settings", (c) => {
   const db = getDb();
-  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'debug_%' OR key IN ('web_ui_enabled', 'feature_ai_memory_enabled')").all() as { key: string; value: string }[];
+  const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'debug_%' OR key IN ('web_ui_enabled', 'feature_ai_memory_enabled', 'migration_max_upload_mb')").all() as { key: string; value: string }[];
   const result: Record<string, string> = {
     site_title: "nowen-note",
     site_favicon: "",
@@ -397,6 +398,7 @@ app.get("/api/settings", (c) => {
     web_ui_enabled: "true",
     // 客户端据此决定是否显示 AI 对话归档入口；默认开启，管理员关闭后才隐藏。
     feature_ai_memory_enabled: "true",
+    migration_max_upload_mb: String(DEFAULT_MIGRATION_UPLOAD_MB),
   };
   for (const row of rows) {
     result[row.key] = row.value;

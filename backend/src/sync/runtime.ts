@@ -202,6 +202,7 @@ export function reconcileSyncEngine(
       realtime = new SyncRealtimeSubscription({
         serverUrl: enabled.serverUrl,
         token: credential.token,
+        getToken: () => getRemoteCredential(enabled.id)?.token ?? credential.token,
         // 收到通知只触发同步，不做任何 apply ——
         // Change Feed 才是数据来源（第二十八条）。
         onNotice: () => {

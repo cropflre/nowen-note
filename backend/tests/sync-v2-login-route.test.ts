@@ -120,3 +120,123 @@ test("远端账号登录支持 2FA，并只持久化 Token 后建立授权 Profi
   assert.equal(settingsJson.authorized, true);
   assert.equal(settingsJson.authorizationState, "ready");
 });
+
+test("DCC-003: Sync V2 持久化 refreshToken，在 15 分钟 Access Token 过期后自动续期并保持数据与连接不中断", async () => {
+  const {
+    createRemoteClientForProfile,
+    createBlobClientForProfile,
+    saveRemoteCredential,
+  } = await import("../src/sync/credentials");
+  const { createProfile, switchActiveProfile } = await import("../src/sync/profile");
+  const { SyncRealtimeSubscription } = await import("../src/sync/realtime");
+
+  let refreshCount = 0;
+  let currentValidToken = "access-token-v1";
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    if (url.endsWith("/api/auth/login")) {
+      return Response.json({
+        token: "access-token-v1",
+        refreshToken: "refresh-token-30d",
+        user: { id: "remote-refresh-user", username: "bob" },
+      });
+    }
+    if (url.endsWith("/api/auth/refresh")) {
+      const body = JSON.parse(String(init?.body || "{}")) as { refreshToken?: string };
+      if (body.refreshToken !== "refresh-token-30d") {
+        return Response.json({ code: "REFRESH_TOKEN_INVALID" }, { status: 401 });
+      }
+      refreshCount += 1;
+      currentValidToken = "access-token-v2";
+      return Response.json({ token: currentValidToken });
+    }
+    if (headers.get("Authorization") !== `Bearer ${currentValidToken}`) {
+      return Response.json({ code: "TOKEN_INVALID" }, { status: 401 });
+    }
+    if (url.includes("/api/sync/v2/scopes")) {
+      return Response.json({ items: [{ scopeKey: "personal", workspaceId: null, workspaceName: null, role: null, canWrite: true, accessFingerprint: "fp" }] });
+    }
+    if (url.includes("/api/sync/v2/blob/")) {
+      return new Response(null, { status: 200 });
+    }
+    return Response.json({}, { status: 404 });
+  }) as typeof fetch;
+
+  const res = await login({
+    serverUrl: "https://refresh-sync.example.com",
+    username: "bob",
+    password: "bob-password",
+  });
+  assert.equal(res.response.status, 200);
+  const profileId = res.json.profile.id as string;
+  assert.equal(getRemoteCredential(profileId)?.token, "access-token-v1");
+  assert.equal((getRemoteCredential(profileId) as any)?.refreshToken, "refresh-token-30d");
+
+  // 模拟 15 分钟后 access-token-v1 过期
+  currentValidToken = "access-token-v2";
+  const remoteClient = createRemoteClientForProfile(profileId, "https://refresh-sync.example.com")!;
+  const blobClient = createBlobClientForProfile(profileId, "https://refresh-sync.example.com")!;
+
+  // 并发触发 remote + blob 401：应合并为 1 次 /api/auth/refresh 且两端都无感成功
+  const [scopes, exists] = await Promise.all([
+    remoteClient.listScopes(),
+    blobClient.exists("att-1"),
+  ]);
+  assert.equal(scopes.length, 1);
+  assert.equal(exists, true);
+  assert.equal(refreshCount, 1, "并发 401 应只发一次 refresh 请求");
+  assert.equal(getRemoteCredential(profileId)?.token, "access-token-v2");
+
+  // Realtime 重连时应拿到刷新后的新 token
+  const seenWsUrls: string[] = [];
+  class FakeWebSocket {
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    onmessage: ((e: MessageEvent) => void) | null = null;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor(url: string) { seenWsUrls.push(url); }
+    close() { this.readyState = 3; }
+  }
+  const rt = new SyncRealtimeSubscription({
+    serverUrl: "https://refresh-sync.example.com",
+    token: "access-token-v1",
+    getToken: () => getRemoteCredential(profileId)?.token ?? null,
+    onNotice: () => {},
+    webSocketImpl: FakeWebSocket as unknown as typeof WebSocket,
+  });
+  rt.start();
+  rt.stop();
+  assert.match(seenWsUrls[0], /token=access-token-v2/, "WebSocket 重连必须使用续期后的最新 token");
+
+  // Refresh 期间网络抖动应归类为可重试 NETWORK_UNAVAILABLE，绝不误判为 AUTH_EXPIRED 踢出登录
+  const p2 = createProfile(getDb(), { name: "NetFlaky", serverUrl: "https://flaky.example.com" });
+  switchActiveProfile(getDb(), p2.id);
+  saveRemoteCredential({
+    profileId: p2.id,
+    serverUrl: "https://flaky.example.com",
+    token: "stale-token",
+    refreshToken: "valid-refresh",
+  } as any);
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/api/auth/refresh")) throw new TypeError("Tailscale DERP timeout");
+    return Response.json({ code: "TOKEN_INVALID" }, { status: 401 });
+  }) as typeof fetch;
+  const flakyClient = createRemoteClientForProfile(p2.id, "https://flaky.example.com")!;
+  await assert.rejects(
+    () => flakyClient.listScopes(),
+    (error: any) => error?.code === "NETWORK_UNAVAILABLE",
+    "刷新凭据时的网络超时不得误判为 AUTH_EXPIRED",
+  );
+
+  // Refresh Token 本身被服务端拒绝（401）时，才应明确上报 AUTH_EXPIRED 要求重新登录
+  globalThis.fetch = (async () => Response.json({ code: "REFRESH_TOKEN_EXPIRED" }, { status: 401 })) as typeof fetch;
+  await assert.rejects(
+    () => flakyClient.listScopes(),
+    (error: any) => error?.code === "AUTH_EXPIRED",
+    "Refresh Token 已失效时应返回 AUTH_EXPIRED",
+  );
+  globalThis.fetch = originalFetch;
+});

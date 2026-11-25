@@ -24,6 +24,8 @@ export interface RealtimeSubscriptionOptions {
   /** 远端服务器地址（http/https，内部转成 ws/wss）。 */
   serverUrl: string;
   token: string;
+  /** 动态读取最新访问令牌，使自动续期后的重连不再沿用已过期的旧 token。 */
+  getToken?: () => string | null;
   /**
    * 收到通知时的回调。
    *
@@ -53,6 +55,7 @@ export interface RealtimeSubscriptionOptions {
 export class SyncRealtimeSubscription {
   private readonly wsUrl: string;
   private readonly token: string;
+  private readonly getToken?: () => string | null;
   private readonly onNotice: (sequence: number) => void;
   private readonly WebSocketImpl: typeof WebSocket;
   private readonly scheduler: NonNullable<RealtimeSubscriptionOptions["scheduler"]>;
@@ -68,6 +71,7 @@ export class SyncRealtimeSubscription {
     // 后者对自签名/非标准端口的 NAS 地址容错更差。
     this.wsUrl = `${base.replace(/^http/i, "ws")}/ws`;
     this.token = options.token;
+    this.getToken = options.getToken;
     this.onNotice = options.onNotice;
     this.WebSocketImpl = options.webSocketImpl ?? (globalThis.WebSocket as typeof WebSocket);
     this.scheduler = options.scheduler ?? {
@@ -134,10 +138,11 @@ export class SyncRealtimeSubscription {
 
     let socket: WebSocket;
     try {
+      const activeToken = this.getToken?.() || this.token;
       // token 走 query 而非 header：浏览器与多数 WS 客户端都不支持
       // 在握手时自定义 header，服务端的 WS 认证也是按 query 实现的。
       socket = new this.WebSocketImpl(
-        `${this.wsUrl}?token=${encodeURIComponent(this.token)}`,
+        `${this.wsUrl}?token=${encodeURIComponent(activeToken)}`,
       );
     } catch (error) {
       logSyncWarn("realtime.connect-failed", {

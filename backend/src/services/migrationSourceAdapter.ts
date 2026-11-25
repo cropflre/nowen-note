@@ -5,7 +5,8 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldEventLoop } from "node:timers/promises";
 import { sanitizeForImport } from "../lib/sanitizeHtml";
-import { MIGRATION_LIMITS, migrationRelativePathSchema, nmfManifestSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat";
+import { LOCAL_DIRECTORY_MIGRATION_LIMITS, MIGRATION_LIMITS, migrationRelativePathSchema, nmfManifestSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat";
+import { getRuntimeMigrationLimits } from "../lib/migration-limits";
 import { createNotionMigrationContext } from "./migrationNotionAdapter";
 import { isSiyuanMigration, stageSiyuanMigration } from "./migrationSiyuanAdapter";
 import { convertWikiLinks, isIgnoredMigrationPath, readFrontMatter } from "./migrationMarkdownSources";
@@ -98,8 +99,9 @@ function safePath(value: string): string {
 
 /** Bound the central directory before unzipper allocates one object per entry. ZIP64 is outside v1's budgets. */
 async function preflightZip(filePath: string): Promise<void> {
+  const limits = getRuntimeMigrationLimits();
   const stat = await fs.promises.stat(filePath);
-  if (stat.size > MIGRATION_LIMITS.uploadBytes) return fail("MIGRATION_UPLOAD_TOO_LARGE");
+  if (stat.size > limits.uploadBytes) return fail("MIGRATION_UPLOAD_TOO_LARGE");
   const handle = await fs.promises.open(filePath, "r");
   try {
     const tail = Buffer.alloc(Math.min(stat.size, 65_557));
@@ -118,9 +120,10 @@ async function preflightZip(filePath: string): Promise<void> {
 }
 
 export async function extractArchive(filePath: string, destination: string, budget: number, assertActive?: () => void): Promise<Map<string, StagedFile>> {
+  const limits = getRuntimeMigrationLimits();
   await preflightZip(filePath);
   const directory = await unzipper.Open.file(filePath) as { files: ZipEntry[] };
-  if (directory.files.length > MIGRATION_LIMITS.files) return fail("MIGRATION_ARCHIVE_LIMIT");
+  if (directory.files.length > limits.files) return fail("MIGRATION_ARCHIVE_LIMIT");
   const seen = new Set<string>();
   let declaredTotal = 0;
   const entries = directory.files.map((entry) => {
@@ -132,10 +135,10 @@ export async function extractArchive(filePath: string, destination: string, budg
       || (entry.flags & 1) || ![0, 8].includes(entry.compressionMethod)) return fail("MIGRATION_UNSAFE_ARCHIVE_ENTRY");
     seen.add(key);
     if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize < 0
-      || entry.uncompressedSize > (name === "manifest.json" ? MIGRATION_LIMITS.manifestBytes : noteExtension(name) || /\.sy$/i.test(name) ? MIGRATION_LIMITS.contentBytes : MIGRATION_LIMITS.assetBytes)
+      || entry.uncompressedSize > (name === "manifest.json" ? limits.manifestBytes : noteExtension(name) || /\.sy$/i.test(name) ? limits.contentBytes : limits.assetBytes)
       || entry.uncompressedSize / Math.max(1, entry.compressedSize) > 1000) return fail("MIGRATION_ARCHIVE_LIMIT");
     declaredTotal += entry.uncompressedSize;
-    if (declaredTotal > MIGRATION_LIMITS.extractedBytes || declaredTotal > budget) return fail("MIGRATION_ARCHIVE_LIMIT");
+    if (declaredTotal > limits.extractedBytes || declaredTotal > budget) return fail("MIGRATION_ARCHIVE_LIMIT");
     return { entry, name, folder };
   });
   // Never extract into a directory that an earlier upload could have populated with symlinks.
@@ -153,7 +156,7 @@ export async function extractArchive(filePath: string, destination: string, budg
     const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
       try { assertActive?.(); } catch (error) { callback(error as Error); return; }
       size += chunk.length; actualTotal += chunk.length;
-      if (size > entry.uncompressedSize || actualTotal > MIGRATION_LIMITS.extractedBytes || actualTotal > budget) { callback(new MigrationSourceError("MIGRATION_ARCHIVE_LIMIT")); return; }
+      if (size > entry.uncompressedSize || actualTotal > limits.extractedBytes || actualTotal > budget) { callback(new MigrationSourceError("MIGRATION_ARCHIVE_LIMIT")); return; }
       hash.update(chunk); callback(null, chunk);
     } });
     try {
@@ -190,23 +193,25 @@ function resolveReference(notePath: string, href: string): string | null {
   return migrationRelativePathSchema.safeParse(resolved).success ? resolved : null;
 }
 
-export async function stageMigrationFile(input: {
-  filePath: string; filename: string; jobDir: string; source: Source;
+async function ensureFileHash(file: StagedFile): Promise<string> {
+  if (!file.sha256) file.sha256 = await hashMigrationFile(file.diskPath);
+  return file.sha256;
+}
+
+async function normalizeStagedFiles(input: {
+  files: Map<string, StagedFile>;
+  source: Source;
+  managed: (file: StagedFile) => string;
   onNote: (note: NmfNote) => Promise<void>;
   assertActive?: () => void;
+  maxNotes?: number;
+  maxAssetBytes?: number;
+  initialWarnings?: string[];
 }): Promise<{ warnings: string[] }> {
-  const relativeUpload = path.relative(input.jobDir, input.filePath).split(path.sep).join("/");
-  safePath(relativeUpload);
-  const stat = await fs.promises.lstat(input.filePath);
-  if (!stat.isFile() || stat.isSymbolicLink()) return fail("MIGRATION_UNSAFE_PATH");
-  const isZip = /\.zip$/i.test(input.filename);
-  if (!isZip && !noteExtension(input.filename)) return fail("MIGRATION_UNSUPPORTED_FORMAT");
-  const warnings = new Set<string>();
-  const extraction = path.join(path.dirname(input.filePath), "extracted");
-  const budget = MIGRATION_LIMITS.temporaryBytes - migrationDirectoryBytes(input.jobDir) + migrationDirectoryBytes(extraction);
-  const files = isZip ? await extractArchive(input.filePath, extraction, budget, input.assertActive)
-    : new Map([[safePath(input.filename), { diskPath: input.filePath, size: stat.size, sha256: await hashMigrationFile(input.filePath) }]]);
-  const managed = (file: StagedFile) => safePath(path.relative(input.jobDir, file.diskPath).split(path.sep).join("/"));
+  const { files, managed } = input;
+  const warnings = new Set<string>(input.initialWarnings || []);
+  const noteLimit = input.maxNotes ?? MIGRATION_LIMITS.notes;
+  const assetLimit = input.maxAssetBytes ?? MIGRATION_LIMITS.assetBytes;
   const manifestFile = files.get("manifest.json");
   let emitted = 0;
   const emit = async (note: NmfNote) => {
@@ -214,15 +219,17 @@ export async function stageMigrationFile(input: {
     await input.onNote(note);
     if (++emitted % 20 === 0) await yieldEventLoop();
   };
-  const context: MigrationSourceAdapterContext = { files, source: input.source,
+  const context: MigrationSourceAdapterContext = {
+    files, source: input.source, maxNotes: noteLimit,
     readText: (name, maxBytes) => {
       if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) return fail("MIGRATION_CONTENT_TOO_LARGE");
       return readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), Math.min(maxBytes, MIGRATION_LIMITS.manifestBytes));
     },
-    managedPath: managed, sniffAsset: sniffMigrationAsset, onNote: emit, assertActive: input.assertActive };
-  const normalizeManifest = async (context: MigrationSourceAdapterContext) => {
+    managedPath: managed, sniffAsset: sniffMigrationAsset, onNote: emit, assertActive: input.assertActive,
+  };
+  const normalizeManifest = async (ctx: MigrationSourceAdapterContext) => {
     let raw: unknown;
-    try { raw = JSON.parse(context.readText("manifest.json", MIGRATION_LIMITS.manifestBytes)); } catch { return fail("MIGRATION_INVALID_MANIFEST"); }
+    try { raw = JSON.parse(ctx.readText("manifest.json", MIGRATION_LIMITS.manifestBytes)); } catch { return fail("MIGRATION_INVALID_MANIFEST"); }
     const result = nmfManifestSchema.safeParse(raw);
     if (!result.success) return fail("MIGRATION_INVALID_MANIFEST");
     const manifest = result.data;
@@ -233,10 +240,10 @@ export async function stageMigrationFile(input: {
       if (sourceIds.has(note.sourceId)) return fail("MIGRATION_DUPLICATE_SOURCE_ID");
       sourceIds.add(note.sourceId);
       const body = files.get(note.contentFile);
-      if (!body || body.sha256 !== note.sha256) return fail("MIGRATION_CONTENT_HASH_MISMATCH");
+      if (!body || await ensureFileHash(body) !== note.sha256) return fail("MIGRATION_CONTENT_HASH_MISMATCH");
       for (const attachment of note.attachments) {
         const asset = files.get(attachment.path);
-        if (!asset || asset.sha256 !== attachment.sha256) return fail("MIGRATION_ASSET_HASH_MISMATCH");
+        if (!asset || await ensureFileHash(asset) !== attachment.sha256) return fail("MIGRATION_ASSET_HASH_MISMATCH");
         await sniffMigrationAsset(asset.diskPath, attachment.path);
       }
     }
@@ -250,14 +257,18 @@ export async function stageMigrationFile(input: {
         originalPath: attachment.originalPath || path.posix.relative(path.posix.dirname(contentFile), attachment.path),
         mimeType: await sniffMigrationAsset(files.get(attachment.path)!.diskPath, attachment.path),
       })));
-      await context.onNote(nmfNoteSchema.parse({ ...fields, schemaVersion: 1, source: { ...manifest.source, sourceId },
+      await ctx.onNote(nmfNoteSchema.parse({ ...fields, schemaVersion: 1, source: { ...manifest.source, sourceId },
         content: note.contentFormat === "html" ? sanitizeMigrationHtml(rawContent) : rawContent, attachments }));
     }
     return { warnings: [...warnings] };
   };
-  const normalizeSiyuan = async (context: MigrationSourceAdapterContext) => {
+  const normalizeSiyuan = async (ctx: MigrationSourceAdapterContext) => {
+    for (const file of files.values()) {
+      input.assertActive?.();
+      await ensureFileHash(file);
+    }
     try {
-      return await stageSiyuanMigration(context);
+      return await stageSiyuanMigration(ctx);
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (typeof code === "string" && /^MIGRATION_|^SIYUAN_/.test(code)) throw new MigrationSourceError(code);
@@ -272,9 +283,9 @@ export async function stageMigrationFile(input: {
     catch (error) { if (typeof (error as { code?: string }).code === "string") throw new MigrationSourceError((error as { code: string }).code); throw error; }
     return Boolean(notion);
   };
-  const normalizeGeneric = async (context: MigrationSourceAdapterContext, notion: ReturnType<typeof createNotionMigrationContext>) => {
+  const normalizeGeneric = async (ctx: MigrationSourceAdapterContext, notionCtx: ReturnType<typeof createNotionMigrationContext> | null) => {
     const noteNames = new Set(notes);
-    if (!notes.length || notes.length > MIGRATION_LIMITS.notes) return fail("MIGRATION_NOTE_COUNT_LIMIT");
+    if (!notes.length || notes.length > noteLimit) return fail("MIGRATION_NOTE_COUNT_LIMIT");
     if (input.source.platform === "huawei") {
       if (notes.some((name) => !/\.(?:txt|html?)$/i.test(name))) return fail("MIGRATION_HUAWEI_FORMAT_UNSUPPORTED");
       warnings.add("HUAWEI_EXPORT_LIMITS; 仅导入已导出的 TXT/HTML 和本地资源；原始时间、标签、手写、语音结构及云端备份不恢复");
@@ -291,7 +302,7 @@ export async function stageMigrationFile(input: {
       const format = formatFor(name);
       const rawContent = readText(files.get(name)!, MIGRATION_LIMITS.contentBytes);
       // Plain Markdown folders (Obsidian, Joplin, Logseq): follow [[links]] and ![[embeds]], read front matter.
-      const plainMarkdown = format === "markdown" && !notion;
+      const plainMarkdown = format === "markdown" && !notionCtx;
       const wiki = plainMarkdown ? convertWikiLinks(name, rawContent, visible, isAsset, isImage) : null;
       if (wiki?.unresolvedEmbeds) warnings.add("UNRESOLVED_RELATIVE_REFERENCES; original links are preserved");
       const frontMatter = plainMarkdown ? readFrontMatter(rawContent) : null;
@@ -306,9 +317,12 @@ export async function stageMigrationFile(input: {
         const target = files.get(resolved);
         if (!target) { warnings.add("UNRESOLVED_RELATIVE_REFERENCES; original links are preserved"); continue; }
         if (noteNames.has(resolved)) { links.push({ href, targetSourceId: resolved }); continue; }
-        if (!supportedAssets[path.extname(resolved).toLowerCase()]) { warnings.add("UNSUPPORTED_ASSET_REFERENCE; original links are preserved"); continue; }
+        if (!supportedAssets[path.extname(resolved).toLowerCase()] || target.size > assetLimit) {
+          warnings.add("UNSUPPORTED_ASSET_REFERENCE; original links are preserved"); continue;
+        }
+        const sha256 = await ensureFileHash(target);
         attachments.push({ assetId: crypto.createHash("sha256").update(resolved).digest("hex"), path: managed(target),
-          sha256: target.sha256, originalPath: href, mimeType: await sniffMigrationAsset(target.diskPath, resolved) });
+          sha256, originalPath: href, mimeType: await sniffMigrationAsset(target.diskPath, resolved) });
       }
       const titleMatch = format === "html" ? /<title[^>]*>([^<]+)<\/title>/i.exec(rawContent) : /^#\s+(.+)$/m.exec(content);
       const note: NmfNote = { schemaVersion: 1, source: { ...input.source, sourceId: name },
@@ -317,17 +331,106 @@ export async function stageMigrationFile(input: {
         contentFormat: format, content, attachments, links, tags: frontMatter?.tags || [], metadata: {},
         ...(frontMatter?.createdAt ? { createdAt: frontMatter.createdAt } : {}),
         ...(frontMatter?.updatedAt ? { updatedAt: frontMatter.updatedAt } : {}) };
-      await context.onNote(nmfNoteSchema.parse(notion ? notion.decorate(name, note) : note));
+      await ctx.onNote(nmfNoteSchema.parse(notionCtx ? notionCtx.decorate(name, note) : note));
     }
-    notion?.warnings.forEach((warning) => warnings.add(warning));
+    notionCtx?.warnings.forEach((warning) => warnings.add(warning));
     return { warnings: [...warnings] };
   };
   const apiVersion = MIGRATION_SOURCE_ADAPTER_API_VERSION;
   return normalizeMigrationSource([
     { apiVersion, id: "nmf-v1", matches: () => Boolean(manifestFile), normalize: normalizeManifest },
     { apiVersion, id: "siyuan-native-zip", matches: () => isSiyuanMigration(files), normalize: normalizeSiyuan },
-    { apiVersion, id: "notion-markdown-html-csv", matches: matchesNotion, normalize: (context) => normalizeGeneric(context, notion!) },
-    { apiVersion, id: "huawei-notepad-files", matches: () => input.source.platform === "huawei", normalize: (context) => normalizeGeneric(context, null) },
-    { apiVersion, id: "generic-files", matches: () => true, normalize: (context) => normalizeGeneric(context, null) },
+    { apiVersion, id: "notion-markdown-html-csv", matches: matchesNotion, normalize: (ctx) => normalizeGeneric(ctx, notion!) },
+    { apiVersion, id: "huawei-notepad-files", matches: () => input.source.platform === "huawei", normalize: (ctx) => normalizeGeneric(ctx, null) },
+    { apiVersion, id: "generic-files", matches: () => true, normalize: (ctx) => normalizeGeneric(ctx, null) },
   ], context);
+}
+
+export async function stageMigrationFile(input: {
+  filePath: string; filename: string; jobDir: string; source: Source;
+  onNote: (note: NmfNote) => Promise<void>;
+  assertActive?: () => void;
+}): Promise<{ warnings: string[] }> {
+  const relativeUpload = path.relative(input.jobDir, input.filePath).split(path.sep).join("/");
+  safePath(relativeUpload);
+  const stat = await fs.promises.lstat(input.filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) return fail("MIGRATION_UNSAFE_PATH");
+  const isZip = /\.zip$/i.test(input.filename);
+  if (!isZip && !noteExtension(input.filename)) return fail("MIGRATION_UNSUPPORTED_FORMAT");
+  const extraction = path.join(path.dirname(input.filePath), "extracted");
+  const budget = getRuntimeMigrationLimits().temporaryBytes - migrationDirectoryBytes(input.jobDir) + migrationDirectoryBytes(extraction);
+  const files = isZip ? await extractArchive(input.filePath, extraction, budget, input.assertActive)
+    : new Map([[safePath(input.filename), { diskPath: input.filePath, size: stat.size, sha256: await hashMigrationFile(input.filePath) }]]);
+  const managed = (file: StagedFile) => safePath(path.relative(input.jobDir, file.diskPath).split(path.sep).join("/"));
+  return normalizeStagedFiles({ files, source: input.source, managed, onNote: input.onNote, assertActive: input.assertActive });
+}
+
+/**
+ * 桌面端本地文件夹零拷贝直导扫描。
+ * 只读遍历用户原生选中的目录，不复制附件字节，仅对实际被引用的附件按需计算哈希。
+ */
+export async function stageLocalDirectory(input: {
+  rootDir: string;
+  source: Source;
+  onNote: (note: NmfNote) => Promise<void>;
+  assertActive?: () => void;
+}): Promise<{ warnings: string[] }> {
+  const realRoot = await fs.promises.realpath(input.rootDir);
+  const rootStat = await fs.promises.stat(realRoot);
+  if (!rootStat.isDirectory()) return fail("MIGRATION_LOCAL_DIR_INVALID");
+  const files = new Map<string, StagedFile>();
+  const initialWarnings: string[] = [];
+  let scanned = 0;
+
+  const isSkippedDirName = (name: string) =>
+    name.startsWith(".") || name === "__MACOSX" || name === "node_modules";
+
+  const walk = async (currentDir: string, relativePrefix: string): Promise<void> => {
+    input.assertActive?.();
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      input.assertActive?.();
+      if (++scanned % 200 === 0) await yieldEventLoop();
+      if (entry.isSymbolicLink()) continue;
+      const name = entry.name.normalize("NFC");
+      const fullPath = path.join(currentDir, entry.name);
+      const relPath = relativePrefix ? `${relativePrefix}/${name}` : name;
+      if (entry.isDirectory()) {
+        if (isSkippedDirName(name)) continue;
+        await walk(fullPath, relPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const lower = name.toLowerCase();
+      if (name.startsWith(".") || lower === "thumbs.db" || lower === "desktop.ini") continue;
+      let normalizedPath: string;
+      try {
+        normalizedPath = safePath(relPath);
+        safePath(`local/${normalizedPath}`);
+      } catch {
+        initialWarnings.push("UNSUPPORTED_FILES_SKIPPED; scripts, macros, databases and unknown files are not imported");
+        continue;
+      }
+      if (files.size >= LOCAL_DIRECTORY_MIGRATION_LIMITS.files) return fail("MIGRATION_ARCHIVE_LIMIT");
+      const stat = await fs.promises.lstat(fullPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) continue;
+      files.set(normalizedPath, { diskPath: fullPath, size: stat.size, sha256: "" });
+    }
+  };
+
+  await walk(realRoot, "");
+  const managed = (file: StagedFile) => {
+    const rel = path.relative(realRoot, file.diskPath).split(path.sep).join("/");
+    return safePath(`local/${rel}`);
+  };
+  return normalizeStagedFiles({
+    files,
+    source: input.source,
+    managed,
+    onNote: input.onNote,
+    assertActive: input.assertActive,
+    maxNotes: LOCAL_DIRECTORY_MIGRATION_LIMITS.notes,
+    maxAssetBytes: LOCAL_DIRECTORY_MIGRATION_LIMITS.assetBytes,
+    initialWarnings,
+  });
 }

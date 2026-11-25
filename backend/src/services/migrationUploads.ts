@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 import { getDb } from "../db/schema.js";
 import { MIGRATION_LIMITS, migrationRelativePathSchema } from "./migrationFormat.js";
+import { getRuntimeMigrationLimits, MAX_MIGRATION_UPLOAD_MB } from "../lib/migration-limits.js";
 import { migrationDirectoryBytes, hashMigrationFile, sniffMigrationAsset } from "./migrationSourceAdapter.js";
 import {
   MigrationError, assertMigrationUploadAccess, beginMigrationUpload, failMigrationUpload,
@@ -29,7 +30,7 @@ export const createUploadSessionSchema = z.object({
   operationId: z.string().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/),
   filename: z.string().min(1).max(200).transform((value) => value.normalize("NFC"))
     .refine((value) => value === path.basename(value) && !/[\u0000-\u001f\\]/.test(value), "Invalid filename"),
-  size: z.number().int().positive().max(MIGRATION_LIMITS.uploadBytes),
+  size: z.number().int().positive().max(MAX_MIGRATION_UPLOAD_MB * 1024 * 1024),
   sha256: z.string().regex(digestPattern).transform((value) => value.toLowerCase()),
   assetPath: migrationRelativePathSchema.optional(),
 }).strict();
@@ -81,7 +82,7 @@ function checkLease(actor: MigrationActor, row: SessionRow, lease: string): void
 }
 function assertQuota(row: SessionRow, extra: number): void {
   const directory = migrationJobDirectory(row.jobId);
-  if (migrationDirectoryBytes(directory) + extra > MIGRATION_LIMITS.temporaryBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移临时目录超过容量限制", 413);
+  if (migrationDirectoryBytes(directory) + extra > getRuntimeMigrationLimits().temporaryBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移临时目录超过容量限制", 413);
   const available = fs.statfsSync(directory);
   if (available.bavail * available.bsize < extra + 1024 * 1024) throw new MigrationError("MIGRATION_STORAGE_FULL", "临时存储空间不足", 413);
 }
@@ -115,7 +116,8 @@ export function createMigrationUploadSession(actor: MigrationActor, jobId: strin
   assertMigrationUploadAccess(actor, jobId, ["CREATED"], Boolean(value.assetPath));
   if (value.assetPath && !value.assetPath.startsWith("assets/")) throw new MigrationError("MIGRATION_ASSET_PATH", "附件必须位于 assets 目录");
   if (!value.assetPath && !/\.(md|markdown|html?|txt|zip)$/i.test(value.filename)) throw new MigrationError("MIGRATION_FORMAT_UNSUPPORTED", "请上传 Markdown、HTML、TXT 或 ZIP 文件");
-  const limit = value.assetPath ? MIGRATION_LIMITS.assetBytes : /\.zip$/i.test(value.filename) ? MIGRATION_LIMITS.uploadBytes : MIGRATION_LIMITS.contentBytes;
+  const runtimeLimits = getRuntimeMigrationLimits();
+  const limit = value.assetPath ? runtimeLimits.assetBytes : /\.zip$/i.test(value.filename) ? runtimeLimits.uploadBytes : runtimeLimits.contentBytes;
   if (value.size > limit) throw new MigrationError("MIGRATION_UPLOAD_TOO_LARGE", "文件超过该格式的上传限制", 413);
   if (getDb().prepare("SELECT 1 FROM migration_upload_sessions WHERE jobId=? AND status IN ('OPEN','FINALIZING')").get(jobId)) throw new MigrationError("MIGRATION_UPLOAD_ACTIVE", "请先完成或取消当前文件上传", 409);
   const row = { ...value, id: crypto.randomUUID(), jobId, assetPath: value.assetPath || null, tokenId: actor.tokenId || null,

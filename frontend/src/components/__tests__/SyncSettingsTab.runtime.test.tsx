@@ -7,7 +7,7 @@ vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.n
 vi.mock("@/lib/desktopBridge", () => ({ getAppInfo: mocks.info, getLiteMigrationProgress: vi.fn(async () => ({progress:{stage:'pending'}})), startLiteMigration: mocks.migrate, resetDesktopLocalAuth: mocks.reset }));
 vi.mock("@/lib/mobileLocalMode", () => ({ isAndroidNativeRuntime: () => mocks.android }));
 vi.mock("@/lib/api", () => ({ getServerUrl: () => mocks.serverUrl }));
-vi.mock("@/lib/authSession", () => ({ getAccessToken: () => "token" }));
+vi.mock("@/lib/authSession", () => ({ getAccessToken: () => "token", getRefreshToken: () => null }));
 vi.mock("@/lib/syncLocalApi", () => ({
   fetchSyncDiagnostics: mocks.diagnostics, fetchSyncScopes: async () => ({ items: [] }),
   exportSyncScope: vi.fn(), copySyncScopeToPersonal: vi.fn(), SyncV2DisabledError: class extends Error {},

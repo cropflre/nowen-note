@@ -2841,6 +2841,7 @@ export const api = {
       debug_files_query?: string;
       web_ui_enabled?: string;
       feature_ai_memory_enabled?: string;
+      migration_max_upload_mb?: string;
     }>("/settings"),
   updateSiteSettings: (data: {
     site_title?: string;
@@ -2861,6 +2862,8 @@ export const api = {
     web_ui_enabled?: boolean | string;
     // 仅管理员可写；必须是布尔值或 "true"/"false"
     feature_ai_memory_enabled?: boolean | string;
+    // 仅管理员可写；导入单包（ZIP）最大体积（MB，100~3584）
+    migration_max_upload_mb?: number | string;
   }) =>
     request<{
       site_title: string;
@@ -2880,6 +2883,7 @@ export const api = {
       debug_files_query?: string;
       web_ui_enabled?: string;
       feature_ai_memory_enabled?: string;
+      migration_max_upload_mb?: string;
     }>("/settings", {
       method: "PUT",
       body: JSON.stringify(data),

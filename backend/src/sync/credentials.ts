@@ -19,6 +19,7 @@ import path from "node:path";
 
 import { SyncRemoteClient } from "./remote";
 import { SyncBlobClient } from "./blob";
+import { SyncError } from "./errors";
 import type { RemoteCredentials } from "./remote";
 
 const DATA_DIR = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
@@ -28,6 +29,8 @@ interface StoredCredential {
   profileId: string;
   serverUrl: string;
   token: string;
+  /** 30 天 Refresh Token：用于 Access Token（默认 15 分钟）过期后自动无感续期。 */
+  refreshToken?: string | null;
   /** 远端用户标识，仅用于展示与校验，不参与鉴权。 */
   remoteUserId?: string | null;
   updatedAt: string;
@@ -67,17 +70,95 @@ export function saveRemoteCredential(input: {
   profileId: string;
   serverUrl: string;
   token: string;
+  refreshToken?: string | null;
   remoteUserId?: string | null;
 }): void {
   const data = readFile();
+  const previous = data[input.profileId];
+  const nextServerUrl = input.serverUrl.replace(/\/+$/, "");
+  const nextRefreshToken = input.refreshToken !== undefined
+    ? (input.refreshToken ? input.refreshToken : null)
+    : (previous && previous.serverUrl === nextServerUrl ? (previous.refreshToken ?? null) : null);
   data[input.profileId] = {
     profileId: input.profileId,
-    serverUrl: input.serverUrl.replace(/\/+$/, ""),
+    serverUrl: nextServerUrl,
     token: input.token,
-    remoteUserId: input.remoteUserId ?? null,
+    refreshToken: nextRefreshToken,
+    remoteUserId: input.remoteUserId ?? previous?.remoteUserId ?? null,
     updatedAt: new Date().toISOString(),
   };
   writeFile(data);
+}
+
+const refreshInFlight = new Map<string, Promise<string | null>>();
+
+/**
+ * 使用持久化的 refreshToken 向远端换取新的 Access Token，并原子写回凭据文件。
+ *
+ * 并发去重：metadata / blob / realtime 同时遇 401 时只发起一次 /api/auth/refresh。
+ * 区分错误类型：
+ * - 401 / 403（refreshToken 本身失效或被吊销）→ 返回 null，由调用方转入 AUTH_EXPIRED；
+ * - 网络波动 / 5xx → 抛出可重试的 NETWORK_UNAVAILABLE / SERVER_ERROR，绝不误踢用户重新登录。
+ */
+export function refreshRemoteCredential(
+  profileId: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<string | null> {
+  const existing = refreshInFlight.get(profileId);
+  if (existing) return existing;
+
+  const task = (async (): Promise<string | null> => {
+    const stored = getRemoteCredential(profileId);
+    if (!stored?.refreshToken) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let response: Response;
+    try {
+      response = await fetchImpl(`${stored.serverUrl}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: stored.refreshToken }),
+        signal: controller.signal,
+      });
+    } catch (error: any) {
+      throw new SyncError("NETWORK_UNAVAILABLE", error?.message || "刷新同步凭据时网络不可用");
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new SyncError("SERVER_ERROR", `刷新同步凭据失败（HTTP ${response.status}）`);
+    }
+
+    const payload = await response.json().catch(() => null) as {
+      token?: unknown;
+      refreshToken?: unknown;
+    } | null;
+    const nextToken = typeof payload?.token === "string" ? payload.token.trim() : "";
+    if (!nextToken) {
+      throw new SyncError("SERVER_ERROR", "刷新同步凭据响应缺少有效 Token");
+    }
+    const nextRefresh = typeof payload?.refreshToken === "string" && payload.refreshToken.trim()
+      ? payload.refreshToken.trim()
+      : stored.refreshToken;
+    saveRemoteCredential({
+      profileId,
+      serverUrl: stored.serverUrl,
+      token: nextToken,
+      refreshToken: nextRefresh,
+      remoteUserId: stored.remoteUserId ?? null,
+    });
+    return nextToken;
+  })().finally(() => {
+    refreshInFlight.delete(profileId);
+  });
+
+  refreshInFlight.set(profileId, task);
+  return task;
 }
 
 /** 读取某个 Profile 的凭据；未授权返回 null。 */
@@ -123,7 +204,10 @@ export function createRemoteClientForProfile(
     serverUrl: serverUrl.replace(/\/+$/, ""),
     token: stored.token,
   };
-  return new SyncRemoteClient(credentials);
+  return new SyncRemoteClient(credentials, {
+    getToken: () => getRemoteCredential(profileId)?.token ?? stored.token,
+    refreshToken: () => refreshRemoteCredential(profileId),
+  });
 }
 
 /**
@@ -145,5 +229,7 @@ export function createBlobClientForProfile(
       serverUrl: serverUrl.replace(/\/+$/, ""),
       token: stored.token,
     },
+    getToken: () => getRemoteCredential(profileId)?.token ?? stored.token,
+    refreshToken: () => refreshRemoteCredential(profileId),
   });
 }
