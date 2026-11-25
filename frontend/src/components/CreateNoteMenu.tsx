@@ -7,7 +7,9 @@ import {
   importMarkdownZipIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
   importPptIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
+  type KnowledgeTreeImportKind,
 } from "@/components/knowledgeTreeImport";
 import { prompt } from "@/components/ui/confirm";
 import { api, getCurrentWorkspace } from "@/lib/api";
@@ -115,10 +117,17 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
     }
   }
 
-  async function importContent(kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat") {
+  async function importContent(kind: KnowledgeTreeImportKind) {
     onClose();
     try {
       const target = await resolveTarget();
+      if (kind === "sheet") {
+        const sheetNode = await importSheetIntoKnowledgeTree(target);
+        if (!sheetNode) return;
+        refresh(target.parent?.id ?? null, sheetNode.id);
+        pushSheetAppPath(sheetNode.resourceId);
+        return;
+      }
       const importer = kind === "markdown" ? importMarkdownIntoKnowledgeTree
         : kind === "markdown-zip" ? importMarkdownZipIntoKnowledgeTree
           : kind === "word" ? importWordIntoKnowledgeTree

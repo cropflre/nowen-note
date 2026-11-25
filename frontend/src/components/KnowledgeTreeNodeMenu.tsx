@@ -10,6 +10,7 @@ import {
   FileArchive,
   FileCode,
   FilePlus,
+  FileSpreadsheet,
   FileText,
   FileType2,
   FolderInput,
@@ -50,6 +51,7 @@ import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
   importPptIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
@@ -144,6 +146,7 @@ function importChildren(): ContextMenuItem[] {
     { id: "import_markdown_zip", label: "Markdown + 附件（ZIP）", icon: <FileArchive size={14} className="text-amber-500" /> },
     { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} className="text-violet-500" /> },
     { id: "import_ppt", label: "PPTX 演示文稿", icon: <Presentation size={14} className="text-orange-500" /> },
+    { id: "import_sheet", label: "表格（XLSX / CSV）", icon: <FileSpreadsheet size={14} className="text-emerald-600" /> },
     { id: "import_url", label: "公众号文章", icon: <Link2 size={14} className="text-sky-500" /> },
   ];
 }
@@ -538,6 +541,22 @@ export default function KnowledgeTreeNodeMenu({
     actions.refreshNotebooks();
   };
 
+  const importSheet = async () => {
+    if (!node) return;
+    const imported = await importSheetIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id, imported.id);
+    pushSheetAppPath(imported.resourceId);
+    actions.setMobileSidebar(false);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
   const importMarkdown = async () => {
     if (!node) return;
     const imported = await importMarkdownIntoKnowledgeTree({
@@ -777,6 +796,7 @@ export default function KnowledgeTreeNodeMenu({
       "import_markdown_zip",
       "import_word",
       "import_ppt",
+      "import_sheet",
       "import_url",
       "export_folder",
       "delete",
@@ -801,6 +821,7 @@ export default function KnowledgeTreeNodeMenu({
         case "import_markdown_zip": await importMarkdownZip(); break;
         case "import_word": await importWord(); break;
         case "import_ppt": await importPpt(); break;
+        case "import_sheet": await importSheet(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;
         case "toggle_favorite": await patchNote({ isFavorite: note?.isFavorite === 1 ? 0 : 1 }); break;

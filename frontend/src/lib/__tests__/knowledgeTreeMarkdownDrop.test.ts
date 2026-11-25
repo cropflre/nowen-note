@@ -5,6 +5,8 @@ import {
   formatMarkdownImportFailures,
   hasExternalFilePayload,
   isMarkdownDropFile,
+  isPptDropFile,
+  isSheetDropFile,
   isWordDropFile,
   knowledgeTreeFilesFromDataTransfer,
   markdownDropTitle,
@@ -29,6 +31,15 @@ describe("knowledgeTreeMarkdownDrop", () => {
     expect(isWordDropFile({ name: "REPORT.DOCX" })).toBe(true);
     expect(isWordDropFile({ name: "legacy.doc" })).toBe(false);
     expect(isWordDropFile({ name: "document.docx.zip" })).toBe(false);
+  });
+
+  it("accepts pptx and sheet (xlsx/csv) files while rejecting legacy binary Office formats", () => {
+    expect(isPptDropFile({ name: "产品评审.pptx" })).toBe(true);
+    expect(isPptDropFile({ name: "DECK.PPTX" })).toBe(true);
+    expect(isPptDropFile({ name: "legacy.ppt" })).toBe(false);
+    expect(isSheetDropFile({ name: "预算.xlsx" })).toBe(true);
+    expect(isSheetDropFile({ name: "DATA.CSV" })).toBe(true);
+    expect(isSheetDropFile({ name: "legacy.xls" })).toBe(false);
   });
 
   it("derives the note title from the file name", () => {
@@ -60,19 +71,28 @@ describe("knowledgeTreeMarkdownDrop", () => {
     expect(selected.map((file) => file.name)).toEqual(["a.md", "c.markdown"]);
   });
 
-  it("keeps Markdown and DOCX files for knowledge-tree drops", () => {
+  it("keeps Markdown, DOCX, PPTX and sheet files for knowledge-tree drops", () => {
     const files = [
       new File(["# A"], "a.md", { type: "text/markdown" }),
       new File(["word"], "contract.docx", {
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       }),
+      new File(["ppt"], "roadmap.pptx", {
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      }),
+      new File(["xlsx"], "budget.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+      new File(["a,b\n1,2"], "metrics.csv", { type: "text/csv" }),
       new File(["legacy"], "legacy.doc", { type: "application/msword" }),
+      new File(["legacy"], "legacy.ppt", { type: "application/vnd.ms-powerpoint" }),
+      new File(["legacy"], "legacy.xls", { type: "application/vnd.ms-excel" }),
       new File(["hello"], "b.txt", { type: "text/plain" }),
     ];
 
     expect(knowledgeTreeFilesFromDataTransfer({
       files: files as unknown as FileList,
-    }).map((file) => file.name)).toEqual(["a.md", "contract.docx"]);
+    }).map((file) => file.name)).toEqual(["a.md", "contract.docx", "roadmap.pptx", "budget.xlsx", "metrics.csv"]);
   });
 
   it("opens a multi-file Markdown picker", async () => {

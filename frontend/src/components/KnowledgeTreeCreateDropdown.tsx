@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { KnowledgeTreeImportKind } from "@/components/knowledgeTreeImport";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import { duplicateKnowledgeTreeNoteAsChild, resolveDuplicableKnowledgeTreeNote } from "@/lib/knowledgeTreeDuplicateAsChild";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
@@ -52,6 +53,7 @@ const IMPORT_ITEMS = [
   { kind: "markdown-zip", label: "导入 Markdown + 附件（ZIP）", icon: FileArchive },
   { kind: "word", label: "导入 Word 文档", icon: FileType2 },
   { kind: "ppt", label: "导入 PPTX 演示文稿", icon: Presentation },
+  { kind: "sheet", label: "导入表格（XLSX / CSV）", icon: FileSpreadsheet },
   { kind: "wechat", label: "导入公众号文章", icon: Link2 },
 ] as const;
 
@@ -66,7 +68,7 @@ interface KnowledgeTreeCreateDropdownProps {
   onCreate: (parentId: string | null, kind: KnowledgeTreeInlineCreateKind) => void;
   onCreateFromTemplate: (parentId: string | null) => void;
   onCreateEncrypted?: (parentId: string | null) => void;
-  onImport: (parentId: string | null, kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat") => void;
+  onImport: (parentId: string | null, kind: KnowledgeTreeImportKind) => void;
 }
 
 type ExpandedSection = "more" | "import" | null;
@@ -361,14 +363,16 @@ export function KnowledgeTreeCreateDropdown({
                         ? "text-violet-500"
                         : item.kind === "ppt"
                           ? "text-orange-500"
-                          : "text-sky-500"}
+                          : item.kind === "sheet"
+                            ? "text-emerald-600"
+                            : "text-sky-500"}
                 />
                 <span>{item.label}</span>
               </button>
             );
           })}
           <p className="px-2 pb-0.5 pt-1 text-[10px] leading-snug text-tx-tertiary">
-            也可将 .md 文件拖拽到目录树导入（或 Markdown 附件 ZIP）
+            也可将 .md 文件拖拽到目录树导入（也支持 Word / PPTX / 表格 / Markdown 附件 ZIP）
           </p>
         </div>
       )}

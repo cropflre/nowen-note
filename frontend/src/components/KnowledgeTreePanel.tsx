@@ -47,9 +47,11 @@ import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermission
 import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
   importPptIntoKnowledgeTree,
+  type KnowledgeTreeImportKind,
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -402,7 +404,7 @@ export interface KnowledgeTreeInlineCreateRequest {
 export interface KnowledgeTreeImportRequest {
   requestId: number;
   parentId: string | null;
-  kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat";
+  kind: KnowledgeTreeImportKind;
 }
 
 export interface KnowledgeTreeTemplateCreateRequest {
@@ -1105,6 +1107,16 @@ export function KnowledgeTreePanel({
           nodes,
           fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId || state.notebooks[0]?.id || null,
         };
+        if (importRequest.kind === "sheet") {
+          const importedSheet = await importSheetIntoKnowledgeTree(options);
+          if (!importedSheet) return;
+          revealCreatedKnowledgeTreeNote(parent?.id || null, importedSheet.id);
+          pushSheetAppPath(importedSheet.resourceId);
+          emitTreeChanged("node-imported-plus-menu");
+          actions.refreshNotes();
+          actions.refreshNotebooks();
+          return;
+        }
         const imported = importRequest.kind === "markdown"
           ? await importMarkdownIntoKnowledgeTree(options)
           : importRequest.kind === "markdown-zip"

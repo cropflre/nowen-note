@@ -7,7 +7,8 @@ import { KnowledgeTreeCreateDropdown } from "../KnowledgeTreeCreateMenuRuntime";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({
   list: vi.fn(), listShared: vi.fn(), create: vi.fn(), getNote: vi.fn(), prompt: vi.fn(),
-  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), ppt: vi.fn(), wechat: vi.fn() },
+  pushSheetAppPath: vi.fn(),
+  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), ppt: vi.fn(), sheet: vi.fn(), wechat: vi.fn() },
   template: vi.fn(), pluginTemplate: vi.fn(), error: vi.fn(),
   state: { selectedNotebookId: "book", viewMode: "notebook", notebooks: [{ id: "book" }] },
   actions: { setActiveNote: vi.fn(), addNoteToList: vi.fn(), setMobileView: vi.fn(), refreshNotes: vi.fn(), refreshNotebooks: vi.fn() },
@@ -16,6 +17,7 @@ vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: mock.state }), us
 vi.mock("../KnowledgeTreePanel", () => ({ default: () => null, FOCUS_KNOWLEDGE_TREE_EVENT: "nowen:focus-knowledge-tree", KNOWLEDGE_TREE_CHANGED_EVENT: "nowen:knowledge-tree-changed" }));
 vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: { list: mock.list, listShared: mock.listShared, create: mock.create } }));
 vi.mock("@/lib/api", () => ({ api: { getNote: mock.getNote }, getCurrentWorkspace: () => "personal" }));
+vi.mock("@/lib/sheetDeepLink", () => ({ pushSheetAppPath: mock.pushSheetAppPath }));
 vi.mock("@/lib/knowledgeTreeDuplicateAsChild", () => ({ resolveDuplicableKnowledgeTreeNote: async () => null, duplicateKnowledgeTreeNoteAsChild: vi.fn() }));
 vi.mock("@/components/ui/confirm", () => ({ prompt: mock.prompt }));
 vi.mock("@/components/knowledgeTreeImport", () => ({
@@ -23,6 +25,7 @@ vi.mock("@/components/knowledgeTreeImport", () => ({
   importMarkdownZipIntoKnowledgeTree: mock.imports["markdown-zip"],
   importWordIntoKnowledgeTree: mock.imports.word,
   importPptIntoKnowledgeTree: mock.imports.ppt,
+  importSheetIntoKnowledgeTree: mock.imports.sheet,
   importWeChatArticleIntoKnowledgeTree: mock.imports.wechat,
 }));
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.template } }));
@@ -110,6 +113,13 @@ describe("note list create menu", () => {
     await renderMenu(); await pick(label);
     expect(mock.imports[kind]).toHaveBeenCalledWith(expect.objectContaining({ parent: folder }));
     expect(mock.actions.setActiveNote).toHaveBeenCalledWith(note);
+  });
+  it("imports a spreadsheet into the same directory and navigates to the created sheet", async () => {
+    mock.imports.sheet.mockResolvedValue({ id: "sheet:s1", resourceId: "s1", resourceType: "sheet" });
+    await renderMenu(); await pick("导入表格（XLSX / CSV）");
+    expect(mock.imports.sheet).toHaveBeenCalledWith(expect.objectContaining({ parent: folder }));
+    expect(mock.pushSheetAppPath).toHaveBeenCalledWith("s1");
+    expect(mock.actions.refreshNotebooks).toHaveBeenCalled();
   });
   it("does not silently fall back to the root when the target is gone", async () => {
     mock.list.mockResolvedValue({ nodes: [] });

@@ -98,6 +98,7 @@ describe("knowledge tree node menu", () => {
       "import_markdown",
       "import_word",
       "import_ppt",
+      "import_sheet",
       "import_url",
       "new_folder",
       "change_icon",

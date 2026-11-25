@@ -52,9 +52,11 @@ import {
 import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
   importPptIntoKnowledgeTree,
+  type KnowledgeTreeImportKind,
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -929,7 +931,7 @@ export default function MobileKnowledgeTreePanel({
 
   const importIntoTree = useCallback(async (
     targetParentId: string | null,
-    kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat",
+    kind: KnowledgeTreeImportKind,
   ) => {
     setCreateMenu(null);
     const parent = targetParentId ? nodes.find((node) => node.id === targetParentId) || null : null;
@@ -945,6 +947,17 @@ export default function MobileKnowledgeTreePanel({
         nodes,
         fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId || state.notebooks[0]?.id || null,
       };
+      if (kind === "sheet") {
+        const importedSheet = await importSheetIntoKnowledgeTree(options);
+        if (!importedSheet) return;
+        revealCreatedKnowledgeTreeNote(parent?.id || null, importedSheet.id);
+        pushSheetAppPath(importedSheet.resourceId);
+        if (variant === "mobile") actions.setMobileSidebar(false);
+        emitTreeChanged("node-imported-quick-browse");
+        actions.refreshNotes();
+        actions.refreshNotebooks();
+        return;
+      }
       const imported = kind === "markdown"
         ? await importMarkdownIntoKnowledgeTree(options)
         : kind === "markdown-zip"
@@ -962,7 +975,7 @@ export default function MobileKnowledgeTreePanel({
     } catch (requestError: any) {
       toast.error(requestError?.message || "导入失败，请重试");
     }
-  }, [actions, activateNote, nodes, state.activeNote?.notebookId, state.notebooks, state.selectedNotebookId, unlockedFolderIds]);
+  }, [actions, activateNote, nodes, state.activeNote?.notebookId, state.notebooks, state.selectedNotebookId, unlockedFolderIds, variant]);
 
   const createFromTemplate = useCallback(async (templateId: string) => {
     const targetParentId = templatePicker?.parentId ?? null;

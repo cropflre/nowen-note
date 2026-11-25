@@ -59,6 +59,14 @@ export function isWordDropFile(file: Pick<File, "name">): boolean {
   return /\.docx$/i.test(String(file.name || "").trim());
 }
 
+export function isPptDropFile(file: Pick<File, "name">): boolean {
+  return /\.pptx$/i.test(String(file.name || "").trim());
+}
+
+export function isSheetDropFile(file: Pick<File, "name">): boolean {
+  return /\.(?:xlsx|csv)$/i.test(String(file.name || "").trim());
+}
+
 export function isMarkdownZipDropFile(file: Pick<File, "name">): boolean {
   return /\.zip$/i.test(String(file.name || "").trim());
 }
@@ -84,7 +92,11 @@ export function markdownFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "
 
 export function knowledgeTreeFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "files">): File[] {
   return Array.from(dataTransfer.files || []).filter((file) => (
-    isMarkdownDropFile(file) || isMarkdownZipDropFile(file) || isWordDropFile(file)
+    isMarkdownDropFile(file)
+    || isMarkdownZipDropFile(file)
+    || isWordDropFile(file)
+    || isPptDropFile(file)
+    || isSheetDropFile(file)
   ));
 }
 
@@ -729,11 +741,11 @@ export function formatMarkdownImportFailures(
   return `${visible.join("；")}${omitted > 0 ? `；另有 ${omitted} 个失败` : ""}`;
 }
 
-async function importWordFileIntoKnowledgeTree(
-  file: File,
+async function resolveDropNotebookId(
   target: KnowledgeTreeNode,
   nodes: KnowledgeTreeNode[],
-): Promise<void> {
+  label: string,
+): Promise<string> {
   const byId = new Map(nodes.map((candidate) => [candidate.id, candidate]));
   const visited = new Set<string>();
   let cursor: KnowledgeTreeNode | undefined = target;
@@ -750,13 +762,42 @@ async function importWordFileIntoKnowledgeTree(
   if (!notebookId && target.resourceType === "note") {
     notebookId = (await api.getNote(target.resourceId)).notebookId;
   }
-  if (!notebookId) throw new Error("无法确定 Word 文档的目标目录");
+  if (!notebookId) throw new Error(`无法确定 ${label} 的目标目录`);
+  return notebookId;
+}
 
+async function importWordFileIntoKnowledgeTree(
+  file: File,
+  target: KnowledgeTreeNode,
+  nodes: KnowledgeTreeNode[],
+): Promise<void> {
+  const notebookId = await resolveDropNotebookId(target, nodes, "Word 文档");
   const { importDocxAsNote } = await import("@/lib/wordNoteService");
   const { note } = await importDocxAsNote({ notebookId, file });
   if (target.id !== `notebook:${notebookId}`) {
     await knowledgeTreeApi.move(`note:${note.id}`, { parentId: target.id });
   }
+}
+
+async function importPptFileIntoKnowledgeTree(
+  file: File,
+  target: KnowledgeTreeNode,
+  nodes: KnowledgeTreeNode[],
+): Promise<void> {
+  const notebookId = await resolveDropNotebookId(target, nodes, "PPTX 演示文稿");
+  const { importPptxAsNote } = await import("@/lib/pptNoteService");
+  const { note } = await importPptxAsNote({ notebookId, file });
+  if (target.id !== `notebook:${notebookId}`) {
+    await knowledgeTreeApi.move(`note:${note.id}`, { parentId: target.id });
+  }
+}
+
+async function importSheetFileIntoKnowledgeTree(
+  file: File,
+  target: KnowledgeTreeNode,
+): Promise<void> {
+  const { importSheetFileAsNode } = await import("@/lib/sheetNoteService");
+  await importSheetFileAsNode({ parentId: target.id, file });
 }
 
 function emitTreeChanged(targetNodeId: string, imported: number): void {
@@ -785,7 +826,7 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
 
   if (!nodeId) return;
   if (supportedFiles.length === 0) {
-    toast.warning("这里只支持拖入 .md、.markdown、Markdown 附件 ZIP 或 .docx 文件");
+    toast.warning("这里只支持拖入 .md、.markdown、Markdown 附件 ZIP、.docx、.pptx、.xlsx 或 .csv 文件");
     return;
   }
   if (importing) {
@@ -816,6 +857,8 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
     const markdownFiles = filesToImport.filter(isMarkdownDropFile);
     const markdownZipFiles = filesToImport.filter(isMarkdownZipDropFile);
     const wordFiles = filesToImport.filter(isWordDropFile);
+    const pptFiles = filesToImport.filter(isPptDropFile);
+    const sheetFiles = filesToImport.filter(isSheetDropFile);
     const markdownResult = await importMarkdownFilesIntoKnowledgeTree(markdownFiles, target.id);
     successCount += markdownResult.imported.length;
     failures.push(...markdownResult.failures);
@@ -836,6 +879,24 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
     for (const file of wordFiles) {
       try {
         await importWordFileIntoKnowledgeTree(file, target, resolvedTarget.nodes);
+        successCount += 1;
+      } catch (error) {
+        failures.push({ name: file.name, reason: errorMessage(error) });
+      }
+    }
+
+    for (const file of pptFiles) {
+      try {
+        await importPptFileIntoKnowledgeTree(file, target, resolvedTarget.nodes);
+        successCount += 1;
+      } catch (error) {
+        failures.push({ name: file.name, reason: errorMessage(error) });
+      }
+    }
+
+    for (const file of sheetFiles) {
+      try {
+        await importSheetFileIntoKnowledgeTree(file, target);
         successCount += 1;
       } catch (error) {
         failures.push({ name: file.name, reason: errorMessage(error) });
