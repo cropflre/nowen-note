@@ -221,7 +221,7 @@ export interface Note {
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */
   contentFormat?: string;
-  /** 笔记业务类型：normal | word | journal | sheet | excel */
+  /** 笔记业务类型：normal | word | ppt | journal | sheet | excel */
   noteType?: string | null;
   isPinned: number;
   isFavorite: number;
@@ -250,7 +250,7 @@ export interface NoteListItem {
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */
   contentFormat?: string;
-  /** 笔记业务类型：normal | word | journal | sheet | excel */
+  /** 笔记业务类型：normal | word | ppt | journal | sheet | excel */
   noteType?: string | null;
   isPinned: number;
   isFavorite: number;

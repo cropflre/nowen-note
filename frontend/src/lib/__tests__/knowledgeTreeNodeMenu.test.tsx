@@ -75,14 +75,29 @@ describe("knowledge tree node menu", () => {
     if (language === "en") expect(allItems.some((item) => /[\u3400-\u9fff]/u.test(item.label))).toBe(false);
   });
 
-  it("restores the former folder actions", () => {
-    const actions = ids(buildKnowledgeTreeNodeMenuItems(node(), null));
+  it("restores the former folder actions in a compact grouped hierarchy", () => {
+    const items = buildKnowledgeTreeNodeMenuItems(node(), null);
+    // 顶层菜单分组精简：创建/导入 | 重命名/移动 | 分享/权限/更多设置 | 回收站
+    expect(items.filter((item) => !item.separator).map((item) => item.id)).toEqual([
+      "create",
+      "import",
+      "rename",
+      "move",
+      "share",
+      "permissions",
+      "folder_more_menu",
+      "delete",
+    ]);
+    const actions = ids(items);
     expect(actions).toEqual(expect.arrayContaining([
       "new_note",
+      "new_word",
       "new_markdown",
+      "new_ppt",
       "new_mindmap",
       "import_markdown",
       "import_word",
+      "import_ppt",
       "import_url",
       "new_folder",
       "change_icon",

@@ -14,6 +14,7 @@ import {
   Link2,
   Lock,
   MoreHorizontal,
+  Presentation,
   Upload,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -38,6 +39,7 @@ const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹", icon: Folder } 
 
 /** 低频扩展新建项：收纳入“更多类型”手风琴，减少视觉噪声 */
 const MORE_CREATE_ITEMS = [
+  { kind: "ppt", label: "PPT 演示文稿", icon: Presentation },
   { kind: "plaintext", label: "note.format.plainTextDocument", icon: FileText },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
 ] as const;
@@ -49,6 +51,7 @@ const IMPORT_ITEMS = [
   { kind: "markdown", label: "导入 Markdown 文件", icon: FileCode },
   { kind: "markdown-zip", label: "导入 Markdown + 附件（ZIP）", icon: FileArchive },
   { kind: "word", label: "导入 Word 文档", icon: FileType2 },
+  { kind: "ppt", label: "导入 PPTX 演示文稿", icon: Presentation },
   { kind: "wechat", label: "导入公众号文章", icon: Link2 },
 ] as const;
 
@@ -63,7 +66,7 @@ interface KnowledgeTreeCreateDropdownProps {
   onCreate: (parentId: string | null, kind: KnowledgeTreeInlineCreateKind) => void;
   onCreateFromTemplate: (parentId: string | null) => void;
   onCreateEncrypted?: (parentId: string | null) => void;
-  onImport: (parentId: string | null, kind: "markdown" | "markdown-zip" | "word" | "wechat") => void;
+  onImport: (parentId: string | null, kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat") => void;
 }
 
 type ExpandedSection = "more" | "import" | null;
@@ -87,6 +90,7 @@ function menuPosition(anchor: DOMRect, menuHeight: number): React.CSSProperties 
 function itemIconClass(kind: string): string {
   if (kind === "markdown") return "text-emerald-500";
   if (kind === "word") return "text-blue-500";
+  if (kind === "ppt") return "text-orange-500";
   if (kind === "excel") return "text-emerald-600";
   if (kind === "folder") return "text-amber-500";
   return "text-accent-primary";
@@ -355,7 +359,9 @@ export function KnowledgeTreeCreateDropdown({
                       ? "text-amber-500"
                       : item.kind === "word"
                         ? "text-violet-500"
-                        : "text-sky-500"}
+                        : item.kind === "ppt"
+                          ? "text-orange-500"
+                          : "text-sky-500"}
                 />
                 <span>{item.label}</span>
               </button>

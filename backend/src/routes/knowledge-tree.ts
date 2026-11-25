@@ -364,7 +364,7 @@ app.post("/nodes", async (c) => {
       const conflict = verifyTreePreconditions(c, body.parentId, body);
       if (conflict) return conflict;
     }
-    if (!["folder", "note", "markdown", "word", "mindmap", "sheet", "excel"].includes(nodeType)) {
+    if (!["folder", "note", "markdown", "word", "ppt", "mindmap", "sheet", "excel"].includes(nodeType)) {
       return c.json({ error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" }, 400);
     }
     if (nodeType === "excel" && !isExcelWorkbookCreationEnabled()) {

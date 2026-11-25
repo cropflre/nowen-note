@@ -161,7 +161,7 @@ export const knowledgeTreeApi = {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
-  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext"; sheetData?: SheetDataModel }) {
+  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext"; sheetData?: SheetDataModel }) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery()}`, {
       method: "POST",
       body: JSON.stringify(input),
@@ -177,7 +177,7 @@ export const knowledgeTreeApi = {
 
   createForWorkspace(
     workspaceId: string,
-    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext" },
+    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext" },
   ) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery(false, workspaceId)}`, {
       method: "POST",

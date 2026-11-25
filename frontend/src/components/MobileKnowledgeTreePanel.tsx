@@ -13,6 +13,7 @@ import {
   FileCode,
   FileText,
   FileType2,
+  Presentation,
   Folder,
   Loader2,
   ListFilter,
@@ -53,6 +54,7 @@ import {
   importMarkdownZipIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
+  importPptIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -163,6 +165,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={18} className="shrink-0 text-sky-500" />;
   if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={18} className="shrink-0 text-emerald-600" />;
   if (node.nodeType === "word" || node.noteType === "word") return <FileType2 data-knowledge-tree-icon="" size={18} className="shrink-0 text-blue-500" />;
+  if (node.noteType === "ppt") return <Presentation data-knowledge-tree-icon="" size={18} className="shrink-0 text-orange-500" />;
   return <FileText data-knowledge-tree-icon="" size={18} className="shrink-0 text-accent-primary" />;
 }
 
@@ -926,7 +929,7 @@ export default function MobileKnowledgeTreePanel({
 
   const importIntoTree = useCallback(async (
     targetParentId: string | null,
-    kind: "markdown" | "markdown-zip" | "word" | "wechat",
+    kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat",
   ) => {
     setCreateMenu(null);
     const parent = targetParentId ? nodes.find((node) => node.id === targetParentId) || null : null;
@@ -948,7 +951,9 @@ export default function MobileKnowledgeTreePanel({
           ? await importMarkdownZipIntoKnowledgeTree(options)
           : kind === "word"
             ? await importWordIntoKnowledgeTree(options)
-            : await importWeChatArticleIntoKnowledgeTree(options);
+            : kind === "ppt"
+              ? await importPptIntoKnowledgeTree(options)
+              : await importWeChatArticleIntoKnowledgeTree(options);
       if (!imported) return;
       activateNote(imported, parent?.id || null);
       emitTreeChanged("node-imported-quick-browse");

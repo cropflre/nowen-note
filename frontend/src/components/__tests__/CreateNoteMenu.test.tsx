@@ -7,7 +7,7 @@ import { KnowledgeTreeCreateDropdown } from "../KnowledgeTreeCreateMenuRuntime";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({
   list: vi.fn(), listShared: vi.fn(), create: vi.fn(), getNote: vi.fn(), prompt: vi.fn(),
-  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), wechat: vi.fn() },
+  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), ppt: vi.fn(), wechat: vi.fn() },
   template: vi.fn(), pluginTemplate: vi.fn(), error: vi.fn(),
   state: { selectedNotebookId: "book", viewMode: "notebook", notebooks: [{ id: "book" }] },
   actions: { setActiveNote: vi.fn(), addNoteToList: vi.fn(), setMobileView: vi.fn(), refreshNotes: vi.fn(), refreshNotebooks: vi.fn() },
@@ -22,6 +22,7 @@ vi.mock("@/components/knowledgeTreeImport", () => ({
   importMarkdownIntoKnowledgeTree: mock.imports.markdown,
   importMarkdownZipIntoKnowledgeTree: mock.imports["markdown-zip"],
   importWordIntoKnowledgeTree: mock.imports.word,
+  importPptIntoKnowledgeTree: mock.imports.ppt,
   importWeChatArticleIntoKnowledgeTree: mock.imports.wechat,
 }));
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.template } }));
@@ -87,7 +88,7 @@ describe("note list create menu", () => {
     await act(async () => root.render(<KnowledgeTreeCreateDropdown menu={{ parentId: "folder", anchor: anchor.getBoundingClientRect() }} onClose={vi.fn()} onCreate={vi.fn()} onCreateFromTemplate={vi.fn()} onCreateEncrypted={vi.fn()} onImport={vi.fn()} />));
     expect(listMenu).toBe(document.querySelector('[role="menu"]')!.innerHTML);
   });
-  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["思维导图", "mindmap"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
+  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["PPT 演示文稿", "ppt"], ["思维导图", "mindmap"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
     await renderMenu(); await pick(label);
     expect(mock.create).toHaveBeenCalledWith(expect.objectContaining({ parentId: "folder", nodeType: kind }));
     expect(mock.actions.refreshNotebooks).toHaveBeenCalled();
@@ -105,7 +106,7 @@ describe("note list create menu", () => {
     await renderMenu(null); await pick("富文本文档");
     expect(mock.create).toHaveBeenCalledWith(expect.objectContaining({ parentId: null }));
   });
-  it.each([["导入 Markdown 文件", "markdown"], ["导入 Markdown + 附件（ZIP）", "markdown-zip"], ["导入 Word 文档", "word"], ["导入公众号文章", "wechat"]] as const)("imports %s into the same directory", async (label, kind) => {
+  it.each([["导入 Markdown 文件", "markdown"], ["导入 Markdown + 附件（ZIP）", "markdown-zip"], ["导入 Word 文档", "word"], ["导入 PPTX 演示文稿", "ppt"], ["导入公众号文章", "wechat"]] as const)("imports %s into the same directory", async (label, kind) => {
     await renderMenu(); await pick(label);
     expect(mock.imports[kind]).toHaveBeenCalledWith(expect.objectContaining({ parent: folder }));
     expect(mock.actions.setActiveNote).toHaveBeenCalledWith(note);

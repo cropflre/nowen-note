@@ -47,7 +47,7 @@ interface ContextMenuProps {
 }
 
 const contextMenuRowClassName =
-  "w-full h-9 flex items-center gap-2 px-3 text-sm transition-colors duration-150 ease-out";
+  "mx-1 w-[calc(100%-8px)] h-8 flex items-center gap-2 px-2.5 rounded-md text-[13px] transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-accent-primary focus-visible:outline-offset-[-1px]";
 const contextMenuIconClassName = "w-4 h-4 flex items-center justify-center shrink-0";
 
 function DesktopContextMenuItems({
@@ -121,7 +121,7 @@ function DesktopContextMenuItems({
               }}
               onMouseLeave={() => {
                 if (!window.matchMedia("(min-width: 640px) and (hover: hover)").matches) return;
-                closeTimerRef.current = setTimeout(() => setActiveItemId(null), 150);
+                closeTimerRef.current = setTimeout(() => setActiveItemId(null), 260);
               }}
             >
               <button
@@ -131,6 +131,16 @@ function DesktopContextMenuItems({
                 aria-expanded={active}
                 onClick={() => {
                   if (!item.disabled) setActiveItemId(active ? null : item.id);
+                }}
+                onKeyDown={(event) => {
+                  if (item.disabled) return;
+                  if (event.key === "ArrowRight" || event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setActiveItemId(item.id);
+                  } else if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    setActiveItemId(null);
+                  }
                 }}
                 className={cn(
                   contextMenuRowClassName,
@@ -157,7 +167,7 @@ function DesktopContextMenuItems({
                     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
                   }}
                   onMouseLeave={() => {
-                    closeTimerRef.current = setTimeout(() => setActiveItemId(null), 150);
+                    closeTimerRef.current = setTimeout(() => setActiveItemId(null), 260);
                   }}
                 >
                   <DesktopContextMenuItems items={item.children} onAction={onAction} menuId={menuId} />

@@ -10,6 +10,7 @@ import {
   FileCode,
   FileText,
   FileType2,
+  Presentation,
   Folder,
   ListFilter,
   Loader2,
@@ -48,6 +49,7 @@ import {
   importMarkdownZipIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
+  importPptIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -181,6 +183,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={15} className="shrink-0 text-sky-500" />;
   if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={15} className="shrink-0 text-emerald-600" />;
   if (node.nodeType === "word" || node.noteType === "word") return <FileType2 data-knowledge-tree-icon="" size={15} className="shrink-0 text-blue-500" />;
+  if (node.noteType === "ppt") return <Presentation data-knowledge-tree-icon="" size={15} className="shrink-0 text-orange-500" />;
   return <FileText data-knowledge-tree-icon="" size={15} className="shrink-0 text-accent-primary" />;
 }
 
@@ -188,6 +191,7 @@ function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
   if (kind === "folder") return <Folder size={15} className="shrink-0 text-amber-500" />;
   if (kind === "markdown") return <FileCode size={15} className="shrink-0 text-emerald-500" />;
   if (kind === "word") return <FileType2 size={15} className="shrink-0 text-blue-500" />;
+  if (kind === "ppt") return <Presentation size={15} className="shrink-0 text-orange-500" />;
   if (kind === "mindmap") return <BrainCircuit size={15} className="shrink-0 text-accent-primary" />;
   if (kind === "sheet") return <Table2 size={15} className="shrink-0 text-sky-500" />;
   if (kind === "excel") return <FileSpreadsheet size={15} className="shrink-0 text-emerald-600" />;
@@ -398,7 +402,7 @@ export interface KnowledgeTreeInlineCreateRequest {
 export interface KnowledgeTreeImportRequest {
   requestId: number;
   parentId: string | null;
-  kind: "markdown" | "markdown-zip" | "word" | "wechat";
+  kind: "markdown" | "markdown-zip" | "word" | "ppt" | "wechat";
 }
 
 export interface KnowledgeTreeTemplateCreateRequest {
@@ -1107,7 +1111,9 @@ export function KnowledgeTreePanel({
             ? await importMarkdownZipIntoKnowledgeTree(options)
             : importRequest.kind === "word"
               ? await importWordIntoKnowledgeTree(options)
-              : await importWeChatArticleIntoKnowledgeTree(options);
+              : importRequest.kind === "ppt"
+                ? await importPptIntoKnowledgeTree(options)
+                : await importWeChatArticleIntoKnowledgeTree(options);
         if (!imported) return;
         revealCreatedKnowledgeTreeNote(parent?.id || null);
         activateNote(imported, parent?.id || null);

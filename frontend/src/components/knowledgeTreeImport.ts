@@ -74,6 +74,26 @@ export async function importWordIntoKnowledgeTree(
   }
 }
 
+export async function importPptIntoKnowledgeTree(
+  options: KnowledgeTreeImportOptions,
+): Promise<LoadedNote | null> {
+  const notebookId = await resolvePhysicalNotebookId(options);
+  const { pickPptxFile, importPptxAsNote } = await import("@/lib/pptNoteService");
+  const file = await pickPptxFile();
+  if (!file) return null;
+  const toastId = toast.info("正在导入 PPTX 演示文稿…", 0);
+  try {
+    const { note } = await importPptxAsNote({ notebookId, file });
+    await moveImportedNote(note.id, notebookId, options.parent);
+    toast.dismiss(toastId);
+    toast.success("导入成功");
+    return note as LoadedNote;
+  } catch (error) {
+    toast.dismiss(toastId);
+    throw error;
+  }
+}
+
 export async function importMarkdownIntoKnowledgeTree(
   options: KnowledgeTreeImportOptions,
 ): Promise<LoadedNote | null> {

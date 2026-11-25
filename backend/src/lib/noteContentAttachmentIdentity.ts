@@ -97,7 +97,7 @@ function stabilizeMarkupImages(content: string, preserveNamedImages = false): st
 }
 
 export function stabilizePersistedNoteContent(content: string, contentFormat: string): string {
-  if (contentFormat === "plaintext") return content;
+  if (contentFormat === "plaintext" || contentFormat === "ppt-json") return content;
   if (!content) return content;
   if (contentFormat === "tiptap-json") {
     try {

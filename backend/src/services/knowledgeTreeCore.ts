@@ -255,7 +255,7 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel";
+  nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel";
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
@@ -284,6 +284,9 @@ export function createKnowledgeChild(input: {
   if (input.nodeType === "excel" && input.encryptedContent) {
     throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "Excel 表格暂不支持加密");
   }
+  if (input.nodeType === "ppt" && input.encryptedContent) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "PPT 演示文稿暂不支持加密");
+  }
 
   const title = input.title.trim() || (
     input.nodeType === "folder"
@@ -296,7 +299,9 @@ export function createKnowledgeChild(input: {
             ? "无标题 Excel 表格"
             : input.nodeType === "word"
               ? "无标题 Word 文档"
-              : "无标题笔记"
+              : input.nodeType === "ppt"
+                ? "无标题 PPT 演示文稿"
+                : "无标题笔记"
   );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
@@ -326,8 +331,24 @@ export function createKnowledgeChild(input: {
         throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "笔记 ID 格式无效");
       }
       const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : input.noteId || uuid();
-      const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
-      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : "normal";
+      const contentFormat = input.encryptedContent
+        ? "encrypted-note-v1"
+        : input.nodeType === "ppt"
+          ? "ppt-json"
+          : input.nodeType === "note" && input.contentFormat === "plaintext"
+            ? "plaintext"
+            : input.nodeType === "markdown"
+              ? "markdown"
+              : "tiptap-json";
+      const noteType = input.nodeType === "word"
+        ? "word"
+        : input.nodeType === "ppt"
+          ? "ppt"
+          : input.nodeType === "sheet"
+            ? "sheet"
+            : input.nodeType === "excel"
+              ? "excel"
+              : "normal";
       const content = input.encryptedContent || (contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
       db.prepare(`
         INSERT INTO notes (

@@ -759,6 +759,7 @@ app.post("/", async (c) => {
   const contentFormat = body.contentFormat === "plaintext" ? "plaintext"
     : body.contentFormat === "markdown" ? "markdown"
     : body.contentFormat === "html" ? "html"
+    : body.contentFormat === "ppt-json" ? "ppt-json"
     : "tiptap-json";
   const defaultContent = contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? "# 无标题 Markdown\n\n" : "{}";
   let initialContent = typeof body.content === "string" ? body.content : defaultContent;
@@ -773,15 +774,16 @@ app.post("/", async (c) => {
     }, 400);
   }
 
-  const noteType = body.noteType === "word" ? "word" : "normal";
+  const noteType = body.noteType === "word" ? "word" : body.noteType === "ppt" ? "ppt" : "normal";
+  const effectiveContentFormat = noteType === "ppt" ? "ppt-json" : contentFormat;
   const legacyNoteCreateTx = db.transaction(() => {
     db.prepare(`
       INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, note_type, colorMark)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId, inheritedWorkspaceId, body.notebookId,
-      body.title || (noteType === "word" ? "无标题 Word 文档" : "无标题笔记"), initialContent,
-      extractSearchableText(initialContent, contentFormat), contentFormat, noteType, initialColorMark,
+      body.title || (noteType === "word" ? "无标题 Word 文档" : noteType === "ppt" ? "无标题 PPT 演示文稿" : "无标题笔记"), initialContent,
+      extractSearchableText(initialContent, effectiveContentFormat), effectiveContentFormat, noteType, initialColorMark,
     );
     synchronizeLegacyNoteHierarchy({
       db,

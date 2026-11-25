@@ -17,6 +17,7 @@ import { confirm, prompt } from "@/components/ui/confirm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
 const WordDocumentEditor = React.lazy(() => import("@/components/WordDocumentEditor"));
+const PptDocumentEditor = React.lazy(() => import("@/components/PptDocumentEditor"));
 import NoteReadingPositionBridge from "@/components/NoteReadingPositionBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import type { NoteEditorHeading, NoteEditorUpdatePayload } from "@/components/editors/types";
@@ -4114,6 +4115,30 @@ const moveToTrash = useCallback(async () => {
               <Loader2 size={16} className="animate-spin" />
               <span>{activeNote.noteType === "excel" ? "正在打开 Excel 表格…" : "正在打开表格…"}</span>
             </div>
+          ) : activeNote.noteType === "ppt" ? (
+            <React.Suspense
+              fallback={
+                <div
+                  className="flex flex-1 items-center justify-center gap-2 text-sm text-tx-tertiary"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>正在加载 PPT 演示文稿编辑器…</span>
+                </div>
+              }
+            >
+              <PptDocumentEditor
+                key={`ppt-${activeNote.id}`}
+                ref={editorHandleRef}
+                note={activeNote}
+                onUpdate={handleEditorUpdate}
+                onLocalUpdate={handleLocalMirrorUpdate}
+                onHeadingsChange={setHeadings}
+                onEditorReady={handleEditorReady}
+                editable={canEditActiveNote && !effectiveLocked && !modeSwitching}
+              />
+            </React.Suspense>
           ) : activeNote.noteType === "word" ? (
             <React.Suspense
               fallback={
