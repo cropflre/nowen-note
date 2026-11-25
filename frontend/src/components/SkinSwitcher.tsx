@@ -26,7 +26,7 @@ export default function SkinSwitcher() {
   }, []);
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {APP_APPEARANCES.map((item) => {
         const selected = skin === item.id;
         const tokens = item.modes[mode];
@@ -37,10 +37,10 @@ export default function SkinSwitcher() {
             aria-pressed={selected}
             onClick={() => setSkin(item.id)}
             className={cn(
-              "group relative rounded-xl border-2 p-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40",
+              "group relative rounded-2xl border-2 p-3 text-left transition-all duration-200 motion-safe:hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40",
               selected
-                ? "border-accent-primary bg-accent-primary/5"
-                : "border-app-border bg-app-surface hover:border-tx-tertiary",
+                ? "border-accent-primary bg-accent-primary/[0.06] shadow-sm"
+                : "border-app-border bg-app-surface hover:border-tx-tertiary hover:shadow-xs",
             )}
           >
             <div

@@ -1161,453 +1161,559 @@ function AppearancePanel() {
     } catch { /* ignore */ }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* 站点标识 */}
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('settings.siteIdentity')}</h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">{t('settings.siteIdentityDesc')}</p>
-        {!isLoaded && <p className="mb-2 text-sm text-zinc-500">{t("settings.siteIdentityLoading")}</p>}
-        {!isAdmin && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-            {t('settings.siteIdentityAdminOnly')}
-          </p>
-        )}
-        {isAdmin && <div className="mb-6" />}
+  const previewFontSizePx = userPrefs.editorFontSize > 0 ? userPrefs.editorFontSize : 14;
+  const isCompactDensity = userPrefs.readingDensity === "compact";
 
-        <div className="flex flex-col sm:flex-row gap-6 items-start">
-          {/* Logo 上传区域 */}
-          <div className="flex flex-col items-center gap-2.5">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteIcon')}</span>
+  return (
+    <div className="space-y-5 pb-2">
+      {/* 1. 极光外观总览 Hero（内置明暗模式 + 语言快捷切换） */}
+      <section className="relative overflow-hidden rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.08] via-white to-sky-500/[0.07] p-4 shadow-sm dark:border-indigo-400/20 dark:from-indigo-500/[0.12] dark:via-zinc-900/80 dark:to-sky-500/[0.08]">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-indigo-400/20 to-fuchsia-400/15 blur-2xl"
+        />
+        <div className="relative flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/20 to-sky-500/20 text-indigo-600 ring-1 ring-inset ring-indigo-500/20 dark:text-indigo-300"
+          >
+            <Palette size={19} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              {t('settings.appearanceTheme')}
+            </h3>
+            <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+              {t('settings.appearanceThemeDesc')}
+            </p>
+          </div>
+        </div>
+
+        {/* 快捷双控：明暗模式 + 界面语言 */}
+        <div className="relative mt-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200/80 bg-white/85 px-3 py-2 shadow-2xs dark:border-zinc-800/80 dark:bg-zinc-900/70">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('settings.themeMode')}</div>
+              <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{t('settings.themeModeDesc')}</div>
+            </div>
+            <ThemeToggle />
+          </div>
+
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200/80 bg-white/85 px-3 py-2 shadow-2xs dark:border-zinc-800/80 dark:bg-zinc-900/70">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Globe size={14} className="shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+              <span className="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('language.label')}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+              {([
+                { code: "zh-CN", label: t('language.zh') },
+                { code: "en", label: t('language.en') },
+              ] as const).map(lang => (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => {
+                    try { localStorage.setItem("i18nextLng", lang.code); } catch {}
+                    void i18n.changeLanguage(lang.code);
+                  }}
+                  className={cn(
+                    "relative rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    (i18n.resolvedLanguage || i18n.language) === lang.code
+                      ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. 外观风格（Skin）：视觉主题选择 */}
+      <section className="rounded-2xl border border-zinc-200/85 bg-white/80 p-4 shadow-xs space-y-3 dark:border-zinc-800/85 dark:bg-zinc-900/50">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={14} className="text-indigo-500" aria-hidden />
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {t('appearance.skinTitle', { defaultValue: '外观风格' })}
+            </h4>
+          </div>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('appearance.skinDesc', { defaultValue: '选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。' })}
+          </p>
+        </div>
+        <SkinSwitcher />
+      </section>
+
+      {/* 3. 阅读与排版工作室（字体 + 默认字号 + 阅读密度 + 实时预览） */}
+      <section className="rounded-2xl border border-zinc-200/85 bg-white/80 shadow-xs dark:border-zinc-800/85 dark:bg-zinc-900/50">
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-200/60 bg-gradient-to-r from-violet-500/[0.05] via-transparent to-transparent px-4 py-3 rounded-t-2xl dark:border-zinc-800/70">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              aria-hidden
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-400/20 to-indigo-500/15 text-violet-700 ring-1 ring-inset ring-violet-500/20 dark:text-violet-300"
+            >
+              <Type size={14} />
+            </span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {t('settings.readingStudioTitle', { defaultValue: '阅读与排版' })}
+              </h4>
+              <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                {t('settings.readingStudioDesc', { defaultValue: '调节字体、字号与段落密度，下方实时预览排版效果' })}
+              </p>
+            </div>
+          </div>
+          {isSwitchingFont && <Loader2 size={14} className="shrink-0 animate-spin text-accent-primary" />}
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* 编辑器字体 + 导入字体包 */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.editorFont')}</span>
+                <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.editorFontDesc')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => fontFileRef.current?.click()}
+                disabled={isUploading}
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-dashed border-zinc-300 px-2.5 text-[11px] font-medium text-zinc-600 transition-colors hover:border-accent-primary/60 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400"
+              >
+                {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                {t('settings.importFont')}
+              </button>
+              <input
+                type="file"
+                ref={fontFileRef}
+                onChange={handleUploadFonts}
+                accept=".otf,.otc,.ttc,.ttf,.woff,.woff2"
+                multiple
+                className="hidden"
+              />
+            </div>
+
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setFontDropdownOpen(!fontDropdownOpen)}
+                className="w-full flex items-center justify-between px-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 hover:border-accent-primary/50 transition-colors"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Type size={14} className="shrink-0 text-zinc-400" />
+                  <span className="truncate">{currentFontName}</span>
+                </span>
+                <ChevronDown size={14} className={cn("shrink-0 text-zinc-400 transition-transform", fontDropdownOpen && "rotate-180")} />
+              </button>
+
+              <AnimatePresence>
+                {fontDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute z-50 top-full left-0 mt-1 w-full max-h-64 overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl"
+                  >
+                    <div className="px-2 pt-2 pb-1">
+                      <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.builtinFonts')}</span>
+                    </div>
+                    {BUILTIN_FONTS.map(font => (
+                      <button
+                        key={font.id}
+                        type="button"
+                        onClick={() => handleSelectFont(font.id)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                      >
+                        <span style={{ fontFamily: font.family }}>{getBuiltinFontName(font)}</span>
+                        {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
+                      </button>
+                    ))}
+
+                    {customFonts.length > 0 && (
+                      <>
+                        <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-2 my-1" />
+                        <div className="px-2 pt-1 pb-1">
+                          <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.importedFonts')}</span>
+                        </div>
+                        {customFonts.map(font => (
+                          <div
+                            key={font.id}
+                            className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleSelectFont(font.id)}
+                              className="flex-1 text-left text-sm text-zinc-700 dark:text-zinc-300"
+                            >
+                              {font.name}
+                              <span className="ml-2 text-[10px] text-zinc-400">.{font.format}</span>
+                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteFont(font.id); }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all"
+                                title={t('settings.deleteFont')}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.importFontHint')}</span>
+              {uploadMessage && (
+                <span className={cn("text-xs", uploadSuccess ? "text-emerald-500" : "text-amber-500")}>{uploadMessage}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="h-px bg-zinc-200/60 dark:bg-zinc-800/70" />
+
+          {/* 默认字号 + 阅读密度 */}
+          <div className="space-y-3.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+                </div>
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
+                </p>
+              </div>
+              <div
+                role="group"
+                aria-label={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+                className="grid grid-cols-4 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800 flex-shrink-0 sm:grid-cols-7"
+              >
+                {([
+                  { value: 0 as const, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
+                  ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
+                ]).map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={userPrefs.editorFontSize === option.value}
+                    onClick={() => setUserPref("editorFontSize", option.value)}
+                    className={cn(
+                      "min-w-8 rounded-lg px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 max-sm:min-h-9",
+                      userPrefs.editorFontSize === option.value
+                        ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  {t('settings.readingDensity', { defaultValue: '阅读密度' })}
+                </div>
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
+                  {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1 self-start rounded-xl bg-zinc-100 p-1 sm:self-auto dark:bg-zinc-800">
+                {([
+                  { code: "cozy" as const, label: t('settings.densityCozy', { defaultValue: '宽松' }) },
+                  { code: "compact" as const, label: t('settings.densityCompact', { defaultValue: '紧凑' }) },
+                ]).map(opt => (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    aria-pressed={userPrefs.readingDensity === opt.code}
+                    onClick={() => setUserPref("readingDensity", opt.code)}
+                    className={cn(
+                      "relative rounded-lg px-3 py-1 text-xs font-medium transition-colors",
+                      userPrefs.readingDensity === opt.code
+                        ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 所见即所得实时排版预览 */}
+          <div className="overflow-hidden rounded-xl border border-zinc-200/80 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-950/70">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/60 bg-white/70 px-3 py-1.5 text-[11px] dark:border-zinc-800/70 dark:bg-zinc-900/60">
+              <span className="font-medium text-zinc-500 dark:text-zinc-400">
+                {t('settings.livePreviewLabel', { defaultValue: '实时排版预览' })}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">{currentFontName}</span>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800 tabular-nums">
+                  {userPrefs.editorFontSize > 0 ? `${userPrefs.editorFontSize}px` : t('settings.fontSizeDefault', { defaultValue: '默认' })}
+                </span>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                  {isCompactDensity ? t('settings.densityCompact', { defaultValue: '紧凑' }) : t('settings.densityCozy', { defaultValue: '宽松' })}
+                </span>
+              </div>
+            </div>
             <div
               className={cn(
-                "relative w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center overflow-hidden group transition-colors",
-                canEditSiteIdentity
-                  ? "cursor-pointer hover:border-accent-primary"
-                  : "cursor-not-allowed opacity-60"
+                "px-3.5 py-3 transition-all duration-150",
+                isCompactDensity ? "space-y-1 leading-snug" : "space-y-2 leading-relaxed",
               )}
-              onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
+              style={{
+                fontFamily: "var(--editor-font-family)",
+                fontSize: `${previewFontSizePx}px`,
+              }}
             >
-              {previewIcon ? (
-                <img src={previewIcon} alt={t("settings.siteIcon")} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex flex-col items-center gap-1 text-zinc-400 dark:text-zinc-600">
-                  <Camera size={20} />
-                  <span className="text-[10px]">{t('settings.upload')}</span>
-                </div>
-              )}
-              {isAdmin && (
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Camera className="w-5 h-5 text-white" />
-                </div>
-              )}
-            </div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageChange}
-              accept="image/png,image/jpeg,image/svg+xml,image/x-icon,image/webp"
-              className="hidden"
-              disabled={!canEditSiteIdentity}
-            />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-500">PNG/SVG/ICO · &lt;1MB</span>
-              {previewIcon && isAdmin && (
-                <button
-                  onClick={handleRemoveIcon}
-                  disabled={!canEditSiteIdentity}
-                  className="text-[10px] text-red-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t('settings.remove')}
-                </button>
-              )}
+              <p className="text-zinc-800 dark:text-zinc-200">{t('settings.fontPreviewZh')}</p>
+              <p className="text-zinc-500 dark:text-zinc-400">{t('settings.fontPreviewEn')}</p>
             </div>
           </div>
-
-          {/* 站点名称 */}
-          <div className="flex-1 space-y-3 w-full">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteName')}</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => { setTitle(e.target.value); setSaveMessage(""); }}
-                maxLength={20}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                placeholder={t('settings.siteNamePlaceholder')}
-              />
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{title.length} / 20</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
-              <input
-                id="site-share-footer-text"
-                type="text"
-                value={shareFooterText}
-                onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
-                maxLength={100}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                placeholder={t("auditI18n.shareFooterPlaceholder")}
-              />
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="site-share-page-width" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.sharePageWidth')}</label>
-              <select
-                id="site-share-page-width"
-                value={sharePageWidth}
-                onChange={(e) => { setSharePageWidth(normalizeSharePageWidth(e.target.value)); setSaveMessage(""); }}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-app-elevated border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {(["standard", "wide", "full"] as const).map(width => (
-                  <option key={width} value={width}>{t(`settings.sharePageWidth_${width}`)}</option>
-                ))}
-              </select>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('settings.sharePageWidthHint')}</p>
-            </div>
-
-            <ShareBannerEditor value={shareBanner} onChange={value => { setShareBanner(value); setSaveMessage(""); }} disabled={!canEditSiteIdentity} />
-
-            {isAdmin && (
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleSave}
-                  disabled={!canEditSiteIdentity || !title.trim() || !hasChanges}
-                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  {t('settings.saveChanges')}
-                </button>
-                {saveMessage && (
-                  <span className={`text-xs ${saveMessage === t('settings.saveSuccess') ? "text-emerald-500" : "text-red-500"}`}>
-                    {saveMessage}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
         </div>
-      </div>
+      </section>
 
-      {/* 分割线 */}
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
-
-      {/* 外观与主题 */}
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('settings.appearanceTheme')}</h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">{t('settings.appearanceThemeDesc')}</p>
-      </div>
-
-      <div className="space-y-4">
-        {/* 外观风格（Skin）：默认 / macOS —— 与下方明暗模式正交 */}
-        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-3">
-          <div>
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('appearance.skinTitle', { defaultValue: '外观风格' })}
-            </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('appearance.skinDesc', { defaultValue: '选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。' })}
-            </p>
-          </div>
-          <SkinSwitcher />
-        </div>
-
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div>
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.themeMode')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.themeModeDesc')}</p>
-          </div>
-          <ThemeToggle />
-        </div>
-
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.sidebarTextStyle')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.sidebarTextStyleDesc')}</p>
-          </div>
-          <div role="group" aria-label={t('settings.sidebarTextStyle')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
-            {(["readable", "classic"] as const).map((style) => (
-              <button
-                key={style}
-                type="button"
-                aria-pressed={sidebarTextStyle === style}
-                onClick={() => setSidebarTextStyle(style)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  sidebarTextStyle === style
-                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
-                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-                )}
-              >
-                {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.knowledgeTreeDisplaySize')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.knowledgeTreeDisplaySizeHint')}</p>
-          </div>
-          <div role="group" aria-label={t('settings.knowledgeTreeDisplaySize')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
-            {(["default", "large", "extra-large"] as const).map(size => (
-              <button
-                key={size}
-                type="button"
-                aria-pressed={treeDisplaySize === size}
-                onClick={() => setTreeDisplaySize(size)}
-                className={cn(
-                  "min-h-10 rounded-md px-3 py-1 text-sm transition-colors",
-                  treeDisplaySize === size
-                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
-                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-                )}
-              >
-                {t(`settings.knowledgeTreeDisplaySize_${size}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 编辑器字体 - 可交互 */}
-        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-4">
-          <div className="flex items-center justify-between">
+      {/* 4. 界面显示与可读性（导航文字风格 + 知识树字号） */}
+      <section className="space-y-2.5">
+        <h4 className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+          {t('settings.interfaceDisplayTitle', { defaultValue: '界面显示与可读性' })}
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="flex flex-col justify-between gap-3 rounded-2xl border border-zinc-200/85 bg-white/80 p-3.5 shadow-xs dark:border-zinc-800/85 dark:bg-zinc-900/50">
             <div>
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.editorFont')}</span>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.editorFontDesc')}</p>
+              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('settings.sidebarTextStyle')}</span>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">{t('settings.sidebarTextStyleDesc')}</p>
             </div>
-            {isSwitchingFont && <Loader2 size={14} className="animate-spin text-accent-primary" />}
-          </div>
-
-          {/* 字体选择器下拉 */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setFontDropdownOpen(!fontDropdownOpen)}
-              className="w-full flex items-center justify-between px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 hover:border-accent-primary/50 transition-colors"
-            >
-              <span className="flex items-center gap-2">
-                <Type size={14} className="text-zinc-400" />
-                {currentFontName}
-              </span>
-              <ChevronDown size={14} className={cn("text-zinc-400 transition-transform", fontDropdownOpen && "rotate-180")} />
-            </button>
-
-            <AnimatePresence>
-              {fontDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute z-50 top-full left-0 mt-1 w-full max-h-64 overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl"
-                >
-                  {/* 内置字体 */}
-                  <div className="px-2 pt-2 pb-1">
-                    <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.builtinFonts')}</span>
-                  </div>
-                  {BUILTIN_FONTS.map(font => (
-                    <button
-                      key={font.id}
-                      onClick={() => handleSelectFont(font.id)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
-                    >
-                      <span style={{ fontFamily: font.family }}>{getBuiltinFontName(font)}</span>
-                      {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
-                    </button>
-                  ))}
-
-                  {/* 自定义字体 */}
-                  {customFonts.length > 0 && (
-                    <>
-                      <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-2 my-1" />
-                      <div className="px-2 pt-1 pb-1">
-                        <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.importedFonts')}</span>
-                      </div>
-                      {customFonts.map(font => (
-                        <div
-                          key={font.id}
-                          className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
-                        >
-                          <button
-                            onClick={() => handleSelectFont(font.id)}
-                            className="flex-1 text-left text-sm text-zinc-700 dark:text-zinc-300"
-                          >
-                            {font.name}
-                            <span className="ml-2 text-[10px] text-zinc-400">.{font.format}</span>
-                          </button>
-                          <div className="flex items-center gap-1.5">
-                            {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteFont(font.id); }}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all"
-                              title={t('settings.deleteFont')}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </>
+            <div role="group" aria-label={t('settings.sidebarTextStyle')} className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800">
+              {(["readable", "classic"] as const).map((style) => (
+                <button
+                  key={style}
+                  type="button"
+                  aria-pressed={sidebarTextStyle === style}
+                  onClick={() => setSidebarTextStyle(style)}
+                  className={cn(
+                    "min-h-8 rounded-lg px-3 py-1 text-xs font-medium transition-colors",
+                    sidebarTextStyle === style
+                      ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
+                      : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+                >
+                  {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* 字体导入 */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => fontFileRef.current?.click()}
-              disabled={isUploading}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg text-xs text-zinc-600 dark:text-zinc-400 hover:border-accent-primary/50 hover:text-accent-primary transition-colors disabled:opacity-50"
+          <div className="flex flex-col justify-between gap-3 rounded-2xl border border-zinc-200/85 bg-white/80 p-3.5 shadow-xs dark:border-zinc-800/85 dark:bg-zinc-900/50">
+            <div>
+              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('settings.knowledgeTreeDisplaySize')}</span>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">{t('settings.knowledgeTreeDisplaySizeHint')}</p>
+            </div>
+            <div role="group" aria-label={t('settings.knowledgeTreeDisplaySize')} className="grid grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800">
+              {(["default", "large", "extra-large"] as const).map(size => (
+                <button
+                  key={size}
+                  type="button"
+                  aria-pressed={treeDisplaySize === size}
+                  onClick={() => setTreeDisplaySize(size)}
+                  className={cn(
+                    "min-h-10 rounded-lg px-2 py-1 text-xs font-medium transition-colors",
+                    treeDisplaySize === size
+                      ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
+                      : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                  )}
+                >
+                  {t(`settings.knowledgeTreeDisplaySize_${size}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. 站点标识与分享页外观（全站共享配置） */}
+      <section className="rounded-2xl border border-zinc-200/85 bg-white/80 shadow-xs overflow-hidden dark:border-zinc-800/85 dark:bg-zinc-900/50">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/60 bg-gradient-to-r from-amber-500/[0.05] via-transparent to-transparent px-4 py-3 dark:border-zinc-800/70">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              aria-hidden
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400/20 to-orange-500/15 text-amber-700 ring-1 ring-inset ring-amber-500/20 dark:text-amber-300"
             >
-              {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-              {t('settings.importFont')}
-            </button>
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.importFontHint')}</span>
-            <input
-              type="file"
-              ref={fontFileRef}
-              onChange={handleUploadFonts}
-              accept=".otf,.otc,.ttc,.ttf,.woff,.woff2"
-              multiple
-              className="hidden"
-            />
+              <Building2 size={14} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('settings.siteIdentity')}</h3>
+                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                  {t('settings.siteIdentityScopeBadge', { defaultValue: '全站配置' })}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{t('settings.siteIdentityDesc')}</p>
+            </div>
           </div>
+        </div>
 
-          {uploadMessage && (
-            <p className={cn("text-xs", uploadSuccess ? "text-emerald-500" : "text-amber-500")}>{uploadMessage}</p>
+        <div className="p-4 space-y-4">
+          {!isLoaded && (
+            <p className="rounded-xl bg-zinc-100/80 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
+              {t("settings.siteIdentityLoading")}
+            </p>
+          )}
+          {!isAdmin && (
+            <p className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              {t('settings.siteIdentityAdminOnly')}
+            </p>
           )}
 
-          {/* 字体预览 */}
-          <div
-            className="px-3 py-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950"
-            style={{ fontFamily: "var(--editor-font-family)" }}
-          >
-            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
-              {t('settings.fontPreviewEn')}
-            </p>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed mt-1">
-              {t('settings.fontPreviewZh')}
-            </p>
-          </div>
-        </div>
+          <div className="flex flex-col sm:flex-row gap-5 items-start">
+            {/* Logo 上传区域 */}
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteIcon')}</span>
+              <div
+                className={cn(
+                  "relative w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-900/60 flex items-center justify-center overflow-hidden group transition-colors",
+                  canEditSiteIdentity
+                    ? "cursor-pointer hover:border-accent-primary"
+                    : "cursor-not-allowed opacity-60"
+                )}
+                onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
+              >
+                {previewIcon ? (
+                  <img src={previewIcon} alt={t("settings.siteIcon")} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-zinc-400 dark:text-zinc-600">
+                    <Camera size={20} />
+                    <span className="text-[10px]">{t('settings.upload')}</span>
+                  </div>
+                )}
+                {isAdmin && (
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Camera className="w-5 h-5 text-white" />
+                  </div>
+                )}
+              </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageChange}
+                accept="image/png,image/jpeg,image/svg+xml,image/x-icon,image/webp"
+                className="hidden"
+                disabled={!canEditSiteIdentity}
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">PNG/SVG · &lt;1MB</span>
+                {previewIcon && isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveIcon}
+                    disabled={!canEditSiteIdentity}
+                    className="text-[10px] text-red-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {t('settings.remove')}
+                  </button>
+                )}
+              </div>
+            </div>
 
-        {/* 语言切换 */}
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div className="flex items-center gap-2">
-            <Globe size={16} className="text-zinc-500 dark:text-zinc-400" />
-            <div>
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('language.label')}</span>
+            {/* 站点名称 + 分享页宽度 + 页尾文字 */}
+            <div className="flex-1 space-y-3 w-full min-w-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.siteName')}</label>
+                    <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 tabular-nums">{title.length}/20</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => { setTitle(e.target.value); setSaveMessage(""); }}
+                    maxLength={20}
+                    disabled={!canEditSiteIdentity}
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                    placeholder={t('settings.siteNamePlaceholder')}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="site-share-page-width" className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.sharePageWidth')}</label>
+                  <select
+                    id="site-share-page-width"
+                    value={sharePageWidth}
+                    onChange={(e) => { setSharePageWidth(normalizeSharePageWidth(e.target.value)); setSaveMessage(""); }}
+                    disabled={!canEditSiteIdentity}
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {(["standard", "wide", "full"] as const).map(width => (
+                      <option key={width} value={width}>{t(`settings.sharePageWidth_${width}`)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.sharePageWidthHint')}</p>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
+                  <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 tabular-nums">{shareFooterText.length}/100</span>
+                </div>
+                <input
+                  id="site-share-footer-text"
+                  type="text"
+                  value={shareFooterText}
+                  onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
+                  maxLength={100}
+                  disabled={!canEditSiteIdentity}
+                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                  placeholder={t("auditI18n.shareFooterPlaceholder")}
+                />
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
-            {([
-              { code: "zh-CN", label: t('language.zh') },
-              { code: "en", label: t('language.en') },
-            ] as const).map(lang => (
-              <button
-                key={lang.code}
-                onClick={() => {
-                  try { localStorage.setItem("i18nextLng", lang.code); } catch {}
-                  void i18n.changeLanguage(lang.code);
-                }}
-                className={cn(
-                  "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  (i18n.resolvedLanguage || i18n.language) === lang.code
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {lang.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（账号同步偏好） */}
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div className="min-w-0 pr-3">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('settings.readingDensity', { defaultValue: '阅读密度' })}
-            </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
-              {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
-            </p>
+          <div className="border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+            <ShareBannerEditor value={shareBanner} onChange={value => { setShareBanner(value); setSaveMessage(""); }} disabled={!canEditSiteIdentity} />
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
-            {([
-              { code: "cozy" as const, label: t('settings.densityCozy', { defaultValue: '宽松' }) },
-              { code: "compact" as const, label: t('settings.densityCompact', { defaultValue: '紧凑' }) },
-            ]).map(opt => (
-              <button
-                key={opt.code}
-                onClick={() => setUserPref("readingDensity", opt.code)}
-                className={cn(
-                  "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  userPrefs.readingDensity === opt.code
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* 编辑器字号：账号级显示偏好，不改写笔记内容中的字号格式 */}
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
-            </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
-            </p>
-          </div>
-          <div
-            role="group"
-            aria-label={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
-            className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 sm:grid-cols-7"
-          >
-            {([
-              { value: 0 as const, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
-              ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
-            ]).map(option => (
+          {isAdmin && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+              <div className="text-xs">
+                {saveMessage ? (
+                  <span className={saveMessage === t('settings.saveSuccess') ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-red-500"}>
+                    {saveMessage}
+                  </span>
+                ) : hasChanges ? (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {t('settings.unsavedChangesHint', { defaultValue: '有未保存的站点更改' })}
+                  </span>
+                ) : null}
+              </div>
               <button
-                key={option.value}
                 type="button"
-                aria-pressed={userPrefs.editorFontSize === option.value}
-                onClick={() => setUserPref("editorFontSize", option.value)}
-                className={cn(
-                  "min-w-8 rounded-md px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 max-sm:min-h-10",
-                  userPrefs.editorFontSize === option.value
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
+                onClick={handleSave}
+                disabled={!canEditSiteIdentity || !title.trim() || !hasChanges}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-4 py-2 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {option.label}
+                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {t('settings.saveChanges')}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
-
-        {/*
-         * 个人空间导入/导出的功能开关已下沉为 per-user 字段
-         * （users.personalExportEnabled / personalImportEnabled，schema v6 起）。
-         * 现在管理员需要在「用户管理」tab 里逐个用户编辑，不再是站点级全局开关。
-         * 这里历史上的 FeatureTogglesSection 已整体移除。
-         */}
-      </div>
+      </section>
     </div>
   );
 }
