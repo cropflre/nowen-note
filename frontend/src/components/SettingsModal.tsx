@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText } from "lucide-react";
 import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
@@ -193,14 +193,19 @@ function VersionCompareCard() {
     release.version !== serverVersion;
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">版本信息</h3>
+    <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-800/90 bg-gradient-to-br from-slate-50/80 via-white to-sky-50/40 dark:from-zinc-900/70 dark:via-zinc-900/50 dark:to-sky-950/20 p-4 space-y-3 shadow-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span aria-hidden className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-sky-500/12 text-sky-600 dark:text-sky-300">
+            <Server size={13} />
+          </span>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">版本信息</h3>
+        </div>
         <button
           type="button"
           onClick={handleRetry}
           disabled={loading}
-          className="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400 hover:text-accent-primary disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-accent-primary disabled:opacity-50 transition-colors"
           title="重新拉取"
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -208,65 +213,81 @@ function VersionCompareCard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-2 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
         {/* 客户端 */}
-        <span className="text-zinc-500 dark:text-zinc-400">当前客户端</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100">v{clientVersion}</span>
-        <span className="text-zinc-400 dark:text-zinc-600">
-          {typeof navigator !== "undefined" && navigator.userAgent.includes("Electron")
-            ? "Desktop"
-            : desktop
-              ? "Desktop"
-              : "Web"}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>当前客户端</span>
+            <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+              {typeof navigator !== "undefined" && navigator.userAgent.includes("Electron")
+                ? "Desktop"
+                : desktop
+                  ? "Desktop"
+                  : "Web"}
+            </span>
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+            v{clientVersion}
+          </div>
+        </div>
 
         {/* 服务端 */}
-        <span className="text-zinc-500 dark:text-zinc-400">服务端</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100">
-          {serverError ? (
-            <span className="text-amber-500">unknown</span>
-          ) : serverVersion ? (
-            <>v{serverVersion}</>
-          ) : (
-            <span className="text-zinc-400">—</span>
-          )}
-        </span>
-        <span className="text-right">
-          {isOutdated ? (
-            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
-              需刷新
-            </span>
-          ) : serverVersion ? (
-            <span className="text-emerald-500">匹配</span>
-          ) : null}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>服务端</span>
+            {isOutdated ? (
+              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                需刷新
+              </span>
+            ) : serverVersion ? (
+              <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                匹配
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+            {serverError ? (
+              <span className="text-amber-500">unknown</span>
+            ) : serverVersion ? (
+              <>v{serverVersion}</>
+            ) : (
+              <span className="text-zinc-400">—</span>
+            )}
+          </div>
+        </div>
 
         {/* GitHub 最新 release */}
-        <span className="text-zinc-500 dark:text-zinc-400">最新发布</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100 truncate">
-          {release?.available ? (
-            <a
-              href={release.htmlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent-primary hover:underline"
-              title={release.name || release.tag}
-            >
-              v{release.version}
-            </a>
-          ) : release && !release.available ? (
-            <span className="text-zinc-400">不可用</span>
-          ) : (
-            <span className="text-zinc-400">—</span>
-          )}
-        </span>
-        <span className="text-right">
-          {hasNewerRelease ? (
-            <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
-              可升级
-            </span>
-          ) : null}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>最新发布</span>
+            {hasNewerRelease ? (
+              <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                可升级
+              </span>
+            ) : release?.available ? (
+              <span className="rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400">
+                最新
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate tabular-nums">
+            {release?.available ? (
+              <a
+                href={release.htmlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-primary hover:underline"
+                title={release.name || release.tag}
+              >
+                v{release.version}
+              </a>
+            ) : release && !release.available ? (
+              <span className="text-zinc-400">不可用</span>
+            ) : (
+              <span className="text-zinc-400">—</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 桌面端：检查更新按钮 + autoUpdater 状态
@@ -399,6 +420,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
 
 function AboutPanel() {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const contactEmail = "nowenlab@qq.com";
   const feedbackMailto = `mailto:${contactEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
   const feedbackQqGroupNumber = "1093473044";
@@ -406,284 +428,408 @@ function AboutPanel() {
   const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showAuthorStory, setShowAuthorStory] = useState(false);
-  // 赞赏码大图预览：点击赞赏码缩略图时弹起 Lightbox
+  // 赞赏码 / 社群码大图预览 Lightbox
   const [sponsorPreviewOpen, setSponsorPreviewOpen] = useState(false);
   const [feedbackQqPreviewOpen, setFeedbackQqPreviewOpen] = useState(false);
+  const [communityPreviewOpen, setCommunityPreviewOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [qqCopied, setQqCopied] = useState(false);
   const sponsorImage = sponsorMethod === "wechat" ? wechatSponsorQr : alipaySponsorQr;
   const sponsorLabel = sponsorMethod === "wechat"
     ? t('about.sponsorWechat')
     : t('about.sponsorAlipay');
+
+  const handleCopyShare = () => {
+    const text = t('about.shareText');
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(text).then(() => {
+        setShareCopied(true);
+        window.setTimeout(() => setShareCopied(false), 2200);
+      }).catch(() => {});
+    }
+  };
+
+  const handleCopyQq = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(feedbackQqGroupNumber).then(() => {
+        setQqCopied(true);
+        window.setTimeout(() => setQqCopied(false), 2000);
+      }).catch(() => {});
+    }
+  };
+
+  const highlights = [
+    {
+      key: "featureEditor",
+      titleKey: "featureEditorTitle",
+      Icon: FileText,
+      iconTone: "from-sky-400/20 to-blue-500/15 text-sky-700 ring-sky-500/20 dark:text-sky-300",
+      cardTint: "from-sky-500/[0.04] via-white to-white dark:from-sky-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-sky-400/45",
+    },
+    {
+      key: "featureAI",
+      titleKey: "featureAITitle",
+      Icon: Bot,
+      iconTone: "from-fuchsia-400/20 to-violet-500/15 text-fuchsia-700 ring-fuchsia-500/20 dark:text-fuchsia-300",
+      cardTint: "from-fuchsia-500/[0.04] via-white to-white dark:from-fuchsia-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-fuchsia-400/45",
+    },
+    {
+      key: "featureSelfHost",
+      titleKey: "featureSelfHostTitle",
+      Icon: Shield,
+      iconTone: "from-emerald-400/20 to-teal-500/15 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+      cardTint: "from-emerald-500/[0.04] via-white to-white dark:from-emerald-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-emerald-400/45",
+    },
+    {
+      key: "featureSync",
+      titleKey: "featureSyncTitle",
+      Icon: WifiOff,
+      iconTone: "from-indigo-400/20 to-cyan-500/15 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300",
+      cardTint: "from-indigo-500/[0.04] via-white to-white dark:from-indigo-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-indigo-400/45",
+    },
+    {
+      key: "featureClipper",
+      titleKey: "featureClipperTitle",
+      Icon: Layers,
+      iconTone: "from-amber-400/20 to-orange-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+      cardTint: "from-amber-500/[0.04] via-white to-white dark:from-amber-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-amber-400/45",
+    },
+    {
+      key: "featureMindMap",
+      titleKey: "featureMindMapTitle",
+      Icon: Blocks,
+      iconTone: "from-cyan-400/20 to-sky-500/15 text-cyan-700 ring-cyan-500/20 dark:text-cyan-300",
+      cardTint: "from-cyan-500/[0.04] via-white to-white dark:from-cyan-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-cyan-400/45",
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* 标题区 */}
-      <div className="text-center py-4">
-        <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('about.appName')}</h2>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('about.slogan')}</p>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-          <span className="inline-block px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
-            {t('about.version')} {__APP_VERSION__}
-          </span>
-          <a
-            href="https://nowen.cn/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
-          >
-            <Globe size={12} />
-            {t('about.website')}
-            <ExternalLink size={11} />
-          </a>
-          <a
-            href="https://apps.microsoft.com/detail/9MZ7Z6S39LL3"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
-          >
-            <Download size={12} />
-            {t('about.microsoftStoreDownload')}
-            <ExternalLink size={11} />
-          </a>
-          <AppGalleryDownloadLink className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors" />
-        </div>
-        {import.meta.env.MODE === "harmony" && (
-          <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-            <p>{t('about.appFilingNumber')}</p>
-            <a
-              href="https://beian.miit.gov.cn/"
-              onClick={async (event) => {
-                event.preventDefault();
-                await Browser.open({ url: "https://beian.miit.gov.cn/" });
-              }}
-              className="inline-flex items-center gap-1 hover:text-accent-primary transition-colors"
-            >
-              粤ICP备2026067978号-2A
-              <ExternalLink size={11} />
-            </a>
+    <div className="space-y-5 pb-2">
+      {/* 1. 品牌极光名片 Hero — 第一眼建立信任感 + 核心增长 CTA */}
+      <motion.section
+        initial={reducedMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 360, damping: 28 }}
+        className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.10] via-white to-indigo-500/[0.08] p-5 shadow-sm dark:border-sky-400/20 dark:from-sky-500/[0.14] dark:via-zinc-900/80 dark:to-fuchsia-500/[0.10]"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-gradient-to-br from-sky-400/25 to-indigo-500/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-14 -left-10 h-36 w-36 rounded-full bg-gradient-to-tr from-fuchsia-400/15 to-cyan-400/20 blur-3xl"
+        />
+
+        <div className="relative flex flex-col items-center text-center">
+          {/* 品牌 Logo + 版本胶囊 */}
+          <div className="relative">
+            <img
+              src="/nowen-note-icon.svg"
+              alt={t('about.appName')}
+              className="h-16 w-16 rounded-2xl shadow-md ring-1 ring-black/5 dark:ring-white/10 transition-transform duration-300 motion-safe:hover:scale-105 motion-safe:hover:-rotate-3"
+              draggable={false}
+            />
+            <span className="absolute -bottom-1.5 -right-2.5 rounded-full bg-accent-primary px-2 py-0.5 font-mono text-[10px] font-semibold text-white shadow-sm ring-2 ring-white dark:ring-zinc-900">
+              v{__APP_VERSION__}
+            </span>
           </div>
-        )}
-      </div>
 
-      {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}
-      <VersionCompareCard />
-      <HotUpdateStatusCard />
+          <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
+            <Sparkles size={11} aria-hidden />
+            {t('about.heroBadge')}
+          </span>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+          <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {t('about.appName')}
+          </h2>
+          <p className="mt-1 max-w-lg text-sm font-medium text-zinc-700 dark:text-zinc-200">
+            {t('about.slogan')}
+          </p>
+          <p className="mt-2 max-w-xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            {t('about.description')}
+          </p>
 
-      {/* 简介 */}
-      <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-        {t('about.description')}
-      </p>
+          {/* 3 枚信任差异化徽章 */}
+          <div className="mt-3.5 flex flex-wrap items-center justify-center gap-1.5">
+            {[
+              { label: t('about.trustOwned'), tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+              { label: t('about.trustOffline'), tone: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+              { label: t('about.trustAiEco'), tone: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
+            ].map((badge) => (
+              <span
+                key={badge.label}
+                className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium", badge.tone)}
+              >
+                <Check size={11} aria-hidden />
+                {badge.label}
+              </span>
+            ))}
+          </div>
 
-      {/* 核心能力 */}
-      <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">{t('about.features')}</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[
-            'featureEditor', 'featureAI', 'featureClipper',
-            'featureMindMap', 'featureSync', 'featureSelfHost',
-          ].map((key) => (
-            <div key={key} className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/40">
-              <Check size={14} className="text-accent-primary mt-0.5 shrink-0" />
-              <span className="text-xs text-zinc-700 dark:text-zinc-300">{t(`about.${key}`)}</span>
+          {/* 黄金转化 CTA 按钮行：GitHub Star + 一键安利给朋友 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <a
+              href="https://github.com/cropflre/nowen-note"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex h-9 items-center gap-1.5 rounded-xl bg-zinc-900 px-4 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:bg-zinc-800 hover:shadow motion-safe:hover:-translate-y-0.5 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            >
+              <Star size={14} className="text-amber-400 fill-amber-400 transition-transform duration-200 motion-safe:group-hover:scale-110 motion-safe:group-hover:rotate-12" aria-hidden />
+              {t('about.starOnGithub')}
+              <ArrowUpRight size={13} className="opacity-70" aria-hidden />
+            </a>
+            <button
+              type="button"
+              onClick={handleCopyShare}
+              className={cn(
+                "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-medium shadow-xs transition-all duration-200 motion-safe:hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
+                shareCopied
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-zinc-200/90 bg-white/90 text-zinc-700 hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200",
+              )}
+            >
+              {shareCopied ? <Check size={14} aria-hidden /> : <Share2 size={14} aria-hidden />}
+              {shareCopied ? t('about.shareCopied') : t('about.shareApp')}
+            </button>
+          </div>
+
+          {/* 快捷官方直达入口条 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+            <a
+              href="https://nowen.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+            >
+              <Globe size={12} aria-hidden />
+              {t('about.website')}
+              <ExternalLink size={11} aria-hidden />
+            </a>
+            <a
+              href="https://apps.microsoft.com/detail/9MZ7Z6S39LL3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+            >
+              <Download size={12} aria-hidden />
+              {t('about.microsoftStoreDownload')}
+              <ExternalLink size={11} aria-hidden />
+            </a>
+            <AppGalleryDownloadLink className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors" />
+          </div>
+
+          {import.meta.env.MODE === "harmony" && (
+            <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+              <p>{t('about.appFilingNumber')}</p>
+              <a
+                href="https://beian.miit.gov.cn/"
+                onClick={async (event) => {
+                  event.preventDefault();
+                  await Browser.open({ url: "https://beian.miit.gov.cn/" });
+                }}
+                className="inline-flex items-center gap-1 hover:text-accent-primary transition-colors"
+              >
+                粤ICP备2026067978号-2A
+                <ExternalLink size={11} />
+              </a>
+            </div>
+          )}
+        </div>
+      </motion.section>
+
+      {/* 2. 核心竞争力 2×3 价值矩阵 */}
+      <section className="space-y-2.5">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.features')}</h3>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t('about.featuresSubtitle')}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {highlights.map(({ key, titleKey, Icon, iconTone, cardTint }) => (
+            <div
+              key={key}
+              className={cn(
+                "group/feat flex items-start gap-3 rounded-xl border border-zinc-200/80 bg-gradient-to-br p-3 shadow-xs transition-all duration-200 hover:shadow-sm motion-safe:hover:-translate-y-0.5 dark:border-zinc-800/80",
+                cardTint,
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ring-1 ring-inset transition-transform duration-200 motion-safe:group-hover/feat:scale-110 motion-safe:group-hover/feat:-rotate-6",
+                  iconTone,
+                )}
+              >
+                <Icon size={15} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t(`about.${titleKey}`)}</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">{t(`about.${key}`)}</p>
+              </div>
             </div>
           ))}
         </div>
+      </section>
+
+      {/* 3. 版本信息 & 在线更新卡（严格保留 DockerUpdateCenter 挂载契约） */}
+      <div className="space-y-3">
+        <VersionCompareCard />
+        <HotUpdateStatusCard />
       </div>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
-
-      {/* 开源信息 */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div>
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('about.openSource')}</span>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            <a
-              href="https://github.com/cropflre/nowen-note/blob/main/LICENSE"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-accent-primary hover:underline transition-colors"
-            >
-              {t('about.license')}
-            </a>
-          </p>
-        </div>
-        <a
-          href="https://github.com/cropflre/nowen-note"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-medium hover:opacity-80 transition-opacity"
-        >
-          <ExternalLink size={12} />
-          {t('about.github')}
-        </a>
-      </div>
-
-      {/* Nowen 开源实验室公众号 */}
-      <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            {t('about.communityQrTitle')}
-          </div>
-          <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            {t('about.communityQrDesc')}
-          </div>
-        </div>
-        <img
-          src={communityQr}
-          alt={t('about.communityQrTitle')}
-          className="w-28 h-28 object-contain rounded-lg bg-white p-1 shrink-0"
-          loading="lazy"
-          draggable={false}
-        />
-      </div>
-
-      {/* 更新日志 */}
-      <button
-        type="button"
-        onClick={() => setShowWhatsNew(true)}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent-primary/10 text-accent-primary">
-            <Sparkles size={16} />
-          </span>
-          <div>
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.changelog')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.changelogDesc')}
-            </div>
-          </div>
-        </div>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
-          {t('about.viewChangelog')}
-        </span>
-      </button>
-
-      {/* 作者感言 —— 项目背后的故事 */}
-      <button
-        type="button"
-        onClick={() => setShowAuthorStory(true)}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500">
-            <BookOpen size={16} />
-          </span>
-          <div>
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.authorStory')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.authorStoryDesc')}
-            </div>
-          </div>
-        </div>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
-          {t('about.authorStoryAction')}
-        </span>
-      </button>
-
-      <a
-        href={`mailto:${contactEmail}`}
-        className="flex w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface p-4 text-left transition-colors hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary" aria-hidden>
-          <Building2 size={16} />
-        </span>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-tx-primary">{t('about.businessPartnerships')}</div>
-          <div className="mt-0.5 break-all text-xs text-tx-secondary">{contactEmail}</div>
-        </div>
-      </a>
-
-      {/* 意见与 Bug 反馈 */}
-      <a
-        href={feedbackMailto}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
-            <Mail size={16} />
-          </span>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.feedback')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.feedbackDesc')}
-            </div>
-          </div>
-        </div>
-        <div className="ml-4 text-right shrink-0">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t('about.feedbackAction')}
-          </div>
-          <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
-            {contactEmail}
-          </div>
-        </div>
-      </a>
-
-      {/* QQ 群反馈 */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
-              <Users size={16} />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {t('about.feedbackQqGroup')}
-              </div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                {t('about.feedbackQqGroupDesc')}
-              </div>
-              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mt-1">
-                {t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
-              </div>
-            </div>
-          </div>
+      {/* 4. 情感连接与透明演进：作者感言 + 更新日志 双列卡片 */}
+      <section className="space-y-2.5">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.storySectionTitle')}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <button
             type="button"
-            onClick={() => setFeedbackQqPreviewOpen(true)}
-            className="shrink-0 rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            title={t('about.feedbackQqGroup')}
-            aria-label={t('about.feedbackQqGroup')}
+            onClick={() => setShowAuthorStory(true)}
+            className="group/story flex items-start justify-between gap-3 rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.08] via-white to-orange-500/[0.04] p-4 text-left shadow-xs transition-all duration-200 hover:border-amber-400/50 hover:shadow-md motion-safe:hover:-translate-y-0.5 dark:from-amber-500/[0.10] dark:via-zinc-900/70 dark:to-orange-500/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
           >
-            <img
-              src={qqGroupQr}
-              alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
-              className="w-16 h-16 object-cover bg-white p-1"
-              loading="lazy"
-              draggable={false}
-            />
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400/25 to-orange-500/15 text-amber-700 ring-1 ring-inset ring-amber-500/25 transition-transform duration-200 motion-safe:group-hover/story:scale-110 motion-safe:group-hover/story:-rotate-6 dark:text-amber-300">
+                <BookOpen size={17} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {t('about.authorStory')}
+                  <ArrowUpRight size={13} className="text-amber-600/70 transition-transform motion-safe:group-hover/story:translate-x-0.5 motion-safe:group-hover/story:-translate-y-0.5 dark:text-amber-300/70" aria-hidden />
+                </div>
+                <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {t('about.authorStoryDesc')}
+                </p>
+                <span className="mt-2 inline-flex items-center text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  {t('about.authorStoryAction')} →
+                </span>
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowWhatsNew(true)}
+            className="group/log flex items-start justify-between gap-3 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.08] via-white to-violet-500/[0.04] p-4 text-left shadow-xs transition-all duration-200 hover:border-indigo-400/50 hover:shadow-md motion-safe:hover:-translate-y-0.5 dark:from-indigo-500/[0.10] dark:via-zinc-900/70 dark:to-violet-500/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400/25 to-violet-500/15 text-indigo-700 ring-1 ring-inset ring-indigo-500/25 transition-transform duration-200 motion-safe:group-hover/log:scale-110 motion-safe:group-hover/log:-rotate-6 dark:text-indigo-300">
+                <Sparkles size={17} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {t('about.changelog')}
+                  <ArrowUpRight size={13} className="text-indigo-600/70 transition-transform motion-safe:group-hover/log:translate-x-0.5 motion-safe:group-hover/log:-translate-y-0.5 dark:text-indigo-300/70" aria-hidden />
+                </div>
+                <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {t('about.changelogDesc')}
+                </p>
+                <span className="mt-2 inline-flex items-center text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                  {t('about.viewChangelog')} →
+                </span>
+              </div>
+            </div>
           </button>
         </div>
-      </div>
+      </section>
 
-      {/* 支持作者 / 打赏 */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
+      {/* 5. 社区阵地（公众号 + QQ 群双列 Bento 卡） */}
+      <section className="space-y-2.5">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.communitySectionTitle')}</h3>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t('about.communitySectionSubtitle')}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Nowen 开源实验室公众号 */}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] via-white to-teal-500/[0.03] p-4 shadow-xs dark:from-emerald-500/[0.08] dark:via-zinc-900/70 dark:to-teal-500/[0.04]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <Compass size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden />
+                <span className="truncate">{t('about.communityQrTitle')}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t('about.communityQrDesc')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCommunityPreviewOpen(true)}
+              className="group relative shrink-0 overflow-hidden rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-black/5 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              title={t('about.communityQrTitle')}
+              aria-label={t('about.communityQrTitle')}
+            >
+              <img
+                src={communityQr}
+                alt={t('about.communityQrTitle')}
+                className="h-20 w-20 object-contain transition-transform duration-200 group-hover:scale-105"
+                loading="lazy"
+                draggable={false}
+              />
+            </button>
+          </div>
+
+          {/* QQ 群反馈 */}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] via-white to-blue-500/[0.03] p-4 shadow-xs dark:from-sky-500/[0.08] dark:via-zinc-900/70 dark:to-blue-500/[0.04]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <Users size={15} className="text-sky-600 dark:text-sky-400 shrink-0" aria-hidden />
+                <span className="truncate">{t('about.feedbackQqGroup')}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t('about.feedbackQqGroupDesc')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                  {t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyQq}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-zinc-500 hover:bg-sky-500/10 hover:text-sky-700 dark:text-zinc-400 dark:hover:text-sky-300 transition-colors"
+                >
+                  {qqCopied ? <Check size={11} aria-hidden /> : <Copy size={11} aria-hidden />}
+                  {qqCopied ? t('about.copiedQqNumber') : t('about.copyQqNumber')}
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeedbackQqPreviewOpen(true)}
+              className="group relative shrink-0 overflow-hidden rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-black/5 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              title={t('about.feedbackQqGroup')}
+              aria-label={t('about.feedbackQqGroup')}
+            >
+              <img
+                src={qqGroupQr}
+                alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+                className="h-20 w-20 object-cover transition-transform duration-200 group-hover:scale-105"
+                loading="lazy"
+                draggable={false}
+              />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. 温暖情感高光卡：支持持续开源 / 打赏 */}
+      <div className="relative overflow-hidden rounded-2xl border border-rose-500/25 bg-gradient-to-br from-rose-500/[0.08] via-white to-amber-500/[0.06] shadow-xs dark:from-rose-500/[0.12] dark:via-zinc-900/75 dark:to-amber-500/[0.08]">
         <button
           type="button"
           onClick={() => setShowSponsor((v) => !v)}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors"
+          className="group/sponsor w-full flex items-center justify-between gap-3 p-4 hover:bg-rose-500/[0.04] transition-colors"
         >
-          <div className="flex items-center gap-3">
-            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-rose-500/10 text-rose-500">
-              <Heart size={16} fill="currentColor" />
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500/20 to-amber-500/20 text-rose-600 ring-1 ring-inset ring-rose-500/25 transition-transform duration-200 motion-safe:group-hover/sponsor:scale-110 dark:text-rose-300">
+              <Heart size={18} fill="currentColor" aria-hidden />
             </span>
-            <div className="text-left">
-              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <div className="min-w-0 text-left">
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {t('about.sponsor')}
               </div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              <div className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
                 {t('about.sponsorDesc')}
               </div>
             </div>
           </div>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
+          <span className="shrink-0 rounded-xl bg-rose-500 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-transform duration-150 group-hover/sponsor:bg-rose-600">
             {showSponsor ? t('about.sponsorCollapse') : t('about.sponsorAction')}
           </span>
         </button>
@@ -696,9 +842,9 @@ function AboutPanel() {
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="px-4 pb-4 pt-2 flex flex-col items-center gap-3 border-t border-zinc-200/60 dark:border-zinc-800/60">
+              <div className="px-4 pb-5 pt-3 flex flex-col items-center gap-3 border-t border-rose-200/60 dark:border-rose-900/40">
                 <div
-                  className="grid w-full max-w-xs grid-cols-2 rounded-lg bg-zinc-200/70 p-1 dark:bg-zinc-800"
+                  className="grid w-full max-w-xs grid-cols-2 rounded-xl bg-zinc-200/70 p-1 dark:bg-zinc-800"
                   role="tablist"
                   aria-label={t('about.sponsorMethod')}
                 >
@@ -708,7 +854,7 @@ function AboutPanel() {
                     aria-selected={sponsorMethod === "wechat"}
                     onClick={() => setSponsorMethod("wechat")}
                     className={cn(
-                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                       sponsorMethod === "wechat"
                         ? "bg-emerald-500 text-white shadow-sm"
                         : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
@@ -722,7 +868,7 @@ function AboutPanel() {
                     aria-selected={sponsorMethod === "alipay"}
                     onClick={() => setSponsorMethod("alipay")}
                     className={cn(
-                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                       sponsorMethod === "alipay"
                         ? "bg-blue-500 text-white shadow-sm"
                         : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
@@ -731,22 +877,20 @@ function AboutPanel() {
                     {t('about.sponsorAlipay')}
                   </button>
                 </div>
-                {/* 点击图片打开 Lightbox 看大图（按钮包裹 → 无障碍/键盘可达） */}
                 <button
                   type="button"
                   onClick={() => setSponsorPreviewOpen(true)}
-                  className="group relative rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                  className="group relative rounded-xl overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                   title={sponsorLabel}
                   aria-label={sponsorLabel}
                 >
                   <img
                     src={sponsorImage}
                     alt={sponsorLabel}
-                    className="w-44 sm:w-52 max-h-72 object-contain rounded-lg bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
+                    className="w-44 sm:w-52 max-h-72 object-contain rounded-xl bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
                     loading="lazy"
                     draggable={false}
                   />
-                  {/* hover 时浮现的放大图标提示 */}
                   <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
                     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 text-white text-[11px]">
                       <ZoomIn size={12} />
@@ -754,7 +898,7 @@ function AboutPanel() {
                     </span>
                   </span>
                 </button>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 text-center">
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 text-center">
                   {sponsorMethod === "wechat"
                     ? t('about.sponsorWechatTip')
                     : t('about.sponsorAlipayTip')}
@@ -765,22 +909,79 @@ function AboutPanel() {
         </AnimatePresence>
       </div>
 
-      {/* 底部 */}
-      <p className="text-center text-xs text-zinc-400 dark:text-zinc-600">
-        {t('about.madeWith')}
-      </p>
+      {/* 7. 联系与合作（紧凑双列） */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <a
+          href={feedbackMailto}
+          className="group/mail flex items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 text-left transition-all duration-200 hover:border-sky-400/45 hover:bg-white hover:shadow-xs dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400" aria-hidden>
+            <Mail size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+              <span>{t('about.feedback')}</span>
+              <ArrowUpRight size={12} className="text-zinc-400 group-hover/mail:text-sky-500" aria-hidden />
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">{t('about.feedbackDesc')}</p>
+          </div>
+        </a>
 
-      {/* 更新日志 Modal —— 用户点"查看更新"按钮时唤起 */}
+        <a
+          href={`mailto:${contactEmail}`}
+          className="group/biz flex items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 text-left transition-all duration-200 hover:border-accent-primary/45 hover:bg-white hover:shadow-xs dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary" aria-hidden>
+            <Building2 size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1 text-xs font-semibold text-tx-primary">
+              <span>{t('about.businessPartnerships')}</span>
+              <ArrowUpRight size={12} className="text-zinc-400 group-hover/biz:text-accent-primary" aria-hidden />
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-tx-secondary">{contactEmail}</div>
+          </div>
+        </a>
+      </div>
+
+      {/* 8. 开源协议与底部收尾 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200/70 bg-zinc-50/50 px-4 py-3 text-xs dark:border-zinc-800/70 dark:bg-zinc-900/40">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-500 dark:text-zinc-400">
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">{t('about.openSource')}</span>
+          <span>·</span>
+          <a
+            href="https://github.com/cropflre/nowen-note/blob/main/LICENSE"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-accent-primary hover:underline transition-colors"
+          >
+            {t('about.license')}
+          </a>
+        </div>
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          {t('about.madeWith')}
+        </span>
+      </div>
+
+      {/* 更新日志 Modal */}
       <WhatsNewModal
         open={showWhatsNew}
         onClose={() => setShowWhatsNew(false)}
       />
 
-      {/* 作者感言 Modal —— 项目背后的故事 */}
+      {/* 作者感言 Modal */}
       <AuthorStoryModal
         open={showAuthorStory}
         onClose={() => setShowAuthorStory(false)}
       />
+
+      {communityPreviewOpen && (
+        <ImageLightbox
+          src={communityQr}
+          alt={t('about.communityQrTitle')}
+          onClose={() => setCommunityPreviewOpen(false)}
+        />
+      )}
 
       {feedbackQqPreviewOpen && (
         <ImageLightbox
@@ -790,7 +991,6 @@ function AboutPanel() {
         />
       )}
 
-      {/* 赞赏码大图预览 Lightbox */}
       {sponsorPreviewOpen && (
         <ImageLightbox
           src={sponsorImage}
