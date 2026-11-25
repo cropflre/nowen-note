@@ -72,14 +72,15 @@ function NoteListCard({ favorites, refreshKey }: { favorites: boolean; refreshKe
   const format = useMemo(() => new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric" }), [i18n.language]);
   return <CardStatus state={state} retry={retry}>{(notes) => notes.length
     ? <ul className="-mx-1 space-y-0.5">{notes.map((note) => <li key={note.id}>
-      <button type="button" onClick={() => openNote(note.id)} className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-left text-sm hover:bg-app-hover md:min-h-9">
-        <span className="min-w-0 flex-1 truncate text-tx-primary">{note.title || t("extensionCenter.workbench.untitled")}</span>
-        <span className="shrink-0 text-xs text-tx-tertiary">{(() => { const updated = parseServerTime(note.updatedAt); return updated ? format.format(updated) : ""; })()}</span>
+      <button type="button" onClick={() => openNote(note.id)} className="group/row flex min-h-9 w-full items-center gap-2 rounded-xl px-2 py-1 text-left text-[13px] transition-colors hover:bg-app-hover/80 md:min-h-8">
+        <span className="min-w-0 flex-1 truncate font-medium text-tx-primary transition-transform duration-150 motion-safe:group-hover/row:translate-x-0.5">{note.title || t("extensionCenter.workbench.untitled")}</span>
+        <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full opacity-60", favorites ? "bg-amber-400" : "bg-sky-400")} />
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-tx-tertiary">{(() => { const updated = parseServerTime(note.updatedAt); return updated ? format.format(updated) : ""; })()}</span>
       </button>
     </li>)}</ul>
-    : <div className="space-y-2 text-sm text-tx-secondary">
-      <span className="block">{t(favorites ? "extensionCenter.workbench.noFavorites" : "extensionCenter.workbench.noNotes")}</span>
-      <Button size="sm" variant="outline" className="min-h-11 md:min-h-8" onClick={() => openView(favorites ? "favorites" : "all")}>{t("extensionCenter.workbench.openNotes")}</Button>
+    : <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-app-border/80 bg-app-bg/60 px-3 py-2.5 text-xs text-tx-secondary">
+      <span className="min-w-0">{t(favorites ? "extensionCenter.workbench.noFavorites" : "extensionCenter.workbench.noNotes")}</span>
+      <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-lg px-2.5 text-xs" onClick={() => openView(favorites ? "favorites" : "all")}>{t("extensionCenter.workbench.openNotes")}</Button>
     </div>}
   </CardStatus>;
 }
@@ -119,24 +120,24 @@ function QuickNoteCard({ onCreated }: { onCreated: () => void }) {
     <textarea value={text} maxLength={20_000} onChange={(event) => { setText(event.target.value); if (status.kind !== "saving") setStatus({ kind: "idle" }); }}
       onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void save(); } }}
       aria-label={t("extensionCenter.workbench.quickNoteLabel")} placeholder={t("extensionCenter.workbench.quickNotePlaceholder")}
-      className="min-h-24 w-full resize-y rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none placeholder:text-tx-tertiary focus-visible:ring-1 focus-visible:ring-accent-primary" />
+      className="min-h-[76px] w-full resize-y rounded-xl border border-app-border/80 bg-app-bg/90 px-3 py-2 text-sm text-tx-primary outline-none transition-shadow placeholder:text-tx-tertiary focus-visible:border-amber-400/70 focus-visible:ring-2 focus-visible:ring-amber-400/20" />
     <div className="flex flex-wrap items-center justify-between gap-2">
       {target ? <label className="flex min-w-0 items-center gap-1.5 text-xs text-tx-tertiary">
         <span className="shrink-0">{t("extensionCenter.workbench.quickNoteTarget")}</span>
         <select value={target.id} onChange={(event) => setChosenId(event.target.value)}
-          className="min-h-11 min-w-0 max-w-48 truncate rounded-md border border-app-border bg-app-surface px-1.5 text-xs text-tx-primary md:min-h-8">
+          className="min-h-9 min-w-0 max-w-48 truncate rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-primary md:min-h-8">
           {notebooks.map((notebook) => <option key={notebook.id} value={notebook.id}>{notebook.name}</option>)}
         </select>
       </label> : <span className="text-xs text-tx-tertiary">{t("extensionCenter.workbench.needNotebook")}</span>}
-      <Button size="sm" className="min-h-11 md:min-h-8" disabled={!text.trim() || status.kind === "saving"} onClick={() => void save()}>
+      <Button size="sm" className="min-h-9 rounded-xl px-3.5 text-xs shadow-sm md:min-h-8" disabled={!text.trim() || status.kind === "saving"} onClick={() => void save()}>
         {status.kind === "saving" && <Loader2 size={13} className="mr-1.5 animate-spin" />}{t("extensionCenter.workbench.quickNoteSave")}
       </Button>
     </div>
-    {status.kind === "saved" && <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
+    {status.kind === "saved" && <div role="status" className="flex flex-wrap items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
       <span>{t("extensionCenter.workbench.quickNoteSaved", { notebook: status.notebook })}</span>
-      <button type="button" className="underline-offset-2 hover:underline" onClick={() => openNote(status.noteId)}>{t("extensionCenter.workbench.openNote")}</button>
+      <button type="button" className="font-medium underline-offset-2 hover:underline" onClick={() => openNote(status.noteId)}>{t("extensionCenter.workbench.openNote")}</button>
     </div>}
-    {status.kind === "error" && <span role="alert" className="block text-sm text-red-700 dark:text-red-300">{t("extensionCenter.workbench.quickNoteFailed", { message: status.message })}</span>}
+    {status.kind === "error" && <span role="alert" className="block text-xs text-red-700 dark:text-red-300">{t("extensionCenter.workbench.quickNoteFailed", { message: status.message })}</span>}
   </div>;
 }
 
@@ -152,26 +153,49 @@ function TodayTasksCard({ refreshKey }: { refreshKey: string }) {
     finally { setPending((current) => { const next = { ...current }; delete next[task.id]; return next; }); retry(); }
   };
   return <CardStatus state={state} retry={retry}>{(tasks) => <div className="space-y-2">
-    {tasks.length ? <ul className="space-y-0.5">{tasks.map((task) => {
+    {tasks.length ? <ul className="-mx-1 space-y-0.5">{tasks.map((task) => {
       const done = Boolean(pending[task.id] ?? task.isCompleted);
-      return <li key={task.id}><label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 text-sm hover:bg-app-hover md:min-h-9">
-        <input type="checkbox" checked={done} disabled={task.id in pending} onChange={() => void toggle(task)} className="h-4 w-4 shrink-0 accent-[var(--color-accent-primary)]" />
-        <span className={cn("min-w-0 flex-1 truncate", done ? "text-tx-tertiary line-through" : "text-tx-primary")}>{task.title}</span>
+      return <li key={task.id}><label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl px-2 py-1 text-[13px] transition-colors hover:bg-app-hover/80 md:min-h-8">
+        <input type="checkbox" checked={done} disabled={task.id in pending} onChange={() => void toggle(task)} className="h-4 w-4 shrink-0 rounded accent-emerald-500" />
+        <span className={cn("min-w-0 flex-1 truncate transition-colors", done ? "text-tx-tertiary line-through" : "text-tx-primary")}>{task.title}</span>
       </label></li>;
-    })}</ul> : <span className="block text-sm text-tx-secondary">{t("extensionCenter.workbench.noTasks")}</span>}
-    <Button size="sm" variant="outline" className="min-h-11 md:min-h-8" onClick={() => openView("tasks")}>{t("extensionCenter.workbench.openTasks")}</Button>
+    })}</ul> : <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-emerald-500/25 bg-emerald-500/[0.04] px-3 py-2.5 text-xs text-tx-secondary">
+      <span>{t("extensionCenter.workbench.noTasks")}</span>
+    </div>}
+    <Button size="sm" variant="outline" className="h-8 rounded-lg px-2.5 text-xs" onClick={() => openView("tasks")}>{t("extensionCenter.workbench.openTasks")}</Button>
   </div>}</CardStatus>;
 }
+
+const STAT_PILL_STYLE: Record<"pending" | "today" | "overdue" | "completedToday", { box: string; num: string }> = {
+  pending: {
+    box: "bg-indigo-500/[0.08] border-indigo-500/15",
+    num: "text-indigo-700 dark:text-indigo-300",
+  },
+  today: {
+    box: "bg-amber-500/[0.09] border-amber-500/20",
+    num: "text-amber-700 dark:text-amber-300",
+  },
+  overdue: {
+    box: "bg-rose-500/[0.08] border-rose-500/20",
+    num: "text-rose-600 dark:text-rose-300",
+  },
+  completedToday: {
+    box: "bg-emerald-500/[0.09] border-emerald-500/20",
+    num: "text-emerald-700 dark:text-emerald-300",
+  },
+};
 
 function TaskStatsCard({ refreshKey }: { refreshKey: string }) {
   const { t } = useTranslation();
   const [state, retry] = useCardData<TaskStats>(() => api.getTaskStats(), refreshKey);
   return <CardStatus state={state} retry={retry}>{(stats) => <dl className="grid grid-cols-2 gap-2">
-    {([["pending", stats.pending], ["today", stats.today], ["overdue", stats.overdue], ["completedToday", stats.completedToday ?? 0]] as const).map(([key, value]) =>
-      <div key={key} className="rounded-lg bg-app-hover/70 px-3 py-2">
-        <dt className="text-xs text-tx-tertiary">{t(`extensionCenter.workbench.stats.${key}`)}</dt>
-        <dd className={cn("text-xl font-semibold", key === "overdue" && value > 0 ? "text-red-600 dark:text-red-300" : "text-tx-primary")}>{value}</dd>
-      </div>)}
+    {([["pending", stats.pending], ["today", stats.today], ["overdue", stats.overdue], ["completedToday", stats.completedToday ?? 0]] as const).map(([key, value]) => {
+      const tone = STAT_PILL_STYLE[key];
+      return <div key={key} className={cn("rounded-xl border px-3 py-2 transition-transform duration-150 motion-safe:hover:-translate-y-0.5", tone.box)}>
+        <dt className="text-[11px] font-medium text-tx-secondary">{t(`extensionCenter.workbench.stats.${key}`)}</dt>
+        <dd className={cn("mt-0.5 font-mono text-2xl font-bold tabular-nums leading-tight", key === "overdue" && value === 0 ? "text-tx-primary" : tone.num)}>{value}</dd>
+      </div>;
+    })}
   </dl>}</CardStatus>;
 }
 
@@ -207,17 +231,24 @@ function DiaryCalendarCard({ refreshKey }: { refreshKey: string }) {
         <button type="button" aria-label={t("extensionCenter.workbench.nextMonth")} onClick={() => shift(1)} className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-app-hover md:h-7 md:w-7"><ChevronRight size={14} /></button>
       </div>
     </div>
-    <div className="grid grid-cols-7 text-center text-[11px] text-tx-tertiary" aria-hidden>{weekdays.map((day, index) => <span key={index}>{day}</span>)}</div>
-    <CardStatus state={state} retry={retry}>{(counts) => <div className="grid grid-cols-7 gap-0.5">
+    <div className="grid grid-cols-7 text-center text-[11px] font-medium text-tx-tertiary" aria-hidden>{weekdays.map((day, index) => <span key={index}>{day}</span>)}</div>
+    <CardStatus state={state} retry={retry}>{(counts) => <div className="grid grid-cols-7 gap-1">
       {cells.map((day, index) => {
         if (!day) return <span key={`blank-${index}`} />;
         const key = dateKey(day), count = counts[key] || 0;
+        const isToday = key === today;
         return <button key={key} type="button" onClick={() => openView("diary")}
           aria-label={t("extensionCenter.workbench.diaryDay", { date: new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(day), count })}
-          className={cn("relative flex aspect-square items-center justify-center rounded-md text-xs hover:bg-app-hover",
-            key === today ? "bg-accent-primary/15 font-semibold text-accent-primary" : "text-tx-secondary")}>
+          className={cn(
+            "relative flex h-8 items-center justify-center rounded-xl font-mono text-xs tabular-nums transition-all duration-150 motion-safe:hover:scale-105",
+            isToday
+              ? "bg-gradient-to-br from-fuchsia-500 to-violet-500 font-bold text-white shadow-sm shadow-fuchsia-500/30"
+              : count > 0
+                ? "bg-fuchsia-500/10 font-medium text-fuchsia-700 hover:bg-fuchsia-500/20 dark:text-fuchsia-300"
+                : "text-tx-secondary hover:bg-app-hover",
+          )}>
           {day.getDate()}
-          {count > 0 && <span aria-hidden className="absolute bottom-1 h-1 w-1 rounded-full bg-accent-primary" />}
+          {count > 0 && <span aria-hidden className={cn("absolute bottom-1 h-1 w-1 rounded-full", isToday ? "bg-white" : "bg-fuchsia-500")} />}
         </button>;
       })}
     </div>}</CardStatus>

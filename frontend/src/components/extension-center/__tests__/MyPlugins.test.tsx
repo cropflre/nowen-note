@@ -140,6 +140,19 @@ describe("My plugins", () => {
     expect(mocks.push).toHaveBeenCalledWith("/apps/personal/01234567-89ab-cdef-0123-456789abcdef");
   });
 
+  it("filters between created apps and installed extensions", async () => {
+    mocks.api.personalApps.mockResolvedValue([{ id: "01234567-89ab-cdef-0123-456789abcdef", revision: 1, spec: { name: "Trip plan", description: "", layout: "list", fields: [], items: [] } }]);
+    await render();
+    expect(host.querySelectorAll("[data-studio-app]")).toHaveLength(1);
+    expect(host.querySelectorAll("[data-extension-card]")).toHaveLength(2);
+    await act(async () => button("extensionCenter.mine.filterApps")!.click());
+    expect(host.querySelectorAll("[data-studio-app]")).toHaveLength(1);
+    expect(host.querySelectorAll("[data-extension-card]")).toHaveLength(0);
+    await act(async () => button("extensionCenter.mine.filterPlugins")!.click());
+    expect(host.querySelectorAll("[data-studio-app]")).toHaveLength(0);
+    expect(host.querySelectorAll("[data-extension-card]")).toHaveLength(2);
+  });
+
   it("points an empty list at Discover", async () => {
     mocks.api.list.mockResolvedValue([]);
     await render();
