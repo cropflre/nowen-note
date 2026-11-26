@@ -35,7 +35,7 @@ import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges, type RemoteEntityPayload } from "./applyLocal";
 import { createProfile, findProfileByServer, getProfile, setProfileLocalUser, switchActiveProfile } from "./profile";
 import { ensureDevice } from "./device";
-import { SYNC_PERSONAL_SCOPE_KEY } from "./constants";
+import { SYNC_PERSONAL_SCOPE_KEY, SYNC_SNAPSHOT_REBUILD_PAGE_SIZE } from "./constants";
 import { markBootstrapReady, readLocalState, reconcile, validateBootstrapPage } from "./bootstrap";
 import { adoptKnowledgeTreeOnCleanDownload } from "./knowledgeTreeBaseline";
 import { recordConflict } from './conflict';
@@ -338,7 +338,7 @@ export async function runLiteMigration(
   options: LiteMigrationOptions,
 ): Promise<LiteMigrationProgress> {
   const { db, remoteUrl, userId, client, blobClient } = options;
-  const pageSize = options.pageSize ?? 200;
+  const pageSize = options.pageSize ?? SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
 
   ensureStateTable(db);
   let state = readState(db);
@@ -660,7 +660,7 @@ async function verifyMigration(
   const missingSample: string[] = [];
   let cursor: string | null = null;
   do {
-    const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, 200);
+    const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, SYNC_SNAPSHOT_REBUILD_PAGE_SIZE);
     validateBootstrapPage(page.items);
     for (const item of page.items) {
       remoteIds.add(`${item.entityType}:${item.entityId}`);

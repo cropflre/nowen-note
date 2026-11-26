@@ -47,6 +47,7 @@ import { SyncBlobClient } from "../sync/blob";
 import {
   clearRemoteCredential,
   createRemoteClientForProfile,
+  exchangeRemoteRefreshToken,
   hasRemoteCredential,
   saveRemoteCredential,
 } from "../sync/credentials";
@@ -652,9 +653,10 @@ app.post("/lite-migration", async (c) => {
   if (migrationsInFlight.has(db)) return c.json({ error: '正在下载到本机，请等待当前操作完成', code: 'MIGRATION_BUSY' }, 409);
   migrationsInFlight.add(db);
   try {
-    const identityResponse = await fetch(`${normalized}/api/me`, {
-      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
+    const requestIdentity = (accessToken: string) => fetch(`${normalized}/api/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
     });
+    const identityResponse = await requestIdentity(token);
     if (!identityResponse.ok) throw new SyncError(classifyHttpStatus(identityResponse.status),
       identityResponse.status === 401 ? '请先重新登录原服务器账号' : `服务器身份核验失败（HTTP ${identityResponse.status}），原数据已保留`);
     const identity = await identityResponse.json() as {id?: string};
@@ -662,15 +664,46 @@ app.post("/lite-migration", async (c) => {
     if (getLiteMigrationProgress(db).stage !== "complete") {
       await getBackupManager().createBackup({ type: "full", description: "下载 NAS 数据到本机前的自动备份" });
     }
+
+    let currentToken = token;
+    let currentRefreshToken = refreshToken;
+    let migrationRefreshInFlight: Promise<string | null> | null = null;
+    const refreshMigrationToken = (): Promise<string | null> => {
+      if (migrationRefreshInFlight) return migrationRefreshInFlight;
+      if (!currentRefreshToken) return Promise.resolve(null);
+      migrationRefreshInFlight = exchangeRemoteRefreshToken(normalized, currentRefreshToken)
+        .then(async (refreshed) => {
+          if (!refreshed) return null;
+          const verified = await requestIdentity(refreshed.token);
+          if (!verified.ok) throw new SyncError(classifyHttpStatus(verified.status), "无法核验续期后的迁移账号");
+          const refreshedIdentity = await verified.json() as { id?: unknown };
+          if (refreshedIdentity.id !== identity.id) {
+            throw new SyncError("AUTH_EXPIRED", "续期后的迁移账号已改变，请重新登录原服务器账号");
+          }
+          currentToken = refreshed.token;
+          currentRefreshToken = refreshed.refreshToken;
+          return currentToken;
+        })
+        .finally(() => { migrationRefreshInFlight = null; });
+      return migrationRefreshInFlight;
+    };
     const progress = await runLiteMigration({
       db,
       remoteUrl: normalized,
       userId,
       remoteUserId: identity.id,
-      client: new SyncRemoteClient({ serverUrl: normalized, token }),
+      client: new SyncRemoteClient(
+        { serverUrl: normalized, token: currentToken },
+        {
+          getToken: () => currentToken,
+          refreshToken: refreshMigrationToken,
+        },
+      ),
       blobClient: new SyncBlobClient({
         serverUrl: normalized,
-        credential: { serverUrl: normalized, token },
+        credential: { serverUrl: normalized, token: currentToken },
+        getToken: () => currentToken,
+        refreshToken: refreshMigrationToken,
       }),
     });
 
@@ -679,8 +712,8 @@ app.post("/lite-migration", async (c) => {
       saveRemoteCredential({
         profileId: progress.profileId,
         serverUrl: normalized,
-        token,
-        refreshToken,
+        token: currentToken,
+        refreshToken: currentRefreshToken,
         remoteUserId: identity.id,
       });
       const engine = reconcileSyncEngine(db, { userId });

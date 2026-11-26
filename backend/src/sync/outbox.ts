@@ -248,12 +248,14 @@ export function markMutationFailed(
  * 之后再也不会被取出。启动时必须无条件复位。
  * 重复推送是安全的——服务端按 mutationId 幂等。
  */
-export function recoverInflightMutations(db: Database.Database): number {
+export function recoverInflightMutations(db: Database.Database, mutationIds?: readonly string[]): number {
+  if (mutationIds?.length === 0) return 0;
+  const filter = mutationIds ? `AND mutationId IN (${mutationIds.map(() => "?").join(",")})` : "";
   const result = db.prepare(`
     UPDATE ${SYNC_TABLES.outbox}
     SET status = 'pending'
-    WHERE status = 'inflight'
-  `).run();
+    WHERE status = 'inflight' ${filter}
+  `).run(...(mutationIds ?? []));
   return result.changes;
 }
 

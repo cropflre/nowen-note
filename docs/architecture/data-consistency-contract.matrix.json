@@ -29,6 +29,8 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "Obsidian 本地直导兼容 Windows 反斜杠、含空格路径、仓库根相对路径、大小写与裸 % 文件名" },
+        { "file": "frontend/src/lib/__tests__/knowledgeTreeMarkdownDrop.test.ts", "case": "imports Markdown ZIP with ../assets relative paths, Windows backslashes, vault-root paths, raw %, and Obsidian embeds while blocking root escapes" },
         { "file": "backend/tests/excel-workbook-route.test.ts", "case": "Sync V2 同步 Excel 保留 note_type 与工作簿快照，且拒绝损坏载荷" },
         { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary Outbox and first-sync upload carry file attachments (DCC-002)" },
         { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them" },
@@ -109,6 +111,10 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "SyncRealtimeSubscription 发送保活 ping 心跳，并在握手前 401 断连时触发 refreshToken 续期" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "SyncRemoteClient 将 HTTP 408/429 归类为可重试错误，且 setAbortSignal 可立即中止在途请求" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "快照响应头已到达但正文停滞时仍会超时" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "重启已绑定的 SyncEngine 不应重复拉取全量 Snapshot，大体积 Outbox 应按字节拆批并支持 413 自适应缩批" },
         {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "AI import cancellation preserves completed work and retry resumes only unsaved records"},
         { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
         { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
@@ -241,6 +247,7 @@
       "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "重启已绑定的 SyncEngine 不应重复拉取全量 Snapshot，大体积 Outbox 应按字节拆批并支持 413 自适应缩批" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a full Change Feed page keeps pulling instead of waiting for the next wake-up" },
         { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Web 键入 → Yjs 持久化 → Android native SQLite 自动收敛（无需手动刷新）" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "keeps validated local positions by replacing old queue entries with CAS against the current cloud baseline" },
@@ -291,6 +298,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-login-route.test.ts", "case": "Lite 首次下载续期后拒绝不同账号，重试时可保存原账号的新凭据" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: journal restoration requires identity and keeps other accounts and workspace journals isolated" },
         { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-006: 本地文件夹直导强制校验桌面密钥与权限，拒绝未授权、API Token 与根目录请求" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: a password protected journal archive stays locked before and after deletion" },

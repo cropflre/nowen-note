@@ -9,6 +9,7 @@ import {
   SYNC_PERSONAL_SCOPE_KEY,
   SYNC_PUSH_MAX_MUTATIONS,
   SYNC_SNAPSHOT_MAX_PAGE_SIZE,
+  SYNC_SNAPSHOT_MAX_RESPONSE_BYTES,
   SYNC_SNAPSHOT_PAGE_SIZE,
 } from "../sync/constants";
 import { isLocalFirstSyncV2Enabled } from "../sync/flag";
@@ -560,6 +561,14 @@ function snapshotPage(
   }
 }
 
+function estimateSnapshotRowBytes(payload: Record<string, unknown>): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(payload), "utf8") + 64;
+  } catch {
+    return 1024;
+  }
+}
+
 function authorizedSnapshotPage(
   db: Database.Database,
   userId: string,
@@ -567,23 +576,35 @@ function authorizedSnapshotPage(
   type: SyncNegotiatedEntityType,
   afterId: string,
   limit: number,
-): { rows:Array<{id:string;payload:Record<string,unknown>}>;scannedThrough:string;exhausted:boolean } {
+  remainingBytes: number,
+  hasExistingItems: boolean,
+): { rows:Array<{id:string;payload:Record<string,unknown>}>;scannedThrough:string;exhausted:boolean;bytesUsed:number;byteLimitHit:boolean } {
   const rows:Array<{id:string;payload:Record<string,unknown>}> = [];
   let scannedThrough = afterId;
+  let bytesUsed = 0;
   const scanSize = Math.max(50,Math.min(200,limit * 2));
   while (rows.length < limit) {
     const batch = snapshotPage(db,userId,workspaceId,type,scannedThrough,scanSize);
-    if (batch.length === 0) return {rows,scannedThrough,exhausted:true};
+    if (batch.length === 0) return {rows,scannedThrough,exhausted:true,bytesUsed,byteLimitHit:false};
     for (const row of batch) {
+      const noteId = typeof row.payload.noteId === "string" ? row.payload.noteId : null;
+      const visible = canViewWorkspaceEntity(db,userId,workspaceId,type,row.id,noteId);
+      if (visible) {
+        const rowBytes = estimateSnapshotRowBytes(row.payload);
+        // 至少返回 1 条实体，避免单篇超大笔记导致空页死循环；超出字节预算时停在前一条的游标，留给下一页下发。
+        if ((hasExistingItems || rows.length > 0) && bytesUsed + rowBytes > remainingBytes) {
+          return { rows, scannedThrough, exhausted: false, bytesUsed, byteLimitHit: true };
+        }
+        rows.push(row);
+        bytesUsed += rowBytes;
+      }
       // 目录用"深度|id"复合游标；其它实体的游标就是 id。
       scannedThrough = row.cursor ?? row.id;
-      const noteId = typeof row.payload.noteId === "string" ? row.payload.noteId : null;
-      if (canViewWorkspaceEntity(db,userId,workspaceId,type,row.id,noteId)) rows.push(row);
-      if (rows.length >= limit) return {rows,scannedThrough,exhausted:false};
+      if (rows.length >= limit) return {rows,scannedThrough,exhausted:false,bytesUsed,byteLimitHit:false};
     }
-    if (batch.length < scanSize) return {rows,scannedThrough,exhausted:true};
+    if (batch.length < scanSize) return {rows,scannedThrough,exhausted:true,bytesUsed,byteLimitHit:false};
   }
-  return {rows,scannedThrough,exhausted:false};
+  return {rows,scannedThrough,exhausted:false,bytesUsed,byteLimitHit:false};
 }
 
 app.get("/snapshot", (c) => {
@@ -631,6 +652,7 @@ app.get("/snapshot", (c) => {
 
   const items: Array<{ entityType: SyncNegotiatedEntityType; entityId: string; payload: Record<string, unknown> }> = [];
   let nextCursor: string | null = null;
+  let accumulatedBytes = 0;
 
   while (typeIndex < order.length && items.length < limit) {
     const type = order[typeIndex];
@@ -653,11 +675,22 @@ app.get("/snapshot", (c) => {
       afterId = "";
       continue;
     }
-    const page = authorizedSnapshotPage(db,userId,scope.workspaceId,type,afterId,limit-items.length);
+    const remainingBytes = Math.max(0, SYNC_SNAPSHOT_MAX_RESPONSE_BYTES - accumulatedBytes);
+    const page = authorizedSnapshotPage(
+      db,
+      userId,
+      scope.workspaceId,
+      type,
+      afterId,
+      limit - items.length,
+      remainingBytes,
+      items.length > 0,
+    );
     for (const row of page.rows) {
       items.push({ entityType: type, entityId: row.id, payload: row.payload });
     }
-    if (items.length >= limit || !page.exhausted) {
+    accumulatedBytes += page.bytesUsed;
+    if (items.length >= limit || page.byteLimitHit || !page.exhausted) {
       nextCursor = `${type}:${page.scannedThrough}`;
       break;
     }

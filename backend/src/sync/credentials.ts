@@ -90,6 +90,37 @@ export function saveRemoteCredential(input: {
   writeFile(data);
 }
 
+/** 换取新凭据，供已绑定同步和首次下载共用。 */
+export async function exchangeRemoteRefreshToken(
+  serverUrl: string,
+  refreshToken: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<{ token: string; refreshToken: string } | null> {
+  const signal = AbortSignal.timeout(15_000);
+  let response: Response;
+  let payload: { token?: unknown; refreshToken?: unknown } | null = null;
+  try {
+    response = await fetchImpl(`${serverUrl}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+      signal,
+    });
+    if (response.ok) {
+      payload = await response.json().catch(() => null);
+      signal.throwIfAborted();
+    }
+  } catch {
+    throw new SyncError("NETWORK_UNAVAILABLE", "刷新同步凭据时网络不可用");
+  }
+  if (response.status === 401 || response.status === 403) return null;
+  if (!response.ok) throw new SyncError("SERVER_ERROR", `刷新同步凭据失败（HTTP ${response.status}）`);
+  const token = typeof payload?.token === "string" ? payload.token.trim() : "";
+  if (!token) throw new SyncError("SERVER_ERROR", "刷新同步凭据响应缺少有效 Token");
+  const nextRefresh = typeof payload?.refreshToken === "string" ? payload.refreshToken.trim() : "";
+  return { token, refreshToken: nextRefresh || refreshToken };
+}
+
 const refreshInFlight = new Map<string, Promise<string | null>>();
 
 /**
@@ -111,48 +142,23 @@ export function refreshRemoteCredential(
     const stored = getRemoteCredential(profileId);
     if (!stored?.refreshToken) return null;
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    let response: Response;
-    try {
-      response = await fetchImpl(`${stored.serverUrl}/api/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: stored.refreshToken }),
-        signal: controller.signal,
-      });
-    } catch (error: any) {
-      throw new SyncError("NETWORK_UNAVAILABLE", error?.message || "刷新同步凭据时网络不可用");
-    } finally {
-      clearTimeout(timer);
+    const refreshed = await exchangeRemoteRefreshToken(stored.serverUrl, stored.refreshToken, fetchImpl);
+    const current = getRemoteCredential(profileId);
+    // 续期在途时退出或重新登录，旧响应不能覆盖当前凭据。
+    if (current?.token !== stored.token || current.refreshToken !== stored.refreshToken
+      || current.serverUrl !== stored.serverUrl || current.remoteUserId !== stored.remoteUserId) {
+      return current?.token ?? null;
     }
+    if (!refreshed) return null;
 
-    if (response.status === 401 || response.status === 403) {
-      return null;
-    }
-    if (!response.ok) {
-      throw new SyncError("SERVER_ERROR", `刷新同步凭据失败（HTTP ${response.status}）`);
-    }
-
-    const payload = await response.json().catch(() => null) as {
-      token?: unknown;
-      refreshToken?: unknown;
-    } | null;
-    const nextToken = typeof payload?.token === "string" ? payload.token.trim() : "";
-    if (!nextToken) {
-      throw new SyncError("SERVER_ERROR", "刷新同步凭据响应缺少有效 Token");
-    }
-    const nextRefresh = typeof payload?.refreshToken === "string" && payload.refreshToken.trim()
-      ? payload.refreshToken.trim()
-      : stored.refreshToken;
     saveRemoteCredential({
       profileId,
       serverUrl: stored.serverUrl,
-      token: nextToken,
-      refreshToken: nextRefresh,
+      token: refreshed.token,
+      refreshToken: refreshed.refreshToken,
       remoteUserId: stored.remoteUserId ?? null,
     });
-    return nextToken;
+    return refreshed.token;
   })().finally(() => {
     refreshInFlight.delete(profileId);
   });

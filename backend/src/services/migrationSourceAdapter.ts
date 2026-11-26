@@ -177,20 +177,77 @@ function readText(file: StagedFile, maxBytes: number): string {
   try { return new TextDecoder("utf-8", { fatal: true }).decode(buffer).replace(/^\uFEFF/, ""); }
   catch { return fail("MIGRATION_INVALID_UTF8"); }
 }
+function extractMarkdownLinkTargets(content: string): string[] {
+  const results: string[] = [];
+  const pattern = /!?\[[^\]\n]*\]\(([^)\n]+)\)/g;
+  for (const match of content.matchAll(pattern)) {
+    const rawInner = match[1].trim();
+    if (!rawInner) continue;
+    if (rawInner.startsWith("<")) {
+      const close = rawInner.indexOf(">");
+      if (close > 1) {
+        results.push(rawInner.slice(1, close).trim());
+        continue;
+      }
+    }
+    // 兼容含可选标题（"title" / 'title'）以及未用 <> 包裹但路径含空格的 Obsidian/公众号相对地址。
+    const withTitle = rawInner.match(/^(.+?)\s+(?:"[^"\n]*"|'[^'\n]*')\s*$/);
+    results.push((withTitle ? withTitle[1] : rawInner).trim());
+  }
+  return results;
+}
+
 function references(content: string, format: NmfNote["contentFormat"]): string[] {
   if (format === "txt") return [];
   const matches = format === "html"
     ? [...content.matchAll(/\b(?:src|href|poster)\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1])
-    : [...content.matchAll(/!?\[[^\]\n]*\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+["'][^\n]*?["'])?\s*\)/g)].map((match) => match[1].replace(/^<|>$/g, ""))
+    : extractMarkdownLinkTargets(content)
       .concat([...content.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1]));
   return [...new Set(matches)].slice(0, 400);
 }
-function resolveReference(notePath: string, href: string): string | null {
-  if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(href)) return null;
-  let decoded: string;
-  try { decoded = decodeURIComponent(href.split(/[?#]/)[0]); } catch { return null; }
-  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(notePath), decoded));
-  return migrationRelativePathSchema.safeParse(resolved).success ? resolved : null;
+
+function safeDecodePath(rawPath: string): string {
+  try {
+    return decodeURIComponent(rawPath);
+  } catch {
+    // 文件名含未转义 %（如 100%_chart.png）时直接按原始路径匹配。
+    return rawPath;
+  }
+}
+
+function resolveReference(
+  notePath: string,
+  href: string,
+  files: ReadonlyMap<string, StagedFile>,
+  lowerIndex: ReadonlyMap<string, string | null>,
+): string | null {
+  const trimmed = href.trim();
+  if (!trimmed || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(trimmed)) return null;
+  const pathOnly = trimmed.split(/[?#]/)[0].replace(/\\/g, "/");
+  const decoded = safeDecodePath(pathOnly).normalize("NFC");
+  if (!decoded || decoded.startsWith("//")) return null;
+
+  const lookup = (candidate: string): string | null => {
+    if (!migrationRelativePathSchema.safeParse(candidate).success) return null;
+    if (files.has(candidate)) return candidate;
+    return lowerIndex.get(candidate.toLowerCase()) ?? null;
+  };
+
+  // 1. 优先按当前笔记所在目录解析相对路径（含 ../assets/xxx.png）。
+  const relative = decoded.startsWith("/")
+    ? null
+    : path.posix.join(path.posix.dirname(notePath), decoded);
+  if (relative && !migrationRelativePathSchema.safeParse(relative).success) return null;
+  const relativeHit = relative && lookup(relative);
+  if (relativeHit) return relativeHit;
+
+  // 2. 回退按仓库/压缩包根目录解析（适配 Obsidian「相对仓库根」与独立图片文件夹链接，如 assets/xxx.png 或 /assets/xxx.png）。
+  const fromRoot = path.posix.normalize(decoded.replace(/^\/+/, ""));
+  const rootHit = lookup(fromRoot);
+  if (rootHit) return rootHit;
+
+  // 若未命中任何真实文件，仍返回合法相对路径让上层记录 UNRESOLVED_RELATIVE_REFERENCES 告警。
+  return relative ?? (migrationRelativePathSchema.safeParse(fromRoot).success ? fromRoot : null);
 }
 
 async function ensureFileHash(file: StagedFile): Promise<string> {
@@ -292,6 +349,11 @@ async function normalizeStagedFiles(input: {
     }
     // App settings, trash and OS metadata are neither notes nor attachments, and are not reported as skipped content.
     const visible = new Map([...files].filter(([name]) => !isIgnoredMigrationPath(name, files)));
+    const lowerIndex = new Map<string, string | null>();
+    for (const key of visible.keys()) {
+      const lower = key.toLowerCase();
+      lowerIndex.set(lower, lowerIndex.has(lower) ? null : key);
+    }
     const isAsset = (name: string) => Boolean(supportedAssets[path.extname(name).toLowerCase()]);
     const isImage = (name: string) => (supportedAssets[path.extname(name).toLowerCase()] || "").startsWith("image/");
     for (const name of visible.keys()) {
@@ -312,9 +374,9 @@ async function normalizeStagedFiles(input: {
       const links: NmfNote["links"] = [];
       for (const href of references(content, format)) {
         if (/^(?:https?:)?\/\//i.test(href)) { warnings.add("EXTERNAL_RESOURCES_PRESERVED; remote images and links are not downloaded or verified"); continue; }
-        const resolved = resolveReference(name, href);
+        const resolved = resolveReference(name, href, visible, lowerIndex);
         if (!resolved) continue;
-        const target = files.get(resolved);
+        const target = visible.get(resolved);
         if (!target) { warnings.add("UNRESOLVED_RELATIVE_REFERENCES; original links are preserved"); continue; }
         if (noteNames.has(resolved)) { links.push({ href, targetSourceId: resolved }); continue; }
         if (!supportedAssets[path.extname(resolved).toLowerCase()] || target.size > assetLimit) {

@@ -19,6 +19,11 @@ import { logSyncInfo, logSyncWarn } from "./log";
 
 /** 重连退避节奏，与同步引擎保持一致的量级。 */
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
+/**
+ * 服务端 realtime.ts 每 30s 巡检一次，60s 未收到客户端消息会强制 terminate。
+ * 客户端每 25s 主动发一次应用层 ping，避免每 90s 被服务端踢断并反复触发同步。
+ */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000;
 
 export interface RealtimeSubscriptionOptions {
   /** 远端服务器地址（http/https，内部转成 ws/wss）。 */
@@ -26,6 +31,10 @@ export interface RealtimeSubscriptionOptions {
   token: string;
   /** 动态读取最新访问令牌，使自动续期后的重连不再沿用已过期的旧 token。 */
   getToken?: () => string | null;
+  /** 握手未建立即被拒绝（常见于 15 分钟 Access Token 过期）时尝试主动续期。 */
+  refreshToken?: () => Promise<string | null>;
+  /** 应用层保活 ping 间隔（毫秒）；0 表示关闭。 */
+  heartbeatIntervalMs?: number;
   /**
    * 收到通知时的回调。
    *
@@ -56,12 +65,15 @@ export class SyncRealtimeSubscription {
   private readonly wsUrl: string;
   private readonly token: string;
   private readonly getToken?: () => string | null;
+  private readonly refreshToken?: () => Promise<string | null>;
+  private readonly heartbeatIntervalMs: number;
   private readonly onNotice: (sequence: number) => void;
   private readonly WebSocketImpl: typeof WebSocket;
   private readonly scheduler: NonNullable<RealtimeSubscriptionOptions["scheduler"]>;
 
   private socket: WebSocket | null = null;
   private timer: unknown = null;
+  private heartbeatTimer: unknown = null;
   private attempt = 0;
   private stopped = true;
 
@@ -72,6 +84,8 @@ export class SyncRealtimeSubscription {
     this.wsUrl = `${base.replace(/^http/i, "ws")}/ws`;
     this.token = options.token;
     this.getToken = options.getToken;
+    this.refreshToken = options.refreshToken;
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.onNotice = options.onNotice;
     this.WebSocketImpl = options.webSocketImpl ?? (globalThis.WebSocket as typeof WebSocket);
     this.scheduler = options.scheduler ?? {
@@ -99,6 +113,7 @@ export class SyncRealtimeSubscription {
   stop(): void {
     this.stopped = true;
     this.clearTimer();
+    this.clearHeartbeat();
     if (this.socket) {
       try {
         // 移除监听再关闭：否则 close 事件会触发重连逻辑。
@@ -118,6 +133,30 @@ export class SyncRealtimeSubscription {
       this.scheduler.clearTimeout(this.timer);
       this.timer = null;
     }
+  }
+
+  private clearHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      this.scheduler.clearTimeout(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private scheduleHeartbeat(socket: WebSocket): void {
+    this.clearHeartbeat();
+    if (this.stopped || this.heartbeatIntervalMs <= 0) return;
+    this.heartbeatTimer = this.scheduler.setTimeout(() => {
+      this.heartbeatTimer = null;
+      if (this.stopped || this.socket !== socket || socket.readyState !== 1) return;
+      try {
+        if (typeof socket.send === "function") {
+          socket.send(JSON.stringify({ type: "ping" }));
+        }
+      } catch {
+        /* 发送失败后等待 socket 触发 onclose/onerror 统一走重连 */
+      }
+      this.scheduleHeartbeat(socket);
+    }, this.heartbeatIntervalMs);
   }
 
   private scheduleReconnect(): void {
@@ -153,11 +192,15 @@ export class SyncRealtimeSubscription {
     }
 
     this.socket = socket;
+    let opened = false;
 
     socket.onopen = () => {
+      if (this.socket !== socket || this.stopped) return;
+      opened = true;
       // 连上就重置退避：长时间在线后偶发断线不该立刻退到 60s。
       this.attempt = 0;
       logSyncInfo("realtime.connected", { state: "open" });
+      this.scheduleHeartbeat(socket);
       // 连接建立本身就意味着"可能错过了离线期间的通知"，
       // 因此立即触发一次同步补齐。
       this.onNotice(0);
@@ -186,8 +229,20 @@ export class SyncRealtimeSubscription {
     };
 
     socket.onclose = () => {
+      if (this.socket !== socket) return;
       this.socket = null;
-      if (!this.stopped) this.scheduleReconnect();
+      this.clearHeartbeat();
+      if (this.stopped) return;
+      // 握手阶段即失败（常见于 15 分钟 Access Token 过期导致 WS 401）时，
+      // 尝试借 refreshToken 无感续期一次，避免重连时继续拿过期 token 刷错。
+      if (!opened && this.refreshToken && this.attempt === 0) {
+        this.attempt += 1;
+        void this.refreshToken().catch(() => null).finally(() => {
+          if (!this.socket && this.timer === null) this.scheduleReconnect();
+        });
+        return;
+      }
+      this.scheduleReconnect();
     };
   }
 }

@@ -54,8 +54,8 @@ export function SyncSettingsPanel() {
         setServerUrl((current) => current || savedUrl);
       }
       setUnavailable(false);
-      setDiagnostics(null);
       setDiagnosticsError(null);
+      setDiagnostics((current) => current?.profileId === (next.activeProfile?.id ?? null) ? current : null);
       if (next.profiles.length > 0) {
         try {
           setDiagnostics(await fetchSyncDiagnostics());
@@ -498,7 +498,9 @@ function SyncDiagnosticsPanel({
       {diagnostics.pendingSample.length > 0 ? (
         <details className="rounded-md border p-3 text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            待同步明细（{diagnostics.pendingSample.length}）
+            {diagnostics.pendingMutations > diagnostics.pendingSample.length
+              ? `待同步明细（展示前 ${diagnostics.pendingSample.length} / 共 ${diagnostics.pendingMutations} 条）`
+              : `待同步明细（${diagnostics.pendingSample.length}）`}
           </summary>
           <ul className="mt-2 space-y-1">
             {diagnostics.pendingSample.map((item) => (

@@ -1,3 +1,5 @@
+import { parser as markdownParser } from "@lezer/markdown";
+import type { SyntaxNode } from "@lezer/common";
 import { api } from "@/lib/api";
 import {
   createRoundTripPackageImportFile,
@@ -15,6 +17,7 @@ import {
   saveKnowledgeTreeExpansion,
 } from "@/lib/knowledgeTreeExpansion";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { safeDecode } from "@/lib/obsidianPath";
 import { toast } from "@/lib/toast";
 
 const TREE_SELECTOR = '[data-nowen-knowledge-tree="embedded"]';
@@ -317,15 +320,10 @@ function normalizeZipEntryPath(rawPath: string): string {
   return segments.join("/");
 }
 
-function decodeZipReferencePath(rawPath: string): string {
-  try {
-    return decodeURIComponent(rawPath).normalize("NFC");
-  } catch {
-    throw new Error(`附件路径编码无效：${rawPath}`);
-  }
-}
-
-function resolveZipReferencePath(markdownPath: string, rawTarget: string): string | null {
+function resolveZipReferencePath(
+  markdownPath: string,
+  rawTarget: string,
+): { relative: string; fromRoot: string | null } | null {
   const target = rawTarget.trim();
   if (!target || target.startsWith("#")) return null;
   if (/^(?:blob|file):/i.test(target) || /^[A-Za-z]:[\\/]/.test(target)) {
@@ -341,16 +339,35 @@ function resolveZipReferencePath(markdownPath: string, rawTarget: string): strin
     return null;
   }
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(target)) return null;
-  if (target.startsWith("/")) throw new Error(`ZIP 中包含绝对附件路径：${target}`);
-
-  const pathOnly = target.split(/[?#]/, 1)[0].replace(/\\/g, "/");
-  const decoded = decodeZipReferencePath(pathOnly);
-  const targetSegments = decoded.split("/").filter((segment) => segment && segment !== ".");
-  if (targetSegments.some((segment) => segment === "..")) {
-    throw new Error(`不支持包含 .. 的附件路径：${target}`);
+  const decoded = safeDecode(target.split(/[?#]/, 1)[0]).normalize("NFC").replace(/\\/g, "/");
+  if (decoded.startsWith("/") || /^[A-Za-z]:\//.test(decoded)) {
+    throw new Error(`ZIP 中包含绝对附件路径：${target}`);
   }
-  const baseSegments = markdownPath.split("/").slice(0, -1);
-  return [...baseSegments, ...targetSegments].join("/");
+  const targetSegments = decoded.split("/").filter((segment) => segment && segment !== ".");
+  const relative = joinZipReferencePath(markdownPath.split("/").slice(0, -1), targetSegments);
+  if (relative === null) throw new Error(`附件路径超出压缩包根目录：${target}`);
+  return { relative, fromRoot: joinZipReferencePath([], targetSegments) };
+}
+
+function joinZipReferencePath(resolvedSegments: string[], targetSegments: string[]): string | null {
+  for (const segment of targetSegments) {
+    if (segment === "..") {
+      if (resolvedSegments.length === 0) return null;
+      resolvedSegments.pop();
+    } else {
+      resolvedSegments.push(segment);
+    }
+  }
+  return resolvedSegments.join("/");
+}
+
+function findZipEntryKey(
+  candidatePath: string,
+  entries: ReadonlyMap<string, MarkdownZipEntry>,
+  lowerIndex: ReadonlyMap<string, string | null>,
+): string | null {
+  if (entries.has(candidatePath)) return candidatePath;
+  return lowerIndex.get(candidatePath.toLowerCase()) ?? null;
 }
 
 function markdownDestinationCandidates(inner: string): Array<{ start: number; end: number }> {
@@ -363,7 +380,7 @@ function markdownDestinationCandidates(inner: string): Array<{ start: number; en
   }
 
   const candidates = [{ start: leading, end: leading + trimmed.length }];
-  const withTitle = trimmed.match(/^(\S+)(\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))$/);
+  const withTitle = trimmed.match(/^(.+?)(\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))$/);
   if (withTitle) candidates.unshift({ start: leading, end: leading + withTitle[1].length });
   return candidates;
 }
@@ -372,15 +389,19 @@ function locateMarkdownDestination(
   inner: string,
   markdownPath: string,
   entries: ReadonlyMap<string, MarkdownZipEntry>,
+  lowerIndex: ReadonlyMap<string, string | null>,
 ): MarkdownLinkDestination | null {
   let fallback: MarkdownLinkDestination | null = null;
   for (const candidate of markdownDestinationCandidates(inner)) {
     const rawTarget = inner.slice(candidate.start, candidate.end);
-    const zipPath = resolveZipReferencePath(markdownPath, rawTarget);
-    if (!zipPath) return null;
-    const resolved = { ...candidate, zipPath };
-    if (entries.has(zipPath)) return resolved;
-    fallback ||= resolved;
+    const paths = resolveZipReferencePath(markdownPath, rawTarget);
+    if (!paths) return null;
+    const directHit = findZipEntryKey(paths.relative, entries, lowerIndex);
+    if (directHit) return { ...candidate, zipPath: directHit };
+    // 回退按压缩包根目录匹配（适配 Obsidian 相对仓库根路径，如子目录文章引用 assets/1.png）。
+    const rootHit = paths.fromRoot ? findZipEntryKey(paths.fromRoot, entries, lowerIndex) : null;
+    if (rootHit) return { ...candidate, zipPath: rootHit };
+    fallback ||= { ...candidate, zipPath: paths.relative };
   }
   return fallback;
 }
@@ -392,6 +413,25 @@ function isRequiredPackagedAsset(zipPath: string, isImage: boolean): boolean {
   return Boolean(extension && !["md", "markdown", "html", "htm"].includes(extension));
 }
 
+function resolveObsidianWikiAsset(
+  markdownPath: string,
+  rawTarget: string,
+  entries: ReadonlyMap<string, MarkdownZipEntry>,
+  lowerIndex: ReadonlyMap<string, string | null>,
+): string | null {
+  const cleaned = safeDecode(rawTarget.trim()).normalize("NFC").replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!cleaned || cleaned.startsWith("/") || cleaned.split("/").some((part) => part === "..")) return null;
+  if (/\.(?:md|markdown)$/i.test(cleaned)) return null;
+  const baseDir = markdownPath.split("/").slice(0, -1).join("/");
+  const sameDir = baseDir ? `${baseDir}/${cleaned}` : cleaned;
+  const direct = findZipEntryKey(sameDir, entries, lowerIndex) ?? findZipEntryKey(cleaned, entries, lowerIndex);
+  if (direct) return direct;
+  const suffix = `/${cleaned.toLowerCase()}`;
+  const matches = Array.from(entries.keys()).filter((key) => key.toLowerCase().endsWith(suffix));
+  if (matches.length === 1) return matches[0];
+  return null;
+}
+
 function transformMarkdownZipReferences(
   markdown: string,
   markdownPath: string,
@@ -399,9 +439,15 @@ function transformMarkdownZipReferences(
   replacements?: ReadonlyMap<string, string>,
 ): { content: string; assetPaths: string[] } {
   const assetPaths = new Set<string>();
+  const lowerIndex = new Map<string, string | null>();
+  for (const key of entries.keys()) {
+    const lower = key.toLowerCase();
+    lowerIndex.set(lower, lowerIndex.has(lower) ? null : key);
+  }
+
   const linkPattern = /(!?\[[^\]\r\n]*\])\(([^)\r\n]+)\)/g;
-  const content = markdown.replace(linkPattern, (fullMatch, prefix: string, inner: string) => {
-    const destination = locateMarkdownDestination(inner, markdownPath, entries);
+  const withLinks = markdown.replace(linkPattern, (fullMatch, prefix: string, inner: string) => {
+    const destination = locateMarkdownDestination(inner, markdownPath, entries, lowerIndex);
     if (!destination) return fullMatch;
     const entry = entries.get(destination.zipPath);
     const isImage = prefix.startsWith("!");
@@ -419,6 +465,28 @@ function transformMarkdownZipReferences(
     const nextInner = `${inner.slice(0, destination.start)}${replacement}${inner.slice(destination.end)}`;
     return `${prefix}(${nextInner})`;
   });
+
+  if (!withLinks.includes("![[")) return { content: withLinks, assetPaths: Array.from(assetPaths) };
+  // 保留代码示例里的字面写法；嵌入改写放在普通链接扫描之后。
+  const syntax = markdownParser.parse(withLinks);
+  const content = withLinks.replace(/!\[\[([^[\]\r\n]+?)\]\]/g, (fullMatch, inner: string, offset: number) => {
+    for (let node: SyntaxNode | null = syntax.resolve(offset, 1); node; node = node.parent) {
+      if (["FencedCode", "CodeBlock", "InlineCode"].includes(node.name)) return fullMatch;
+    }
+    const [targetWithAnchor, ...aliasParts] = inner.split("|");
+    const target = targetWithAnchor.split("#", 1)[0].trim();
+    if (!target) return fullMatch;
+    const resolved = resolveObsidianWikiAsset(markdownPath, target, entries, lowerIndex);
+    if (!resolved) return fullMatch;
+    assetPaths.add(resolved);
+    const replacement = replacements?.get(resolved);
+    if (!replacement) return fullMatch;
+    const alias = aliasParts.join("|").trim();
+    const label = alias && !/^\d+(?:x\d+)?$/.test(alias) ? alias : (resolved.split("/").pop() || target);
+    const isImage = mimeTypeForZipAsset(resolved).startsWith("image/");
+    return `${isImage ? "!" : ""}[${label.replace(/([\\[\]])/g, "\\$1")}](${replacement})`;
+  });
+
   return { content, assetPaths: Array.from(assetPaths) };
 }
 

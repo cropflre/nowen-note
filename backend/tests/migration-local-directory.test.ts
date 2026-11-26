@@ -277,3 +277,57 @@ test("管理员可在设置中调整导入包上限并立即生效，非管理�
   assert.equal(caps.limits.uploadBytes, 3584 * 1024 * 1024);
   assert.equal(caps.localDirectoryImport, true);
 });
+
+test("Obsidian 本地直导兼容 Windows 反斜杠、含空格路径、仓库根相对路径、大小写与裸 % 文件名", async () => {
+  const vaultDir = path.join(tmpDir, "WeChatObsidianVault");
+  fs.mkdirSync(path.join(vaultDir, "公众号"), { recursive: true });
+  fs.mkdirSync(path.join(vaultDir, "assets"), { recursive: true });
+
+  fs.writeFileSync(path.join(vaultDir, "assets", "my image.png"), VALID_PNG);
+  fs.writeFileSync(path.join(vaultDir, "assets", "100%_chart.png"), VALID_PNG);
+  fs.writeFileSync(path.join(vaultDir, "assets", "CasePic.png"), VALID_PNG);
+
+  const article = [
+    "# 公众号测试",
+    "反斜杠含空格：![图1](..\\assets\\my image.png)",
+    "仓库根裸百分号：![图2](assets/100%_chart.png)",
+    "大小写与根斜杠：![图3](/assets/casepic.png)",
+  ].join("\n\n");
+  fs.writeFileSync(path.join(vaultDir, "公众号", "wechat.md"), article, "utf8");
+
+  const startRes = await app.request("/api/migrations/local-directory", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": userId,
+      "X-Nowen-Desktop-Secret": process.env.ELECTRON_LOCAL_ACCOUNT_SECRET!,
+    },
+    body: JSON.stringify({ directoryPath: vaultDir }),
+  });
+  assert.equal(startRes.status, 202);
+  const started = await startRes.json() as any;
+  const scanned = await waitForStatus(started.id, ["CREATED"]);
+  assert.equal(scanned.counts.total, 1);
+  assert.equal(scanned.counts.attachments, 3, "3 种 Obsidian/Windows 相对路径图片都应成功关联");
+
+  const previewRes = await app.request(`/api/migrations/${started.id}/preview`, {
+    method: "POST",
+    headers: { "X-User-Id": userId },
+  });
+  const previewed = await previewRes.json() as any;
+  await app.request(`/api/migrations/${started.id}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-User-Id": userId },
+    body: JSON.stringify({ previewDigest: previewed.previewDigest }),
+  });
+  const completed = await waitForStatus(started.id, ["COMPLETED"]);
+  assert.equal(completed.counts.imported, 1);
+
+  const db = getDb();
+  const note = db.prepare("SELECT id, content FROM notes WHERE userId = ? AND title = '公众号测试'").get(userId) as { id: string; content: string };
+  const atts = db.prepare("SELECT id FROM attachments WHERE noteId = ?").all(note.id) as Array<{ id: string }>;
+  assert.equal(atts.length, 3);
+  for (const att of atts) {
+    assert.ok(note.content.includes(`/api/attachments/${att.id}`), "每张图片链接都应改写为附件地址");
+  }
+});

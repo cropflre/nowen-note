@@ -23,11 +23,15 @@ import { isLocalFirstSyncV2Enabled } from "./flag";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { ensureDevice } from "./device";
 import { getActiveProfile, setProfileLocalUser } from "./profile";
-import { createBlobClientForProfile, createRemoteClientForProfile } from "./credentials";
+import {
+  createBlobClientForProfile,
+  createRemoteClientForProfile,
+  getRemoteCredential,
+  refreshRemoteCredential,
+} from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
 import { isBootstrapReady } from "./bootstrap";
 import { SyncRealtimeSubscription } from "./realtime";
-import { getRemoteCredential } from "./credentials";
 
 interface ActiveEngine {
   engine: SyncEngine;
@@ -203,6 +207,7 @@ export function reconcileSyncEngine(
         serverUrl: enabled.serverUrl,
         token: credential.token,
         getToken: () => getRemoteCredential(enabled.id)?.token ?? credential.token,
+        refreshToken: () => refreshRemoteCredential(enabled.id),
         // 收到通知只触发同步，不做任何 apply ——
         // Change Feed 才是数据来源（第二十八条）。
         onNotice: () => {

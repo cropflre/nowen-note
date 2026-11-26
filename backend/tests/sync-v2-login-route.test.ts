@@ -240,3 +240,54 @@ test("DCC-003: Sync V2 持久化 refreshToken，在 15 分钟 Access Token 过�
   );
   globalThis.fetch = originalFetch;
 });
+
+test("Lite 首次下载续期后拒绝不同账号，重试时可保存原账号的新凭据", async (t) => {
+  const { stopSyncEngine } = await import("../src/sync/runtime");
+  t.after(() => {
+    stopSyncEngine();
+    globalThis.fetch = originalFetch;
+  });
+  const serverUrl = "https://migration-refresh.test";
+  let renewedUser = "other-nas-user";
+  let renewedPlanCalls = 0;
+  globalThis.fetch = (async (input, init) => {
+    const route = new URL(String(input)).pathname;
+    const auth = new Headers(init?.headers).get("Authorization");
+    if (route === "/api/me") {
+      return Response.json({ id: auth === "Bearer renewed" ? renewedUser : "original-nas-user" });
+    }
+    if (route === "/api/auth/refresh") {
+      return Response.json({ token: "renewed", refreshToken: "renewed-refresh" });
+    }
+    if (auth !== "Bearer renewed") return Response.json({}, { status: 401 });
+    if (route === "/api/sync/v2/plan") {
+      renewedPlanCalls++;
+      return Response.json({ serverSequence: 0, notebookCount: 0, noteCount: 0, tagCount: 0 });
+    }
+    if (route === "/api/sync/v2/snapshot") {
+      return Response.json({ snapshotSequence: 0, items: [], hasMore: false, nextCursor: null });
+    }
+    if (route === "/api/sync/v2/changes") {
+      return Response.json({ items: [], nextSequence: 0, serverSequence: 0, hasMore: false });
+    }
+    return Response.json({}, { status: 404 });
+  }) as typeof fetch;
+  const request = () => app.request("/api/sync/local/lite-migration", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-User-Id": "local-user" },
+    body: JSON.stringify({ serverUrl, token: "initial", refreshToken: "initial-refresh" }),
+  });
+
+  const refused = await (await request()).json() as { stage: string; errorCode: string };
+  assert.equal(refused.stage, "auth_required");
+  assert.equal(refused.errorCode, "AUTH_EXPIRED");
+  assert.equal(renewedPlanCalls, 0);
+  assert.equal(getDb().prepare("SELECT 1 FROM sync_profiles WHERE serverUrl=?").get(serverUrl), undefined);
+
+  renewedUser = "original-nas-user";
+  const completed = await (await request()).json() as { stage: string; profileId: string };
+  assert.equal(completed.stage, "complete");
+  assert.equal(getRemoteCredential(completed.profileId)?.token, "renewed");
+  assert.equal(getRemoteCredential(completed.profileId)?.refreshToken, "renewed-refresh");
+  assert.equal(getRemoteCredential(completed.profileId)?.remoteUserId, "original-nas-user");
+});

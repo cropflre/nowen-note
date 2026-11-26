@@ -5,6 +5,8 @@ import type Database from "better-sqlite3";
 import {
   SYNC_PERSONAL_SCOPE_KEY,
   SYNC_PUSH_MAX_MUTATIONS,
+  SYNC_PUSH_MAX_PAYLOAD_BYTES,
+  SYNC_SNAPSHOT_REBUILD_PAGE_SIZE,
   syncRetryDelayMs,
 } from "./constants";
 import { SyncError, isRetryableSyncError, isSyncErrorCode, type SyncFailureDiagnostic } from "./errors";
@@ -146,6 +148,8 @@ export class SyncEngine {
    */
   private stopped = false;
   private timer: unknown = null;
+  private abortController: AbortController | null = null;
+  private inflightPushIds: string[] = [];
   private retryCount = 0;
   private lastPushAt: string | null = null;
   private lastPullAt: string | null = null;
@@ -156,6 +160,10 @@ export class SyncEngine {
   private rerunRequested = false;
   /** 老服务器不支持 negotiated entityTypes 时，本次进程不重复探测。 */
   private readonly unsupportedTreeScopes = new Set<string>();
+  /** 弱网超时后逐次减半快照页大小，最低 10 条，完整重建后恢复默认值。 */
+  private snapshotPageLimit = SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
+  /** 请求超限或超时后缩小各批次，待当前积压发完再恢复默认预算。 */
+  private pushMaxPayloadBytes = SYNC_PUSH_MAX_PAYLOAD_BYTES;
 
   private readonly db: Database.Database;
   private readonly profileId: string;
@@ -178,6 +186,13 @@ export class SyncEngine {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
       clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
     };
+  }
+
+  private ensureAbortSignal(): void {
+    if (!this.abortController || this.abortController.signal.aborted) {
+      this.abortController = new AbortController();
+    }
+    this.client.setAbortSignal?.(this.abortController.signal);
   }
 
   // -------------------------------------------------------------------------
@@ -203,6 +218,7 @@ export class SyncEngine {
     this.unsupportedTreeScopes.clear();
     this.stopped = false;
     this.state = "idle";
+    this.ensureAbortSignal();
     this.scheduleNext(0);
   }
 
@@ -220,6 +236,13 @@ export class SyncEngine {
     this.stopped = true;
     this.state = "disabled";
     this.phase = null;
+    this.rerunRequested = false;
+    // 立即中止在途 HTTP 请求：避免重登/切换同步后新旧引擎并发拉取 /snapshot 撞服务端会话锁（400 INVALID_PAYLOAD）。
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+    this.recoverCurrentPush();
   }
 
   /** 网络恢复或远端通知时触发一轮；遇到不可重试错误（如 DATA_STRUCTURE / AUTH_EXPIRED）时不再自动死循环重试。 */
@@ -301,13 +324,16 @@ export class SyncEngine {
 
     this.running = true;
     this.state = "syncing";
+    this.ensureAbortSignal();
     const startedAt = Date.now();
 
     try {
       const descriptors = await this.client.listScopes();
+      if (this.stopped) return this.getStatus();
       try { touchDevice(this.db, this.deviceId); } catch { /* 诊断时间戳更新失败不影响同步 */ }
       const states = refreshWorkspaceScopeStates(this.db,this.profileId,descriptors,this.userId);
       for (const descriptor of descriptors) {
+        if (this.stopped) return this.getStatus();
         const local = states.find((item) => item.scopeKey === descriptor.scopeKey);
         if (!local || local.accessStatus === "access_revoked") continue;
         try {
@@ -319,6 +345,7 @@ export class SyncEngine {
             resetKnowledgeTreeSyncReadiness(this.db, this.profileId, descriptor.scopeKey);
             this.unsupportedTreeScopes.delete(descriptor.scopeKey);
             await this.runSnapshotRebuild(descriptor);
+            if (this.stopped) return this.getStatus();
             markWorkspaceScopeActive(
               this.db,
               this.profileId,
@@ -327,12 +354,17 @@ export class SyncEngine {
             );
           }
           await this.ensureKnowledgeTreeBaseline(descriptor);
+          if (this.stopped) return this.getStatus();
           await this.ensureAssetSubscription(descriptor);
+          if (this.stopped) return this.getStatus();
           await this.runPush(descriptor);
+          if (this.stopped) return this.getStatus();
           await this.runPull(descriptor);
+          if (this.stopped) return this.getStatus();
           // 附件二进制放在最后：它耗时最长且不影响正文一致性。
           await this.runBlobs(descriptor);
         } catch (error: any) {
+          if (this.stopped) return this.getStatus();
           if (error?.code === "ACCESS_REVOKED" || error?.code === "SCOPE_FORBIDDEN") {
             markWorkspaceScopeRevoked(this.db,this.profileId,descriptor.scopeKey,this.userId);
             continue;
@@ -341,6 +373,7 @@ export class SyncEngine {
         }
       }
 
+      if (this.stopped) return this.getStatus();
       this.state = "idle";
       this.lastError = null;
       this.lastErrorDiagnostic = null;
@@ -354,13 +387,14 @@ export class SyncEngine {
       });
       this.scheduleNextAfterSuccess();
     } catch (error: any) {
+      this.recoverCurrentPush();
       this.handleCycleError(error);
     } finally {
       this.running = false;
       this.phase = null;
       if (this.rerunRequested) {
         this.rerunRequested = false;
-        this.scheduleNext(0);
+        if (!this.lastError) this.scheduleNext(0);
       }
     }
 
@@ -382,15 +416,26 @@ export class SyncEngine {
       this.assetNegotiated = true; return;
     }
     const subscription = {entityTypes:SYNC_V2_ASSET_ENTITY_TYPES,deviceId:this.deviceId};
+    const cursor = getSyncState(this.db, this.profileId, scope.scopeKey);
+    let planResetRequired = true;
     try {
-      const plan = await this.client.plan(0,scope.scopeKey,subscription) as unknown as {assetOrganization?:string;entityTypes?:string[]};
+      const plan = await this.client.plan(cursor?.lastSequence ?? 0,scope.scopeKey,subscription);
+      if (this.stopped) return;
       this.assetSubscribed = plan.assetOrganization === "personal-v1" && Array.isArray(plan.entityTypes) && plan.entityTypes.length === 12 && SYNC_V2_ASSET_ENTITY_TYPES.every(type=>plan.entityTypes!.includes(type));
+      planResetRequired = plan.resetRequired !== false;
     } catch (error) {
       if ((error as {code?:string}).code !== "INVALID_PAYLOAD") throw error;
     }
     if (!this.assetSubscribed && binding) throw new SyncError("SERVER_ERROR","服务器不支持已绑定的附件目录同步，已保留本地数据和队列");
-    if (this.assetSubscribed) await this.runSnapshotRebuild(scope);
-    this.assetNegotiated = true;
+    if (this.assetSubscribed) {
+      // 两端均已完成 12 实体绑定且本机游标有效时，直接进入增量 Push/Pull，
+      // 不在每次重启或重新登录后重复拉取全量 Snapshot（大库跨 Tailscale 极易超时卡死）。
+      const alreadyBound = binding?.ready === 1 && !planResetRequired && !!cursor;
+      if (!alreadyBound) {
+        await this.runSnapshotRebuild(scope);
+      }
+    }
+    if (!this.stopped) this.assetNegotiated = true;
   }
 
   private treeSubscription(scopeKey: string): SyncProtocolSubscription | undefined {
@@ -477,6 +522,10 @@ export class SyncEngine {
    * 同步失败只是"等待同步"，绝不是"保存失败"。
    */
   private handleCycleError(rawError: any): void {
+    // 引擎已显式停止（如切换服务器/重登触发 stop() 中止在途请求）：
+    // 不污染 lastError、不写库、不排程重试。
+    if (this.stopped) return;
+
     // 落库阶段抛出的约束类 SQLite 错误在这里也要归类：它们是 DATA_STRUCTURE（不可重试），
     // 不能再被当成"服务端错误"按退避无限重试。
     const error: any = classifyApplyFailure(rawError, { stage: `engine:${this.phase ?? "cycle"}` });
@@ -496,6 +545,9 @@ export class SyncEngine {
         profileId: this.profileId,
         retryCount: this.retryCount,
         pendingCount: countPendingMutations(this.db,this.profileId),
+        stage: diagnostic?.stage ?? `engine:${this.phase ?? "cycle"}`,
+        step: diagnostic?.step,
+        reason: diagnostic?.reason,
       });
       this.scheduleNext(syncRetryDelayMs(this.retryCount));
       return;
@@ -538,6 +590,7 @@ export class SyncEngine {
     this.phase = "applying";
     try {
       await pushAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
+      if (this.stopped) return;
       const result = await pullAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
       // Drain another bounded batch promptly; all-failed batches use normal backoff.
       if (result.downloaded > 0) this.rerunRequested = true;
@@ -564,20 +617,37 @@ export class SyncEngine {
     );
     if (rows.length === 0) return;
 
-    const batch = coalesceMutations(rows);
-    batch.sort((a,b)=>Number(a.entityType==="attachment_organization")-Number(b.entityType==="attachment_organization"));
+    const allBatched = coalesceMutations(rows);
+    allBatched.sort((a,b)=>Number(a.entityType==="attachment_organization")-Number(b.entityType==="attachment_organization"));
+
+    // 按请求体字节预算截断前缀（保持父先子后顺序且至少推 1 条），避免多篇长文合并成超大 POST 触发弱网超时或反代 413。
+    const batch: typeof allBatched = [];
+    let batchBytes = 0;
+    for (const item of allBatched) {
+      let itemBytes = 256;
+      if (item.payload !== undefined) {
+        try {
+          itemBytes += Buffer.byteLength(JSON.stringify(item.payload), "utf8");
+        } catch {
+          itemBytes += 1024;
+        }
+      }
+      if (batch.length > 0 && batchBytes + itemBytes > this.pushMaxPayloadBytes) {
+        break;
+      }
+      batch.push(item);
+      batchBytes += itemBytes;
+    }
+    const truncatedByBytes = batch.length < allBatched.length;
+
     if(batch.some(item=>item.entityType==="note" && item.operation==="delete") && scope.noteDeletionLifecycle!=="trash-before-delete-v1") {
       throw new SyncError("NOTE_DELETION_UPGRADE_REQUIRED","请升级服务器以确认笔记回收站生命周期；删除队列和恢复副本已保留");
     }
     if (batch.some(item => item.entityType === "task" && ["stop","series"].includes(String(item.payload?.recurrenceAction))) && scope.taskRecurrenceLifecycle !== "v1") {
       throw new SyncError("SERVER_ERROR","请升级服务器以同步循环任务操作；本机修改已保留");
     }
-    for (const mutation of batch) {
-      markMutationInflight(this.db, mutation.mutationId);
-      for (const superseded of mutation.supersededIds) {
-        markMutationInflight(this.db, superseded);
-      }
-    }
+    this.inflightPushIds = batch.flatMap((mutation) => [mutation.mutationId, ...mutation.supersededIds]);
+    for (const id of this.inflightPushIds) markMutationInflight(this.db, id);
 
     let response;
     const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
@@ -600,28 +670,41 @@ export class SyncEngine {
       // 请求失败（断网、超时、服务端异常）时必须把 inflight 退回 pending。
       // 否则这些条目在本次进程内再也不会被取出——只有重启才能恢复，
       // 表现为"断网后即使网络恢复也永远不再上传"。
-      recoverInflightMutations(this.db);
+      this.recoverCurrentPush();
+      if (!this.stopped && batch.length > 1 && error instanceof SyncError) {
+        const oversized = error.code === "INVALID_PAYLOAD" && error.diagnostic?.reason === "HTTP_413";
+        const timedOut = error.code === "NETWORK_UNAVAILABLE"
+          && ["REQUEST_TIMEOUT", "HTTP_408_TIMEOUT"].includes(error.diagnostic?.reason ?? "");
+        if (oversized || timedOut) this.pushMaxPayloadBytes = Math.floor(batchBytes / 2);
+        if (oversized) {
+          throw new SyncError("SERVER_ERROR", "单批推送体积超出网关限制，已自动拆小批次重试", {
+            stage: "engine:pushing",
+            step: "http.post/push",
+            reason: "HTTP_413_SPLIT_RETRY",
+          });
+        }
+      }
       throw error;
     }
+    if (this.stopped) return;
     this.remoteSequence = response.serverSequence;
     this.lastPushAt = new Date().toISOString();
 
-    const bySupersede = new Map(batch.map((m) => [m.mutationId, m.supersededIds]));
     const byMutation = new Map(batch.map((m) => [m.mutationId, m]));
 
     for (const result of response.results) {
-      const superseded = bySupersede.get(result.mutationId) || [];
+      if (this.stopped) return;
+      const source = byMutation.get(result.mutationId);
+      if (!source) continue;
+      const superseded = source.supersededIds;
 
       if (result.status === "applied" || result.status === "duplicate") {
-        const source = byMutation.get(result.mutationId);
-        const trashStage=source?.entityType === "note" && source.operation === "upsert"
+        const trashStage=source.entityType === "note" && source.operation === "upsert"
           && rows.some(row=>row.entityType === "note" && row.entityId===source.entityId && row.operation === "delete");
         if(trashStage && (!Number.isSafeInteger(result.version) || Number(result.version)<1)) {
-          recoverInflightMutations(this.db);
           throw new SyncError("SERVER_ERROR","回收站阶段 ACK 缺少有效版本，删除队列与恢复副本已保留");
         }
-        if (source?.entityType === "attachment_organization" && (!Number.isSafeInteger(result.version) || Number(result.version)<1)) {
-          recoverInflightMutations(this.db);
+        if (source.entityType === "attachment_organization" && (!Number.isSafeInteger(result.version) || Number(result.version)<1)) {
           throw new SyncError("SERVER_ERROR","附件目录 ACK 缺少有效版本");
         }
         // 出队：这是唯一允许删除 Outbox 条目的路径。
@@ -629,17 +712,16 @@ export class SyncEngine {
           markLocalMutationApplied(this.db, result.mutationId, this.deviceId);
           markMutationSynced(this.db, result.mutationId);
           for (const id of superseded) markMutationSynced(this.db, id);
-          if (source?.entityType === "attachment_organization") {
+          if (source.entityType === "attachment_organization") {
             const remaining = this.db.prepare(`UPDATE sync_outbox SET baseVersion=? WHERE profileId=? AND entityType='attachment_organization' AND entityId=?`).run(result.version,this.profileId,source.entityId);
             if (!remaining.changes) runChangeFeedSuppressed(this.db,()=>this.db.prepare("UPDATE asset_sync_metadata SET version=? WHERE id=? AND userId=?").run(result.version,source.entityId,this.userId));
           }
-          const mutation = byMutation.get(result.mutationId);
-          if (mutation) acknowledgeNotePush(
-            this.db, mutation, result.version, this.profileId, scope.scopeKey,
+          acknowledgeNotePush(
+            this.db, source, result.version, this.profileId, scope.scopeKey,
             this.userId, scope.workspaceId,
           );
         })();
-        if(source?.entityType === "note" && source.operation === "delete") {
+        if(source.entityType === "note" && source.operation === "delete") {
           try { await cleanupNoteDeletionFiles(this.db,(source.payload?._deletionRecovery as {attachments?:Array<{id:string;path:string}>}|undefined)?.attachments || []); }
           catch { /* ACK is durable; unreferenced bytes can be reclaimed by the normal orphan scan. */ }
         }
@@ -647,14 +729,9 @@ export class SyncEngine {
       }
 
       if (result.code === "VERSION_CONFLICT") {
-        try {
-          this.recordPushConflict(
-            result.mutationId,result.serverVersion,result.serverPayload,rows,scope.scopeKey,
-          );
-        } catch (error) {
-          recoverInflightMutations(this.db);
-          throw error;
-        }
+        this.recordPushConflict(
+          result.mutationId,result.serverVersion,result.serverPayload,rows,scope.scopeKey,
+        );
         // 冲突条目出队：它已经转入冲突台账，继续重试只会反复失败。
         // 本地内容仍在库里，两个版本都可恢复。
         markMutationSynced(this.db, result.mutationId);
@@ -672,7 +749,14 @@ export class SyncEngine {
     // 兜底：服务端若漏回某些 mutation 的结果（部分响应、协议不一致），
     // 对应条目会留在 inflight 而永不重试。统一退回 pending，
     // 重复推送由 mutationId 幂等保证安全。
-    recoverInflightMutations(this.db);
+    this.recoverCurrentPush();
+    if (truncatedByBytes) this.rerunRequested = true;
+    else if (rows.length < SYNC_PUSH_MAX_MUTATIONS) this.pushMaxPayloadBytes = SYNC_PUSH_MAX_PAYLOAD_BYTES;
+  }
+
+  private recoverCurrentPush(): void {
+    recoverInflightMutations(this.db, this.inflightPushIds);
+    this.inflightPushIds = [];
   }
 
   /**
@@ -733,6 +817,7 @@ export class SyncEngine {
         after, undefined, scope.scopeKey, subscription,
       )
       : await this.client.changes(after, undefined, scope.scopeKey);
+    if (this.stopped) return;
     this.remoteSequence = changes.serverSequence;
     this.lastPullAt = new Date().toISOString();
 
@@ -761,6 +846,7 @@ export class SyncEngine {
     // 这样协议不必在 feed 里塞正文，也避免历史变更累积成巨大响应。
     this.phase = "applying";
     const payloads = await this.fetchEntityPayloads(changes.items, scope, subscription);
+    if (this.stopped) return;
     const businessPayloads = payloads.filter(
       (item): item is RemoteEntityPayload => item.entityType !== "knowledge_tree_node" && item.entityType !== "attachment_organization",
     );
@@ -1003,13 +1089,23 @@ export class SyncEngine {
     const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
 
     do {
-      const page: RemoteSnapshotPage<SyncNegotiatedEntityType> = subscription
-        ? await this.client.snapshot<SyncNegotiatedEntityType>(
-          cursor, snapshotSequence, undefined, scope.scopeKey, subscription,
-        )
-        : await this.client.snapshot(
-          cursor, snapshotSequence, undefined, scope.scopeKey,
-        );
+      if (this.stopped) return;
+      let page: RemoteSnapshotPage<SyncNegotiatedEntityType>;
+      try {
+        page = subscription
+          ? await this.client.snapshot<SyncNegotiatedEntityType>(
+            cursor, snapshotSequence, this.snapshotPageLimit, scope.scopeKey, subscription,
+          )
+          : await this.client.snapshot(
+            cursor, snapshotSequence, this.snapshotPageLimit, scope.scopeKey,
+          );
+      } catch (error) {
+        if (!this.stopped && error instanceof SyncError && error.code === "NETWORK_UNAVAILABLE") {
+          this.snapshotPageLimit = Math.max(10, Math.floor(this.snapshotPageLimit / 2));
+        }
+        throw error;
+      }
+      if (this.stopped) return;
       if (snapshotSequence === 0) snapshotSequence = page.snapshotSequence;
       for (const entry of page.items) {
         const ids=seen.get(entry.entityType) || new Set<string>();
@@ -1067,8 +1163,9 @@ export class SyncEngine {
 
       cursor = page.nextCursor;
       guard += 1;
-    } while (cursor && guard < 1000);
+    } while (cursor && guard < 10_000);
 
+    if (this.stopped) return;
     if (cursor) throw new SyncError("SERVER_ERROR","Snapshot 分页超过安全上限");
     if (heldNotebooks.length > 0) {
       const result = applyRemoteChanges(
@@ -1098,6 +1195,7 @@ export class SyncEngine {
 
     if (this.assetSubscribed && scope.workspaceId === null) this.db.prepare(`INSERT INTO asset_sync_bindings(profileId,userId,ready) VALUES (?,?,1)
       ON CONFLICT(profileId) DO UPDATE SET ready=1`).run(this.profileId,this.userId);
+    this.snapshotPageLimit = SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
 
     logSyncInfo("engine.snapshot-rebuilt", {
       profileId: this.profileId,
