@@ -49,3 +49,27 @@ export function assetFileKind(mime: string): "image" | "document" | "video" | "a
     || ["application/pdf", "application/json", "application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint"].includes(mime)) return "document";
   return "other";
 }
+
+export const FILE_BATCH_CHUNK_LIMIT = 200;
+export const FILE_SELECT_ALL_MATCHES_LIMIT = 1000;
+
+/** Split IDs into fixed-size chunks matching backend 200-item batch limits. */
+export function chunkIds<T>(items: readonly T[], size = FILE_BATCH_CHUNK_LIMIT): T[][] {
+  if (size < 1 || !items.length) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Toggle all visible page IDs without discarding selections kept from other pages. */
+export function toggleSelectPageIds(previous: Set<string>, pageIds: readonly string[]): Set<string> {
+  const next = new Set(previous);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => next.has(id));
+  for (const id of pageIds) {
+    if (allSelected) next.delete(id);
+    else next.add(id);
+  }
+  return next;
+}

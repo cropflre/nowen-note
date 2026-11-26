@@ -487,6 +487,10 @@
           "file": "backend/tests/attachment-trash.test.ts",
           "case": "purge requires explicit confirmation, trash state and a fresh backend reference check"
         },
+        {
+          "file": "backend/tests/attachment-trash.test.ts",
+          "case": "empty trash requires explicit confirmation, isolates users/workspaces, retains referenced files, and purges safe items"
+        },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" },
         { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-007: attachment reads before the bytes arrive return BLOB_NOT_READY instead of EISDIR or 500" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: remote restore of a deleted subtree and a later re-delete keep tombstone state and parent links" },

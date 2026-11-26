@@ -3579,14 +3579,22 @@ export const api = {
     }),
 
     trash: {
-      list: (page = 1) => {
-        const qs = new URLSearchParams({ page: String(page) });
+      list: (page = 1, pageSize = 50) => {
+        const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
         const ws = getCurrentWorkspace();
         if (ws && ws !== "personal") qs.set("workspaceId", ws);
         return request<{ supported: boolean; entries: Array<{ id: string; filename: string; mimeType: string; size: number; trashedAt: string; originalFolderId: string | null }>; total: number }>(`/files/trash?${qs}`);
       },
       restore: (ids: string[]) => request<{ count: number; restored: Array<{ id: string; folderId: string | null; fallback: boolean }> }>("/files/trash/restore", { method: "POST", body: JSON.stringify({ ids }) }),
       purge: (ids: string[]) => request<{ count: number; cleanupPending: string[] }>("/files/trash/purge", { method: "POST", body: JSON.stringify({ ids, confirmation: "PERMANENTLY_DELETE" }) }),
+      empty: () => {
+        const ws = getCurrentWorkspace();
+        const qs = ws && ws !== "personal" ? `?${new URLSearchParams({ workspaceId: ws })}` : "";
+        return request<{ success: boolean; count: number; skipped: number; skippedIds?: string[]; cleanupPending: string[] }>(`/files/trash/empty${qs}`, {
+          method: "POST",
+          body: JSON.stringify({ confirmation: "PERMANENTLY_DELETE", ...(ws && ws !== "personal" ? { workspaceId: ws } : {}) }),
+        });
+      },
     },
 
     prepareInsert: (id: string, noteId: string) => request<FileItem>(`/files/${id}/prepare-insert`, {

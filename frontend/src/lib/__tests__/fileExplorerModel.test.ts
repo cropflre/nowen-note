@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetFileKind, folderPath, selectFile } from "../fileExplorerModel";
+import { assetFileKind, chunkIds, folderPath, selectFile, toggleSelectPageIds } from "../fileExplorerModel";
 
 describe("file explorer organization", () => {
   it("builds a real three-level breadcrumb and safely stops on legacy cycles", () => {
@@ -20,5 +20,16 @@ describe("file explorer organization", () => {
     expect(assetFileKind("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).toBe("document");
     expect(assetFileKind("application/zip")).toBe("archive");
     expect(assetFileKind("application/octet-stream")).toBe("other");
+  });
+  it("chunks large batch IDs into 200-item slices and toggles page selection while keeping other pages", () => {
+    const ids = Array.from({ length: 450 }, (_, index) => `id-${index}`);
+    const chunks = chunkIds(ids);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([200, 200, 50]);
+    expect(chunkIds([])).toEqual([]);
+
+    const withOtherPage = toggleSelectPageIds(new Set(["other-page-1"]), ["p1-a", "p1-b"]);
+    expect([...withOtherPage]).toEqual(["other-page-1", "p1-a", "p1-b"]);
+    const deselectedPage = toggleSelectPageIds(withOtherPage, ["p1-a", "p1-b"]);
+    expect([...deselectedPage]).toEqual(["other-page-1"]);
   });
 });

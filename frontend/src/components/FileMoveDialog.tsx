@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
-import { folderPath, type AssetFolder } from "@/lib/fileExplorerModel";
+import { chunkIds, folderPath, type AssetFolder } from "@/lib/fileExplorerModel";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 
 export default function FileMoveDialog({ ids, currentFolderId, folderToMove, expectedFolderIds, onClose, onMoved }: {
@@ -52,9 +52,17 @@ export default function FileMoveDialog({ ids, currentFolderId, folderToMove, exp
         toast.success(t("fileExplorer.saved"));
         onMoved(result.parentId, folders.find((folder) => folder.id === result.parentId)?.name || null);
       } else {
-        const result = await api.files.move(ids, target || null, expected);
-        toast.success(t("fileManager.moved", { count: result.moved }));
-        onMoved(result.folderId, result.folderName);
+        let movedTotal = 0;
+        let lastResult: Awaited<ReturnType<typeof api.files.move>> | null = null;
+        for (const batchIds of chunkIds(ids)) {
+          const batchExpected = expected
+            ? Object.fromEntries(batchIds.filter((id) => Object.hasOwn(expected, id)).map((id) => [id, expected[id]]))
+            : undefined;
+          lastResult = await api.files.move(batchIds, target || null, batchExpected);
+          movedTotal += lastResult.moved;
+        }
+        toast.success(t("fileManager.moved", { count: movedTotal }));
+        onMoved(lastResult?.folderId ?? (target || null), lastResult?.folderName ?? null);
       }
       onClose();
     } catch (failure: unknown) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace, getServerUrl } from "@/lib/api";
+import { chunkIds } from "@/lib/fileExplorerModel";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import type { AssetOrganization, AssetTag } from "@/types";
 
@@ -62,7 +63,9 @@ export default function AssetTagEditor({
     setBusy(true);
     setError("");
     try {
-      await api.files.organization.tagFiles(ids, [tagId], operation);
+      for (const batchIds of chunkIds(ids)) {
+        await api.files.organization.tagFiles(batchIds, [tagId], operation);
+      }
       if (identity() !== scope) return;
       setRevision((value) => value + 1);
       onChanged?.();
@@ -89,7 +92,9 @@ export default function AssetTagEditor({
     try {
       const { tag } = await api.files.organization.createTag(search.trim());
       if (identity() !== scope) return;
-      await api.files.organization.tagFiles(ids, [tag.id], "add");
+      for (const batchIds of chunkIds(ids)) {
+        await api.files.organization.tagFiles(batchIds, [tag.id], "add");
+      }
       if (identity() !== scope) return;
       setSearch("");
       setRevision((value) => value + 1);

@@ -455,6 +455,7 @@ test("P1 personal file-manager PAT forbids restricted global folder access and f
     app.patch("/api/files/:id", (c) => c.json({ updated: c.req.param("id") }));
     app.post("/api/files/batch-move", (c) => c.json({ moved: true }));
     app.post("/api/files/trash/purge", (c) => c.json({ deleted: true }));
+    app.post("/api/files/trash/empty", (c) => c.json({ success: true }));
     return app;
   }
   assert.equal((await makeApp("restricted").request("/api/attachment-folders")).status, 403);
@@ -485,6 +486,10 @@ test("P1 personal file-manager PAT forbids restricted global folder access and f
   assert.equal((await makeApp("unrestricted").request("/api/files/trash/purge", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids: ["p1-managed"], confirmation: "PERMANENTLY_DELETE" }),
+  })).status, 403);
+  assert.equal((await makeApp("unrestricted").request("/api/files/trash/empty", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation: "PERMANENTLY_DELETE" }),
   })).status, 403);
 });
 

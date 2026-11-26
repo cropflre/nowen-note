@@ -122,3 +122,60 @@ test("orphan scan, dry run and cleanup preserve retained note-attachment bytes",
   assert.ok(db.prepare("SELECT 1 FROM attachments WHERE id=?").get(file.id));
   assert.equal(fs.readFileSync(path.join(attachmentsDir, row.path), "utf8"), "retained outside garbage collection");
 });
+
+test("empty trash requires explicit confirmation, isolates users/workspaces, retains referenced files, and purges safe items", async () => {
+  const existingSafeTotal = (await json(req("/api/files/trash"))).total as number;
+  const safeA = await upload("empty safe a");
+  const safeB = await upload("empty safe b");
+  const protectedFile = await upload("empty protected");
+  const activeFile = await upload("still active file");
+  const otherOwnerFile = await json((() => {
+    const form = new FormData();
+    form.set("file", new File(["other user bytes"], "other.txt", { type: "text/plain" }));
+    return app.request("/api/files/upload", { method: "POST", headers: { "X-User-Id": "trash-other" }, body: form });
+  })(), 201);
+
+  for (const id of [safeA.id, safeB.id, protectedFile.id]) await json(req(`/api/files/${id}`, "DELETE"));
+  await json(req(`/api/files/${otherOwnerFile.id}`, "DELETE", undefined, "trash-other"));
+
+  const db = schema.getDb();
+  const safeARow = db.prepare("SELECT path FROM attachments WHERE id=?").get(safeA.id) as { path: string };
+  const safeBRow = db.prepare("SELECT path FROM attachments WHERE id=?").get(safeB.id) as { path: string };
+  const protectedRow = db.prepare("SELECT path, noteId FROM attachments WHERE id=?").get(protectedFile.id) as { path: string; noteId: string };
+  db.prepare("INSERT INTO attachment_references (attachmentId,noteId) VALUES (?,?)").run(protectedFile.id, protectedRow.noteId);
+
+  // Missing confirmation is rejected cleanly.
+  await json(req("/api/files/trash/empty", "POST", {}), 400);
+  // Mismatched query vs body workspaceId is rejected.
+  await json(req("/api/files/trash/empty?workspaceId=personal", "POST", { confirmation: "PERMANENTLY_DELETE", workspaceId: "ws-other" }), 400);
+  // Unauthorized request and non-member workspace request are rejected.
+  assert.equal((await app.request("/api/files/trash/empty", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmation: "PERMANENTLY_DELETE" }) })).status, 401);
+  await json(req("/api/files/trash/empty?workspaceId=non-member-ws", "POST", { confirmation: "PERMANENTLY_DELETE" }), 403);
+  await json(req("/api/files/trash/empty", "POST", { confirmation: "PERMANENTLY_DELETE", workspaceId: "non-member-ws" }), 403);
+
+  const result = await json(req("/api/files/trash/empty", "POST", { confirmation: "PERMANENTLY_DELETE" }));
+  assert.equal(result.count, existingSafeTotal + 2);
+  assert.equal(result.skipped, 1);
+  assert.deepEqual(result.skippedIds, [protectedFile.id]);
+
+  // Safe trashed rows and disk objects are removed.
+  assert.equal(db.prepare("SELECT id FROM attachments WHERE id=?").get(safeA.id), undefined);
+  assert.equal(db.prepare("SELECT id FROM attachments WHERE id=?").get(safeB.id), undefined);
+  assert.equal(fs.existsSync(path.join(attachmentsDir, safeARow.path)), false);
+  assert.equal(fs.existsSync(path.join(attachmentsDir, safeBRow.path)), false);
+
+  // Protected trashed file, active file, and another user's trashed file stay untouched.
+  assert.ok(db.prepare("SELECT id FROM attachments WHERE id=?").get(protectedFile.id));
+  assert.equal(fs.existsSync(path.join(attachmentsDir, protectedRow.path)), true);
+  assert.ok(db.prepare("SELECT id FROM attachments WHERE id=?").get(activeFile.id));
+  assert.ok(db.prepare("SELECT id FROM attachments WHERE id=?").get(otherOwnerFile.id));
+
+  // Cleanup protected reference so empty can finish clearing the trash.
+  db.prepare("DELETE FROM attachment_references WHERE attachmentId=?").run(protectedFile.id);
+  const secondResult = await json(req("/api/files/trash/empty", "POST", { confirmation: "PERMANENTLY_DELETE" }));
+  assert.equal(secondResult.count, 1);
+  assert.equal(secondResult.skipped, 0);
+  assert.equal((await json(req("/api/files/trash"))).total, 0);
+  // Restore active & otherOwner cleanup.
+  await json(req("/api/files/trash/restore", "POST", { ids: [otherOwnerFile.id] }, "trash-other"));
+});

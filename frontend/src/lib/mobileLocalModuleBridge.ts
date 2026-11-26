@@ -410,7 +410,7 @@ export function installMobileLocalModuleBridge(
     assertPersonalFileScope();
     throw Object.assign(new Error("File recycle bin is unavailable in Native mode."), { code: "MOBILE_ASSET_TRASH_UNSUPPORTED" });
   };
-  target.files.trash = { list: async () => ({ supported: false, entries: [], total: 0 }), restore: unsupportedTrash, purge: unsupportedTrash };
+  target.files.trash = { list: async () => ({ supported: false, entries: [], total: 0 }), restore: unsupportedTrash, purge: unsupportedTrash, empty: unsupportedTrash };
   target.files.prepareInsert = async (id: string, noteId: string) => {
     assertPersonalFileScope();
     const note = await target.getNote(noteId);

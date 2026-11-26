@@ -6,6 +6,14 @@ export const zhCNAssetReliabilityTranslations = {
     hint: "回收站保留原始文件和附件 ID，不会自动清空。恢复时返回原文件夹；原文件夹已删除则回到未归档。公开外链需重新手动开启。",
     empty: "回收站为空", fallback: "原文件夹已不存在，文件已恢复到未归档。", cleanupPending: "记录已删除，部分存储对象清理失败，请检查存储服务。",
     nativeUnavailable: "Native 模式暂不支持文件回收站，请在服务器网页端管理。",
+    selectAllPage: "全选本页",
+    deselectAll: "取消全选",
+    selectAllCount: "选择回收站全部 {{count}} 个文件",
+    emptyAction: "清空回收站",
+    emptyHint: "确定要清空文件回收站吗？当前空间内共 {{count}} 个文件将被永久删除，此操作不可撤销。仍在被笔记引用或有有效公开分享的文件会自动保留。",
+    emptied: "已清空文件回收站（共永久删除 {{count}} 个文件）",
+    emptyPartial: "已永久删除 {{count}} 个文件，另有 {{skipped}} 个受引用或公开分享保护的文件已保留",
+    emptySkippedOnly: "没有可彻底删除的文件：{{skipped}} 个文件仍被笔记引用或公开分享保护",
   },
 };
 export const enAssetReliabilityTranslations = {
@@ -16,5 +24,13 @@ export const enAssetReliabilityTranslations = {
     hint: "Original files and attachment IDs are retained with no automatic expiry. Restore returns files to their original folders, or Unorganized if the folder was removed. Public links must be explicitly enabled again.",
     empty: "The recycle bin is empty", fallback: "The original folder no longer exists. Files were restored to Unorganized.", cleanupPending: "Records were deleted but some storage objects could not be removed. Check the storage service.",
     nativeUnavailable: "The file recycle bin is unavailable in Native mode. Manage it in the server web app.",
+    selectAllPage: "Select page",
+    deselectAll: "Deselect all",
+    selectAllCount: "Select all {{count}} items",
+    emptyAction: "Empty recycle bin",
+    emptyHint: "Empty the file recycle bin? {{count}} files in the current space will be permanently deleted and cannot be undone. Files referenced by notes or active shares will be kept.",
+    emptied: "Emptied the recycle bin ({{count}} files permanently deleted)",
+    emptyPartial: "Permanently deleted {{count}} files; {{skipped}} protected files remain in the recycle bin",
+    emptySkippedOnly: "No files deleted: {{skipped}} protected files remain referenced or shared",
   },
 };
