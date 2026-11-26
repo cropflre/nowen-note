@@ -4,15 +4,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import DesktopOfflineSyncGate from '@/components/DesktopOfflineSyncGate';
 import { enqueue, flushQueue, getQueue, getQueueLength, updateItem } from '@/lib/offlineQueue';
 
-const state=vi.hoisted(()=>({flush:vi.fn(),serverUrl:'https://nas.test'}));
+const state=vi.hoisted(()=>({flush:vi.fn(),toastInfo:vi.fn(),serverUrl:'https://nas.test'}));
 vi.mock('react-i18next',()=>({useTranslation:()=>({t:(key:string,values?:Record<string,unknown>)=>values?`${key} ${JSON.stringify(values)}`:key})}));
 vi.mock('@/lib/api',()=>({getServerUrl:()=>state.serverUrl}));
 vi.mock('@/lib/authSession',()=>({getAccessToken:()=> 'remote-token',getRefreshToken:()=>null}));
 vi.mock('@/lib/offlineScope',()=>({STORAGE_KEY_PREFIX:'nowen-offline-queue:v2',getOfflineQueueStorageKey:()=> 'nowen-offline-queue:v2:nas:user'}));
 vi.mock('@/lib/syncEngine',()=>({syncNow:state.flush}));
+vi.mock('@/lib/toast',()=>({toast:{info:state.toastInfo,error:vi.fn(),success:vi.fn()}}));
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 
-beforeEach(()=>{localStorage.clear();vi.clearAllMocks();state.serverUrl='https://nas.test';});
+beforeEach(()=>{localStorage.clear();sessionStorage.clear();vi.clearAllMocks();state.serverUrl='https://nas.test';});
 afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 function retainEdit(noteId:string) {
@@ -343,4 +344,22 @@ it('DCC-003: a legacy backend that does not report retryable keeps the previous 
     await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
     expect(gate.migrate.mock.calls.length).toBeGreaterThan(1);
   } finally {gate.cleanup();}
+});
+
+it('shows a one-time local sync handoff toast after redirecting from a remote NAS login', async () => {
+  state.serverUrl='http://127.0.0.1:57892';
+  sessionStorage.setItem('nowen-desktop-local-sync-handoff','http://home.uniquexm.cn:3001');
+  const desktopWindow=window as unknown as {nowenDesktop?:object};
+  desktopWindow.nowenDesktop={
+    isDesktop:true,
+    getAppInfo:async()=>({runtime:'local',localRuntimeAvailable:true,localServerUrl:'http://127.0.0.1:57892'}),
+    startLiteMigration:vi.fn(),
+  };
+  const host=document.createElement('div');document.body.appendChild(host);const root=createRoot(host);
+  try {
+    await act(async()=>{root.render(<DesktopOfflineSyncGate><span>editor</span></DesktopOfflineSyncGate>);});
+    expect(host.textContent).toBe('editor');
+    expect(state.toastInfo).toHaveBeenCalledWith('offlineAvailability.localSyncHandoffNotice {"server":"home.uniquexm.cn:3001"}');
+    expect(sessionStorage.getItem('nowen-desktop-local-sync-handoff')).toBeNull();
+  } finally {act(()=>root.unmount());host.remove();delete desktopWindow.nowenDesktop;}
 });

@@ -650,7 +650,7 @@ function AppLayout() {
    */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"extensions" | undefined>(undefined);
+  const [settingsTab, setSettingsTab] = useState<"extensions" | "sync" | undefined>(undefined);
   useEffect(() => {
     const onOpen = () => setCommandPaletteOpen(true);
     window.addEventListener("nowen:open-command-palette", onOpen);
@@ -659,7 +659,8 @@ function AppLayout() {
 
   useEffect(() => {
     const onOpen = (event: Event) => {
-      setSettingsTab((event as CustomEvent<{ tab?: string } | null>).detail?.tab === "extensions" ? "extensions" : undefined);
+      const requestedTab = (event as CustomEvent<{ tab?: string } | null>).detail?.tab;
+      setSettingsTab(requestedTab === "extensions" || requestedTab === "sync" ? requestedTab : undefined);
       setSettingsOpen(true);
     };
     window.addEventListener("nowen:open-settings", onOpen);

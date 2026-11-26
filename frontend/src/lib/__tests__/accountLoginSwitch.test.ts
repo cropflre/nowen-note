@@ -255,4 +255,34 @@ describe("账号历史切换", () => {
     expect(localStorage.getItem("nowen-token")).toBe("current-token");
     expect(localStorage.getItem("nowen-server-url")).toBe("https://current.example.com");
   });
+
+  it("DCC-006: 桌面端切换到远端账号时设置 prefer-cloud 防止重载被本机迁移覆盖，切回本机时清除该标记", async () => {
+    const localAccount: AccountLoginHistoryItem = {
+      id: "history-local",
+      serverUrl: "http://127.0.0.1:57892",
+      userId: "desktop-user",
+      username: "desktop",
+      displayName: "本机用户",
+      avatarUrl: "",
+      lastUsedAt: 200,
+      requiresReauth: false,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "user-1", username: "alice", displayName: "Alice",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "desktop-user", username: "desktop", displayName: "本机用户",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const remoteResult = await switchAccountLogin(account);
+    expect(remoteResult.status).toBe("switched");
+    expect(localStorage.getItem("nowen-prefer-cloud")).toBe("1");
+    expect(localStorage.getItem("nowen-server-url")).toBe("https://notes.example.com");
+
+    const localResult = await switchAccountLogin(localAccount);
+    expect(localResult.status).toBe("switched");
+    expect(localStorage.getItem("nowen-prefer-cloud")).toBeNull();
+    expect(localStorage.getItem("nowen-server-url")).toBe("http://127.0.0.1:57892");
+  });
 });

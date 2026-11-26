@@ -142,6 +142,7 @@
   "offlineAvailability": {
     "automaticDownload": "正在自动下载到本机",
     "automaticHint": "首次同步请保持连接。完成后自动进入本地副本，断网可继续编辑；恢复连接后，修改会自动上传同步。",
+    "localSyncHandoffNotice": "已连接 {{server}} 并启用本地同步，笔记将优先保存在本机并与服务器自动同步。",
     "downloadProgress": "首次下载进度",
     "downloadedEntries": "已下载 {{downloaded}} 项 · 已写入本机 {{applied}} 项",
     "downloadedAttachments": "附件已下载 {{done}} / {{total}}",
@@ -341,6 +342,9 @@
       "collapse": "收起",
       "addAccount": "登录其他账号",
       "reauth": "需重登",
+      "synced": "已同步",
+      "localSyncBanner": "当前本机工作区正与 {{target}} 双向同步",
+      "manageSync": "同步设置",
       "sessionExpired": "该账号的登录已失效，请重新输入密码。",
       "connectFailed": "无法连接目标服务器，当前账号未切换",
       "storageFailed": "无法读取系统安全存储，当前账号未切换",

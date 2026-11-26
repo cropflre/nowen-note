@@ -32,6 +32,7 @@ export interface SyncProfileSummary {
   id: string;
   name: string;
   serverUrl: string;
+  remoteUserId?: string | null;
   enabled: boolean;
   createdAt?: string;
 }

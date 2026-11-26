@@ -142,6 +142,7 @@
   "offlineAvailability": {
     "automaticDownload": "Downloading to this device automatically",
     "automaticHint": "Stay connected for the first sync. Your local copy opens automatically when ready. Edit offline; changes upload automatically when the connection returns.",
+    "localSyncHandoffNotice": "Connected to {{server}} with local sync enabled. Notes are saved locally first and synced automatically.",
     "downloadProgress": "First download progress",
     "downloadedEntries": "Downloaded {{downloaded}} items · Saved {{applied}} items to this device",
     "downloadedAttachments": "Attachments downloaded: {{done}} / {{total}}",
@@ -341,6 +342,9 @@
       "collapse": "Collapse",
       "addAccount": "Sign in to another account",
       "reauth": "Sign in again",
+      "synced": "Synced",
+      "localSyncBanner": "This local workspace syncs with {{target}}",
+      "manageSync": "Sync settings",
       "sessionExpired": "This session has expired. Please enter the password again.",
       "connectFailed": "Could not reach the target server. Your current account was not changed.",
       "storageFailed": "Could not read secure storage. Your current account was not changed.",

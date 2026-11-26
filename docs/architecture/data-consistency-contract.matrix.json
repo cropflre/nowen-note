@@ -349,6 +349,7 @@
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-006: server/account changes discard late directory responses and reject old model handles" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "rejects a delayed response after switching account (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: explicit desktop logout survives reopening a completed local copy" },
+        { "file": "frontend/src/lib/__tests__/accountLoginSwitch.test.ts", "case": "DCC-006: 桌面端切换到远端账号时设置 prefer-cloud 防止重载被本机迁移覆盖，切回本机时清除该标记" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: local login recovery keeps remote credentials and retries download only after confirmation" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: a disabled local account is offered confirmed recovery instead of silent retries" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: a locked local account is offered confirmed recovery instead of silent retries" },

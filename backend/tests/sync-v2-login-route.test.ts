@@ -119,6 +119,7 @@ test("远端账号登录支持 2FA，并只持久化 Token 后建立授权 Profi
   const settingsJson = await settings.json() as any;
   assert.equal(settingsJson.authorized, true);
   assert.equal(settingsJson.authorizationState, "ready");
+  assert.equal(settingsJson.activeProfile?.remoteUserId, "remote-user-1");
 });
 
 test("DCC-003: Sync V2 持久化 refreshToken，在 15 分钟 Access Token 过期后自动续期并保持数据与连接不中断", async () => {

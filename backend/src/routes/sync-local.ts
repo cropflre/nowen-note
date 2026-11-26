@@ -133,6 +133,7 @@ app.get("/settings", (c) => {
     id: profile.id,
     name: profile.name,
     serverUrl: profile.serverUrl,
+    remoteUserId: profile.remoteUserId ?? null,
     enabled: profile.enabled === 1,
     createdAt: profile.createdAt,
   }));
