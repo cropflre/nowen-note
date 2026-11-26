@@ -15,6 +15,7 @@ export type SettingsTabId =
   | "workspaces"
   | "extensions"
   | "download"
+  | "ecosystem"
   | "about";
 
 export type SettingsNavGroupId = "craft" | "intelligence" | "dataSync" | "system";
@@ -226,6 +227,17 @@ export const SETTINGS_TAB_META: Record<SettingsTabId, SettingsTabMeta> = {
     activeBar: "bg-sky-500",
     heroGlow: "from-sky-500/12 via-blue-500/6 to-transparent",
     keywords: ["下载", "客户端", "桌面端", "安卓", "windows", "macos", "apk", "download", "client"],
+  },
+  ecosystem: {
+    group: "system",
+    motion: "bounce",
+    taglineZh: "弄文影视、弄文阅读、弄文书签与微信小程序，一起搭起私有数字生活",
+    taglineEn: "Nowen Video, NowenReader, NOWEN Bookmarks & WeChat Mini Program",
+    badgeTone: "from-indigo-500/20 to-emerald-500/20 text-indigo-600 ring-indigo-500/25 dark:text-indigo-300",
+    activeText: "text-indigo-600 dark:text-indigo-300",
+    activeBar: "bg-indigo-500",
+    heroGlow: "from-indigo-500/12 via-emerald-500/6 to-transparent",
+    keywords: ["弄文生态", "生态", "弄文影视", "弄文阅读", "弄文书签", "nowen", "video", "reader", "bookmark", "小程序", "微信", "miniprogram", "ecosystem"],
   },
   about: {
     group: "system",

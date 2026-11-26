@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Palette, Shield, Database, X, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText } from "lucide-react";
+import { Palette, Shield, Database, X, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText, Rocket } from "lucide-react";
 import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
@@ -45,6 +45,7 @@ import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
 import HotUpdateStatusCard from "./settings/HotUpdateStatusCard";
+import NowenEcosystemPanel from "./settings/NowenEcosystemPanel";
 import {
   PlayfulSegmentedControl,
   SettingsBentoCard,
@@ -439,7 +440,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
   );
 }
 
-function AboutPanel() {
+function AboutPanel({ onOpenEcosystem }: { onOpenEcosystem?: () => void }) {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
   const contactEmail = "nowenlab@qq.com";
@@ -736,7 +737,37 @@ function AboutPanel() {
         </div>
       </section>
 
-      {/* 3. 版本信息 & 在线更新卡（严格保留 DockerUpdateCenter 挂载契约） */}
+      {/* 3. 弄文生态家族快捷跳转卡 */}
+      {onOpenEcosystem && (
+        <button
+          type="button"
+          onClick={onOpenEcosystem}
+          className="nowen-settings-card nowen-settings-card--interactive group/eco flex w-full items-center justify-between gap-3 rounded-2xl border-indigo-500/25 bg-gradient-to-r from-indigo-500/[0.08] via-sky-500/[0.06] to-emerald-500/[0.08] p-4 text-left hover:border-indigo-400/50 dark:from-indigo-500/[0.13] dark:via-sky-500/[0.08] dark:to-emerald-500/[0.11] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/25 to-emerald-500/20 text-indigo-600 ring-1 ring-inset ring-indigo-500/25 transition-transform duration-200 motion-safe:group-hover/eco:scale-110 motion-safe:group-hover/eco:-rotate-6 dark:text-indigo-300"
+            >
+              <Rocket size={18} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <span>{t("ecosystem.aboutPromoTitle")}</span>
+              </div>
+              <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t("ecosystem.aboutPromoDesc")}
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors group-hover/eco:bg-indigo-600">
+            <span>{t("ecosystem.aboutPromoAction")}</span>
+            <ArrowUpRight size={13} className="transition-transform motion-safe:group-hover/eco:translate-x-0.5 motion-safe:group-hover/eco:-translate-y-0.5" aria-hidden />
+          </span>
+        </button>
+      )}
+
+      {/* 4. 版本信息 & 在线更新卡（严格保留 DockerUpdateCenter 挂载契约） */}
       <div className="space-y-3">
         <VersionCompareCard />
         <HotUpdateStatusCard />
@@ -1846,6 +1877,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     //   「GitHub 直连 + 多个公共加速代理」的换源能力。与 about 的「前往下载页」区别：后者只能调起
     //   GitHub 。该面板本身不调用任何需要鉴权的接口（releases/latest 未鉴权）。
     { id: "download" as const, label: t('settings.download', { defaultValue: '下载客户端' }), icon: Download },
+    { id: "ecosystem" as const, label: t('ecosystem.tab'), icon: Rocket },
     { id: "about" as const, label: t('about.title'), icon: Info },
   ];
 
@@ -2020,7 +2052,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   {activeTab === "sync" && <SyncSettingsTab />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}
-                  {activeTab === "about" && <AboutPanel />}
+                  {activeTab === "ecosystem" && <NowenEcosystemPanel />}
+                  {activeTab === "about" && <AboutPanel onOpenEcosystem={() => handleSelectTab("ecosystem")} />}
                 </PanelErrorBoundary>
               </motion.div>
             </AnimatePresence>

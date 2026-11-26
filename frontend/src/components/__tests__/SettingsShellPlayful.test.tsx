@@ -47,10 +47,26 @@ vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: {}, actions: {} }
 vi.mock("@/components/SkinSwitcher", () => ({ default: () => <div data-testid="skin-switcher" /> }));
 vi.mock("@/components/ThemeToggle", () => ({ default: () => <div data-testid="theme-toggle" /> }));
 vi.mock("@/components/DownloadPanel", () => ({ default: () => <div data-testid="download-panel" /> }));
+import { zhCNEcosystemTranslations } from "@/i18n/ecosystemTranslations";
+
+function lookupEcosystemKey(key: string): unknown {
+  if (!key.startsWith("ecosystem.")) return undefined;
+  return key
+    .split(".")
+    .reduce<unknown>(
+      (acc, seg) => (acc && typeof acc === "object" ? (acc as Record<string, unknown>)[seg] : undefined),
+      zhCNEcosystemTranslations,
+    );
+}
+
 vi.mock("react-i18next", async (importOriginal) => ({
   ...await importOriginal<typeof import("react-i18next")>(),
   useTranslation: () => ({
-    t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue || key,
+    t: (key: string, opts?: { defaultValue?: string; returnObjects?: boolean }) => {
+      const hit = lookupEcosystemKey(key);
+      if (hit !== undefined) return hit;
+      return opts?.defaultValue || key;
+    },
     i18n: { language: "zh-CN", resolvedLanguage: "zh-CN", changeLanguage: mock.changeLanguage },
   }),
 }));
@@ -138,5 +154,31 @@ describe("SettingsModal playful & tactile shell", () => {
       logoButton.click();
     });
     expect(document.body.textContent).toContain("✨ ×2");
+
+    // Jump from About promo card directly to Nowen Ecosystem tab
+    const ecoJumpBtn = Array.from(document.body.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("探索弄文生态家族"),
+    )!;
+    expect(ecoJumpBtn).toBeTruthy();
+    await act(async () => ecoJumpBtn.click());
+
+    const text = document.body.textContent || "";
+    expect(text).toContain("弄文影视");
+    expect(text).toContain("弄文阅读");
+    expect(text).toContain("弄文书签");
+    expect(text).toContain("NOWEN弄文");
+
+    // Verify WeChat Mini Program QR code renders and opens Lightbox on click
+    const qrBtn = document.body.querySelector<HTMLButtonElement>('button[aria-label="NOWEN弄文微信小程序码"]')!;
+    expect(qrBtn).toBeTruthy();
+    await act(async () => qrBtn.click());
+    expect(document.body.querySelector('[role="dialog"][aria-label="NOWEN弄文微信小程序码"]')).toBeTruthy();
+
+    // Copy WeChat Mini Program name with joyful feedback
+    const copyMiniBtn = Array.from(document.body.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("复制小程序名"),
+    )!;
+    await act(async () => copyMiniBtn.click());
+    expect(document.body.textContent).toContain("已复制，去微信搜一搜粘贴");
   });
 });
