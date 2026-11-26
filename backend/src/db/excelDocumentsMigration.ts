@@ -1,7 +1,11 @@
 import type { Migration } from "./migrations.impl.js";
 
+// fork 专属迁移使用保留版本段（>= 900000），官方顺序号永远不会到达，彻底避免撞号。
+// 早期实现曾占用 148/141，旧库 ledger 里的历史行由 forkMigrationCompat.ts 按 name 自动对账改写到当前版本。
+export const FORK_MIGRATION_VERSION_BASE = 900_000;
+
 export const excelDocumentsMigration: Migration = {
-  version: 148, // 官方 v1.5.1 占 123、v1.5.3 占 124-135、v1.5.4 占 136-140、v1.6.x 占 141-147，避让改号；幂等迁移，改号安全
+  version: FORK_MIGRATION_VERSION_BASE + 1, // 900001
   name: "excel-univer-documents",
   up: (db) => {
     db.exec(`

@@ -101,6 +101,7 @@ import { syncV2KnowledgeTreeConflictMigration } from "./syncV2KnowledgeTreeConfl
 import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTreeScopeReadinessMigration.js";
 import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
 import { excelDocumentsMigration } from "./excelDocumentsMigration.js";
+import { reconcileForkMigrationLedger } from "./forkMigrationCompat.js";
 import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
 import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
@@ -505,6 +506,8 @@ function getAppliedMigrationVersions(db: Database.Database): Set<number> {
 
 export function getPendingMigrations(db: Database.Database): Migration[] {
   validateMigrationRegistry();
+  // 先把 fork 专属迁移的历史 ledger 记录对账到当前版本，避免旧部署的占号记录把官方迁移判成已应用。
+  reconcileForkMigrationLedger(db);
   const applied = getAppliedMigrationVersions(db);
   return MIGRATIONS
     .filter((migration) => !applied.has(migration.version))
