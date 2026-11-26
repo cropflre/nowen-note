@@ -2,6 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountLoginHistoryList } from "@/components/AccountLoginHistory";
+import type { DesktopAccountHistoryAPI } from "@/lib/desktopBridge";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -245,7 +246,9 @@ describe("账号登录历史列表", () => {
     localStorage.setItem("nowen-token", "local-token");
     localStorage.setItem("nowen-server-url", "http://127.0.0.1:57892");
     localStorage.setItem("nowen-account-history-current-id", "history-local");
-    (window as any).nowenDesktop.accountHistory.list = vi.fn(async () => [
+    const desktop = (window as Window & { nowenDesktop?: { accountHistory: DesktopAccountHistoryAPI } }).nowenDesktop;
+    if (!desktop) throw new Error("缺少桌面账号历史测试夹具");
+    desktop.accountHistory.list = vi.fn(async () => [
       {
         id: "history-local",
         serverUrl: "http://127.0.0.1:57892",

@@ -237,8 +237,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       await api.deleteWorkspaceInvite(workspaceId, inviteId);
       toast.success(t("workspaceMembers.inviteRevoked"));
       loadAll();
-    } catch (e: any) {
-      toast.error(e.message || t("workspaceMembers.actionFailed"));
+    } catch (e) {
+      toast.error((e instanceof Error && e.message) || t("workspaceMembers.actionFailed"));
     }
   };
 
@@ -257,8 +257,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       toast.success(`已创建用户组「${name}」`);
       const next = await api.getWorkspaceGroups(workspaceId);
       setGroups(next);
-    } catch (err: any) {
-      toast.error(err?.message || "创建用户组失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "创建用户组失败");
     } finally {
       setCreatingGroup(false);
     }
@@ -277,8 +277,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       await api.deleteWorkspaceGroup(workspaceId, group.id);
       toast.success(`已删除用户组「${group.name}」`);
       setGroups((prev) => prev.filter((g) => g.id !== group.id));
-    } catch (err: any) {
-      toast.error(err?.message || "删除用户组失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "删除用户组失败");
     } finally {
       setBusyGroupId(null);
     }
@@ -294,8 +294,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       const next = await api.getWorkspaceGroups(workspaceId);
       setGroups(next);
       toast.success(`已加入用户组「${group.name}」`);
-    } catch (err: any) {
-      toast.error(err?.message || "添加组成员失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "添加组成员失败");
     } finally {
       setBusyGroupId(null);
     }
@@ -309,8 +309,8 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
       const next = await api.getWorkspaceGroups(workspaceId);
       setGroups(next);
       toast.success(`已将 ${label} 移出用户组「${group.name}」`);
-    } catch (err: any) {
-      toast.error(err?.message || "移出组成员失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "移出组成员失败");
     } finally {
       setBusyGroupId(null);
     }
@@ -333,9 +333,9 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
           detail: { workspaceId, features: saved },
         }),
       );
-    } catch (e: any) {
+    } catch (e) {
       setFeatures(prev);
-      toast.error(e?.message || t("workspaceMembers.saveFailed"));
+      toast.error((e instanceof Error && e.message) || t("workspaceMembers.saveFailed"));
     }
   };
 
@@ -1153,8 +1153,8 @@ function CreateInviteDialog({
       });
       toast.success(t("workspaceMembers.inviteGenerated"));
       onCreated();
-    } catch (e: any) {
-      toast.error(e.message || t("workspaceMembers.createFailed"));
+    } catch (e) {
+      toast.error((e instanceof Error && e.message) || t("workspaceMembers.createFailed"));
     } finally {
       setLoading(false);
     }

@@ -184,8 +184,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
             user.id !== currentUser?.id && !rows.some((row) => row.userId === user.id)
           )));
         })
-        .catch((error: any) => {
-          if (!cancelled) toast.error(error?.message || "加载人员失败");
+        .catch((error: unknown) => {
+          if (!cancelled) toast.error((error instanceof Error && error.message) || "加载人员失败");
         })
         .finally(() => { if (!cancelled) setCandidateLoading(false); });
     }, userQuery.trim() ? 250 : 0);
@@ -333,8 +333,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       await reload();
       onChanged("permission-rule-removed");
       toast.success(row.rolePreset === "deny" ? "已取消禁止访问" : "成员规则已移除");
-    } catch (error: any) {
-      toast.error(error?.message || "操作失败");
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || "操作失败");
     } finally {
       setSavingKey(null);
     }

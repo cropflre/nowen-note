@@ -31,10 +31,24 @@ for (const { file, marker, actions } of editors) {
 
   describe(`${file} mobile toolbar`, () => {
     for (const action of actions) {
-      it(`keeps ${action} in the compact row and hides only its desktop counterpart on mobile`, () => {
-        expect(findButton(compact, action), "compact action must remain available").toBeDefined();
-        expect(findButton(compact, action)).not.toContain("max-md:hidden");
-        expect(findButton(expanded, action)).toContain('className="max-md:hidden"');
+      it(`keeps ${action} available once in each mobile toolbar mode`, () => {
+        const compactButton = findButton(compact, action);
+        const expandedButton = findButton(expanded, action);
+        expect(compactButton, "compact action must remain available").toBeDefined();
+        expect(compactButton).not.toContain("max-md:hidden");
+        expect(expandedButton).toBeDefined();
+
+        if (action === "heading2" || action === "uploadLocalVideo" || action === "firstLineIndent2") {
+          expect(compact.slice(0, compact.indexOf(compactButton!))).toMatch(/\{!mobileLiteActive && \(\s*$/);
+          if (action === "firstLineIndent2") {
+            expect(expanded.slice(0, expanded.indexOf(expandedButton!))).toMatch(/\{mobileLiteActive && \(\s*$/);
+            expect(expandedButton).toContain('className="md:hidden"');
+          } else {
+            expect(expandedButton).toContain('className={mobileLiteActive ? undefined : "max-md:hidden"}');
+          }
+        } else {
+          expect(expandedButton).toContain('className="max-md:hidden"');
+        }
       });
     }
 

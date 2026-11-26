@@ -77,7 +77,7 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
 
   // 实时监听成员变更（新增、角色调整、移除、删除工作区、Owner 转让）。
   // 若当前所在工作区被移除或删除，立即安全退回个人空间并提示，避免继续操作触发 403。
-  useEffect(() => realtime.on("workspace:membership-changed", (payload: any) => {
+  useEffect(() => realtime.on("workspace:membership-changed", (payload: { workspaceId?: string; workspaceName?: string; action?: string }) => {
     void loadWorkspaces();
     const affectedId = payload?.workspaceId;
     const action = payload?.action;
@@ -120,8 +120,8 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
           onWorkspaceChange?.(targetId);
           window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: targetId } }));
         }
-      } catch (err: any) {
-        toast.error(err?.message || "通过邀请链接加入工作区失败");
+      } catch (err) {
+        toast.error((err instanceof Error && err.message) || "通过邀请链接加入工作区失败");
       }
     })();
   }, [loadWorkspaces, onWorkspaceChange]);
