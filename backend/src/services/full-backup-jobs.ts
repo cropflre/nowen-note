@@ -39,6 +39,13 @@ export function classifyFullBackupJobError(error: unknown): {
   if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
     return { code: "BACKUP_STORAGE_PERMISSION_DENIED", message: "备份目录没有写入权限", retryable: false };
   }
+  if (/附件一致性校验失败/.test(message)) {
+    return {
+      code: "BACKUP_ATTACHMENT_INCONSISTENT",
+      message: "部分附件物理文件缺失，无法生成可恢复的完整备份，请先在附件健康检查中修复缺失文件",
+      retryable: false,
+    };
+  }
   // Do not expose arbitrary upstream exception messages, private paths, or SQL.
   return { code: "BACKUP_JOB_FAILED", message: "完整备份生成失败，请检查服务器日志", retryable: false };
 }

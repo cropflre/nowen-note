@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { getDb } from "../src/db/schema";
+import { registerRemoteAttachment } from "../src/sync/attachments";
+import { pullAttachmentBlobs, SyncBlobClient } from "../src/sync/blob";
 import {
   countPendingMutations,
   listPendingMutations,
@@ -255,6 +257,100 @@ test("附件元数据进入 Outbox 且不泄漏服务器文件路径", () => {
     undefined,
     "绝不能把服务器本机路径同步出去",
   );
+});
+
+test("附件仅更新 path/无变化不产生冗余 Outbox 或 Change Feed，真实字段修改正常入队 (DCC-002)", () => {
+  resetAll();
+  const { profileId } = enableSync();
+  const d = db();
+  const note = createNote(createNotebook());
+  const attId = randomUUID();
+  d.prepare(`
+    INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, hash)
+    VALUES (?, ?, ?, 'photo.png', 'image/png', 1024, 'pending-sync:1', 'h1')
+  `).run(attId, note, USER_ID);
+  d.exec("DELETE FROM sync_outbox; DELETE FROM sync_changes_v2;");
+
+  // 1) 无字段变化 UPDATE
+  d.prepare("UPDATE attachments SET path = path WHERE id = ?").run(attId);
+  // 2) 仅回填本地 path
+  d.prepare("UPDATE attachments SET path = '2026-11/photo.png' WHERE id = ?").run(attId);
+  // 3) 仅更新组织/回收站字段（由 attachment_organization 通道独立同步）
+  d.prepare("UPDATE attachments SET trashedAt = datetime('now') WHERE id = ?").run(attId);
+  d.prepare("UPDATE attachments SET trashedAt = NULL WHERE id = ?").run(attId);
+
+  const redundantOutbox = listPendingMutations(d, 20, profileId)
+    .filter((r) => r.entityType === "attachment" && r.entityId === attId);
+  const redundantFeed = d.prepare(
+    "SELECT COUNT(*) AS count FROM sync_changes_v2 WHERE entityType = 'attachment' AND entityId = ?",
+  ).get(attId) as { count: number };
+  assert.equal(redundantOutbox.length, 0, "仅更新 path 或无同步载荷变化不得写入 attachment Outbox");
+  assert.equal(redundantFeed.count, 0, "仅更新 path 或无同步载荷变化不得写入 attachment Change Feed");
+
+  // 4) 真实修改同步字段（filename）必须正常入队并写入 Change Feed
+  d.prepare("UPDATE attachments SET filename = 'renamed.png' WHERE id = ?").run(attId);
+  const realOutbox = listPendingMutations(d, 20, profileId)
+    .filter((r) => r.entityType === "attachment" && r.entityId === attId);
+  const realFeed = d.prepare(
+    "SELECT COUNT(*) AS count FROM sync_changes_v2 WHERE entityType = 'attachment' AND entityId = ?",
+  ).get(attId) as { count: number };
+  assert.equal(realOutbox.length, 1);
+  assert.equal(JSON.parse(realOutbox[0].payload as string).filename, "renamed.png");
+  assert.equal(realFeed.count, 1);
+});
+
+test("下载远端附件二进制回填 path/size/hash 不触发 Outbox 或 Change Feed 回流 (DCC-002)", async () => {
+  resetAll();
+  const { profileId } = enableSync();
+  const d = db();
+  const note = createNote(createNotebook());
+  const attId = randomUUID();
+  const content = Buffer.from("nowen-attachment-binary-payload");
+  const digest = createHash("sha256").update(content).digest("hex");
+
+  // 模拟远端元数据先落地（hash 为空、path 为占位）并标记为 remoteOnly=1
+  runChangeFeedSuppressed(d, () => {
+    d.prepare(`
+      INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, hash)
+      VALUES (?, ?, ?, 'sample.bin', 'application/octet-stream', ?, ?, NULL)
+    `).run(attId, note, USER_ID, content.length, `pending-sync:${attId}`);
+    registerRemoteAttachment(d, attId, profileId);
+  });
+  d.exec("DELETE FROM sync_outbox; DELETE FROM sync_changes_v2;");
+
+  const client = new SyncBlobClient({
+    serverUrl: "http://sync.test",
+    credential: { type: "bearer", token: "test-token" },
+    fetchImpl: async () => new Response(content, {
+      status: 200,
+      headers: { "X-Blob-Hash": digest },
+    }),
+  });
+
+  const result = await pullAttachmentBlobs(d, client, { scopeKey: "personal" });
+  assert.equal(result.downloaded, 1);
+  assert.equal(result.failed, 0);
+
+  const att = d.prepare("SELECT path, size, hash FROM attachments WHERE id = ?")
+    .get(attId) as { path: string; size: number; hash: string };
+  assert.ok(att.path && !att.path.startsWith("pending-sync:"));
+  assert.equal(att.size, content.length);
+  assert.equal(att.hash, digest);
+
+  const syncState = d.prepare("SELECT remoteOnly, status FROM attachment_sync_state WHERE attachmentId = ?")
+    .get(attId) as { remoteOnly: number; status: string };
+  assert.equal(syncState.remoteOnly, 0);
+  assert.equal(syncState.status, "synced");
+
+  assert.equal(
+    listPendingMutations(d, 20, profileId).filter((r) => r.entityType === "attachment" && r.entityId === attId).length,
+    0,
+    "下载回填 path/size/hash 绝不能再入队产生冗余推送",
+  );
+  const feed = d.prepare(
+    "SELECT COUNT(*) AS count FROM sync_changes_v2 WHERE entityType = 'attachment' AND entityId = ?",
+  ).get(attId) as { count: number };
+  assert.equal(feed.count, 0, "下载回填绝不能污染本地 Change Feed");
 });
 
 // ---------------------------------------------------------------------------

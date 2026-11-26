@@ -22,6 +22,7 @@ import { SYNC_V2_BLOB_PATH } from "./constants";
 import { parseSyncScopeKey } from "./scope";
 import { SyncError, classifyHttpStatus } from "./errors";
 import { logSyncInfo, logSyncWarn } from "./log";
+import { runChangeFeedSuppressed } from "./suppression";
 import type { RemoteCredentials } from "./remote";
 import {
   listPendingDownloads,
@@ -385,17 +386,21 @@ export async function pullAttachmentBlobs(
 
       // 落盘成功后才更新元数据与状态，顺序不能颠倒：
       // 先置 available 再写盘，中途崩溃会让 UI 以为图片已就绪。
-      db.transaction(() => { db.prepare(`
-        UPDATE attachments
-           SET path = ?, size = ?, hash = COALESCE(hash, ?)
-         WHERE id = ?
-      `).run(
-        relPath,
-        buffer.length,
-        crypto.createHash("sha256").update(buffer).digest("hex"),
-        row.attachmentId,
-      );
-      markAttachmentDownloaded(db, row.attachmentId);
+      // 回填本地 path/size/hash 属于下行同步落地，必须抑制触发器，避免再次进入 Outbox。
+      db.transaction(() => {
+        runChangeFeedSuppressed(db, () => {
+          db.prepare(`
+            UPDATE attachments
+               SET path = ?, size = ?, hash = COALESCE(hash, ?)
+             WHERE id = ?
+          `).run(
+            relPath,
+            buffer.length,
+            crypto.createHash("sha256").update(buffer).digest("hex"),
+            row.attachmentId,
+          );
+          markAttachmentDownloaded(db, row.attachmentId);
+        });
       })();
       result.downloaded += 1;
     } catch (error) {

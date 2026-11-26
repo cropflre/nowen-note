@@ -596,7 +596,11 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
         SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("NEW"))}, ${deviceId},
           'attachment', NEW.id, 'upsert', NULL, ${attachmentPayload("NEW")},
           'pending', 0, datetime('now')
-        WHERE ${noteExistsInScope("NEW")} IS NOT NULL;
+        WHERE ${noteExistsInScope("NEW")} IS NOT NULL
+          AND (
+            ${attachmentPayload("OLD")} IS NOT ${attachmentPayload("NEW")}
+            OR OLD.userId IS NOT NEW.userId
+          );
       END;
 
       DROP TRIGGER IF EXISTS sync_outbox_attachments_delete;

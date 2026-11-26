@@ -12,12 +12,48 @@ const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA 
 assertSafeTestDatabasePath(DB_PATH);
 
 const DB_REGISTRY_KEY = Symbol.for("nowen-note.sqlite-database-registry");
+const DB_MAINTENANCE_KEY = Symbol.for("nowen-note.sqlite-maintenance-gate");
 const globalState = globalThis as typeof globalThis & {
   [DB_REGISTRY_KEY]?: Map<string, Database.Database>;
+  [DB_MAINTENANCE_KEY]?: { maintenanceDepth: number; bypassDepth: number };
 };
 const dbRegistry = globalState[DB_REGISTRY_KEY] || new Map<string, Database.Database>();
 globalState[DB_REGISTRY_KEY] = dbRegistry;
+const maintenanceGate = globalState[DB_MAINTENANCE_KEY] || { maintenanceDepth: 0, bypassDepth: 0 };
+globalState[DB_MAINTENANCE_KEY] = maintenanceGate;
 let db: Database.Database | undefined;
+
+export function isDbMaintenanceInProgress(): boolean {
+  return maintenanceGate.maintenanceDepth > 0;
+}
+
+export function beginDbMaintenance(): void {
+  maintenanceGate.maintenanceDepth += 1;
+}
+
+export function endDbMaintenance(): void {
+  maintenanceGate.maintenanceDepth = Math.max(0, maintenanceGate.maintenanceDepth - 1);
+}
+
+/** 仅限数据库恢复内部流程在维护窗口内验证或重建新连接时使用。 */
+export function withDbMaintenanceBypass<T>(fn: () => T): T {
+  maintenanceGate.bypassDepth += 1;
+  try {
+    return fn();
+  } finally {
+    maintenanceGate.bypassDepth = Math.max(0, maintenanceGate.bypassDepth - 1);
+  }
+}
+
+/** 仅限数据库恢复内部异步探针（如附件存储配置校验）在维护窗口内读取新库时使用。 */
+export async function withDbMaintenanceBypassAsync<T>(fn: () => Promise<T>): Promise<T> {
+  maintenanceGate.bypassDepth += 1;
+  try {
+    return await fn();
+  } finally {
+    maintenanceGate.bypassDepth = Math.max(0, maintenanceGate.bypassDepth - 1);
+  }
+}
 
 /**
  * 返回当前 SQLite 数据库文件的绝对路径。
@@ -55,9 +91,24 @@ export function closeDb(): void {
 }
 
 export function getDb(): Database.Database {
+  if (maintenanceGate.maintenanceDepth > 0 && maintenanceGate.bypassDepth === 0) {
+    const error = new Error("数据库正在执行恢复维护，请稍后重试") as Error & { code?: string };
+    error.code = "DB_MAINTENANCE_IN_PROGRESS";
+    throw error;
+  }
+  if (db && !db.open) {
+    dbRegistry.delete(DB_PATH);
+    db = undefined;
+  }
   if (!db) {
-    db = dbRegistry.get(DB_PATH);
-    if (db) return db;
+    const cached = dbRegistry.get(DB_PATH);
+    if (cached && cached.open) {
+      db = cached;
+      return db;
+    }
+    if (cached && !cached.open) {
+      dbRegistry.delete(DB_PATH);
+    }
 
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {

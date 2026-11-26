@@ -269,3 +269,104 @@ test("invalid restored object-storage config fails closed and rolls back", async
   assert.equal(fs.existsSync(path.join(tmpDir, "attachments", "new.txt")), false);
 });
 
+test("DCC-008: restore through syncChangeNoticeMiddleware returns HTTP 200 with reopened DB instead of 500", async () => {
+  const { Hono } = await import("hono");
+  const { setSyncBroadcaster } = await import("../src/sync/notify.js");
+  const { syncChangeNoticeMiddleware } = await import("../src/sync/feedNotifier.js");
+  const { getDb } = await import("../src/db/schema.js");
+
+  const filename = "middleware-http-200.zip";
+  await writeFullBackup(filename);
+
+  setSyncBroadcaster(() => {});
+  const app = new Hono();
+  app.use("*", syncChangeNoticeMiddleware);
+  app.post("/restore", async (c) => {
+    const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+    return c.json(restored, restored.success ? 200 : 500);
+  });
+
+  try {
+    const res = await app.request("/restore", { method: "POST" });
+    assert.equal(res.status, 200, "恢复成功不得因关闭的旧连接在中间件中变成 HTTP 500");
+    const body = (await res.json()) as { success: boolean };
+    assert.equal(body.success, true);
+    assert.equal(getDb().open, true, "恢复完成后全局数据库连接应处于可用状态");
+    assert.equal(readMarker(), "backup");
+  } finally {
+    setSyncBroadcaster(null);
+  }
+});
+
+test("DCC-008: concurrent restore is rejected with BACKUP_RESTORE_IN_PROGRESS and maintenance gate blocks getDb", async () => {
+  const { beginDbMaintenance, endDbMaintenance, getDb } = await import("../src/db/schema.js");
+  const { classifyBackupFailure } = await import("../src/lib/backup-error-response.js");
+
+  beginDbMaintenance();
+  try {
+    assert.throws(
+      () => getDb(),
+      (error: unknown) => (error as { code?: string })?.code === "DB_MAINTENANCE_IN_PROGRESS",
+      "维护窗口期间外部 getDb() 必须被拦截，防止重开旧库引发 WAL/SHM 竞态",
+    );
+  } finally {
+    endDbMaintenance();
+  }
+  assert.equal(getDb().open, true);
+
+  const filename = "concurrent-restore.zip";
+  await writeFullBackup(filename);
+
+  const [first, second] = await Promise.all([
+    manager.restoreFromBackup(filename, { dryRun: false }),
+    manager.restoreFromBackup(filename, { dryRun: false }),
+  ]);
+  const outcomes = [first, second];
+  const succeeded = outcomes.filter((item) => item.success);
+  const rejected = outcomes.filter((item) => !item.success);
+  assert.equal(succeeded.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.match(rejected[0].error || "", /BACKUP_RESTORE_IN_PROGRESS/);
+
+  const classified = classifyBackupFailure(rejected[0].error, "restore");
+  assert.equal(classified.status, 409);
+  assert.equal(classified.code, "BACKUP_RESTORE_IN_PROGRESS");
+  assert.equal(classified.retryable, false);
+});
+
+test("DCC-008: full backup refuses to succeed when DB references missing attachment files", async () => {
+  const { getDb } = await import("../src/db/schema.js");
+  const { classifyBackupFailure } = await import("../src/lib/backup-error-response.js");
+  const db = getDb();
+  const userId = "missing-att-backup-user";
+  const nbId = "missing-att-backup-nb";
+  const noteId = "missing-att-backup-note";
+  const attId = "missing-att-backup-id";
+
+  db.prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')").run(userId, userId);
+  db.prepare("INSERT OR IGNORE INTO notebooks (id, userId, name) VALUES (?, ?, 'nb')").run(nbId, userId);
+  db.prepare("INSERT OR IGNORE INTO notes (id, userId, notebookId, title, content) VALUES (?, ?, ?, 'n', '{}')")
+    .run(noteId, userId, nbId);
+  db.prepare(`
+    INSERT OR REPLACE INTO attachments (id, noteId, userId, filename, mimeType, size, path)
+    VALUES (?, ?, ?, 'missing.png', 'image/png', 123, '2026-11/non-existent-file.png')
+  `).run(attId, noteId, userId);
+
+  let caught: unknown = null;
+  try {
+    await manager.createBackup({ type: "full", description: "should-fail-missing-attachment" });
+  } catch (error) {
+    caught = error;
+  } finally {
+    db.prepare("DELETE FROM attachments WHERE id = ?").run(attId);
+  }
+
+  assert.ok(caught instanceof Error, "物理附件缺失时全量备份必须失败，不能产出无法恢复的假成功包");
+  assert.match(caught.message, /附件一致性校验失败/);
+  const classified = classifyBackupFailure(caught, "create");
+  assert.equal(classified.status, 409);
+  assert.equal(classified.code, "BACKUP_ATTACHMENT_INCONSISTENT");
+  assert.equal(classified.retryable, false);
+});
+
+

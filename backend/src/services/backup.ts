@@ -30,7 +30,16 @@ import crypto from "crypto";
 import os from "os";
 import JSZip from "jszip";
 import Database from "better-sqlite3";
-import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
+import {
+  beginDbMaintenance,
+  closeDb,
+  endDbMaintenance,
+  getDb,
+  getDbSchemaVersion,
+  withDbMaintenanceBypass,
+  withDbMaintenanceBypassAsync,
+} from "../db/schema.js";
+import { resetSyncChangeWatermark } from "../sync/feedNotifier.js";
 import { requireSqliteVecForStoredTables } from "../db/sqlite-vec-extension.js";
 import { noteVersionsRepository } from "../repositories";
 import {
@@ -53,6 +62,28 @@ import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
 /** 备份格式版本号。每当 zip 内目录结构 / meta.json 字段含义变化时 +1 */
 const BACKUP_FORMAT_VERSION = 2;
+
+const RESTORE_LOCK_KEY = Symbol.for("nowen-note.backup-restore-lock");
+const restoreLockGlobal = globalThis as typeof globalThis & {
+  [RESTORE_LOCK_KEY]?: { active: boolean };
+};
+const restoreLock = restoreLockGlobal[RESTORE_LOCK_KEY] || { active: false };
+restoreLockGlobal[RESTORE_LOCK_KEY] = restoreLock;
+
+function listDirectoryRelativePaths(dir: string): string[] {
+  const result: string[] = [];
+  if (!fs.existsSync(dir)) return result;
+  const walk = (current: string, relative: string): void => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const abs = path.join(current, entry.name);
+      const rel = relative ? path.posix.join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) walk(abs, rel);
+      else if (entry.isFile()) result.push(rel);
+    }
+  };
+  walk(dir, "");
+  return result;
+}
 
 /**
  * 备份健康状态在 system_settings 表中的存储 key。
@@ -419,32 +450,34 @@ function checkSqliteIntegrity(dbPath: string, label: string): void {
 }
 
 function verifyCurrentDbUsable(curDbPath: string): void {
-  const cur = getDb();
-  const integrity = (cur.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check;
-  if (integrity !== "ok") {
-    throw new Error(`恢复后完整性检查失败: ${integrity}`);
-  }
+  withDbMaintenanceBypass(() => {
+    const cur = getDb();
+    const integrity = (cur.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check;
+    if (integrity !== "ok") {
+      throw new Error(`恢复后完整性检查失败: ${integrity}`);
+    }
 
-  // A readable SQLite file is not enough: attachment upload also needs a writable DB.
-  // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
-  // is committed, while the probe leaves no persistent row behind.
-  try {
-    cur.exec("SAVEPOINT nowen_restore_write_probe");
-    cur.prepare(
-      `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
-    ).run("backup:restore-write-probe", String(Date.now()));
-    cur.exec("ROLLBACK TO nowen_restore_write_probe");
-    cur.exec("RELEASE nowen_restore_write_probe");
-  } catch (error) {
-    try { cur.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
-    try { cur.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
-    throw new Error(
-      "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
-    );
-  }
+    // A readable SQLite file is not enough: attachment upload also needs a writable DB.
+    // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
+    // is committed, while the probe leaves no persistent row behind.
+    try {
+      cur.exec("SAVEPOINT nowen_restore_write_probe");
+      cur.prepare(
+        `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
+      ).run("backup:restore-write-probe", String(Date.now()));
+      cur.exec("ROLLBACK TO nowen_restore_write_probe");
+      cur.exec("RELEASE nowen_restore_write_probe");
+    } catch (error) {
+      try { cur.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
+      try { cur.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
+      throw new Error(
+        "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
+      );
+    }
 
-  closeDb();
-  cleanupWalShm(curDbPath);
+    closeDb();
+    cleanupWalShm(curDbPath);
+  });
 }
 
 function rollbackDb(curDbPath: string, safetyBak: string, reason: unknown): never {
@@ -988,6 +1021,12 @@ export class BackupManager {
     try {
       await db.backup(tmpDb);
       scrubPluginStudioProjectsFromBackup(tmpDb);
+      // 备份阶段执行与恢复一致的附件完整性审计，避免产出“报成功但恢复必被拒”的包。
+      auditAttachmentBackup(
+        tmpDb,
+        listDirectoryRelativePaths(path.join(this.dataDir, "attachments")),
+        undefined,
+      );
       // 2) 表行数（动态枚举，不再写死）
       const tables = listAllTables(db);
       const tableRowCounts: Record<string, number> = {};
@@ -1268,10 +1307,18 @@ export class BackupManager {
     // 嗅探格式：zip 文件以 'PK' 开头
     const isZip = buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b;
 
+    const dryRun = !!opts.dryRun;
+    if (!dryRun) {
+      if (restoreLock.active) {
+        return { success: false, error: "BACKUP_RESTORE_IN_PROGRESS: 已有备份恢复正在进行中，请勿重复提交" };
+      }
+      restoreLock.active = true;
+    }
+
     try {
       let result: RestoreResult;
       if (isZip) {
-        result = await this.restoreFromZip(buf, !!opts.dryRun);
+        result = await this.restoreFromZip(buf, dryRun);
       } else {
         // 嗅探 JSON 全量备份（旧格式）
         let legacy: RestoreResult | null = null;
@@ -1279,13 +1326,13 @@ export class BackupManager {
           const text = buf.toString("utf-8");
           const obj = JSON.parse(text);
           if (obj && obj.data && obj.version) {
-            legacy = await this.restoreFromLegacyJson(obj, !!opts.dryRun);
+            legacy = await this.restoreFromLegacyJson(obj, dryRun);
           }
         } catch {
           /* 不是 JSON，落到 db-only */
         }
         // 否则视为 db-only 快照：替换 DB 文件
-        result = legacy ?? await this.restoreFromDbOnly(filePath, !!opts.dryRun);
+        result = legacy ?? await this.restoreFromDbOnly(filePath, dryRun);
       }
 
       // 阶段 N：恢复成功后同步游标不再可信。
@@ -1317,6 +1364,8 @@ export class BackupManager {
       return result;
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      if (!dryRun) restoreLock.active = false;
     }
   }
 
@@ -1480,35 +1529,43 @@ export class BackupManager {
 
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
-    closeDb();
-    // 先 checkpoint WAL，再复制 safetyBak，避免回滚文件漏掉最近事务。
-    await new Promise((r) => setTimeout(r, 100));
+    beginDbMaintenance();
     try {
-      fs.copyFileSync(curDbPath, safetyBak);
-    } catch {
-      /* 当前库不存在或不可读，跳过 */
-    }
-    try {
-      replaceDbFile(tmpDb, curDbPath);
-      verifyCurrentDbUsable(curDbPath);
+      closeDb();
+      // 先 checkpoint WAL，再复制 safetyBak，避免回滚文件漏掉最近事务。
+      await new Promise((r) => setTimeout(r, 100));
+      try {
+        fs.copyFileSync(curDbPath, safetyBak);
+      } catch {
+        /* 当前库不存在或不可读，跳过 */
+      }
+      try {
+        replaceDbFile(tmpDb, curDbPath);
+        verifyCurrentDbUsable(curDbPath);
 
-      // DB 已验证可用后，再安全替换文件目录；任一步失败都回滚 DB。
-      await replaceDirectoriesFromStagingSafe([
-        { stagedDir: stagedAttDir, destDir: path.join(this.dataDir, "attachments") },
-        { stagedDir: stagedFontsDir, destDir: path.join(this.dataDir, "fonts") },
-        { stagedDir: stagedPluginsDir, destDir: hasInstalledLayout ? path.join(this.dataDir, "plugins", "installed") : path.join(this.dataDir, "plugins") },
-      ], restoreId, async () => {
-        const health = await probeAttachmentStorage();
-        if (!health.ok) {
-          throw new Error(
-            "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
-            + (health.error || "unknown storage error"),
-          );
-        }
+        // DB 已验证可用后，再安全替换文件目录；任一步失败都回滚 DB。
+        await replaceDirectoriesFromStagingSafe([
+          { stagedDir: stagedAttDir, destDir: path.join(this.dataDir, "attachments") },
+          { stagedDir: stagedFontsDir, destDir: path.join(this.dataDir, "fonts") },
+          { stagedDir: stagedPluginsDir, destDir: hasInstalledLayout ? path.join(this.dataDir, "plugins", "installed") : path.join(this.dataDir, "plugins") },
+        ], restoreId, async () => {
+          const health = await withDbMaintenanceBypassAsync(() => probeAttachmentStorage());
+          if (!health.ok) {
+            throw new Error(
+              "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
+              + (health.error || "unknown storage error"),
+            );
+          }
+        });
+      } catch (e) {
+        rollbackDb(curDbPath, safetyBak, e);
+      }
+      withDbMaintenanceBypass(() => {
+        getDb();
       });
-    } catch (e) {
-      rollbackDb(curDbPath, safetyBak, e);
+      resetSyncChangeWatermark();
     } finally {
+      endDbMaintenance();
       try { if (fs.existsSync(tmpDb)) fs.unlinkSync(tmpDb); } catch { /* ignore */ }
       try { if (fs.existsSync(stagingRoot)) fs.rmSync(stagingRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
@@ -1650,20 +1707,29 @@ export class BackupManager {
     const { getDbPath } = await import("../db/schema.js");
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
-    closeDb();
-    // 先 checkpoint WAL，再复制 safetyBak，避免回滚文件漏掉最近事务。
-    await new Promise((r) => setTimeout(r, 100));
+    beginDbMaintenance();
     try {
-      fs.copyFileSync(curDbPath, safetyBak);
-    } catch {
-      /* ignore */
-    }
-    try {
-      fs.copyFileSync(filePath, curDbPath);
-      cleanupWalShm(curDbPath);
-      verifyCurrentDbUsable(curDbPath);
-    } catch (e) {
-      rollbackDb(curDbPath, safetyBak, e);
+      closeDb();
+      // 先 checkpoint WAL，再复制 safetyBak，避免回滚文件漏掉最近事务。
+      await new Promise((r) => setTimeout(r, 100));
+      try {
+        fs.copyFileSync(curDbPath, safetyBak);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.copyFileSync(filePath, curDbPath);
+        cleanupWalShm(curDbPath);
+        verifyCurrentDbUsable(curDbPath);
+      } catch (e) {
+        rollbackDb(curDbPath, safetyBak, e);
+      }
+      withDbMaintenanceBypass(() => {
+        getDb();
+      });
+      resetSyncChangeWatermark();
+    } finally {
+      endDbMaintenance();
     }
 
     return { success: true, stats: { db: 1 } };

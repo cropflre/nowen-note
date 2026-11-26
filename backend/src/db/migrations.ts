@@ -4,6 +4,7 @@ import { diaryFileAttachmentsMigration } from "./diaryFileAttachmentsMigration.j
 import { excelSyncOutboxMigration, excelWorkbookDocumentsMigration } from "./excelWorkbookDocumentsMigration.js";
 import { taskAssigneeMigration } from "./taskAssigneeMigration.js";
 import { workspaceGroupsMigration } from "./workspaceGroupsMigration.js";
+import { syncAttachmentUpdateTriggerMigration } from "./syncAttachmentUpdateTriggerMigration.js";
 import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
 import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
@@ -472,6 +473,7 @@ export const MIGRATIONS: Migration[] = [
   excelSyncOutboxMigration,
   taskAssigneeMigration,
   workspaceGroupsMigration,
+  syncAttachmentUpdateTriggerMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

@@ -20,6 +20,12 @@ export function classifyBackupFailure(
   if (typed.code === "BACKUP_STORAGE_NO_SPACE" || typed.code === "BACKUP_STORAGE_PERMISSION_DENIED") {
     return { code: typed.code, message: typed.message, status: 500, retryable: false };
   }
+  if (operation === "create" && typed.code === "BACKUP_ATTACHMENT_INCONSISTENT") {
+    return { code: typed.code, message: typed.message, status: 409, retryable: false };
+  }
+  if (operation === "restore" && /BACKUP_RESTORE_IN_PROGRESS|已有备份恢复正在进行中/i.test(source)) {
+    return { code: "BACKUP_RESTORE_IN_PROGRESS", message: "已有备份恢复正在进行中，请勿重复提交", status: 409, retryable: false };
+  }
   if (operation === "restore" && /备份文件不存在|backup file not found/i.test(source)) {
     return { code: "BACKUP_NOT_FOUND", message: "备份文件不存在", status: 404, retryable: false };
   }

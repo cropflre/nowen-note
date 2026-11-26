@@ -29,6 +29,8 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-outbox-capture.test.ts", "case": "附件仅更新 path/无变化不产生冗余 Outbox 或 Change Feed，真实字段修改正常入队 (DCC-002)" },
+        { "file": "backend/tests/sync-v2-outbox-capture.test.ts", "case": "下载远端附件二进制回填 path/size/hash 不触发 Outbox 或 Change Feed 回流 (DCC-002)" },
         { "file": "backend/tests/migration-local-directory.test.ts", "case": "Obsidian 本地直导兼容 Windows 反斜杠、含空格路径、仓库根相对路径、大小写与裸 % 文件名" },
         { "file": "frontend/src/lib/__tests__/knowledgeTreeMarkdownDrop.test.ts", "case": "imports Markdown ZIP with ../assets relative paths, Windows backslashes, vault-root paths, raw %, and Obsidian embeds while blocking root escapes" },
         { "file": "backend/tests/excel-workbook-route.test.ts", "case": "Sync V2 同步 Excel 保留 note_type 与工作簿快照，且拒绝损坏载荷" },
@@ -190,6 +192,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/asset-organization-sync.test.ts", "case": "DCC-004: keep-remote resolves desktop attachment_organization push conflict across distinct local and remote userIds while rejecting foreign users" },
         { "file": "frontend/src/components/__tests__/PptDocumentEditor.test.tsx", "case": "DCC-004: a stale PPT refresh preserves a pending title edit" },
         { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
@@ -510,6 +513,9 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: restore through syncChangeNoticeMiddleware returns HTTP 200 with reopened DB instead of 500" },
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: concurrent restore is rejected with BACKUP_RESTORE_IN_PROGRESS and maintenance gate blocks getDb" },
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: full backup refuses to succeed when DB references missing attachment files" },
         {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "DCC-008 native archive export and reimport preserve structured evidence and timestamps"},
         { "file": "backend/tests/migration-service.test.ts", "case": "a failed partial source scan cannot be previewed as a complete import (DCC-008)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "rolls back structure, history and the backup if apply cannot finish" },
