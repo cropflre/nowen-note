@@ -274,6 +274,7 @@
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-005: a crashed in-memory bootstrap rereads every snapshot page" },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness verifies bounded batches of actual files, including when sync is paused" },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness preserves verified attachment counts across incremental sync updates instead of resetting to zero" },
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness persists verified attachments across restarts and re-verifies redownloaded or missing files" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-005: native offline availability checks actual files without treating local edits as server ACKs" },
         { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: the sync test database carries the production notebook parent guards" },

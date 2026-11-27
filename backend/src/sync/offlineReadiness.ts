@@ -5,77 +5,130 @@ import { isKnowledgeTreeSyncReady } from './knowledgeTreeReadiness';
 import { getProfile, getSyncState } from './profile';
 import { getBootstrapProgress } from './bootstrap';
 
-// Bounded per-attachment disk verification cache across diagnostics polls;
-// avoids resetting verified counts back to 0 when large libraries take >60s or when
+// Persistent per-attachment disk verification cache in SQLite;
+// avoids resetting verified counts back to 0 across restarts/upgrades or when
 // background sync updates individual attachments.
-const BATCH_SIZE = 32;
+const DEFAULT_BATCH_SIZE = 32;
+const STALE_BATCH_SIZE = 32;
+const STAT_CONCURRENCY = 16;
 const REVERIFY_TTL_MS = 5 * 60_000;
 
-interface VerifiedEntry {
-  sig: string;
-  valid: boolean;
-  checkedAt: number;
+export interface OfflineReadinessOptions {
+  batchSize?: number;
 }
 
-const scans = new WeakMap<Database.Database, Map<string, Map<string, VerifiedEntry>>>();
+interface AttachmentReadinessRow {
+  id: string;
+  path: string;
+  size: number;
+  remoteOnly: number | null;
+  status: string | null;
+  lastError: string | null;
+  verifiedPath: string | null;
+  verifiedSize: number | null;
+  verifiedValid: number | null;
+  verifiedAt: number | null;
+}
 
-export async function readOfflineReadiness(db: Database.Database, profileId: string | null, userId: string) {
-  const profile = profileId ? getProfile(db, profileId) : null;
-  const bootstrap = profileId ? getBootstrapProgress(db, profileId) : null;
-  const state = profileId ? getSyncState(db, profileId, 'personal') : null;
-  const supported = getAttachmentStorageInfo().driver === 'local'
-    && !!profileId && isKnowledgeTreeSyncReady(db, profileId);
-  const rows = db.prepare(`SELECT a.id,a.path,a.size,s.remoteOnly,s.status,s.lastError FROM attachments a
-    JOIN notes n ON n.id=a.noteId LEFT JOIN attachment_sync_state s ON s.attachmentId=a.id
-    WHERE a.userId=? AND n.userId=? AND n.workspaceId IS NULL AND COALESCE(n.isTrashed,0)=0
-      AND (s.profileId IS NULL OR s.profileId=?) ORDER BY a.id`).all(userId, userId, profileId) as Array<{
-      id: string; path: string; size: number; remoteOnly: number | null; status: string | null; lastError: string | null;
-    }>;
-  const local = rows.filter(row => row.remoteOnly !== 1);
-  const key = `${userId}\n${profileId}`;
-  let cache = scans.get(db);
-  if (!cache) { cache = new Map(); scans.set(db, cache); }
-  let verified = cache.get(key);
-  if (!verified) {
-    verified = new Map();
-    cache.set(key, verified);
-  }
+const ensuredTables = new WeakSet<Database.Database>();
 
-  const localIds = new Set(local.map(row => row.id));
-  for (const id of verified.keys()) {
-    if (!localIds.has(id)) verified.delete(id);
-  }
+function ensureVerificationTable(db: Database.Database): void {
+  if (ensuredTables.has(db)) return;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS offline_attachment_verifications (
+      attachmentId TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      valid INTEGER NOT NULL,
+      checkedAt INTEGER NOT NULL,
+      FOREIGN KEY (attachmentId) REFERENCES attachments(id) ON DELETE CASCADE
+    );
+  `);
+  ensuredTables.add(db);
+}
 
-  const now = Date.now();
-  const sigOf = (row: { path: string; size: number }) => `${row.path}\0${row.size}`;
+function hasMatchingValidVerification(row: AttachmentReadinessRow): boolean {
+  return row.verifiedValid === 1 && row.verifiedPath === row.path && row.verifiedSize === row.size;
+}
 
-  if (getAttachmentStorageInfo().driver === 'local') {
-    const unverified: typeof local = [];
-    const stale: typeof local = [];
-    for (const row of local) {
-      const entry = verified.get(row.id);
-      const sig = sigOf(row);
-      if (!entry || entry.sig !== sig) {
-        unverified.push(row);
-      } else if (now - entry.checkedAt > REVERIFY_TTL_MS) {
-        stale.push(row);
-      }
-    }
-    const batch = (unverified.length > 0 ? unverified : stale).slice(0, BATCH_SIZE);
-    for (const row of batch) {
-      const sig = sigOf(row);
+async function verifyBatchOnDisk(batch: AttachmentReadinessRow[]): Promise<Array<{ row: AttachmentReadinessRow; valid: boolean; checkedAt: number }>> {
+  const results = new Array<{ row: AttachmentReadinessRow; valid: boolean; checkedAt: number }>(batch.length);
+  let cursor = 0;
+  const workerCount = Math.min(STAT_CONCURRENCY, batch.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= batch.length) return;
+      const row = batch[index];
       let valid = false;
       try {
         const stat = await fs.stat(getLocalAttachmentPath(row.path));
         valid = stat.isFile() && stat.size === row.size;
       } catch { /* retained as a missing local file */ }
-      verified.set(row.id, { sig, valid, checkedAt: Date.now() });
-      if (!valid) {
-        // Keep metadata and retry intent, including records created before Sync V2.
-        db.prepare(`INSERT INTO attachment_sync_state (attachmentId,profileId,status,remoteOnly,lastError,updatedAt)
-          VALUES (?,?,'failed',1,'LOCAL_FILE_MISSING',datetime('now')) ON CONFLICT(attachmentId) DO UPDATE SET
-          remoteOnly=1,status='failed',lastError='LOCAL_FILE_MISSING',updatedAt=datetime('now')`).run(row.id, profileId);
+      results[index] = { row, valid, checkedAt: Date.now() };
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export async function readOfflineReadiness(
+  db: Database.Database,
+  profileId: string | null,
+  userId: string,
+  options?: OfflineReadinessOptions,
+) {
+  ensureVerificationTable(db);
+  const profile = profileId ? getProfile(db, profileId) : null;
+  const bootstrap = profileId ? getBootstrapProgress(db, profileId) : null;
+  const state = profileId ? getSyncState(db, profileId, 'personal') : null;
+  const supported = getAttachmentStorageInfo().driver === 'local'
+    && !!profileId && isKnowledgeTreeSyncReady(db, profileId);
+  const rows = db.prepare(`SELECT a.id,a.path,a.size,s.remoteOnly,s.status,s.lastError,
+      v.path AS verifiedPath,v.size AS verifiedSize,v.valid AS verifiedValid,v.checkedAt AS verifiedAt
+    FROM attachments a
+    JOIN notes n ON n.id=a.noteId
+    LEFT JOIN attachment_sync_state s ON s.attachmentId=a.id
+    LEFT JOIN offline_attachment_verifications v ON v.attachmentId=a.id
+    WHERE a.userId=? AND n.userId=? AND n.workspaceId IS NULL AND COALESCE(n.isTrashed,0)=0
+      AND (s.profileId IS NULL OR s.profileId=?) ORDER BY a.id`).all(userId, userId, profileId) as AttachmentReadinessRow[];
+  const local = rows.filter(row => row.remoteOnly !== 1);
+  const now = Date.now();
+  const checkedThisCall = new Map<string, boolean>();
+
+  if (getAttachmentStorageInfo().driver === 'local') {
+    const unverified: AttachmentReadinessRow[] = [];
+    const stale: AttachmentReadinessRow[] = [];
+    for (const row of local) {
+      if (!hasMatchingValidVerification(row)) {
+        unverified.push(row);
+      } else if (now - (row.verifiedAt ?? 0) > REVERIFY_TTL_MS) {
+        stale.push(row);
       }
+    }
+    const unverifiedBatchSize = Math.max(1, Math.floor(options?.batchSize ?? DEFAULT_BATCH_SIZE));
+    const batch = unverified.length > 0
+      ? unverified.slice(0, unverifiedBatchSize)
+      : stale.slice(0, STALE_BATCH_SIZE);
+    if (batch.length > 0) {
+      const results = await verifyBatchOnDisk(batch);
+      const upsertVerification = db.prepare(`INSERT INTO offline_attachment_verifications
+        (attachmentId,path,size,valid,checkedAt) VALUES (?,?,?,?,?)
+        ON CONFLICT(attachmentId) DO UPDATE SET
+          path=excluded.path,size=excluded.size,valid=excluded.valid,checkedAt=excluded.checkedAt`);
+      const markMissing = db.prepare(`INSERT INTO attachment_sync_state (attachmentId,profileId,status,remoteOnly,lastError,updatedAt)
+        VALUES (?,?,'failed',1,'LOCAL_FILE_MISSING',datetime('now')) ON CONFLICT(attachmentId) DO UPDATE SET
+        remoteOnly=1,status='failed',lastError='LOCAL_FILE_MISSING',updatedAt=datetime('now')`);
+      db.transaction(() => {
+        for (const { row, valid, checkedAt } of results) {
+          upsertVerification.run(row.id, row.path, row.size, valid ? 1 : 0, checkedAt);
+          if (!valid) {
+            // Keep metadata and retry intent, including records created before Sync V2.
+            markMissing.run(row.id, profileId);
+          }
+          checkedThisCall.set(row.id, valid);
+        }
+      })();
     }
   }
 
@@ -83,13 +136,14 @@ export async function readOfflineReadiness(db: Database.Database, profileId: str
   let missing = 0;
   let unchecked = 0;
   for (const row of local) {
-    const entry = verified.get(row.id);
-    if (!entry || entry.sig !== sigOf(row)) {
-      unchecked += 1;
-    } else if (entry.valid) {
+    const fresh = checkedThisCall.get(row.id);
+    if (fresh !== undefined) {
+      if (fresh) available += 1;
+      else missing += 1;
+    } else if (hasMatchingValidVerification(row)) {
       available += 1;
     } else {
-      missing += 1;
+      unchecked += 1;
     }
   }
 

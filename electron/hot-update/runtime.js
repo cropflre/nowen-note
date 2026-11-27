@@ -283,6 +283,28 @@ function createHotUpdateRuntime(options) {
     } else {
       state = loaded;
     }
+    // 即使壳指纹没变，如果用户装了更新（或同版本）的完整安装包，也不能让旧热更新包继续盖住新安装包。
+    const isSupersededByShell = (entry) => Boolean(entry && trust.compareVersions(entry.version, shellVersion) <= 0);
+    let superseded = false;
+    if (isSupersededByShell(state.pending)) {
+      state.pending = null;
+      superseded = true;
+    }
+    if (isSupersededByShell(state.trial)) {
+      state.trial = null;
+      superseded = true;
+    }
+    if (isSupersededByShell(state.active)) {
+      state.active = null;
+      superseded = true;
+    }
+    if (isSupersededByShell(state.lastRollback)) {
+      state.lastRollback = null;
+      superseded = true;
+    }
+    if (superseded) {
+      log(`[hot-update] 安装包 v${shellVersion} 已不低于旧热更新包，清理过期热更新`);
+    }
     let candidate = null;
     let firstBoot = false;
     const fromVersion = state.active?.version ?? shellVersion;
@@ -314,6 +336,7 @@ function createHotUpdateRuntime(options) {
     }
     current = candidate ? { bundleId: candidate.bundleId, version: candidate.version, root: bundleRoot(candidate.bundleId) } : null;
     writeState();
+    if (superseded) prune();
     if (firstBoot && current) {
       // 新包第一次启动前备份数据库：它的后端可能会升级表结构（DCC-013）。
       try {

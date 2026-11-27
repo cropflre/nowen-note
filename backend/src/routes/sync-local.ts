@@ -795,7 +795,12 @@ app.get("/diagnostics", async (c) => {
   }));
 
   const lastProfile = db.prepare('SELECT id FROM sync_profiles ORDER BY updatedAt DESC,rowid DESC LIMIT 1').get() as {id:string} | undefined;
-  const offline = await readOfflineReadiness(db, active?.id ?? lastProfile?.id ?? null, c.req.header("X-User-Id") as string);
+  const offline = await readOfflineReadiness(
+    db,
+    active?.id ?? lastProfile?.id ?? null,
+    c.req.header("X-User-Id") as string,
+    { batchSize: 512 },
+  );
   const pendingUploads = (db.prepare(`SELECT COUNT(*) AS count FROM attachment_sync_state s JOIN attachments a ON a.id=s.attachmentId
     WHERE s.profileId=? AND a.userId=? AND s.remoteOnly=0 AND s.status IN ('pending','failed','uploading')`).get(active?.id ?? null,c.req.header("X-User-Id")) as {count:number}).count;
   const engineStatus = getActiveEngine()?.getStatus() ?? null;

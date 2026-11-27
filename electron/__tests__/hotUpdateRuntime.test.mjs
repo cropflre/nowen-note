@@ -422,3 +422,42 @@ test("热更新触发的重启改用主进程注册的方式：先停后端再�
   const body = source.slice(source.indexOf("function relaunchApp()"), source.indexOf("app.exit(0);", source.indexOf("function relaunchApp()")));
   assert.match(body, /stopBackend\(\)/, "relaunchApp 在 app.exit 之前停掉后端");
 });
+
+test("装了同壳指纹的新安装包（shellVersion >= 旧热更新包）：清理过期热更新，不再用旧热更新包盖住新安装包", async (t) => {
+  // 1) 1.6.2 安装包通过热更新升到 1.6.3 并激活
+  const { first, release, boot } = await stagedHarness(t, "1.6.3");
+  const activeRun = boot();
+  assert.equal(activeRun.runtime.selectBoot().bundleId, release.manifest.bundleId);
+  activeRun.api.markReady();
+  const oldBundleDir = path.join(first.stateDir, "bundles", release.manifest.bundleId);
+  assert.equal(fs.existsSync(oldBundleDir), true);
+
+  // 2) 用户直接安装了同壳指纹的 1.6.3 完整安装包：不再继续加载旧 1.6.3 热更新包
+  const sameVersionInstaller = harness(t, { stateDir: first.stateDir, server: first.server, shellVersion: "1.6.3" });
+  assert.equal(sameVersionInstaller.runtime.selectBoot(), null);
+  assert.equal(sameVersionInstaller.api.effectiveVersion, "1.6.3");
+  assert.equal(readState(first.stateDir).active, null);
+  assert.equal(fs.existsSync(oldBundleDir), false, "过期的热更新包目录应被清理");
+
+  // 3) 即使旧状态里有 1.6.3 的 active / lastRollback，装了 1.6.4 完整安装包也会一并清理
+  const withRollback = await stagedHarness(t, "1.6.3");
+  const failedTrial = withRollback.boot();
+  failedTrial.runtime.selectBoot();
+  failedTrial.events.timers[0].callback(); // 触发超时回退，写下 lastRollback
+  assert.equal(readState(withRollback.first.stateDir).lastRollback.version, "1.6.3");
+  const newerInstaller = harness(t, { stateDir: withRollback.first.stateDir, server: withRollback.first.server, shellVersion: "1.6.4" });
+  assert.equal(newerInstaller.runtime.selectBoot(), null);
+  assert.equal(readState(withRollback.first.stateDir).lastRollback, null);
+
+  // 4) 若 pending 的热更新包比新安装包更新（1.6.4 > 1.6.3），只清理 <= 1.6.3 的旧 active，保留更新的 pending
+  const mixed = await stagedHarness(t, "1.6.3");
+  const run3 = mixed.boot();
+  run3.runtime.selectBoot();
+  run3.api.markReady();
+  const v4 = makeRelease("1.6.4", { sequence: 200 });
+  publish(mixed.first.server, v4);
+  await run3.api.check({ manual: true });
+  const upgradedShell = harness(t, { stateDir: mixed.first.stateDir, server: mixed.first.server, shellVersion: "1.6.3" });
+  assert.equal(upgradedShell.runtime.selectBoot().bundleId, v4.manifest.bundleId);
+  assert.equal(fs.existsSync(path.join(mixed.first.stateDir, "bundles", mixed.release.manifest.bundleId)), false);
+});
