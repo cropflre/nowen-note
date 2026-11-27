@@ -20,7 +20,8 @@
           "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
           "case": "removes successful queued updates only after the server ACK"
         },
-        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready" }
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-001: 导入后立即离开也会真正写入，且只在服务端确认后才算已保存" }
       ]
     },
     {
@@ -28,6 +29,11 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-outbox-capture.test.ts", "case": "附件仅更新 path/无变化不产生冗余 Outbox 或 Change Feed，真实字段修改正常入队 (DCC-002)" },
+        { "file": "backend/tests/sync-v2-outbox-capture.test.ts", "case": "下载远端附件二进制回填 path/size/hash 不触发 Outbox 或 Change Feed 回流 (DCC-002)" },
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "Obsidian 本地直导兼容 Windows 反斜杠、含空格路径、仓库根相对路径、大小写与裸 % 文件名" },
+        { "file": "frontend/src/lib/__tests__/knowledgeTreeMarkdownDrop.test.ts", "case": "imports Markdown ZIP with ../assets relative paths, Windows backslashes, vault-root paths, raw %, and Obsidian embeds while blocking root escapes" },
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "Sync V2 同步 Excel 保留 note_type 与工作簿快照，且拒绝损坏载荷" },
         { "file": "backend/tests/sync-v2-personal-entities.test.ts", "case": "diary Outbox and first-sync upload carry file attachments (DCC-002)" },
         { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "DCC-002: native diary posts keep file attachments locally and in the Outbox; edits without the field keep them" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-002: restored journals capture durable Outbox intent and failed restoration rolls back all writes" },
@@ -107,6 +113,10 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "SyncRealtimeSubscription 发送保活 ping 心跳，并在握手前 401 断连时触发 refreshToken 续期" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "SyncRemoteClient 将 HTTP 408/429 归类为可重试错误，且 setAbortSignal 可立即中止在途请求" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "快照响应头已到达但正文停滞时仍会超时" },
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "重启已绑定的 SyncEngine 不应重复拉取全量 Snapshot，大体积 Outbox 应按字节拆批并支持 413 自适应缩批" },
         {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "AI import cancellation preserves completed work and retry resumes only unsaved records"},
         { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
         { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
@@ -156,6 +166,7 @@
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" },
         { "file": "frontend/src/lib/__tests__/mobileAttachmentUploadTransport.test.ts", "case": "DCC-003: Android native HTTP upload stores the original bytes" },
         { "file": "backend/tests/sync-v2-blob-not-ready.test.ts", "case": "DCC-003: HEAD reports metadata-only bytes as missing so desktop and NAS clients upload them" },
+        { "file": "backend/tests/sync-v2-login-route.test.ts", "case": "DCC-003: Sync V2 持久化 refreshToken，在 15 分钟 Access Token 过期后自动续期并保持数据与连接不中断" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a structural failure is classified non-retryable, rolls the page back, keeps local work and does not advance cursors" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: failure diagnostics carry stage, error kind, redacted ids, parent state and SQLite code but no content or credentials" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a network failure in the middle of the notebook segment keeps the cursor and retries to the same structure" },
@@ -168,7 +179,12 @@
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: after a structural failure the user can still retry by hand once the data is repaired, and a retryable failure keeps its automatic retry" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: a legacy backend that does not report retryable keeps the previous retrying behavior" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-003: a same-name tag with unsent local changes is never merged silently and fails with a precise non-retryable reason" },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-003: notes that existed only on the Windows side before a download upload as creates, not as conflicts against a 'deleted' remote note" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-003: 网络失败保留本地修改并退避重试，成功前不显示已保存" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: knowledge tree note/notebook triggers never fail with KNOWLEDGE_TREE_PARENT_SCOPE_MISMATCH when parent tree projection is hidden or deleted" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: remote permanent deletion of trashed attachment and its parent note succeeds without ATTACHMENT_TRASH_RETAINED while local guard remains active" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: DATA_STRUCTURE failure in SyncEngine persists sanitized lastErrorDiagnostic without leaking content" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" }
       ]
     },
     {
@@ -176,6 +192,8 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/asset-organization-sync.test.ts", "case": "DCC-004: keep-remote resolves desktop attachment_organization push conflict across distinct local and remote userIds while rejecting foreign users" },
+        { "file": "frontend/src/components/__tests__/PptDocumentEditor.test.tsx", "case": "DCC-004: a stale PPT refresh preserves a pending title edit" },
         { "file": "frontend/src/lib/__tests__/sharedEditorRuntime.test.ts", "case": "DCC-004: rejects failed guard loading before a shared editor can mount" },
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 archive updates retain message revisions and reject stale snapshots"},
         {"file": "backend/tests/ai-memory.test.ts", "case": "DCC-004 earlier history loaded later is prepended in order without changing saved messages"},
@@ -220,7 +238,11 @@
           "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
           "case": "keeps both local and server snapshots in a bounded conflict vault"
         },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-004: a pull never re-parents a folder whose local move is still waiting to upload" },
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-004: 过期 revision 返回 409，服务器版本不被覆盖；缺少 expectedRevision 拒绝盲写" },
+        { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-004: 两窗口冲突时保留本机内容、停止自动覆盖，用户确认后才覆盖服务器" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004: reconcile ignores wire capability / default column drift from older servers but preserves genuine content conflicts" }
       ]
     },
     {
@@ -228,6 +250,7 @@
       "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-wan-reliability.test.ts", "case": "重启已绑定的 SyncEngine 不应重复拉取全量 Snapshot，大体积 Outbox 应按字节拆批并支持 413 自适应缩批" },
         { "file": "backend/tests/sync-v2-rest-realtime-notice.test.ts", "case": "a full Change Feed page keeps pulling instead of waiting for the next wake-up" },
         { "file": "backend/tests/sync-three-end-realtime.test.ts", "case": "Web 键入 → Yjs 持久化 → Android native SQLite 自动收敛（无需手动刷新）" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "keeps validated local positions by replacing old queue entries with CAS against the current cloud baseline" },
@@ -250,6 +273,7 @@
         },
         { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-005: a crashed in-memory bootstrap rereads every snapshot page" },
         { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness verifies bounded batches of actual files, including when sync is paused" },
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness preserves verified attachment counts across incremental sync updates instead of resetting to zero" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-005: native offline availability checks actual files without treating local edits as server ACKs" },
         { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-005: the sync test database carries the production notebook parent guards" },
@@ -266,7 +290,10 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: child-first downloads followed by folder expansion never flatten the desktop, NAS or second device" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: a nested delete on the NAS reaches a synced device in either id order without tripping the parent guard" },
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: the engine stops retrying a structural pull failure, keeps the cursor and local data, and recovers once the data is repaired" },
-        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" }
+        { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" },
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-005: 桌面端本地文件夹零拷贝直导支持 Obsidian 独立附件库与相对路径，忽略符号链接且不改动源目录" }
       ]
     },
     {
@@ -274,7 +301,9 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-login-route.test.ts", "case": "Lite 首次下载续期后拒绝不同账号，重试时可保存原账号的新凭据" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: journal restoration requires identity and keeps other accounts and workspace journals isolated" },
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-006: 本地文件夹直导强制校验桌面密钥与权限，拒绝未授权、API Token 与根目录请求" },
         { "file": "backend/tests/journal-trash-routes.test.ts", "case": "DCC-006: a password protected journal archive stays locked before and after deletion" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: folder editors list workspace templates and create complete independent notes in inherited targets" },
         { "file": "backend/tests/note-templates-shared-folder.test.ts", "case": "DCC-006: template use rejects readonly, unrelated, deleted and mismatched targets without writing notes" },
@@ -311,6 +340,7 @@
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "retrieves only saved structural fields and rejects another account or profile" },
         { "file": "frontend/src/lib/__tests__/imagePreviewAttachmentAccess.test.tsx", "case": "loads full-resolution attachments without dropping authorization (DCC-006)" },
+        { "file": "frontend/src/lib/__tests__/sharedPageAttachmentAccess.test.ts", "case": "installs the attachment access bridge before rendering a public share (DCC-006)" },
         { "file": "backend/tests/attachment-upload-recovery.test.ts", "case": "DCC-006: upload recovery refuses another account, another note and missing or trashed attachments" },
         { "file": "frontend/src/lib/__tests__/attachmentUploadRecovery.test.ts", "case": "does not recover into a changed server or account (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/rtfImageUploader.test.ts", "case": "stops queued uploads and ignores late results after the note changes (DCC-006)" },
@@ -322,6 +352,7 @@
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-006: server/account changes discard late directory responses and reject old model handles" },
         { "file": "frontend/src/lib/__tests__/aiProfiles.test.ts", "case": "rejects a delayed response after switching account (DCC-006)" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: explicit desktop logout survives reopening a completed local copy" },
+        { "file": "frontend/src/lib/__tests__/accountLoginSwitch.test.ts", "case": "DCC-006: 桌面端切换到远端账号时设置 prefer-cloud 防止重载被本机迁移覆盖，切回本机时清除该标记" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: local login recovery keeps remote credentials and retries download only after confirmation" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: a disabled local account is offered confirmed recovery instead of silent retries" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-006: a locked local account is offered confirmed recovery instead of silent retries" },
@@ -379,7 +410,8 @@
         },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: a completed desktop migration replaces NAS auth with local credentials and address" },
         { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" },
-        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" }
+        { "file": "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx", "case": "DCC-006: failed login to another server keeps the current server and session" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" }
       ]
     },
     {
@@ -470,7 +502,10 @@
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: a same-name tag seeded on the Windows install is merged into the server's tag and keeps every note association" },
         { "file": "backend/tests/sync-v2-notebook-parent-integrity.test.ts", "case": "DCC-007: bootstrap recomputes its upload plan after a same-name tag merge and pushes only what is still local" },
         { "file": "backend/tests/user-delete-transfer.test.ts", "case": "transferring a user with nested, trashed and workspace notebooks moves the content and its tree" },
-        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" }
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "data attached to transferred content follows it; personal account data does not" },
+        { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-007: 回收站删除后不可编辑，恢复后工作簿完整；永久删除级联清理" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" }
       ]
     },
     {
@@ -478,6 +513,9 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: restore through syncChangeNoticeMiddleware returns HTTP 200 with reopened DB instead of 500" },
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: concurrent restore is rejected with BACKUP_RESTORE_IN_PROGRESS and maintenance gate blocks getDb" },
+        { "file": "backend/tests/backup-restore-large-archive.test.ts", "case": "DCC-008: full backup refuses to succeed when DB references missing attachment files" },
         {"file": "backend/tests/ai-memory-import-jobs.test.ts", "case": "DCC-008 native archive export and reimport preserve structured evidence and timestamps"},
         { "file": "backend/tests/migration-service.test.ts", "case": "a failed partial source scan cannot be previewed as a complete import (DCC-008)" },
         { "file": "frontend/src/lib/__tests__/mobileNativeTreeRepair.test.ts", "case": "rolls back structure, history and the backup if apply cannot finish" },
@@ -514,7 +552,8 @@
           "file": "backend/tests/asset-organization.test.ts",
           "case": "migration is idempotent, relation constraints reject cross-scope rows and snapshots retain metadata"
         },
-        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" }
+        { "file": "backend/tests/user-delete-transfer.test.ts", "case": "a failed transfer rolls back every change and keeps the guards (DCC-008)" },
+        { "file": "backend/tests/excel-workbook-backup-upgrade.test.ts", "case": "DCC-008: 全量备份在全新实例恢复后工作簿快照逐字节一致" }
       ]
     },
     {

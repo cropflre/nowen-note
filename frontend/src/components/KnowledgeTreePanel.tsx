@@ -10,6 +10,8 @@ import {
   FileCode,
   FileSpreadsheet,
   FileText,
+  FileType2,
+  Presentation,
   Folder,
   ListFilter,
   Loader2,
@@ -45,8 +47,11 @@ import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermission
 import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
+  importPptIntoKnowledgeTree,
+  type KnowledgeTreeImportKind,
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -71,6 +76,11 @@ import {
   type KnowledgeTreeInlineDraft,
 } from "@/lib/knowledgeTreeInlineCreate";
 import {
+  alignKnowledgeTreeAnchorToTop,
+  scheduleKnowledgeTreeTopAlignment,
+} from "@/lib/knowledgeTreeInlineScroll";
+import {
+  buildMobileKnowledgeTreePath,
   loadMobileKnowledgeTreeRecentEntries,
   saveMobileKnowledgeTreeRecentEntries,
   upsertMobileKnowledgeTreeRecentEntry,
@@ -105,13 +115,16 @@ import {
 import { toast } from "@/lib/toast";
 import {
   compareKnowledgeTreePinnedPriority,
+  KNOWLEDGE_TREE_SORT_CHANGED_EVENT,
   KNOWLEDGE_TREE_SORT_OPTIONS,
   loadKnowledgeTreeSortMode,
   planKnowledgeTreeSiblingReorder,
-  resolveKnowledgeTreeDropPlacement,
+  resolveKnowledgeTreeActiveDropPlacement,
   saveKnowledgeTreeSortMode,
+  sortKnowledgeTreeMoveTargets,
   type KnowledgeTreeDropPlacement,
   type KnowledgeTreeSiblingDropPlacement,
+  type KnowledgeTreeSortMode,
 } from "@/lib/knowledgeTreeSort";
 import {
   detectNoteWorkspaceSurface,
@@ -164,23 +177,28 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.nodeType === "folder") {
     return node.icon
       ? <span data-knowledge-tree-icon="" className="w-[15px] shrink-0 text-center text-sm leading-none">{node.icon}</span>
-      : <Folder data-knowledge-tree-icon="" size={15} className="text-amber-500" />;
+      : <Folder data-knowledge-tree-icon="" size={15} className="shrink-0 text-amber-500" />;
   }
-  if (node.nodeType === "markdown") return <FileCode data-knowledge-tree-icon="" size={15} className="text-emerald-500" />;
-  if (node.nodeType === "mindmap") return <BrainCircuit data-knowledge-tree-icon="" size={15} className="text-accent-primary" />;
-  if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={15} className="text-amber-500" />;
-  if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={15} className="text-sky-500" />;
-  if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={15} className="text-emerald-600" />;
-  return <FileText data-knowledge-tree-icon="" size={15} className="text-accent-primary" />;
+
+  if (node.nodeType === "markdown") return <FileCode data-knowledge-tree-icon="" size={15} className="shrink-0 text-emerald-500" />;
+  if (node.nodeType === "mindmap") return <BrainCircuit data-knowledge-tree-icon="" size={15} className="shrink-0 text-accent-primary" />;
+  if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={15} className="shrink-0 text-amber-500" />;
+  if (node.noteType === "sheet") return <Table2 data-knowledge-tree-icon="" size={15} className="shrink-0 text-sky-500" />;
+  if (node.noteType === "excel") return <FileSpreadsheet data-knowledge-tree-icon="" size={15} className="shrink-0 text-emerald-600" />;
+  if (node.nodeType === "word" || node.noteType === "word") return <FileType2 data-knowledge-tree-icon="" size={15} className="shrink-0 text-blue-500" />;
+  if (node.noteType === "ppt") return <Presentation data-knowledge-tree-icon="" size={15} className="shrink-0 text-orange-500" />;
+  return <FileText data-knowledge-tree-icon="" size={15} className="shrink-0 text-accent-primary" />;
 }
 
 function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
-  if (kind === "folder") return <Folder size={15} className="text-amber-500" />;
-  if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
-  if (kind === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
-  if (kind === "sheet") return <Table2 size={15} className="text-sky-500" />;
-  if (kind === "excel") return <FileSpreadsheet size={15} className="text-emerald-600" />;
-  return <FileText size={15} className="text-accent-primary" />;
+  if (kind === "folder") return <Folder size={15} className="shrink-0 text-amber-500" />;
+  if (kind === "markdown") return <FileCode size={15} className="shrink-0 text-emerald-500" />;
+  if (kind === "word") return <FileType2 size={15} className="shrink-0 text-blue-500" />;
+  if (kind === "ppt") return <Presentation size={15} className="shrink-0 text-orange-500" />;
+  if (kind === "mindmap") return <BrainCircuit size={15} className="shrink-0 text-accent-primary" />;
+  if (kind === "sheet") return <Table2 size={15} className="shrink-0 text-sky-500" />;
+  if (kind === "excel") return <FileSpreadsheet size={15} className="shrink-0 text-emerald-600" />;
+  return <FileText size={15} className="shrink-0 text-accent-primary" />;
 }
 
 function descendantsOf(nodeId: string, children: Map<string | null, KnowledgeTreeNode[]>) {
@@ -221,29 +239,47 @@ function MovePanel({
   node,
   nodes,
   children,
+  sortMode,
   onMoved,
   onClose,
 }: {
   node: KnowledgeTreeNode;
   nodes: KnowledgeTreeNode[];
   children: Map<string | null, KnowledgeTreeNode[]>;
+  sortMode: KnowledgeTreeSortMode;
   onMoved: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const [filterQuery, setFilterQuery] = useState("");
+  const [foldersOnly, setFoldersOnly] = useState(false);
   const blocked = useMemo(() => {
     const result = descendantsOf(node.id, children);
     result.add(node.id);
     return result;
   }, [children, node.id]);
-  const candidates = nodes.filter((candidate) =>
-    !blocked.has(candidate.id)
-    && candidate.access.capabilities.canCreate
-    && (node.sharedRootId
-      ? candidate.sharedRootId === node.sharedRootId
-      : !candidate.sharedRootId),
-  );
-  const allowRoot = !node.sharedRootId;
+  const sortedCandidates = useMemo(() => {
+    const base = nodes.filter((candidate) =>
+      !blocked.has(candidate.id)
+      && candidate.access.capabilities.canCreate
+      && (node.sharedRootId
+        ? candidate.sharedRootId === node.sharedRootId
+        : !candidate.sharedRootId),
+    );
+    return sortKnowledgeTreeMoveTargets(base, sortMode, nodes);
+  }, [blocked, node.sharedRootId, nodes, sortMode]);
+  const candidates = useMemo(() => {
+    const keyword = filterQuery.trim().toLocaleLowerCase();
+    return sortedCandidates.filter((candidate) => {
+      if (foldersOnly && candidate.nodeType !== "folder") return false;
+      if (!keyword) return true;
+      if (candidate.title.toLocaleLowerCase().includes(keyword)) return true;
+      const parentPath = candidate.parentId ? buildMobileKnowledgeTreePath(candidate, nodes) : "";
+      return parentPath.toLocaleLowerCase().includes(keyword);
+    });
+  }, [filterQuery, foldersOnly, nodes, sortedCandidates]);
+  const sortLabel = KNOWLEDGE_TREE_SORT_OPTIONS.find((option) => option.value === sortMode)?.label ?? "手动排序";
+  const allowRoot = !node.sharedRootId && !filterQuery.trim();
 
   const move = async (parentId: string | null) => {
     if ((node.parentId ?? null) === parentId) {
@@ -262,12 +298,55 @@ function MovePanel({
   };
 
   return (
-    <div className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
-      <header className="flex h-11 items-center gap-2 border-b border-app-border px-3">
-        <Folder size={16} className="text-amber-500" />
+    <div data-knowledge-tree-move-panel="" className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-app-border px-3">
+        <Folder size={16} className="shrink-0 text-amber-500" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>
-        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={16} /></button>
+        <button type="button" onClick={onClose} className="shrink-0 rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={16} /></button>
       </header>
+      <div className="shrink-0 space-y-1.5 border-b border-app-border/70 px-2.5 py-2">
+        <div className="flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+            <input
+              type="text"
+              value={filterQuery}
+              onChange={(event) => setFilterQuery(event.target.value)}
+              placeholder="搜索目标文件夹或文档..."
+              aria-label="搜索移动目标"
+              className="h-8 w-full rounded-md border border-app-border bg-app-bg pl-7 pr-7 text-xs text-tx-primary placeholder:text-tx-tertiary outline-none focus:border-accent-primary"
+            />
+            {filterQuery && (
+              <button
+                type="button"
+                onClick={() => setFilterQuery("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                aria-label="清空目标搜索"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOnly((current) => !current)}
+            aria-pressed={foldersOnly}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors",
+              foldersOnly
+                ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary"
+                : "border-app-border bg-app-bg text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+            )}
+          >
+            <Folder size={12} className="shrink-0" />
+            <span>仅文件夹</span>
+          </button>
+        </div>
+        <div className="flex items-center justify-between px-0.5 text-[11px] text-tx-tertiary">
+          <span>文件夹优先 · {sortLabel}</span>
+          <span className="tabular-nums">{candidates.length} 项</span>
+        </div>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {allowRoot && (
           <button
@@ -276,15 +355,33 @@ function MovePanel({
             onClick={() => void move(null)}
             className="mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <TreePine size={14} className="text-accent-primary" /><span className="truncate">{t("knowledgeTreeUi.root")}</span>
+            <TreePine size={14} className="shrink-0 text-accent-primary" /><span className="min-w-0 flex-1 truncate">{t("knowledgeTreeUi.root")}</span>
           </button>
         )}
-        {candidates.map((candidate) => (
-          <button key={candidate.id} type="button" onClick={() => void move(candidate.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary">
-            {nodeIcon(candidate)}<span className="truncate">{candidate.title}</span>
-          </button>
-        ))}
-        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
+        {candidates.map((candidate) => {
+          const parentPath = candidate.parentId ? buildMobileKnowledgeTreePath(candidate, nodes) : "";
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              disabled={(node.parentId ?? null) === candidate.id}
+              onClick={() => void move(candidate.id)}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+              title={parentPath ? `${parentPath} / ${candidate.title}` : candidate.title}
+            >
+              {nodeIcon(candidate)}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{candidate.title}</span>
+                {parentPath && (
+                  <span className="block truncate text-[11px] text-tx-tertiary">{parentPath}</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+        {candidates.length === 0 && (filterQuery.trim() || foldersOnly || node.parentId === null) && (
+          <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>
+        )}
       </div>
     </div>
   );
@@ -308,7 +405,7 @@ export interface KnowledgeTreeInlineCreateRequest {
 export interface KnowledgeTreeImportRequest {
   requestId: number;
   parentId: string | null;
-  kind: "markdown" | "markdown-zip" | "word" | "wechat";
+  kind: KnowledgeTreeImportKind;
 }
 
 export interface KnowledgeTreeTemplateCreateRequest {
@@ -345,6 +442,7 @@ export function KnowledgeTreePanel({
   const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const surfaceActive = useActiveSidebarSurface(variant);
   const rootRef = useRef<HTMLElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
   const handledCreateRequestRef = useRef<number | null>(null);
@@ -378,13 +476,16 @@ export function KnowledgeTreePanel({
   } | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [compactDesktopToolbar, setCompactDesktopToolbar] = useState(false);
+  const [currentSortMode, setCurrentSortMode] = useState<KnowledgeTreeSortMode>(() => loadKnowledgeTreeSortMode());
   const [treeDropTarget, setTreeDropTarget] = useState<{
     nodeId: string;
     placement: KnowledgeTreeDropPlacement;
   } | null>(null);
   const [draggedTreeNodeId, setDraggedTreeNodeId] = useState<string | null>(null);
+  const [draggedTreeNodeIds, setDraggedTreeNodeIds] = useState<string[]>([]);
   const [rootDropActive, setRootDropActive] = useState(false);
   const draggedTreeNodeIdRef = useRef<string | null>(null);
+  const draggedTreeNodeIdsRef = useRef<string[]>([]);
   const selectionAnchorRef = useRef<string | null>(null);
   const { menu, menuRef, openMenu, openMenuAt, closeMenu } = useContextMenu();
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
@@ -499,6 +600,12 @@ export function KnowledgeTreePanel({
   }, [reload, surfaceActive]);
 
   useEffect(() => {
+    const syncSortMode = () => setCurrentSortMode(loadKnowledgeTreeSortMode());
+    window.addEventListener(KNOWLEDGE_TREE_SORT_CHANGED_EVENT, syncSortMode);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_SORT_CHANGED_EVENT, syncSortMode);
+  }, []);
+
+  useEffect(() => {
     const syncUnlockedFolders = () => setUnlockedFolderIds(loadUnlockedFolderIds());
     window.addEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
     return () => window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
@@ -538,12 +645,48 @@ export function KnowledgeTreePanel({
 
   useEffect(() => {
     if (!draft) return;
-    requestAnimationFrame(() => {
+    if (variant !== "mobile") {
+      const frame = requestAnimationFrame(() => {
+        draftInputRef.current?.focus({ preventScroll: true });
+        draftInputRef.current?.scrollIntoView({ block: "nearest" });
+        draftInputRef.current?.select();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    const focusFrame = requestAnimationFrame(() => {
       draftInputRef.current?.focus({ preventScroll: true });
-      draftInputRef.current?.scrollIntoView({ block: "nearest" });
       draftInputRef.current?.select();
     });
-  }, [draft?.kind, draft?.parentId]);
+
+    const alignToTop = () => {
+      const container = scrollContainerRef.current;
+      const parentElement = draft.parentId
+        ? Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+          .find((el) => el.dataset.knowledgeTreeSelectId === draft.parentId) || null
+        : null;
+      const draftElement = draftInputRef.current?.closest<HTMLElement>("[data-knowledge-tree-inline-draft]")
+        || draftInputRef.current;
+      alignKnowledgeTreeAnchorToTop(container, parentElement || draftElement);
+    };
+
+    const stopAlign = scheduleKnowledgeTreeTopAlignment(alignToTop);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      stopAlign();
+    };
+  }, [draft?.kind, draft?.parentId, variant]);
+
+  useEffect(() => {
+    if (!inlineRenameNodeId || variant !== "mobile") return;
+    const alignRenameRow = () => {
+      const container = scrollContainerRef.current;
+      const targetRow = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((el) => el.dataset.knowledgeTreeSelectId === inlineRenameNodeId) || null;
+      alignKnowledgeTreeAnchorToTop(container, targetRow);
+    };
+    return scheduleKnowledgeTreeTopAlignment(alignRenameRow);
+  }, [inlineRenameNodeId, variant]);
 
   const visibleNodes = useMemo(
     () => hideLockedFolderDescendants(nodes, unlockedFolderIds),
@@ -783,6 +926,7 @@ export function KnowledgeTreePanel({
     if (node.resourceType === "mindmap") {
       rememberOpened(node.id);
       pushMindMapAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
     if (node.resourceType === "file") {
@@ -964,13 +1108,25 @@ export function KnowledgeTreePanel({
           nodes,
           fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId || state.notebooks[0]?.id || null,
         };
+        if (importRequest.kind === "sheet") {
+          const importedSheet = await importSheetIntoKnowledgeTree(options);
+          if (!importedSheet) return;
+          revealCreatedKnowledgeTreeNote(parent?.id || null, importedSheet.id);
+          pushSheetAppPath(importedSheet.resourceId);
+          emitTreeChanged("node-imported-plus-menu");
+          actions.refreshNotes();
+          actions.refreshNotebooks();
+          return;
+        }
         const imported = importRequest.kind === "markdown"
           ? await importMarkdownIntoKnowledgeTree(options)
           : importRequest.kind === "markdown-zip"
             ? await importMarkdownZipIntoKnowledgeTree(options)
             : importRequest.kind === "word"
               ? await importWordIntoKnowledgeTree(options)
-              : await importWeChatArticleIntoKnowledgeTree(options);
+              : importRequest.kind === "ppt"
+                ? await importPptIntoKnowledgeTree(options)
+                : await importWeChatArticleIntoKnowledgeTree(options);
         if (!imported) return;
         revealCreatedKnowledgeTreeNote(parent?.id || null);
         activateNote(imported, parent?.id || null);
@@ -1097,10 +1253,17 @@ export function KnowledgeTreePanel({
 
     if (snapshot.kind === "mindmap") {
       pushMindMapAppPath(created.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
     if (snapshot.kind === "sheet") {
       pushSheetAppPath(created.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
+    if (snapshot.kind === "excel") {
+      pushExcelAppPath(created.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
 
@@ -1197,13 +1360,37 @@ export function KnowledgeTreePanel({
     return !descendantsOf(source.id, allChildren).has(target.id);
   };
 
+  const resolveDragSourceIds = (event: React.DragEvent): string[] => {
+    const rawBatch = event.dataTransfer.getData("application/x-nowen-tree-nodes");
+    if (rawBatch) {
+      try {
+        const parsed = JSON.parse(rawBatch);
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter((item): item is string => typeof item === "string" && item.length > 0);
+          if (valid.length > 0) return valid;
+        }
+      } catch {
+        // Fall through to single-node drag payload.
+      }
+    }
+    if (draggedTreeNodeIdsRef.current.length > 0) {
+      return draggedTreeNodeIdsRef.current;
+    }
+    const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+    return sourceId ? [sourceId] : [];
+  };
+
+  const canMoveBatchIntoTarget = (sourceIds: string[], target: KnowledgeTreeNode) => (
+    sourceIds.length > 0 && sourceIds.every((sourceId) => canMoveIntoTarget(sourceId, target))
+  );
+
   const canDropWithTarget = (
     sourceId: string,
     target: KnowledgeTreeNode,
     placement: KnowledgeTreeDropPlacement,
   ) => placement === "inside"
     ? canMoveIntoTarget(sourceId, target)
-    : currentSortMode === "manual" && canReorderWithTarget(sourceId, target);
+    : !query.trim() && currentSortMode === "manual" && canReorderWithTarget(sourceId, target);
 
   const dropReorder = async (
     sourceId: string,
@@ -1254,6 +1441,25 @@ export function KnowledgeTreePanel({
     }
   };
 
+  const dropBatchIntoNode = async (sourceIds: string[], target: KnowledgeTreeNode) => {
+    if (!canMoveBatchIntoTarget(sourceIds, target)) {
+      toast.error("无法移动到该节点");
+      return;
+    }
+    try {
+      await knowledgeTreeApi.batchMove(sourceIds, { parentId: target.id });
+      setNodeExpanded(target.id, true);
+      clearSelection();
+      await reload();
+      emitTreeChanged("nodes-batch-moved");
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+      toast.success(`已移动 ${sourceIds.length} 项`);
+    } catch (requestError: any) {
+      toast.error(requestError?.message || "批量移动失败");
+    }
+  };
+
   const canDropToRoot = (sourceId: string) => {
     const source = nodes.find((node) => node.id === sourceId);
     return !!source
@@ -1261,6 +1467,10 @@ export function KnowledgeTreePanel({
       && source.access.capabilities.canMove
       && source.parentId !== null;
   };
+
+  const canDropIdsToRoot = (sourceIds: string[]) => (
+    sourceIds.length > 0 && sourceIds.every((sourceId) => canDropToRoot(sourceId))
+  );
 
   const dropToRoot = async (sourceId: string) => {
     if (!canDropToRoot(sourceId)) return;
@@ -1271,6 +1481,22 @@ export function KnowledgeTreePanel({
       actions.refreshNotebooks();
       actions.refreshNotes();
       toast.success("已移动到根目录");
+    } catch (caughtError: unknown) {
+      const requestError = caughtError as Error & { code?: string };
+      toast.error(requestError?.message || "移动到根目录失败");
+    }
+  };
+
+  const dropBatchToRoot = async (sourceIds: string[]) => {
+    if (!canDropIdsToRoot(sourceIds)) return;
+    try {
+      await knowledgeTreeApi.batchMove(sourceIds, { parentId: null });
+      clearSelection();
+      await reload();
+      emitTreeChanged("nodes-batch-moved");
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+      toast.success(`已将 ${sourceIds.length} 项移动到根目录`);
     } catch (caughtError: unknown) {
       const requestError = caughtError as Error & { code?: string };
       toast.error(requestError?.message || "移动到根目录失败");
@@ -1313,6 +1539,7 @@ export function KnowledgeTreePanel({
     return (
       <div
         key={`inline-create:${draft.parentId ?? "root"}`}
+        data-knowledge-tree-inline-draft=""
         className={cn(
           "rounded-md bg-accent-primary/5",
           draft.error && "bg-red-500/5",
@@ -1411,22 +1638,39 @@ export function KnowledgeTreePanel({
               && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/50",
           )}
           style={{ paddingLeft: `${depth * treeIndent + treeInset}px` }}
-          draggable={!query.trim() && node.access.capabilities.canMove && !isSharedRoot(node)}
+          draggable={node.access.capabilities.canMove && !isSharedRoot(node)}
           onDragStart={(event) => {
+            const batchIds = selectedNodeIds.has(node.id) && topLevelSelectedNodes.length > 1
+              ? topLevelSelectedNodes
+                .filter((item) => item.access.capabilities.canMove && !isSharedRoot(item))
+                .map((item) => item.id)
+              : [node.id];
+            const dragIds = batchIds.length > 0 ? batchIds : [node.id];
             draggedTreeNodeIdRef.current = node.id;
+            draggedTreeNodeIdsRef.current = dragIds;
             setDraggedTreeNodeId(node.id);
+            setDraggedTreeNodeIds(dragIds);
             setRootDropActive(false);
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("application/x-nowen-tree-node", node.id);
+            event.dataTransfer.setData("application/x-nowen-tree-nodes", JSON.stringify(dragIds));
           }}
           onDragOver={(event) => {
             if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
             event.preventDefault();
             event.stopPropagation();
-            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            const sourceIds = resolveDragSourceIds(event);
             const rect = event.currentTarget.getBoundingClientRect();
-            const placement = resolveKnowledgeTreeDropPlacement(event.clientY, rect.top, rect.height);
-            if (!canDropWithTarget(sourceId, node, placement)) {
+            const placement = sourceIds.length > 1
+              ? "inside"
+              : resolveKnowledgeTreeActiveDropPlacement(event.clientY, rect.top, rect.height, {
+                isFiltered: Boolean(query.trim()),
+                sortMode: currentSortMode,
+              });
+            const allowed = sourceIds.length > 1
+              ? canMoveBatchIntoTarget(sourceIds, node)
+              : (sourceIds.length === 1 && canDropWithTarget(sourceIds[0], node, placement));
+            if (!allowed) {
               event.dataTransfer.dropEffect = "none";
               setTreeDropTarget(null);
               return;
@@ -1442,14 +1686,28 @@ export function KnowledgeTreePanel({
             if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
             event.preventDefault();
             event.stopPropagation();
-            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            const sourceIds = resolveDragSourceIds(event);
             const rect = event.currentTarget.getBoundingClientRect();
-            const placement = resolveKnowledgeTreeDropPlacement(event.clientY, rect.top, rect.height);
+            const placement = sourceIds.length > 1
+              ? "inside"
+              : resolveKnowledgeTreeActiveDropPlacement(event.clientY, rect.top, rect.height, {
+                isFiltered: Boolean(query.trim()),
+                sortMode: currentSortMode,
+              });
             setTreeDropTarget(null);
             setDraggedTreeNodeId(null);
+            setDraggedTreeNodeIds([]);
             setRootDropActive(false);
             draggedTreeNodeIdRef.current = null;
-            if (!canDropWithTarget(sourceId, node, placement)) return;
+            draggedTreeNodeIdsRef.current = [];
+            if (sourceIds.length > 1) {
+              if (canMoveBatchIntoTarget(sourceIds, node)) {
+                void dropBatchIntoNode(sourceIds, node);
+              }
+              return;
+            }
+            const sourceId = sourceIds[0] || "";
+            if (!sourceId || !canDropWithTarget(sourceId, node, placement)) return;
             if (placement === "inside") {
               void dropIntoNode(sourceId, node);
             } else {
@@ -1458,7 +1716,9 @@ export function KnowledgeTreePanel({
           }}
           onDragEnd={() => {
             draggedTreeNodeIdRef.current = null;
+            draggedTreeNodeIdsRef.current = [];
             setDraggedTreeNodeId(null);
+            setDraggedTreeNodeIds([]);
             setRootDropActive(false);
             setTreeDropTarget(null);
           }}
@@ -1600,8 +1860,8 @@ export function KnowledgeTreePanel({
         </div>
         {isExpanded && (
           <>
-            {childNodes.map((child) => renderNode(child, depth + 1))}
             {draft?.parentId === node.id && renderDraft(depth + 1)}
+            {childNodes.map((child) => renderNode(child, depth + 1))}
           </>
         )}
       </div>
@@ -1612,7 +1872,6 @@ export function KnowledgeTreePanel({
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
   const ownedNotebookCount = nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length;
-  const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;
   const compactToolbar = variant === "mobile"
     || workspaceSurface === "web"
@@ -1839,8 +2098,10 @@ export function KnowledgeTreePanel({
       )}
 
       <div
+        ref={scrollContainerRef}
         className={cn(
-          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3",
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1",
+          variant === "mobile" && (draft || inlineRenameNodeId) ? "pb-[55vh]" : "pb-3",
           controlsCollapsed && "pt-1.5",
         )}
         data-swipe-blocker="knowledge-tree-scroll"
@@ -1902,8 +2163,8 @@ export function KnowledgeTreePanel({
                     </span>
                   )}
                 </div>
-                {ownedRoots.map((node) => renderNode(node, 0))}
                 {hasRootDraft && renderDraft(0)}
+                {ownedRoots.map((node) => renderNode(node, 0))}
               </div>
             )}
             {sharedRoots.length > 0 && (
@@ -1971,12 +2232,22 @@ export function KnowledgeTreePanel({
             }}
           />
         )}
-        {movingNode && <MovePanel node={movingNode} nodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))} children={allChildren} onMoved={() => void reload()} onClose={() => setMovingNode(null)} />}
+        {movingNode && (
+          <MovePanel
+            node={movingNode}
+            nodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))}
+            children={allChildren}
+            sortMode={currentSortMode}
+            onMoved={() => void reload()}
+            onClose={() => setMovingNode(null)}
+          />
+        )}
         {batchMoving && (
           <KnowledgeTreeBatchMovePanel
             selectedNodes={selectedNodes}
             nodes={visibleNodes}
             targetNodes={visibleNodes.filter((node) => isFolderUnlocked(node, unlockedFolderIds))}
+            sortMode={currentSortMode}
             onMoved={() => {
               clearSelection();
               emitTreeChanged("nodes-batch-moved");
@@ -1986,7 +2257,12 @@ export function KnowledgeTreePanel({
         )}
       </div>
       {/* Keep the root target outside the scroll flow so starting a child drag never shifts its source. */}
-      {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
+      {(() => {
+        const activeDraggedIds = draggedTreeNodeIds.length > 0
+          ? draggedTreeNodeIds
+          : (draggedTreeNodeId ? [draggedTreeNodeId] : []);
+        return activeDraggedIds.length > 0 && canDropIdsToRoot(activeDraggedIds);
+      })() && (
         <div
           data-knowledge-tree-root-drop=""
           className={cn(
@@ -1997,8 +2273,8 @@ export function KnowledgeTreePanel({
           )}
           onDragOver={(event) => {
             if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
-            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
-            if (!canDropToRoot(sourceId)) return;
+            const sourceIds = resolveDragSourceIds(event);
+            if (!canDropIdsToRoot(sourceIds)) return;
             event.preventDefault();
             event.stopPropagation();
             event.dataTransfer.dropEffect = "move";
@@ -2010,15 +2286,26 @@ export function KnowledgeTreePanel({
             if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
             event.preventDefault();
             event.stopPropagation();
-            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            const sourceIds = resolveDragSourceIds(event);
             setRootDropActive(false);
             setDraggedTreeNodeId(null);
+            setDraggedTreeNodeIds([]);
             draggedTreeNodeIdRef.current = null;
-            if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
+            draggedTreeNodeIdsRef.current = [];
+            if (!canDropIdsToRoot(sourceIds)) return;
+            if (sourceIds.length > 1) {
+              void dropBatchToRoot(sourceIds);
+            } else {
+              void dropToRoot(sourceIds[0]);
+            }
           }}
         >
-          <TreePine size={14} />
-          <span>{t("auditI18n.moveToRoot")}</span>
+          <TreePine size={14} className="shrink-0" />
+          <span>
+            {draggedTreeNodeIds.length > 1
+              ? `将 ${draggedTreeNodeIds.length} 项移动到根目录`
+              : t("auditI18n.moveToRoot")}
+          </span>
         </div>
       )}
       <KnowledgeTreeNodeMenu

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   workspaceId: "personal",
   localMode: false,
   showTemplateManagement: true,
+  templates: [{ id: "tpl-1", name: "周报模板" }] as Array<{ id: string; name: string }>,
   actions: { setNotebooks: vi.fn(), setTags: vi.fn(), setMobileSidebar: vi.fn() },
 }));
 
@@ -46,6 +47,12 @@ vi.mock("@/lib/api", () => ({
   getCurrentWorkspace: () => mocks.workspaceId,
   api: { getNotebooks: async () => [], getTags: async () => [] },
 }));
+vi.mock("@/lib/noteTemplatesApi", () => ({
+  NOTE_TEMPLATES_CHANGED_EVENT: "nowen:note-templates-changed",
+  noteTemplatesApi: {
+    list: async () => ({ templates: mocks.templates }),
+  },
+}));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -59,6 +66,7 @@ describe("sidebar template management", () => {
     mocks.workspaceId = "personal";
     mocks.localMode = false;
     mocks.showTemplateManagement = true;
+    mocks.templates = [{ id: "tpl-1", name: "周报模板" }];
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -93,6 +101,24 @@ describe("sidebar template management", () => {
     mocks.showTemplateManagement = true;
     await act(async () => root.render(<Sidebar variant={variant} />));
     expect(host.textContent).toContain("sidebar.templateManagement");
+  });
+
+  it("hides template management when there are no templates and updates dynamically when templates change", async () => {
+    mocks.templates = [];
+    await act(async () => root.render(<Sidebar variant="desktop" />));
+    expect(host.textContent).not.toContain("sidebar.templateManagement");
+
+    mocks.templates = [{ id: "tpl-new", name: "会议纪要" }];
+    await act(async () => {
+      window.dispatchEvent(new Event("nowen:note-templates-changed"));
+    });
+    expect(host.textContent).toContain("sidebar.templateManagement");
+
+    mocks.templates = [];
+    await act(async () => {
+      window.dispatchEvent(new Event("nowen:note-templates-changed"));
+    });
+    expect(host.textContent).not.toContain("sidebar.templateManagement");
   });
 
   it("offers personal templates and keeps the server-only library out of native device mode", async () => {

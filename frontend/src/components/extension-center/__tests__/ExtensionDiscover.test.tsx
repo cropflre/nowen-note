@@ -132,4 +132,35 @@ describe("Extension Center discover", () => {
     await flush();
     expect(mocks.api.list.mock.calls.length).toBe(before + 1);
   });
+
+  it("toggles the plugin package developer guide with AI prompt copy and doc links", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    await render();
+    expect(host.querySelector("#extension-center-dev-guide")).toBeNull();
+    await click(buttons("extensionCenter.devGuide.button")[0]);
+    const guide = host.querySelector("#extension-center-dev-guide");
+    expect(guide).not.toBeNull();
+
+    const textarea = guide!.querySelector("textarea") as HTMLTextAreaElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    await act(async () => {
+      setValue.call(textarea, "把选中文字转为待办清单");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(buttons("extensionCenter.devGuide.copyAiPrompt")[0]);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copiedPrompt = writeText.mock.calls[0][0] as string;
+    expect(copiedPrompt).toContain("把选中文字转为待办清单");
+    expect(copiedPrompt).toContain("globalThis.__nowenPluginModule");
+    expect(copiedPrompt).toContain(".nowen-plugin");
+
+    const links = [...guide!.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    expect(links).toContain("https://nowen.cn/#/note/tutorials");
+    expect(links).toContain("https://github.com/cropflre/nowen-note/blob/main/docs/plugin-platform/ai-foolproof-plugin-guide.md");
+    expect(links).toContain("https://github.com/cropflre/nowen-note/blob/main/docs/plugin-platform/plugin-author-guide-v16.md");
+  });
 });

@@ -83,6 +83,22 @@ export interface KnowledgePermissionsResponse {
   currentUserAccess: EffectiveKnowledgeAccess;
 }
 
+export interface KnowledgeGroupGrantResponse {
+  success: true;
+  groupId: string;
+  groupName: string;
+  rolePreset: KnowledgeRolePreset;
+  appliedCount: number;
+}
+
+export interface KnowledgeEffectivePermissionDiagnosis {
+  user: { id: string; username: string; displayName: string | null };
+  workspaceRole: string | null;
+  effective: EffectiveKnowledgeAccess;
+  sourceNodeTitle: string | null;
+  explanation: string;
+}
+
 function apiBase(): string {
   return `${getBaseUrl()}/knowledge-tree`;
 }
@@ -145,7 +161,7 @@ export const knowledgeTreeApi = {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
-  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext"; sheetData?: SheetDataModel; excelData?: Record<string, unknown> }) {
+  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext"; sheetData?: SheetDataModel }) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery()}`, {
       method: "POST",
       body: JSON.stringify(input),
@@ -161,7 +177,7 @@ export const knowledgeTreeApi = {
 
   createForWorkspace(
     workspaceId: string,
-    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext" },
+    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext" },
   ) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery(false, workspaceId)}`, {
       method: "POST",
@@ -240,6 +256,19 @@ export const knowledgeTreeApi = {
     return request<{ success: true; removed: boolean; effective: EffectiveKnowledgeAccess }>(
       `/nodes/${encodeURIComponent(nodeId)}/permissions/${encodeURIComponent(userId)}`,
       { method: "DELETE" },
+    );
+  },
+
+  grantGroupPermission(nodeId: string, groupId: string, rolePreset: KnowledgeRolePreset) {
+    return request<KnowledgeGroupGrantResponse>(
+      `/nodes/${encodeURIComponent(nodeId)}/permissions/grant-group`,
+      { method: "POST", body: JSON.stringify({ groupId, rolePreset }) },
+    );
+  },
+
+  getEffectivePermission(nodeId: string, userId: string) {
+    return request<KnowledgeEffectivePermissionDiagnosis>(
+      `/nodes/${encodeURIComponent(nodeId)}/permissions/effective?userId=${encodeURIComponent(userId)}`,
     );
   },
 

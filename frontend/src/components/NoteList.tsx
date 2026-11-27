@@ -3,7 +3,7 @@ import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileSpreadsheet, FileType2, Table2, Trash2, Menu, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -11,6 +11,15 @@ import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermission
 import ShareModal from "@/components/ShareModal";
 import { buildNoteContextMenuLayout } from "@/components/noteContextMenuLayout";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
+import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
+import {
+  MOBILE_LITE_CLOSE_SEARCH_EVENT,
+  MOBILE_LITE_OPEN_DIRECTORY_EVENT,
+  MOBILE_LITE_OPEN_SEARCH_EVENT,
+  MOBILE_LITE_SCROLL_LIST_TOP_EVENT,
+  MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT,
+} from "@/lib/mobileLiteMode";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -43,6 +52,8 @@ import {
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
 import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import {
   hideLockedFolderDescendants,
   KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT,
@@ -66,6 +77,11 @@ import { KNOWLEDGE_TREE_REVEAL_NOTE_EVENT, revealCreatedKnowledgeTreeNote } from
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { compactNotebookLabels, noteListPreview, noteListRowHeight } from "@/lib/noteListPresentation";
+import {
+  buildNoteParentMetaMap,
+  findNotesMatchingParentPath,
+  type NoteParentDisplayMeta,
+} from "@/lib/noteParentContext";
 import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 import { NOTE_COLOR_MARK_OPTIONS, isNoteColorMark } from "@/lib/noteColorMark";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
@@ -1081,7 +1097,7 @@ export const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime, showDivider = false, notebookLabel, notebookPath, dragHint, titleOnly = false,
+  showNoteTime, showDivider = false, notebookLabel, notebookPath, parentIsDocument = false, dragHint, titleOnly = false,
   sidebarTextStyle, rowHeight,
   animateEnter = true, layoutDependency,
 }: {
@@ -1113,6 +1129,7 @@ export const NoteCard = React.memo(function NoteCard({
   showDivider?: boolean;
   notebookLabel?: string;
   notebookPath?: string;
+  parentIsDocument?: boolean;
   titleOnly?: boolean;
   dragHint?: string;
   sidebarTextStyle: SidebarTextStyle;
@@ -1220,7 +1237,19 @@ export const NoteCard = React.memo(function NoteCard({
             )}
           </h3>
           <div className="flex items-center gap-1 shrink-0">
-            {note.contentFormat === "markdown" ? (
+            {note.noteType === "excel" ? (
+              <span className="text-emerald-600 dark:text-emerald-400" title="Excel 表格" aria-label="Excel 表格">
+                <FileSpreadsheet size={12} />
+              </span>
+            ) : note.noteType === "sheet" ? (
+              <span className="text-sky-500" title={t('note.format.sheet', { defaultValue: '表格' })} aria-label={t('note.format.sheet', { defaultValue: '表格' })}>
+                <Table2 size={12} />
+              </span>
+            ) : note.noteType === "word" ? (
+              <span className="text-blue-500" title="Word 文档" aria-label="Word 文档">
+                <FileType2 size={12} />
+              </span>
+            ) : note.contentFormat === "markdown" ? (
               <span className="text-emerald-600 dark:text-emerald-400" title={t('note.format.markdown')} aria-label={t('note.format.markdown')}>
                 <FileCode size={12} />
               </span>
@@ -1263,9 +1292,11 @@ export const NoteCard = React.memo(function NoteCard({
         {!compactTitleOnly && (showNoteTime || notebookLabel || showCreator) && (
           <div className={cn("note-card-metadata flex min-w-0 items-center gap-2 mt-auto", classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary", "leading-snug")}>
             {notebookLabel && (
-              <span className="flex flex-1 min-w-0 items-center gap-1" title={notebookPath || notebookLabel}>
-                <Folder size={10} className="shrink-0" />
-                <span className="truncate">{notebookLabel}</span>
+              <span className="flex flex-1 min-w-0 items-center gap-1 text-tx-tertiary" title={notebookPath || notebookLabel}>
+                {parentIsDocument ? <FileText size={10} className="shrink-0" /> : <Folder size={10} className="shrink-0" />}
+                <span className="truncate">
+                  {isSearchResult && searchQuery ? highlightTextNode(notebookLabel, searchQuery) : notebookLabel}
+                </span>
               </span>
             )}
             {showCreator && <span className="shrink-0" title={t('common.createdBy', { name: note.creatorName })} aria-label={t('common.createdBy', { name: note.creatorName })}><UserIcon size={11} /></span>}
@@ -1310,6 +1341,8 @@ export function VirtualNoteList({
   showDividers,
   showNotebookLabel,
   notebookLabels,
+  noteParentMetaMap,
+  resolveParentLabel,
   dragHint,
   sidebarTextStyle,
   titleOnly = false,
@@ -1339,6 +1372,8 @@ export function VirtualNoteList({
   showDividers?: boolean;
   showNotebookLabel?: boolean;
   notebookLabels?: Map<string, { text: string; path: string }>;
+  noteParentMetaMap?: Map<string, NoteParentDisplayMeta>;
+  resolveParentLabel?: (note: NoteListItem) => { label?: string; path?: string; parentIsDocument?: boolean };
   dragHint?: string;
   sidebarTextStyle: SidebarTextStyle;
   titleOnly?: boolean;
@@ -1428,7 +1463,15 @@ export function VirtualNoteList({
       <div style={{ height: totalHeight, position: "relative" }}>
         <span ref={textMeasureRef} aria-hidden="true" className="absolute invisible pointer-events-none text-sm leading-normal">字</span>
         <div className="px-2 space-y-1" style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
-          {visibleNotes.map((note, visibleIndex) => (
+          {visibleNotes.map((note, visibleIndex) => {
+            const resolvedParent = resolveParentLabel
+              ? resolveParentLabel(note)
+              : {
+                label: showNotebookLabel ? (noteParentMetaMap?.get(note.id)?.label ?? notebookLabels?.get(note.notebookId)?.text) : undefined,
+                path: showNotebookLabel ? (noteParentMetaMap?.get(note.id)?.path ?? notebookLabels?.get(note.notebookId)?.path) : undefined,
+                parentIsDocument: showNotebookLabel ? Boolean(noteParentMetaMap?.get(note.id)?.parentIsDocument) : false,
+              };
+            return (
             <NoteCard
               key={note.id}
               cardRef={(el) => {
@@ -1459,11 +1502,13 @@ export function VirtualNoteList({
               showNoteTime={showNoteTime}
               showDivider={!!showDividers && startIndex + visibleIndex < notes.length - 1}
               titleOnly={titleOnly}
-              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.text : undefined}
-              notebookPath={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.path : undefined}
+              notebookLabel={resolvedParent.label}
+              notebookPath={resolvedParent.path}
+              parentIsDocument={resolvedParent.parentIsDocument}
               dragHint={dragHint}
             />
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1536,7 +1581,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   }, []);
 
   useEffect(() => {
-    if (!showThreeColumnFolderContents) {
+    if (isMobileLocalMode()) {
       setFolderTreeNodes([]);
       return;
     }
@@ -1555,7 +1600,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         ).values());
         if (active) setFolderTreeNodes(merged);
       } catch (error) {
-        console.warn("[NoteList] load three-column folder contents failed", error);
+        console.warn("[NoteList] load knowledge tree context failed", error);
         if (active) setFolderTreeNodes([]);
       }
     };
@@ -1569,12 +1614,14 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       window.removeEventListener("nowen:workspace-changed", refresh);
       window.removeEventListener("nowen:knowledge-tree-changed", refresh);
     };
-  }, [showThreeColumnFolderContents, state.notesRefreshToken]);
+  }, [state.notesRefreshToken]);
 
   const visibleFolderTreeNodes = useMemo(
     () => hideLockedFolderDescendants(folderTreeNodes, unlockedFolderIds),
     [folderTreeNodes, unlockedFolderIds],
   );
+  const visibleFolderTreeNodesRef = useRef<KnowledgeTreeNode[]>(visibleFolderTreeNodes);
+  visibleFolderTreeNodesRef.current = visibleFolderTreeNodes;
   const selectedKnowledgeTreeParentId = useMemo((): string | null | undefined => {
     if (state.selectedKnowledgeTreeParentId !== undefined) {
       return state.selectedKnowledgeTreeParentId;
@@ -1640,6 +1687,79 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const titleOnly = userPrefs.prefs.noteListTitleOnly;
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortBtnRef = useRef<HTMLButtonElement | null>(null);
+  const { active: mobileLiteActive } = useMobileLiteMode();
+  const [liteSearchOpen, setLiteSearchOpen] = useState(false);
+  const [liteSearchText, setLiteSearchText] = useState("");
+  const liteSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const previousViewBeforeLiteSearchRef = useRef<"all" | "notebook" | "favorites" | "tag">("all");
+  const isMobileInlineSearchActive = liteSearchOpen || (mobileLiteActive && state.viewMode === "search");
+
+  const openMobileInlineSearch = useCallback(() => {
+    if (state.viewMode === "all" || state.viewMode === "notebook" || state.viewMode === "favorites" || state.viewMode === "tag") {
+      previousViewBeforeLiteSearchRef.current = state.viewMode;
+    }
+    setLiteSearchText(state.viewMode === "search" ? state.searchQuery : "");
+    setLiteSearchOpen(true);
+    requestAnimationFrame(() => {
+      liteSearchInputRef.current?.focus();
+    });
+  }, [state.searchQuery, state.viewMode]);
+
+  const closeLiteSearch = useCallback(() => {
+    setLiteSearchOpen(false);
+    setLiteSearchText("");
+    window.dispatchEvent(new CustomEvent(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, { detail: { focused: false } }));
+    if (state.viewMode === "search" || state.searchQuery) {
+      actions.setSearchQuery("");
+      const fallbackView = previousViewBeforeLiteSearchRef.current === "notebook" && !state.selectedNotebookId
+        ? "all"
+        : previousViewBeforeLiteSearchRef.current;
+      actions.setViewMode(fallbackView);
+    }
+  }, [actions, state.searchQuery, state.selectedNotebookId, state.viewMode]);
+
+  useEffect(() => {
+    const onOpenSearch = () => openMobileInlineSearch();
+    const onCloseSearch = () => {
+      setLiteSearchOpen(false);
+      setLiteSearchText("");
+      window.dispatchEvent(new CustomEvent(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, { detail: { focused: false } }));
+    };
+    const onScrollTop = () => {
+      const viewport = scrollAreaRef.current?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
+      viewport?.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener(MOBILE_LITE_OPEN_SEARCH_EVENT, onOpenSearch);
+    window.addEventListener(MOBILE_LITE_CLOSE_SEARCH_EVENT, onCloseSearch);
+    window.addEventListener(MOBILE_LITE_SCROLL_LIST_TOP_EVENT, onScrollTop);
+    return () => {
+      window.removeEventListener(MOBILE_LITE_OPEN_SEARCH_EVENT, onOpenSearch);
+      window.removeEventListener(MOBILE_LITE_CLOSE_SEARCH_EVENT, onCloseSearch);
+      window.removeEventListener(MOBILE_LITE_SCROLL_LIST_TOP_EVENT, onScrollTop);
+    };
+  }, [openMobileInlineSearch]);
+
+  useEffect(() => {
+    if (!isMobileInlineSearchActive) return;
+    return registerMobileBackHandler("sheet", () => {
+      closeLiteSearch();
+      return true;
+    });
+  }, [closeLiteSearch, isMobileInlineSearchActive]);
+
+  useEffect(() => {
+    if (!liteSearchOpen) return;
+    const trimmed = liteSearchText.trim();
+    const timer = window.setTimeout(() => {
+      if (trimmed) {
+        actions.setSearchQuery(trimmed);
+        if (state.viewMode !== "search") actions.setViewMode("search");
+      } else if (state.viewMode === "search") {
+        actions.setSearchQuery("");
+      }
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [actions, liteSearchOpen, liteSearchText, state.viewMode]);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [dragOverNoteId, setDragOverNoteId] = useState<string | null>(null);
@@ -1762,6 +1882,36 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           updatedAt: r.updatedAt,
           matchedField: r.matchedField,
         }));
+        if (!isMobileLocalMode()) {
+          let treeNodesForSearch = visibleFolderTreeNodesRef.current;
+          if (treeNodesForSearch.length === 0) {
+            try {
+              const [ownedResult, sharedResult] = await Promise.allSettled([
+                knowledgeTreeApi.list(),
+                knowledgeTreeApi.listShared(),
+              ]);
+              if (ownedResult.status === "fulfilled") {
+                const sharedNodes = sharedResult.status === "fulfilled" ? sharedResult.value.nodes : [];
+                const merged = Array.from(new Map(
+                  [...ownedResult.value.nodes, ...sharedNodes].map((node) => [node.id, node]),
+                ).values());
+                treeNodesForSearch = hideLockedFolderDescendants(merged, loadUnlockedFolderIds());
+              }
+            } catch {
+              // 知识树不可用时不影响原有全文搜索结果
+            }
+          }
+          if (treeNodesForSearch.length > 0) {
+            const parentMatchedNotes = findNotesMatchingParentPath({
+              visibleTreeNodes: treeNodesForSearch,
+              query: state.searchQuery,
+              existingNoteIds: new Set(notes.map((item) => item.id)),
+            });
+            if (parentMatchedNotes.length > 0) {
+              notes = [...notes, ...parentMatchedNotes];
+            }
+          }
+        }
       } else if (state.viewMode === "tag" && state.selectedTagIds.length > 0) {
         // TAG-FILTER-MULTI-01: 多标签联合筛选
         const params: Record<string, string> = { ...sortParams };
@@ -1948,7 +2098,10 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     : sortedNotes.length;
 
   const hasActiveFilters = directorySearchActive || !!dateFilter || state.selectedTagIds.length > 0;
-  const showNotebookLabel = state.viewMode === "all";
+  const showNotebookLabel = state.viewMode === "all"
+    || state.viewMode === "search"
+    || state.viewMode === "favorites"
+    || state.viewMode === "tag";
   const notebookLabels = useMemo(() => {
     const paths = new Map<string, string>();
     if (!showNotebookLabel) return compactNotebookLabels(paths);
@@ -1960,6 +2113,45 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     }
     return compactNotebookLabels(paths);
   }, [showNotebookLabel, sortedNotes, state.notebooks, t]);
+
+  const noteParentMetaMap = useMemo(() => buildNoteParentMetaMap({
+    notes: sortedNotes,
+    visibleTreeNodes: visibleFolderTreeNodes,
+    notebooks: state.notebooks,
+    unknownNotebookLabel: t("noteList.unknownNotebook"),
+  }), [sortedNotes, state.notebooks, t, visibleFolderTreeNodes]);
+
+  const resolveNoteParentLabel = useCallback((note: NoteListItem): {
+    label?: string;
+    path?: string;
+    parentIsDocument?: boolean;
+  } => {
+    const meta = noteParentMetaMap.get(note.id);
+    if (showNotebookLabel) {
+      if (meta) {
+        return {
+          label: meta.label,
+          path: meta.path,
+          parentIsDocument: meta.parentIsDocument,
+        };
+      }
+      const fallback = notebookLabels.get(note.notebookId);
+      return { label: fallback?.text, path: fallback?.path, parentIsDocument: false };
+    }
+    // 目录视图下：如果笔记挂在某个父文档或子目录下，同样带出其直接上级名称（如产品规格名）
+    if (
+      state.viewMode === "notebook"
+      && meta
+      && (meta.parentIsDocument || (meta.parentNodeId && meta.parentNodeId !== selectedKnowledgeTreeParentId))
+    ) {
+      return {
+        label: meta.label,
+        path: meta.path,
+        parentIsDocument: meta.parentIsDocument,
+      };
+    }
+    return {};
+  }, [noteParentMetaMap, notebookLabels, selectedKnowledgeTreeParentId, showNotebookLabel, state.viewMode]);
 
   // 监听 WebSocket：外部导入 / 同账号其它设备保存后自动刷新列表
   useEffect(() => {
@@ -2130,6 +2322,16 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       // 这里选择"先退出多选、再正常打开"：更直观
     }
 
+    const pending = sortedNotes.find((note) => note.id === noteId);
+    if (pending?.noteType === "sheet" || pending?.noteType === "excel") {
+      haptic.selection();
+      setLastClickedId(noteId);
+      try { window.dispatchEvent(new CustomEvent("nowen:before-note-switch")); } catch { /* ignore */ }
+      if (pending.noteType === "excel") pushExcelAppPath(noteId);
+      else pushSheetAppPath(noteId);
+      return;
+    }
+
     // 如果点击的是当前已激活的笔记，跳过重复加载
     if (state.activeNote?.id === noteId) {
       if (state.noteLoadingState.pendingNoteId && state.noteLoadingState.pendingNoteId !== noteId) {
@@ -2157,7 +2359,6 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
 
     // 移动端立即进入编辑器，但视觉 Loading 延迟 150ms；快请求不会闪烁。
     actions.setMobileView("editor");
-    const pending = sortedNotes.find((note) => note.id === noteId);
 
     await loadNote({
       noteId,
@@ -2168,6 +2369,14 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       },
       request: () => api.getNote(noteId),
       onSuccess: (note) => {
+        if (note.noteType === "sheet") {
+          pushSheetAppPath(note.id);
+          return;
+        }
+        if (note.noteType === "excel") {
+          pushExcelAppPath(note.id);
+          return;
+        }
         actions.setActiveNote(note);
         if (userPrefs.prefs.enableNoteTabs) {
           actions.openNoteTab({
@@ -2681,13 +2890,20 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           id: "convert_format",
           label: targetNote.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
-          disabled: targetNote.isLocked === 1 || targetNote.contentFormat === "plaintext",
+          disabled: targetNote.isLocked === 1
+            || targetNote.contentFormat === "plaintext"
+            || targetNote.noteType === "sheet"
+            || targetNote.noteType === "excel"
+            || targetNote.noteType === "word",
         },
         {
           id: "save_as_template",
           label: t("note.contextMenu.saveAsTemplate"),
           icon: <LayoutTemplate size={14} />,
           disabled: targetNote.isLocked === 1
+            || targetNote.noteType === "sheet"
+            || targetNote.noteType === "excel"
+            || targetNote.noteType === "word"
             || (targetNote.contentFormat !== "markdown" && targetNote.contentFormat !== "tiptap-json"),
         },
         { id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> },
@@ -2890,8 +3106,6 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
           actions.setSelectedNotebook(duplicated.notebookId);
           actions.setSelectedKnowledgeTreeParent(duplicated.treeParentId);
           actions.clearSelectedTags();
-          actions.setViewMode("notebook");
-          actions.setActiveNote(duplicated);
           actions.addNoteToList({
             id: duplicated.id,
             userId: duplicated.userId,
@@ -2909,18 +3123,27 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
             updatedAt: duplicated.updatedAt,
             createdAt: duplicated.createdAt,
             contentFormat: duplicated.contentFormat,
+            noteType: duplicated.noteType,
           } as NoteListItem);
-          if (userPrefs.prefs.enableNoteTabs) {
-            actions.openNoteTab({
-              id: duplicated.id,
-              title: duplicated.title,
-              notebookId: duplicated.notebookId,
-              workspaceId: duplicated.workspaceId,
-              contentFormat: duplicated.contentFormat,
-              isLocked: duplicated.isLocked,
-              isTrashed: duplicated.isTrashed,
-              updatedAt: duplicated.updatedAt,
-            });
+          if (duplicated.noteType === "excel") {
+            pushExcelAppPath(duplicated.id);
+          } else if (duplicated.noteType === "sheet") {
+            pushSheetAppPath(duplicated.id);
+          } else {
+            actions.setViewMode("notebook");
+            actions.setActiveNote(duplicated);
+            if (userPrefs.prefs.enableNoteTabs) {
+              actions.openNoteTab({
+                id: duplicated.id,
+                title: duplicated.title,
+                notebookId: duplicated.notebookId,
+                workspaceId: duplicated.workspaceId,
+                contentFormat: duplicated.contentFormat,
+                isLocked: duplicated.isLocked,
+                isTrashed: duplicated.isTrashed,
+                updatedAt: duplicated.updatedAt,
+              });
+            }
           }
           actions.setMobileView("editor");
           window.requestAnimationFrame(() => revealCreatedKnowledgeTreeNote(duplicated.treeParentId));
@@ -3543,6 +3766,118 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   return (
     <div className="w-full min-w-0 h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
+      {mobileLiteActive || isMobileInlineSearchActive ? (
+        <header
+          data-mobile-lite-list-header=""
+          className="flex items-center justify-between gap-2 px-3 py-2 border-b border-app-border bg-app-surface md:hidden relative z-40 shrink-0"
+          style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}
+        >
+          {isMobileInlineSearchActive ? (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-app-border bg-app-bg px-3 min-h-[44px] focus-within:border-accent-primary">
+                <Search size={16} className="shrink-0 text-tx-tertiary" aria-hidden="true" />
+                <input
+                  ref={liteSearchInputRef}
+                  data-mobile-lite-search-input=""
+                  type="search"
+                  inputMode="search"
+                  autoComplete="off"
+                  value={liteSearchText}
+                  onChange={(e) => setLiteSearchText(e.target.value)}
+                  onFocus={() => {
+                    window.dispatchEvent(new CustomEvent(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, { detail: { focused: true } }));
+                  }}
+                  onBlur={() => {
+                    window.dispatchEvent(new CustomEvent(MOBILE_LITE_SEARCH_FOCUS_CHANGED_EVENT, { detail: { focused: false } }));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      closeLiteSearch();
+                    }
+                  }}
+                  placeholder={t("mobileLite.header.searchPlaceholder")}
+                  aria-label={t("mobileLite.header.searchPlaceholder")}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
+                />
+                {liteSearchText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLiteSearchText("");
+                      actions.setSearchQuery("");
+                      liteSearchInputRef.current?.focus();
+                    }}
+                    aria-label={t("mobileLite.header.clearSearch")}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-tx-tertiary active:bg-app-hover"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                data-mobile-lite-search-cancel=""
+                onClick={closeLiteSearch}
+                className="min-h-[44px] shrink-0 rounded-xl px-2.5 text-sm font-medium text-accent-primary active:bg-app-hover"
+              >
+                {t("mobileLite.header.cancelSearch")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                data-mobile-lite-directory-trigger=""
+                onClick={() => window.dispatchEvent(new Event(MOBILE_LITE_OPEN_DIRECTORY_EVENT))}
+                aria-label={t("mobileLite.header.switchDirectory")}
+                className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1.5 rounded-xl px-2 -ml-1 text-left active:bg-app-hover"
+              >
+                <span className="truncate text-base font-semibold text-tx-primary">
+                  {viewTitles[state.viewMode] || t("noteList.allNotes")}
+                </span>
+                <ChevronDown size={16} className="shrink-0 text-tx-tertiary" />
+              </button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  data-mobile-lite-favorites-toggle=""
+                  onClick={() => {
+                    actions.setSelectedNotebook(null);
+                    actions.clearSelectedTags();
+                    actions.setViewMode(state.viewMode === "favorites" ? "all" : "favorites");
+                  }}
+                  aria-label={t("mobileLite.header.favoritesToggle")}
+                  aria-pressed={state.viewMode === "favorites"}
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-xl transition-colors",
+                    state.viewMode === "favorites"
+                      ? "bg-amber-500/12 text-amber-500"
+                      : "text-tx-secondary active:bg-app-hover",
+                  )}
+                >
+                  <Star size={19} className={state.viewMode === "favorites" ? "fill-current" : undefined} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
+                  aria-expanded={showSortMenu}
+                  aria-haspopup="menu"
+                  aria-label={t("noteList.sortBy")}
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-xl transition-colors",
+                    sortPref.by !== "manual"
+                      ? "bg-accent-primary/10 text-accent-primary"
+                      : "text-tx-secondary active:bg-app-hover",
+                  )}
+                >
+                  <ArrowUpDown size={19} />
+                </button>
+              </div>
+            </>
+          )}
+        </header>
+      ) : (
       <header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border md:hidden relative z-40" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
         <button
           onClick={() => actions.setMobileSidebar(true)}
@@ -3552,6 +3887,21 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         </button>
         <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
         <div className="flex shrink-0 items-center gap-1 relative">
+          <button
+            type="button"
+            data-mobile-list-search-trigger=""
+            onClick={openMobileInlineSearch}
+            aria-label={t("mobileLite.nav.search")}
+            title={t("mobileLite.nav.search")}
+            className={cn(
+              "p-1.5 rounded-md transition-colors",
+              state.viewMode === "search"
+                ? "text-accent-primary bg-accent-primary/10"
+                : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
+            )}
+          >
+            <Search size={18} />
+          </button>
           {aiAvailable && <button onClick={openAICollaboration} aria-label={t("aiCollaboration.entry")} title={t("aiCollaboration.entry")} className="shrink-0 rounded-lg p-2 text-accent-primary hover:bg-app-hover"><Sparkles size={18} /></button>}
           {/* 移动端排序按钮（搜索/回收站不显示） */}
           {state.viewMode !== "search" && (
@@ -3607,6 +3957,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
 
         </div>
       </header>
+      )}
 
       {/* Desktop Header */}
       <div
@@ -4084,6 +4435,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
             titleOnly={titleOnly}
             showNotebookLabel={showNotebookLabel}
             notebookLabels={notebookLabels}
+            noteParentMetaMap={noteParentMetaMap}
+            resolveParentLabel={resolveNoteParentLabel}
             dragHint={noteDragHint}
           />
         ) : (
@@ -4096,7 +4449,9 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
             key={sortedNotes.length === 0 ? "empty" : "list"}
             onExitComplete={() => setListExitSettleTick((tick) => tick + 1)}
           >
-            {sortedNotes.map((note, noteIndex) => (
+            {sortedNotes.map((note, noteIndex) => {
+              const resolvedParent = resolveNoteParentLabel(note);
+              return (
               <NoteCard
                 sidebarTextStyle={sidebarTextStyle}
                 key={note.id}
@@ -4125,11 +4480,13 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
                 showNoteTime={showNoteTime}
                 showDivider={showDividers && noteIndex < sortedNotes.length - 1}
                 titleOnly={titleOnly}
-                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId)?.text : undefined}
-                notebookPath={showNotebookLabel ? notebookLabels.get(note.notebookId)?.path : undefined}
+                notebookLabel={resolvedParent.label}
+                notebookPath={resolvedParent.path}
+                parentIsDocument={resolvedParent.parentIsDocument}
                 dragHint={noteDragHint}
               />
-            ))}
+              );
+            })}
           </AnimatePresence>
           {state.notes.length === 0 && !state.isLoading && notesLoadError && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
@@ -4232,8 +4589,8 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       </PullToRefresh>
       </div>
 
-      {/* Mobile FAB - 新建笔记（点击默认普通笔记，长按弹类型选择） */}
-
+      {/* Mobile FAB - 新建笔记（精简模式下由底部操作栏中央"+ 新建"承接，避免重复按钮） */}
+      {!mobileLiteActive && (
         <button
           ref={createMenuAnchorFabRef}
           onClick={() => handleCreateNote("normal")}
@@ -4246,6 +4603,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         >
           <Plus size={24} />
         </button>
+      )}
 
 
       {/* Note Context Menu */}

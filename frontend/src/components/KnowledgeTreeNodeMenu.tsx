@@ -10,6 +10,7 @@ import {
   FileArchive,
   FileCode,
   FilePlus,
+  FileSpreadsheet,
   FileText,
   FileType2,
   FolderInput,
@@ -19,16 +20,18 @@ import {
   LayoutTemplate,
   Lock,
   LockKeyhole,
-  MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
   Plus,
+  Presentation,
   Printer,
   Search,
   SearchX,
   ShieldCheck,
   Share2,
+  SlidersHorizontal,
+  Smile,
   SplitSquareHorizontal,
   SplitSquareVertical,
   Star,
@@ -47,6 +50,8 @@ import { confirm, prompt } from "@/components/ui/confirm";
 import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
+  importPptIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
@@ -60,6 +65,8 @@ import {
 } from "@/lib/exportService";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import {
   convertNoteContent,
   getNoteFormatConversionTarget,
@@ -105,7 +112,12 @@ function separator(id: string): ContextMenuItem {
   return { id, label: "", separator: true };
 }
 
-function exportChildren(t: TFunction): ContextMenuItem[] {
+function exportChildren(t: TFunction, isPpt = false): ContextMenuItem[] {
+  if (isPpt) {
+    return [
+      { id: "export_note_ppt", label: "PPTX", icon: <Presentation size={14} className="text-orange-500" /> },
+    ];
+  }
   return [
     { id: "export_note_md", label: "Markdown", icon: <Download size={14} /> },
     { id: "export_note_md_zip", label: t("noteList.exportAsMarkdownZip"), icon: <Download size={14} /> },
@@ -118,19 +130,24 @@ function exportChildren(t: TFunction): ContextMenuItem[] {
 
 function createChildren(t: TFunction): ContextMenuItem[] {
   return [
-    { id: "new_note", label: t("note.contextMenu.document"), icon: <FilePlus size={14} /> },
-    { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} /> },
-    { id: "new_mindmap", label: t("note.contextMenu.mindmap"), icon: <BrainCircuit size={14} /> },
-    { id: "new_folder", label: t("note.contextMenu.folder"), icon: <FolderPlus size={14} /> },
+    { id: "new_note", label: t("note.contextMenu.document"), icon: <FilePlus size={14} className="text-accent-primary" /> },
+    { id: "new_word", label: t("note.contextMenu.wordDocument"), icon: <FileType2 size={14} className="text-blue-500" /> },
+    { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} className="text-emerald-500" /> },
+    { id: "new_ppt", label: t("note.contextMenu.pptDocument"), icon: <Presentation size={14} className="text-orange-500" /> },
+    { id: "new_mindmap", label: t("note.contextMenu.mindmap"), icon: <BrainCircuit size={14} className="text-accent-primary" /> },
+    separator("sep-create-folder"),
+    { id: "new_folder", label: t("note.contextMenu.folder"), icon: <FolderPlus size={14} className="text-amber-500" /> },
   ];
 }
 
 function importChildren(): ContextMenuItem[] {
   return [
-    { id: "import_markdown", label: "Markdown", icon: <FileCode size={14} /> },
-    { id: "import_markdown_zip", label: "Markdown + 附件（ZIP）", icon: <FileArchive size={14} /> },
-    { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} /> },
-    { id: "import_url", label: "公众号文章", icon: <Link2 size={14} /> },
+    { id: "import_markdown", label: "Markdown", icon: <FileCode size={14} className="text-emerald-500" /> },
+    { id: "import_markdown_zip", label: "Markdown + 附件（ZIP）", icon: <FileArchive size={14} className="text-amber-500" /> },
+    { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} className="text-violet-500" /> },
+    { id: "import_ppt", label: "PPTX 演示文稿", icon: <Presentation size={14} className="text-orange-500" /> },
+    { id: "import_sheet", label: "表格（XLSX / CSV）", icon: <FileSpreadsheet size={14} className="text-emerald-600" /> },
+    { id: "import_url", label: "公众号文章", icon: <Link2 size={14} className="text-sky-500" /> },
   ];
 }
 
@@ -186,7 +203,17 @@ export function buildKnowledgeTreeNodeMenuItems(
           id: "convert_format",
           label: note?.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
-          disabled: !note || note.isLocked === 1 || note.contentFormat === "plaintext",
+          disabled: !note
+            || note.isLocked === 1
+            || note.contentFormat === "plaintext"
+            || node.noteType === "sheet"
+            || node.noteType === "excel"
+            || node.noteType === "word"
+            || node.noteType === "ppt"
+            || note.noteType === "sheet"
+            || note.noteType === "excel"
+            || note.noteType === "word"
+            || note.noteType === "ppt",
         },
       );
     }
@@ -208,6 +235,14 @@ export function buildKnowledgeTreeNodeMenuItems(
         icon: <LayoutTemplate size={14} />,
         disabled: !note
           || note.isLocked === 1
+          || node.noteType === "sheet"
+          || node.noteType === "excel"
+          || node.noteType === "word"
+          || node.noteType === "ppt"
+          || note.noteType === "sheet"
+          || note.noteType === "excel"
+          || note.noteType === "word"
+          || note.noteType === "ppt"
           || (note.contentFormat !== "markdown" && note.contentFormat !== "tiptap-json"),
       });
     }
@@ -215,7 +250,8 @@ export function buildKnowledgeTreeNodeMenuItems(
       more.push({ id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> });
     }
     if (capabilities.canDownload) {
-      more.push({ id: "export_note", label: t("noteList.export"), icon: <Download size={14} />, children: exportChildren(t) });
+      const isPpt = node.noteType === "ppt" || note?.noteType === "ppt";
+      more.push({ id: "export_note", label: t("noteList.export"), icon: <Download size={14} />, children: exportChildren(t, isPpt) });
     }
 
     return buildNoteContextMenuLayout({
@@ -246,6 +282,7 @@ export function buildKnowledgeTreeNodeMenuItems(
 
   const items: ContextMenuItem[] = [];
 
+  // 1. 创建与引入（高频入口，与顶部 + 菜单能力对齐）
   if (capabilities.canCreate) {
     items.push(
       { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren(t) },
@@ -253,53 +290,65 @@ export function buildKnowledgeTreeNodeMenuItems(
     );
   }
 
-  const management: ContextMenuItem[] = [];
+  // 2. 日常整理（高频基础操作直出）
+  const organize: ContextMenuItem[] = [];
+  if (capabilities.canEdit) {
+    organize.push({ id: "rename", label: "重命名", icon: <Pencil size={14} /> });
+  }
+  if (capabilities.canMove && !node.sharedRootId) {
+    organize.push({ id: "move", label: "移动", icon: <FolderInput size={14} /> });
+  }
+  if (organize.length) {
+    if (items.length) items.push(separator("sep-organize"));
+    items.push(...organize);
+  }
+
+  // 3. 协作与更多设置（核心协作直出；低频安全/外观/搜索/导出收纳入“更多设置”）
+  const collaborate: ContextMenuItem[] = [];
+  if (isNotebook && (capabilities.canReshare || capabilities.canManageMembers)) {
+    collaborate.push({ id: "share", label: "分享与发布", icon: <Link2 size={14} /> });
+  }
+  if (capabilities.canManageMembers) {
+    collaborate.push({ id: "permissions", label: "成员与权限", icon: <ShieldCheck size={14} /> });
+  }
+
+  const advanced: ContextMenuItem[] = [];
   if (isNotebook && capabilities.canEdit) {
-    management.push({ id: "change_icon", label: "修改图标", icon: <MoreHorizontal size={14} /> });
+    advanced.push({ id: "change_icon", label: "修改图标", icon: <Smile size={14} /> });
   }
   if (isNotebook && capabilities.canManageMembers) {
-    management.push({
+    advanced.push({
       id: "folder_password",
       label: node.isPasswordProtected === 1 ? "修改密码" : "设置密码",
       icon: <LockKeyhole size={14} />,
     });
-  }
-  if (capabilities.canEdit) management.push({ id: "rename", label: "重命名", icon: <Pencil size={14} /> });
-  if (isNotebook && (capabilities.canReshare || capabilities.canManageMembers)) {
-    management.push({ id: "share", label: "分享与发布", icon: <Link2 size={14} /> });
-  }
-  if (capabilities.canMove && !node.sharedRootId) {
-    management.push({ id: "move", label: "移动", icon: <FolderInput size={14} /> });
-  }
-  if (capabilities.canManageMembers) {
-    management.push({ id: "permissions", label: "成员与权限", icon: <ShieldCheck size={14} /> });
   }
 
   // Search scope is a per-user preference, not a content mutation. Any user who can see the
   // notebook (including read-only shared members) can exclude it from their own global search.
   if (isNotebook) {
     if (!searchExclusionStatus) {
-      management.push({
+      advanced.push({
         id: "search_scope_loading",
         label: "正在读取搜索范围…",
         icon: <Search size={14} />,
         disabled: true,
       });
     } else if (searchExclusionStatus.kind === "direct") {
-      management.push({
+      advanced.push({
         id: "search_include",
         label: "重新纳入全局搜索",
         icon: <Search size={14} />,
       });
     } else if (searchExclusionStatus.kind === "inherited") {
-      management.push({
+      advanced.push({
         id: "search_scope_inherited",
         label: "已被上级目录排除",
         icon: <SearchX size={14} />,
         disabled: true,
       });
     } else {
-      management.push({
+      advanced.push({
         id: "search_exclude",
         label: "从全局搜索中排除",
         icon: <SearchX size={14} />,
@@ -307,18 +356,26 @@ export function buildKnowledgeTreeNodeMenuItems(
     }
   }
 
-  if (management.length) {
+  if (capabilities.canDownload && isNotebook) {
+    if (advanced.length) advanced.push(separator("sep-advanced-export"));
+    advanced.push({ id: "export_folder", label: "导出目录为 Markdown", icon: <Download size={14} /> });
+  }
+
+  if (advanced.length) {
+    collaborate.push({
+      id: "folder_more_menu",
+      label: "更多设置",
+      icon: <SlidersHorizontal size={14} />,
+      children: advanced,
+    });
+  }
+
+  if (collaborate.length) {
     if (items.length) items.push(separator("sep-manage"));
-    items.push(...management);
+    items.push(...collaborate);
   }
 
-  if (capabilities.canDownload) {
-    if (items.length) items.push(separator("sep-export"));
-    if (isNotebook) {
-      items.push({ id: "export_folder", label: "导出目录为 Markdown", icon: <Download size={14} /> });
-    }
-  }
-
+  // 4. 危险操作（红字底部隔离）
   if (capabilities.canDelete) {
     if (items.length) items.push(separator("sep-delete"));
     items.push({
@@ -426,6 +483,16 @@ export default function KnowledgeTreeNodeMenu({
   );
 
   const openLoadedNote = (value: LoadedNote) => {
+    if (value.noteType === "excel") {
+      pushExcelAppPath(value.id);
+      actions.setMobileSidebar(false);
+      return;
+    }
+    if (value.noteType === "sheet") {
+      pushSheetAppPath(value.id);
+      actions.setMobileSidebar(false);
+      return;
+    }
     actions.setActiveNote(value);
     actions.setSelectedNotebook(value.notebookId);
     actions.setSelectedTag(null);
@@ -454,6 +521,37 @@ export default function KnowledgeTreeNodeMenu({
     if (!imported) return;
     revealCreatedKnowledgeTreeNote(node.id);
     openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
+  const importPpt = async () => {
+    if (!node) return;
+    const imported = await importPptIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id);
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
+  const importSheet = async () => {
+    if (!node) return;
+    const imported = await importSheetIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id, imported.id);
+    pushSheetAppPath(imported.resourceId);
+    actions.setMobileSidebar(false);
     await onReload();
     actions.refreshNotes();
     actions.refreshNotebooks();
@@ -653,6 +751,14 @@ export default function KnowledgeTreeNodeMenu({
         const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
         const blob = await exportNoteAsDocx(fresh.content || "", fresh.title || "未命名笔记", undefined, fresh.id);
         await downloadDocxBlob(blob, fresh.title || "未命名笔记");
+      } else if (actionId === "export_note_ppt") {
+        const fresh = await api.getNote(noteId);
+        const [{ parsePptDeckJson }, { exportPptDeckToFile }] = await Promise.all([
+          import("@/office"),
+          import("@/lib/pptNoteService"),
+        ]);
+        const deck = parsePptDeckJson(fresh.content, fresh.title);
+        await exportPptDeckToFile(deck, fresh.title || "演示文稿");
       }
       toast.dismiss(toastId);
       toast.success("导出完成");
@@ -681,12 +787,16 @@ export default function KnowledgeTreeNodeMenu({
     onClose();
     const protectedContentActions = new Set([
       "new_note",
+      "new_word",
       "new_markdown",
+      "new_ppt",
       "new_mindmap",
       "new_folder",
       "import_markdown",
       "import_markdown_zip",
       "import_word",
+      "import_ppt",
+      "import_sheet",
       "import_url",
       "export_folder",
       "delete",
@@ -702,12 +812,16 @@ export default function KnowledgeTreeNodeMenu({
         case "split_down": onSplit(node, "down"); break;
         case "duplicate": await duplicateCurrentNote(); break;
         case "new_note": onCreate(node, "note"); break;
+        case "new_word": onCreate(node, "word"); break;
         case "new_markdown": onCreate(node, "markdown"); break;
+        case "new_ppt": onCreate(node, "ppt"); break;
         case "new_mindmap": onCreate(node, "mindmap"); break;
         case "new_folder": onCreate(node, "folder"); break;
         case "import_markdown": await importMarkdown(); break;
         case "import_markdown_zip": await importMarkdownZip(); break;
         case "import_word": await importWord(); break;
+        case "import_ppt": await importPpt(); break;
+        case "import_sheet": await importSheet(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;
         case "toggle_favorite": await patchNote({ isFavorite: note?.isFavorite === 1 ? 0 : 1 }); break;

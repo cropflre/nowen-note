@@ -20,15 +20,74 @@ export function builtinTextKey(id: string): string {
 }
 
 const CATEGORY_TONE: Record<ExtensionCategory, string> = {
-  editor: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
-  workbench: "bg-sky-500/10 text-sky-600 dark:text-sky-300",
-  productivity: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
-  ai: "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-300",
-  appearance: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
-  automation: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300",
-  import: "bg-teal-500/10 text-teal-600 dark:text-teal-300",
-  other: "bg-app-hover text-tx-secondary",
+  editor: "bg-gradient-to-br from-violet-400/20 to-purple-500/15 text-violet-700 ring-violet-500/20 dark:text-violet-300",
+  workbench: "bg-gradient-to-br from-sky-400/20 to-cyan-500/15 text-sky-700 ring-sky-500/20 dark:text-sky-300",
+  productivity: "bg-gradient-to-br from-emerald-400/20 to-teal-500/15 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+  ai: "bg-gradient-to-br from-fuchsia-400/20 to-pink-500/15 text-fuchsia-700 ring-fuchsia-500/20 dark:text-fuchsia-300",
+  appearance: "bg-gradient-to-br from-amber-400/20 to-orange-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+  automation: "bg-gradient-to-br from-indigo-400/20 to-blue-500/15 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300",
+  import: "bg-gradient-to-br from-teal-400/20 to-emerald-500/15 text-teal-700 ring-teal-500/20 dark:text-teal-300",
+  other: "bg-gradient-to-br from-slate-400/20 to-zinc-500/15 text-tx-secondary ring-app-border",
 };
+
+export interface CategoryVisualAccent {
+  cardTint: string;
+  spotlightTint: string;
+  hoverBorder: string;
+  orb: string;
+}
+
+export const CATEGORY_CARD_ACCENT: Record<ExtensionCategory, CategoryVisualAccent> = {
+  editor: {
+    cardTint: "from-violet-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-violet-500/[0.09] via-app-surface to-purple-500/[0.04]",
+    hoverBorder: "hover:border-violet-400/45",
+    orb: "bg-violet-400/20",
+  },
+  workbench: {
+    cardTint: "from-sky-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-sky-500/[0.09] via-app-surface to-cyan-500/[0.04]",
+    hoverBorder: "hover:border-sky-400/45",
+    orb: "bg-sky-400/20",
+  },
+  productivity: {
+    cardTint: "from-emerald-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-emerald-500/[0.09] via-app-surface to-teal-500/[0.04]",
+    hoverBorder: "hover:border-emerald-400/45",
+    orb: "bg-emerald-400/20",
+  },
+  ai: {
+    cardTint: "from-fuchsia-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-fuchsia-500/[0.09] via-app-surface to-pink-500/[0.04]",
+    hoverBorder: "hover:border-fuchsia-400/45",
+    orb: "bg-fuchsia-400/20",
+  },
+  appearance: {
+    cardTint: "from-amber-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-amber-500/[0.09] via-app-surface to-orange-500/[0.04]",
+    hoverBorder: "hover:border-amber-400/45",
+    orb: "bg-amber-400/20",
+  },
+  automation: {
+    cardTint: "from-indigo-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-indigo-500/[0.09] via-app-surface to-blue-500/[0.04]",
+    hoverBorder: "hover:border-indigo-400/45",
+    orb: "bg-indigo-400/20",
+  },
+  import: {
+    cardTint: "from-teal-500/[0.04] via-app-surface to-app-surface",
+    spotlightTint: "from-teal-500/[0.09] via-app-surface to-emerald-500/[0.04]",
+    hoverBorder: "hover:border-teal-400/45",
+    orb: "bg-teal-400/20",
+  },
+  other: {
+    cardTint: "from-slate-500/[0.03] via-app-surface to-app-surface",
+    spotlightTint: "from-slate-500/[0.07] via-app-surface to-app-surface",
+    hoverBorder: "hover:border-accent-primary/40",
+    orb: "bg-slate-400/15",
+  },
+};
+
 const CATEGORY_ICON: Record<ExtensionCategory, React.ComponentType<{ size?: number }>> = {
   editor: PenLine, workbench: LayoutDashboard, productivity: ListChecks, ai: Sparkles,
   appearance: Palette, automation: Workflow, import: FileInput, other: Blocks,
@@ -37,10 +96,14 @@ const BUILTIN_ICON: Record<string, React.ComponentType<{ size?: number }>> = {
   dashboard: LayoutDashboard, studio: WandSparkles, tasks: CheckSquare, diary: CalendarDays, mindmaps: BrainCircuit, "ai-chat": Sparkles,
 };
 
-export function ExtensionIcon({ listing, size = "md" }: { listing: Pick<ExtensionListing, "kind" | "id" | "category">; size?: "md" | "lg" }) {
+export function ExtensionIcon({ listing, size = "md" }: { listing: Pick<ExtensionListing, "kind" | "id" | "category">; size?: "sm" | "md" | "lg" }) {
   const Icon = (listing.kind === "builtin" && BUILTIN_ICON[listing.id]) || CATEGORY_ICON[listing.category];
-  return <span aria-hidden className={cn("inline-flex shrink-0 items-center justify-center rounded-xl", size === "lg" ? "h-12 w-12" : "h-10 w-10", CATEGORY_TONE[listing.category])}>
-    <Icon size={size === "lg" ? 22 : 18} />
+  return <span aria-hidden className={cn(
+    "inline-flex shrink-0 items-center justify-center ring-1 ring-inset",
+    size === "lg" ? "h-12 w-12 rounded-xl" : size === "sm" ? "h-9 w-9 rounded-xl" : "h-10 w-10 rounded-xl",
+    CATEGORY_TONE[listing.category],
+  )}>
+    <Icon size={size === "lg" ? 22 : size === "sm" ? 16 : 18} />
   </span>;
 }
 

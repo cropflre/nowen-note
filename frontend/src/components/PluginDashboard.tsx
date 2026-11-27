@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { confirm, prompt } from "@/components/ui/confirm";
 import { pluginApi, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginDashboardWidget } from "@/lib/pluginApi";
@@ -19,13 +19,27 @@ import { cn } from "@/lib/utils";
 import { PluginAppFrame } from "./PluginApps";
 import { BuiltinCardBody } from "./dashboard/BuiltinCards";
 import { StudioAppCardBody } from "./dashboard/StudioAppCard";
-import { BuiltinCardIcon, builtinCardText } from "./dashboard/dashboardUi";
+import { BuiltinCardIcon, builtinCardText, dashboardCardAccent } from "./dashboard/dashboardUi";
 import { pickerEntries, WidgetPicker, type PickerEntry } from "./dashboard/WidgetPicker";
 
-const SIZE_CLASS: Record<WidgetSize, string> = { small: "", medium: "md:col-span-2", large: "md:col-span-2 xl:col-span-3" };
+const SIZE_CLASS: Record<WidgetSize, string> = { small: "", medium: "md:col-span-2", large: "md:col-span-2 lg:col-span-3" };
+
+function playfulTimeBadge(locale: string): { emoji: string; greeting: string; todayLabel: string } {
+  const now = new Date();
+  const hour = now.getHours();
+  const isEn = locale.toLowerCase().startsWith("en");
+  const emoji = hour < 6 ? "🌙" : hour < 12 ? "☀️" : hour < 18 ? "🌤️" : "✨";
+  const greeting = isEn
+    ? (hour < 6 ? "Quiet night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening")
+    : (hour < 6 ? "夜深好梦" : hour < 12 ? "早安，元气开工" : hour < 18 ? "午后好时光" : "晚上好，轻松复盘");
+  const todayLabel = new Intl.DateTimeFormat(locale || "zh-CN", { month: "short", day: "numeric", weekday: "short" }).format(now);
+  return { emoji, greeting, todayLabel };
+}
 
 export default function PluginDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const reducedMotion = useReducedMotion();
+  const timeBadge = useMemo(() => playfulTimeBadge(i18n?.resolvedLanguage || i18n?.language || "zh-CN"), [i18n?.language, i18n?.resolvedLanguage]);
   const [widgets, setWidgets] = useState<PluginDashboardWidget[]>([]), [widgetsScope, setWidgetsScope] = useState<number | null>(null);
   const [layouts, setLayouts] = useState<DashboardLayouts | null>(null), [layoutsKey, setLayoutsKey] = useState<string | null>(null);
   const [history, setHistory] = useState<DashboardLayouts[]>([]);
@@ -208,22 +222,36 @@ export default function PluginDashboard() {
   const visibleCount = selected?.items.filter((item) => !item.hidden).length ?? 0;
 
   return <section aria-labelledby="dashboard-heading" className="space-y-4">
-    <div className="flex flex-wrap items-start gap-3">
-      <div className="mr-auto min-w-0">
-        <h2 id="dashboard-heading" className="text-lg font-semibold text-tx-primary">{t("extensionCenter.workbench.title")}</h2>
-        <p className="mt-1 max-w-2xl text-sm text-tx-secondary">{editing ? t("extensionCenter.workbench.editHint") : t("pluginApps.localLayout")}</p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select aria-label={t("pluginApps.layout")} value={layouts?.active || ""} disabled={!ready}
-          onChange={(event) => { if (layoutsRef.current) { commit({ ...layoutsRef.current, active: event.target.value }); setActiveApp(null); } }}
-          className="min-h-11 rounded-md border border-app-border bg-app-surface px-2 text-sm text-tx-primary md:min-h-9">
-          {ready && layouts.layouts.map((layout) => <option key={layout.name} value={layout.name}>{layout.name}</option>)}
-        </select>
-        <Button variant={editing ? "default" : "outline"} size="sm" aria-pressed={editing} className="min-h-11 md:min-h-9"
-          onClick={() => { setEditing((value) => !value); setPickerOpen(false); setLayoutNameProblem(null); }}>
-          {editing ? t("pluginApps.finishLayout") : t("pluginApps.editLayout")}
-        </Button>
-        {!editing && <Button variant="outline" size="sm" disabled={busy} className="min-h-11 md:min-h-9" onClick={refreshAll}>{t("pluginApps.refresh")}</Button>}
+    <div className="relative overflow-hidden rounded-2xl border border-app-border/80 bg-gradient-to-r from-amber-500/[0.08] via-sky-500/[0.06] to-fuchsia-500/[0.08] px-4 py-3.5 shadow-sm">
+      <div aria-hidden className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-fuchsia-400/15 blur-2xl" />
+      <div aria-hidden className="pointer-events-none absolute -bottom-10 left-1/3 h-28 w-28 rounded-full bg-amber-400/15 blur-2xl" />
+      <div className="relative flex flex-wrap items-center gap-3">
+        <div className="mr-auto min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 id="dashboard-heading" className="text-base font-bold tracking-tight text-tx-primary">{t("extensionCenter.workbench.title")}</h2>
+            <span className="inline-flex items-center gap-1 rounded-full border border-app-border/80 bg-app-surface/85 px-2.5 py-0.5 text-xs font-medium text-tx-primary shadow-xs">
+              <span aria-hidden>{timeBadge.emoji}</span>
+              <span>{timeBadge.greeting}</span>
+            </span>
+            <span className="hidden items-center gap-1 rounded-full bg-app-surface/65 px-2 py-0.5 font-mono text-[11px] text-tx-secondary sm:inline-flex">
+              <Sparkles size={11} className="text-amber-500" aria-hidden />
+              {timeBadge.todayLabel}
+            </span>
+          </div>
+          <p className="mt-1 max-w-2xl text-xs text-tx-secondary">{editing ? t("extensionCenter.workbench.editHint") : t("pluginApps.localLayout")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select aria-label={t("pluginApps.layout")} value={layouts?.active || ""} disabled={!ready}
+            onChange={(event) => { if (layoutsRef.current) { commit({ ...layoutsRef.current, active: event.target.value }); setActiveApp(null); } }}
+            className="min-h-9 rounded-xl border border-app-border bg-app-surface/90 px-2.5 text-xs font-medium text-tx-primary shadow-xs md:min-h-8">
+            {ready && layouts.layouts.map((layout) => <option key={layout.name} value={layout.name}>{layout.name}</option>)}
+          </select>
+          <Button variant={editing ? "default" : "outline"} size="sm" aria-pressed={editing} className="min-h-9 rounded-xl px-3 text-xs md:min-h-8"
+            onClick={() => { setEditing((value) => !value); setPickerOpen(false); setLayoutNameProblem(null); }}>
+            {editing ? t("pluginApps.finishLayout") : t("pluginApps.editLayout")}
+          </Button>
+          {!editing && <Button variant="outline" size="sm" disabled={busy} className="min-h-9 rounded-xl px-3 text-xs md:min-h-8" onClick={refreshAll}>{t("pluginApps.refresh")}</Button>}
+        </div>
       </div>
     </div>
 
@@ -259,7 +287,7 @@ export default function PluginDashboard() {
       {!editing && <Button size="sm" variant="outline" className="mt-3 min-h-11 md:min-h-9" onClick={() => { setEditing(true); setPickerOpen(true); }}>{t("pluginApps.addCard")}</Button>}
     </div>}
 
-    {ready && selected && <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    {ready && selected && <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-2 lg:grid-cols-3 grid-flow-dense">
       {selected.items.map((item, index) => {
         if (item.hidden && !editing) return null;
         const resolution = resolveDashboardCard(item, widgetMap);
@@ -273,17 +301,29 @@ export default function PluginDashboard() {
           : resolution.type === "studio" && !studioMissing ? studioApp?.spec.name ?? t("extensionCenter.workbench.studio.title")
           : t("extensionCenter.workbench.dormantTitle");
         const live = resolution.type !== "dormant" && !studioMissing;
-        return <article key={item.id} {...(live ? { "data-widget-id": item.id } : { "data-dormant-widget-id": item.id })}
+        const accent = dashboardCardAccent(item.id, !live);
+        return <motion.article
+          key={item.id}
+          initial={reducedMotion ? false : { opacity: 0, y: 10, scale: 0.985 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 360, damping: 28, delay: Math.min(index * 0.035, 0.24) }}
+          {...(live ? { "data-widget-id": item.id } : { "data-dormant-widget-id": item.id })}
           draggable={editing}
-          onDragStart={(event) => { if (!editing) return; dragged.current = index; setDragging(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); }}
-          onDragOver={(event) => { if (dragged.current === null) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; if (dropTarget !== index) setDropTarget(index); }}
+          onDragStart={(event) => { if (!editing) return; dragged.current = index; setDragging(index); (event as unknown as React.DragEvent).dataTransfer?.setData("text/plain", item.id); }}
+          onDragOver={(event) => { if (dragged.current === null) return; event.preventDefault(); if (dropTarget !== index) setDropTarget(index); }}
           onDrop={(event) => { event.preventDefault(); const from = dragged.current; dragged.current = null; setDragging(null); setDropTarget(null); if (from !== null && from !== index) move(from, index); }}
           onDragEnd={() => { dragged.current = null; setDragging(null); setDropTarget(null); }}
-          className={cn("min-w-0 rounded-2xl border bg-app-surface p-4 shadow-sm transition-interactive duration-fast ease-standard", SIZE_CLASS[item.size],
-            editing ? "border-dashed border-app-border" : "border-app-border",
+          className={cn(
+            "group/card relative min-w-0 overflow-hidden rounded-2xl border bg-gradient-to-br p-3.5 shadow-sm transition-all duration-200 ease-out",
+            accent.cardTint,
+            !editing && live && cn("motion-safe:hover:-translate-y-0.5 hover:shadow-md", accent.hoverBorder),
+            SIZE_CLASS[item.size],
+            editing ? "border-dashed border-app-border" : "border-app-border/80",
             !live && "bg-app-hover/40", dragging === index && "opacity-50",
-            dropTarget === index && dragging !== index && "ring-2 ring-accent-primary")}>
-          <header className="mb-3 flex items-center gap-2">
+            dropTarget === index && dragging !== index && "ring-2 ring-accent-primary",
+          )}>
+          {live && <div aria-hidden className={cn("pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl transition-opacity duration-300 opacity-60 group-hover/card:opacity-100", accent.orbBg)} />}
+          <header className="relative mb-2.5 flex items-center gap-2">
             {editing && <button type="button" ref={(element) => { if (element) handles.current.set(item.id, element); else handles.current.delete(item.id); }}
               aria-label={t("extensionCenter.workbench.dragHandle", { name: title })}
               onKeyDown={(event) => {
@@ -326,7 +366,7 @@ export default function PluginDashboard() {
                 <span className="block break-all font-mono text-[11px] text-tx-tertiary">{item.id}</span>
                 {resolution.reason === "PLUGIN_UNAVAILABLE" && <Button size="sm" variant="outline" className="min-h-11 md:min-h-8" onClick={() => pushAppPathState("/apps/manage")}>{t("extensionCenter.workbench.dormantManage")}</Button>}
               </div>)}
-        </article>;
+        </motion.article>;
       })}
     </div>}
 

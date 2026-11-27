@@ -4,7 +4,7 @@ import crypto from "crypto";
 import dns from "dns";
 import { promisify } from "util";
 import { getDb } from "../db/schema";
-import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
+import { createDeduplicatedAttachmentRow, ensureAttachmentsDir, findExistingDedupAttachment, MIME_TO_EXT } from "./attachments";
 import { deleteAttachmentObject, writeAttachmentObject } from "../services/attachment-storage";
 import { sanitizeForImport } from "../lib/sanitizeHtml";
 
@@ -161,16 +161,8 @@ async function downloadImageToAttachment(
   }
 
   const db = getDb();
-  // 同 user + 同 workspace + 同 hash 命中则复用物理文件，但为当前 note 复制新元数据行。
-  const dedup = db
-    .prepare(
-      workspaceId
-        ? `SELECT id, path, filename, mimeType, size, hash FROM attachments WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id, path, filename, mimeType, size, hash FROM attachments WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
-    )
-    .get(...(workspaceId ? [userId, workspaceId, hash] : [userId, hash])) as
-    | { id: string; path: string; filename?: string; mimeType: string; size: number; hash?: string | null }
-    | undefined;
+  // 同 user + 同 workspace + 同 hash 且物理文件真实存在才复用，为当前 note 复制新元数据行。
+  const dedup = await findExistingDedupAttachment({ userId, workspaceId, hash });
 
   if (dedup) {
     const clone = createDeduplicatedAttachmentRow({

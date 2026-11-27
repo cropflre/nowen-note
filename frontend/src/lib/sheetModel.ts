@@ -216,7 +216,7 @@ export function sheetToCsv(data: SheetDataModel): string {
   return lines.join("\r\n");
 }
 
-function parseCsvRows(source: string): string[][] {
+export function parseCsvRows(source: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";

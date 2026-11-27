@@ -82,9 +82,15 @@ export function syncRetryDelayMs(retryCount: number): number {
 /** Snapshot 必须分页，避免把整个知识库塞进单个 JSON 响应。 */
 export const SYNC_SNAPSHOT_PAGE_SIZE = 200;
 export const SYNC_SNAPSHOT_MAX_PAGE_SIZE = 500;
+/** 桌面端跨网全量重建默认页大小，避免单页大笔记在 Tailscale/弱网下触发超时。 */
+export const SYNC_SNAPSHOT_REBUILD_PAGE_SIZE = 50;
+/** 服务端单页 Snapshot 响应软字节上限（至少返回 1 条），避免巨型长文撑爆单次 HTTP 响应。 */
+export const SYNC_SNAPSHOT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 /** 单次 Push 的 mutation 上限，防止超大请求打爆服务端事务。 */
 export const SYNC_PUSH_MAX_MUTATIONS = 200;
+/** 单次 Push 的请求体软字节上限（至少发送 1 条），避免批量长文撞弱网超时或反代 413。 */
+export const SYNC_PUSH_MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 /** 增量拉取单页上限，与 V1 的 CHANGE_PAGE_SIZE 保持同量级。 */
 export const SYNC_CHANGES_PAGE_SIZE = 500;

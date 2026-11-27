@@ -40,9 +40,18 @@ export interface WorkspaceNotification {
   userId: string;
   workspaceId: string | null;
   workspaceName: string | null;
-  type: "issue_created" | "issue_commented" | "issue_closed" | "issue_reopened" | "note_commented" | "note_comment_replied";
+  type:
+    | "issue_created"
+    | "issue_commented"
+    | "issue_mentioned"
+    | "issue_closed"
+    | "issue_reopened"
+    | "note_commented"
+    | "note_comment_replied"
+    | "note_comment_mentioned"
+    | "task_assigned";
   actorName: string | null;
-  resourceType: "workspace_issue" | "note_comment";
+  resourceType: "workspace_issue" | "note_comment" | "workspace_task";
   noteId?: string;
   commentId?: string;
   resourceId: string;

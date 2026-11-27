@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import type { MiddlewareHandler } from "hono";
-import { getDb } from "../db/schema";
+import { getDb, isDbMaintenanceInProgress } from "../db/schema";
 import { hasSyncBroadcaster, notifySyncChanged } from "./notify";
 
 /**
@@ -35,7 +35,7 @@ export function primeSyncChangeWatermark(db: Database.Database): void {
  * 客户端在回滚前拉取。稍后的请求或定时器会再次冲刷。
  */
 export function flushSyncChangeNotices(db: Database.Database): number {
-  if (!hasSyncBroadcaster() || db.inTransaction) return 0;
+  if (!hasSyncBroadcaster() || !db.open || db.inTransaction) return 0;
   if (watermark === null) { watermark = currentMaxSequence(db); return 0; }
   const rows = db.prepare(`
     SELECT userId, workspaceId, MAX(sequence) AS sequence FROM sync_changes_v2
@@ -61,12 +61,26 @@ export function flushSyncChangeNotices(db: Database.Database): number {
 /** 写请求结束后唤醒订阅设备。权限过滤仍由 /changes 负责。 */
 export const syncChangeNoticeMiddleware: MiddlewareHandler = async (c, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(c.req.method) || !hasSyncBroadcaster()) return next();
-  const db = getDb();
-  primeSyncChangeWatermark(db);
+  if (!isDbMaintenanceInProgress()) {
+    try {
+      primeSyncChangeWatermark(getDb());
+    } catch {
+      // 预热失败不阻断主请求
+    }
+  }
   try {
     await next();
   } finally {
-    flushSyncChangeNotices(db);
+    // 备份恢复等维护操作会关闭并重建数据库连接；善后通知必须重新取当前活跃连接，
+    // 且任何失败都不得覆盖已经成功的业务 HTTP 响应。
+    if (!isDbMaintenanceInProgress()) {
+      try {
+        const currentDb = getDb();
+        flushSyncChangeNotices(currentDb);
+      } catch (error) {
+        console.warn("[sync-v2] flushSyncChangeNotices skipped:", error instanceof Error ? error.name : "UnknownError");
+      }
+    }
   }
 };
 
@@ -74,13 +88,19 @@ export const syncChangeNoticeMiddleware: MiddlewareHandler = async (c, next) => 
 export function startSyncChangeNoticeFlusher(db: Database.Database, intervalMs = 1000): () => void {
   primeSyncChangeWatermark(db);
   const timer = setInterval(() => {
-    try { flushSyncChangeNotices(db); } catch { /* 下一轮重试 */ }
+    if (isDbMaintenanceInProgress()) return;
+    try { flushSyncChangeNotices(getDb()); } catch { /* 下一轮重试 */ }
   }, intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }
 
+/** 换库（如备份恢复）后重置进程内水位线，避免沿用旧库高水位。 */
+export function resetSyncChangeWatermark(): void {
+  watermark = null;
+}
+
 /** 仅供测试重置模块状态。 */
 export function resetSyncChangeWatermarkForTests(): void {
-  watermark = null;
+  resetSyncChangeWatermark();
 }

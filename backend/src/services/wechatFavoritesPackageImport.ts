@@ -3,7 +3,7 @@ import path from "path";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
 import { syncReferences } from "../lib/attachmentRefs";
-import { createDeduplicatedAttachmentRow, type ExistingAttachmentForDedup } from "../routes/attachments-core";
+import { createDeduplicatedAttachmentRow, findExistingDedupAttachment } from "../routes/attachments-core";
 import { deleteAttachmentObject, getUploadMonthPath, writeAttachmentObject } from "./attachment-storage";
 import { enqueueAttachment } from "./embedding-worker";
 import {
@@ -606,11 +606,11 @@ async function storeAttachment(args: {
   const mimeType = MIME_BY_EXT[ext] || "application/octet-stream";
   const hash = crypto.createHash("sha256").update(buffer).digest("hex");
   const db = getDb();
-  const dedup = db.prepare(
-    args.workspaceId
-      ? `SELECT id, path, mimeType, size, filename, hash FROM attachments WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-      : `SELECT id, path, mimeType, size, filename, hash FROM attachments WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
-  ).get(...(args.workspaceId ? [args.userId, args.workspaceId, hash] : [args.userId, hash])) as ExistingAttachmentForDedup | undefined;
+  const dedup = await findExistingDedupAttachment({
+    userId: args.userId,
+    workspaceId: args.workspaceId,
+    hash,
+  });
   const filename = safeFilename(args.entry.path, `wechat-media.${ext}`);
   if (dedup) {
     const clone = createDeduplicatedAttachmentRow({

@@ -1,3 +1,4 @@
+// Excel 表格深链接 /excel/:id。来源：cropflre/nowen-note PR #802（excelDeepLink.ts）。
 import {
   APP_PATH_CHANGED_EVENT,
   pushAppPathState,

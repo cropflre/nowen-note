@@ -195,6 +195,21 @@ async function artifactInventory(directory) {
   if (!files.length) throw Error('空产物');
   return files;
 }
+function verifyFpk(directory, files, version) {
+  const name = `nowen-note-${version}.fpk`;
+  if (files.length !== 1 || files[0].name !== name) throw Error(`FPK 产物必须为 ${name}`);
+  const archive = join(directory, name);
+  const manifest = run('tar', ['-xOf', archive, 'manifest']);
+  if (!/^platform[ \t]*=[ \t]*all[ \t]*$/m.test(manifest) || /^arch[ \t]*=[ \t]*\S+/m.test(manifest)) {
+    throw Error('FPK 必须支持 AMD64 和 ARM64');
+  }
+  const app = execFileSync('tar', ['-xOf', archive, 'app.tgz']);
+  const compose = run('tar', ['-xzOf', '-', 'docker/docker-compose.yaml'], { input: app, stdio: ['pipe', 'pipe', 'inherit'] });
+  const image = compose.match(/^[ \t]*image:[ \t]*(\S+)[ \t]*$/m)?.[1];
+  if (image !== `${CLOUD_REPO}:v${version}` || /^[ \t]*platform[ \t]*:/m.test(compose)) {
+    throw Error('FPK 必须引用本版本的多架构镜像，并由 Docker 选择平台');
+  }
+}
 export async function makeManifest(input, directory, source) {
   const names = expectedArtifacts(input);
   const actual = (await readdir(directory)).filter(n => n.startsWith('release-') && n !== 'release-manifest').sort();
@@ -208,7 +223,9 @@ export async function makeManifest(input, directory, source) {
       const { verifyFormalDirectory } = await import('./release-center-formal-assets.mjs');
       await verifyFormalDirectory(dir, { platform: name.slice(8), version: input.version });
     }
-    artifacts.push({ name, files: await artifactInventory(dir) });
+    const files = await artifactInventory(dir);
+    if (name === 'release-fpk') verifyFpk(dir, files, input.version);
+    artifacts.push({ name, files });
   }
   return { schema: 1, repository: CLOUD_REPO, ...input, ...source, artifacts };
 }
@@ -258,10 +275,13 @@ export async function verifyManifest(manifest, directory, sourceRun, input) {
   const request = normalizeBuild(manifest);
   const rebuilt = await makeManifest(request, directory, { run_id: manifest.run_id, run_attempt: manifest.run_attempt });
   if (JSON.stringify(rebuilt) !== JSON.stringify(manifest)) throw Error('产物大小、摘要或清单被改变');
-  if (input.channels.includes('github')) await verifyMacProof(manifest, directory);
+  if (input.channels.includes('github')) {
+    if (!request.targets.includes('fpk')) throw Error('正式发布 GitHub 版本需要双架构飞牛 FPK；请用 fpk 目标重新构建');
+    if (!input.channels.includes('docker')) throw Error('发布 NAS 包必须同时发布本次构建的 Docker 镜像');
+    await verifyMacProof(manifest, directory);
+  }
   if (input.channels.includes('docker') && !request.targets.includes('docker')) throw Error('本次构建没有 Docker 镜像');
   if (input.channels.includes('testflight') && !request.targets.includes('ios')) throw Error('本次构建没有 IPA');
-  if (input.channels.includes('github') && request.targets.some(t => ['fpk', 'upk'].includes(t)) && !input.channels.includes('docker')) throw Error('发布 NAS 包必须同时发布本次构建的 Docker 镜像');
   return manifest;
 }
 const api = path => JSON.parse(run('gh', ['api', `repos/${CLOUD_REPO}/${path}`]));

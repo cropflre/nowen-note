@@ -339,6 +339,17 @@ export function withNotebookLive<T>(
     && (scope.workspaceId !== null || row.userId === scope.userId);
   if (!row || !inScope || !row.isDeleted) return write();
   db.prepare("UPDATE notebooks SET isDeleted = 0, deletedAt = NULL WHERE id = ?").run(notebookId);
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_tree_nodes'").get()) {
+    db.prepare(`
+      INSERT OR IGNORE INTO knowledge_tree_nodes (
+        id, userId, workspaceId, scopeKey, parentId, nodeType, resourceType,
+        resourceId, sortOrder, isExpanded, isDeleted, deletedAt
+      ) SELECT 'notebook:' || n.id, n.userId, n.workspaceId,
+               CASE WHEN n.workspaceId IS NULL THEN 'personal:' || n.userId ELSE 'workspace:' || n.workspaceId END,
+               NULL, 'folder', 'notebook', n.id, COALESCE(n.sortOrder, 0), COALESCE(n.isExpanded, 1), 0, NULL
+          FROM notebooks n WHERE n.id = ?
+    `).run(notebookId);
+  }
   try {
     return write();
   } finally {

@@ -6,6 +6,7 @@ import { guardTaskRecurrenceWrite, removeTaskOccurrences, taskRemovalRows } from
 import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import type Database from "better-sqlite3";
 import { guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
+import { normalizeNoteType, upsertExcelDocumentFromSync } from "../services/excelData.js";
 import { runChangeFeedSuppressed } from "./suppression";
 import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
@@ -172,10 +173,10 @@ function applyTag(db: Database.Database, input: ApplyMutationInput): number | nu
  */
 function applyNote(db: Database.Database, input: ApplyMutationInput): number | null {
   const existing = db.prepare(`
-    SELECT version, themeId, colorMark, content, contentFormat FROM notes WHERE id = ? AND workspaceId IS ?
+    SELECT version, themeId, colorMark, content, contentFormat, note_type FROM notes WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)
   `).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
-    | { version: number; themeId: string | null; colorMark: string | null; content: string; contentFormat: string }
+    | { version: number; themeId: string | null; colorMark: string | null; content: string; contentFormat: string; note_type: string | null }
     | undefined;
 
   if (input.operation === "delete") {
@@ -216,9 +217,12 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       throw new SyncError("VERSION_CONFLICT","所在目录仍在回收站，请先恢复目录后处理正文修改");
     }
     const nextVersion = existing.version + 1;
+    const resolvedNoteType = Object.prototype.hasOwnProperty.call(p, "note_type") || Object.prototype.hasOwnProperty.call(p, "noteType")
+      ? normalizeNoteType(p.note_type ?? p.noteType, existing.note_type || "normal")
+      : (existing.note_type || "normal");
     withEncryptedBlockWrite(db, input.entityId, effective.content, effective.contentFormat, () => db.prepare(`
       UPDATE notes SET
-        notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?,
+        notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?, note_type = ?,
         isPinned = ?, isFavorite = ?, isLocked = ?, isArchived = ?, isTrashed = ?,
         trashedAt = ?, themeId = ?, colorMark = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
       WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
@@ -228,6 +232,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       str(p.content, "{}"),
       str(p.contentText),
       str(p.contentFormat, "richtext"),
+      resolvedNoteType,
       bit(p.isPinned),
       bit(p.isFavorite),
       bit(p.isLocked),
@@ -247,6 +252,21 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       workspaceIdOf(input),
       input.userId,
     ), p.encryptedBlocksVersion);
+    if (resolvedNoteType === "excel") {
+      try {
+        upsertExcelDocumentFromSync(db, {
+          noteId: input.entityId,
+          userId: input.userId,
+          workspaceId: workspaceIdOf(input),
+          excelData: p.excelData,
+          excelRevision: p.excelRevision,
+          title: str(p.title, "无标题表格"),
+          strict: true,
+        });
+      } catch {
+        throw new SyncError("INVALID_PAYLOAD", "Excel 工作簿同步数据格式无效");
+      }
+    }
     return nextVersion;
   }
 
@@ -256,15 +276,16 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
 
   // 新建：客户端生成 UUID，离线也能创建，不依赖服务端分配 ID。
   const version = Math.max(1, num(p.version, 1));
+  const resolvedNoteType = normalizeNoteType(p.note_type ?? p.noteType, "normal");
   // 笔记属于一个已删除的目录（例如首次同步上传本机已删除的目录子树）时，目录临时可用：
   // 知识树镜像只有目录未删除才把笔记的树父节点指向它，否则落到根，
   // 而客户端那一侧的树父节点仍指向目录，两边的知识树基线会因此判成结构冲突。
   withNotebookLive(db, { userId: input.userId, workspaceId: workspaceIdOf(input) }, str(p.notebookId), () => db.prepare(`
     INSERT INTO notes (
-      id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
+      id, userId, notebookId, workspaceId, title, content, contentText, contentFormat, note_type,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
       themeId, colorMark, version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
   `).run(
     input.entityId,
@@ -275,6 +296,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     str(p.content, "{}"),
     str(p.contentText),
     str(p.contentFormat, "richtext"),
+    resolvedNoteType,
     bit(p.isPinned),
     bit(p.isFavorite),
     bit(p.isLocked),
@@ -287,6 +309,21 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     num(p.sortOrder),
     p.createdAt ?? null,
   ));
+  if (resolvedNoteType === "excel") {
+    try {
+      upsertExcelDocumentFromSync(db, {
+        noteId: input.entityId,
+        userId: input.userId,
+        workspaceId: workspaceIdOf(input),
+        excelData: p.excelData,
+        excelRevision: p.excelRevision,
+        title: str(p.title, "无标题表格"),
+        strict: true,
+      });
+    } catch {
+      throw new SyncError("INVALID_PAYLOAD", "Excel 工作簿同步数据格式无效");
+    }
+  }
   return version;
 }
 

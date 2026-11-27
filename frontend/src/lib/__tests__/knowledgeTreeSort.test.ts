@@ -8,8 +8,10 @@ import {
   compareKnowledgeTreePinnedPriority,
   loadKnowledgeTreeSortMode,
   planKnowledgeTreeSiblingReorder,
+  resolveKnowledgeTreeActiveDropPlacement,
   resolveKnowledgeTreeDropPlacement,
   saveKnowledgeTreeSortMode,
+  sortKnowledgeTreeMoveTargets,
 } from "@/lib/knowledgeTreeSort";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
@@ -115,6 +117,65 @@ describe("knowledgeTreeSort", () => {
     expect(resolveKnowledgeTreeDropPlacement(104, 100, 40)).toBe("before");
     expect(resolveKnowledgeTreeDropPlacement(120, 100, 40)).toBe("inside");
     expect(resolveKnowledgeTreeDropPlacement(136, 100, 40)).toBe("after");
+  });
+
+  it("forces inside placement while filtered or in non-manual sort modes", () => {
+    expect(resolveKnowledgeTreeActiveDropPlacement(104, 100, 40, { isFiltered: true, sortMode: "manual" })).toBe("inside");
+    expect(resolveKnowledgeTreeActiveDropPlacement(136, 100, 40, { isFiltered: true, sortMode: "manual" })).toBe("inside");
+    expect(resolveKnowledgeTreeActiveDropPlacement(104, 100, 40, { isFiltered: false, sortMode: "title-asc" })).toBe("inside");
+    expect(resolveKnowledgeTreeActiveDropPlacement(104, 100, 40, { isFiltered: false, sortMode: "manual" })).toBe("before");
+    expect(resolveKnowledgeTreeActiveDropPlacement(136, 100, 40, { isFiltered: false, sortMode: "manual" })).toBe("after");
+  });
+
+  it("sorts move targets with root folders first, newly created subfolders next, and documents last in manual mode", () => {
+    const rootA = node("a01", "A01-包工包料", 0, { createdAt: "2025-01-01T00:00:00.000Z" });
+    const rootB = node("a02", "A02-来料加工", 1, { createdAt: "2025-01-02T00:00:00.000Z" });
+    const oldNote = node("old-note", "旧文档", 0, {
+      parentId: "a02",
+      nodeType: "note",
+      resourceType: "note",
+      createdAt: "2025-02-01T00:00:00.000Z",
+    });
+    const olderSubFolder = node("sub-old", "驰铭-旧型号", 0, {
+      parentId: "a02",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const newestSubFolder = node("sub-new", "驰铭-13012510-新建", 1, {
+      parentId: "a02",
+      createdAt: "2026-11-24T00:00:00.000Z",
+    });
+
+    const all = [oldNote, rootB, olderSubFolder, rootA, newestSubFolder];
+    expect(sortKnowledgeTreeMoveTargets(all, "manual", all).map((item) => item.id)).toEqual([
+      "a01",
+      "a02",
+      "sub-new",
+      "sub-old",
+      "old-note",
+    ]);
+  });
+
+  it("updates move target order when tree sort mode changes while keeping folders ahead of documents", () => {
+    const folderA = node("fa", "A-Folder", 1, {
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+    });
+    const folderZ = node("fz", "Z-Folder", 0, {
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-02-01T00:00:00.000Z",
+    });
+    const docA = node("da", "000-Doc", 0, {
+      nodeType: "note",
+      resourceType: "note",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    const all = [docA, folderZ, folderA];
+
+    expect(sortKnowledgeTreeMoveTargets(all, "title-asc", all).map((item) => item.id)).toEqual(["fa", "fz", "da"]);
+    expect(sortKnowledgeTreeMoveTargets(all, "title-desc", all).map((item) => item.id)).toEqual(["fz", "fa", "da"]);
+    expect(sortKnowledgeTreeMoveTargets(all, "created-desc", all).map((item) => item.id)).toEqual(["fz", "fa", "da"]);
+    expect(sortKnowledgeTreeMoveTargets(all, "updated-desc", all).map((item) => item.id)).toEqual(["fa", "fz", "da"]);
   });
 
   it("sorts every sibling group by title without flattening hierarchy", () => {

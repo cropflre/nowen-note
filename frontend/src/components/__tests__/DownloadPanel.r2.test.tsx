@@ -111,4 +111,12 @@ describe("Settings > Download clients R2 verified downloads", () => {
     await act(async () => githubButton!.click());
     expect(links()).not.toContain("https://download.nowen.cn/v1.5.5/Nowen-Note-1.5.5-setup.exe");
   });
+
+  it("offers the HarmonyOS store link when the release list is unavailable", async () => {
+    mock.latest.mockRejectedValue(new Error("Release API unavailable"));
+    await renderPanel();
+    expect(host.textContent).toContain("无法获取最新版本信息");
+    expect(host.textContent).toContain("HarmonyOS");
+    expect(links()).toContain("https://appgallery.huawei.com/app/detail?id=com.nowen.note");
+  });
 });

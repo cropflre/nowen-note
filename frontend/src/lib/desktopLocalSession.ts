@@ -13,7 +13,7 @@ interface DownloadProgress {
 interface DesktopStartupBridge {
   getAppInfo?: () => Promise<{ runtime?: string; localRuntimeAvailable?: boolean; localMigrationComplete?: boolean; localServerUrl?: string | null } | null>;
   getLocalAuth: () => Promise<{ token: string; refreshToken?: string; user: User } | null>;
-  startLiteMigration?: (serverUrl: string, token: string) => Promise<{ok:boolean;error?:string;progress?:DownloadProgress} >;
+  startLiteMigration?: (serverUrl: string, token: string, refreshToken?: string | null) => Promise<{ok:boolean;error?:string;progress?:DownloadProgress} >;
 }
 
 /**
@@ -59,7 +59,7 @@ export function isLocalAccountBootstrapFailure(error: string) {
 }
 
 /** Every remote desktop login establishes the local copy before opening editors. */
-export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBridge, serverUrl: string, token: string, pendingWrites: () => number): Promise<boolean> {
+export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBridge, serverUrl: string, token: string, pendingWrites: () => number, refreshToken?: string | null): Promise<boolean> {
   const info = await bridge.getAppInfo?.();
   if (!info || info.localRuntimeAvailable === false || !bridge.startLiteMigration || !serverUrl || !token) return false;
   if (info.runtime === 'local' && info.localServerUrl?.replace(/\/$/,'') === serverUrl.replace(/\/$/,'')) return false;
@@ -67,7 +67,9 @@ export async function automaticallyDownloadDesktopCopy(bridge: DesktopDownloadBr
   const existing = downloads.get(bridge);
   if (existing?.serverUrl === serverUrl && existing.token === token) return existing.work;
   const work = (async () => {
-    const result = await bridge.startLiteMigration!(serverUrl,token);
+    const result = refreshToken
+      ? await bridge.startLiteMigration!(serverUrl, token, refreshToken)
+      : await bridge.startLiteMigration!(serverUrl, token);
     if (!result.ok || result.progress?.stage !== 'complete') {
       throw new DesktopDownloadError(result.progress?.error || result.error || '首次自动下载尚未完成，恢复连接后将自动重试。', {
         retryable: result.progress?.retryable !== false,

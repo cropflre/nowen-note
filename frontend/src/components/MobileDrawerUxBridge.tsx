@@ -124,6 +124,10 @@ export const ANDROID_DRAWER_SAFE_AREA_CSS = `
   html[data-native="android"] [data-mobile-drawer-rail] {
     padding-top: max(calc(var(--safe-area-top) + 8px), 44px) !important;
   }
+
+  html[data-keyboard="open"] [data-mobile-lite-bottom-bar] {
+    display: none !important;
+  }
 }
 `;
 

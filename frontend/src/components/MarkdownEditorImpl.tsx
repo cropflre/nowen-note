@@ -78,6 +78,7 @@ import * as Y from "yjs";
 
 import { useTranslation } from "react-i18next";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
 import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import {
   Bold,
@@ -687,6 +688,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
   remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
   const { visible: keyboardVisible } = useKeyboardVisible();
+  const { active: mobileLiteActive } = useMobileLiteMode();
   const compactMobileEditing = editable
     && keyboardVisible
     && typeof window !== "undefined"
@@ -2291,9 +2293,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
                 <Heading1 size={16} />
               </ToolbarButton>
-              <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
-                <Heading2 size={16} />
-              </ToolbarButton>
+              {!mobileLiteActive && (
+                <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
+                  <Heading2 size={16} />
+                </ToolbarButton>
+              )}
               <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
                 <Bold size={16} />
               </ToolbarButton>
@@ -2303,9 +2307,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
                 <ImagePlus size={16} />
               </ToolbarButton>
-              <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
-                <Film size={16} />
-              </ToolbarButton>
+              {!mobileLiteActive && (
+                <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
+                  <Film size={16} />
+                </ToolbarButton>
+              )}
             </div>
             <MobileEditorToolbarSlot location="trailing" />
             <ToolbarButton onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
@@ -2389,7 +2395,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             <Heading1 size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
-            className="max-md:hidden"
+            className={mobileLiteActive ? undefined : "max-md:hidden"}
             onClick={() => withView((v) => toggleHeading(v, 2))}
             title={tr("tiptap.heading2") || "��������"}
           >
@@ -2504,7 +2510,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarButton className="max-md:hidden" onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "����ͼƬ"}>
             <ImagePlus size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton className="max-md:hidden" onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
+          <ToolbarButton className={mobileLiteActive ? undefined : "max-md:hidden"} onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
             <Film size={iconSize} />
           </ToolbarButton>
           <VoiceInsertMenu onUpload={triggerAttachmentPicker} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />

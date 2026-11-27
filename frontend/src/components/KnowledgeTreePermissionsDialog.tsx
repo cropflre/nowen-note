@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Search, ShieldCheck, Trash2, UserPlus, X } from "lucide-react";
+import { Check, Loader2, Search, ShieldCheck, Stethoscope, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
@@ -8,12 +8,13 @@ import {
   knowledgeTreeApi,
   type EffectiveKnowledgeAccess,
   type KnowledgeAccessMode,
+  type KnowledgeEffectivePermissionDiagnosis,
   type KnowledgePermissionRow,
   type KnowledgeRolePreset,
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
 import { toast } from "@/lib/toast";
-import type { UserPublicInfo } from "@/types";
+import type { UserPublicInfo, WorkspaceGroup, WorkspaceMember } from "@/types";
 
 const ROLE_LABELS: Record<KnowledgeRolePreset, string> = {
   readonly: "只读成员",
@@ -37,6 +38,20 @@ const ROLE_OPTIONS: KnowledgeRolePreset[] = [
   "maintainer",
   "admin",
   "deny",
+];
+
+const CAPABILITY_ITEMS: Array<{
+  key: keyof EffectiveKnowledgeAccess["capabilities"];
+  label: string;
+}> = [
+  { key: "canView", label: "查看" },
+  { key: "canComment", label: "评论" },
+  { key: "canCreate", label: "新建" },
+  { key: "canEdit", label: "编辑" },
+  { key: "canMove", label: "移动" },
+  { key: "canDelete", label: "删除" },
+  { key: "canManageMembers", label: "管理成员" },
+  { key: "canReshare", label: "再次分享" },
 ];
 
 interface Props {
@@ -74,12 +89,25 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   const [focusUserPicker, setFocusUserPicker] = useState(false);
   const [role, setRole] = useState<KnowledgeRolePreset>("readonly");
 
+  // P2：按工作区用户组批量授权 & 成员生效权限诊断
+  const [workspaceGroups, setWorkspaceGroups] = useState<WorkspaceGroup[]>([]);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [showGroupGrant, setShowGroupGrant] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [groupRole, setGroupRole] = useState<KnowledgeRolePreset>("editor");
+  const [showDiagnosis, setShowDiagnosis] = useState(false);
+  const [diagUserId, setDiagUserId] = useState("");
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<KnowledgeEffectivePermissionDiagnosis | null>(null);
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [response, me] = await Promise.all([
+      const [response, me, groupsRes, membersRes] = await Promise.all([
         knowledgeTreeApi.getPermissions(node.id),
         api.getMe(),
+        node.workspaceId ? api.getWorkspaceGroups(node.workspaceId).catch(() => [] as WorkspaceGroup[]) : Promise.resolve([] as WorkspaceGroup[]),
+        node.workspaceId ? api.getWorkspaceMembers(node.workspaceId).catch(() => [] as WorkspaceMember[]) : Promise.resolve([] as WorkspaceMember[]),
       ]);
       setRows(response.direct);
       setInheritsFromParent(response.inheritsFromParent);
@@ -87,6 +115,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       setIsExplicit(response.isExplicit === true);
       setCurrentUserAccess(response.currentUserAccess);
       setCurrentUser({ id: me.id, username: me.username });
+      setWorkspaceGroups(groupsRes);
+      setWorkspaceMembers(membersRes);
       if (response.currentUserAccess.source === "owner" && !response.currentUserAccess.capabilities.canManageMembers) {
         console.error("[KnowledgeTreePermissionsDialog] owner access invariant violated", {
           nodeId: node.id,
@@ -99,9 +129,35 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
     } finally {
       setLoading(false);
     }
-  }, [node.id]);
+  }, [node.id, node.workspaceId]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  useEffect(() => {
+    if (!showDiagnosis || !diagUserId) {
+      setDiagnosis(null);
+      return;
+    }
+    let cancelled = false;
+    setDiagLoading(true);
+    knowledgeTreeApi
+      .getEffectivePermission(node.id, diagUserId)
+      .then((res) => {
+        if (!cancelled) setDiagnosis(res);
+      })
+      .catch((error: any) => {
+        if (!cancelled) {
+          setDiagnosis(null);
+          toast.error(error?.message || "诊断生效权限失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDiagLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [diagUserId, node.id, showDiagnosis, rows, accessMode]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -128,8 +184,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
             user.id !== currentUser?.id && !rows.some((row) => row.userId === user.id)
           )));
         })
-        .catch((error: any) => {
-          if (!cancelled) toast.error(error?.message || "加载人员失败");
+        .catch((error: unknown) => {
+          if (!cancelled) toast.error((error instanceof Error && error.message) || "加载人员失败");
         })
         .finally(() => { if (!cancelled) setCandidateLoading(false); });
     }, userQuery.trim() ? 250 : 0);
@@ -188,6 +244,23 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       toast.success(nextMode === "restricted" ? "已设为仅指定成员可访问" : "已恢复继承权限");
     } catch (error: any) {
       toast.error(error?.message || "更新访问模式失败");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const grantGroup = async () => {
+    if (!ensureCanManageMembers() || !selectedGroupId || savingKey) return;
+    setSavingKey("grant-group");
+    try {
+      const res = await knowledgeTreeApi.grantGroupPermission(node.id, selectedGroupId, groupRole);
+      setShowGroupGrant(false);
+      setSelectedGroupId("");
+      await reload();
+      onChanged("permission-group-granted");
+      toast.success(`已为用户组「${res.groupName}」的 ${res.appliedCount} 位成员授予${ROLE_LABELS[groupRole]}`);
+    } catch (error: any) {
+      toast.error(error?.message || "按用户组授权失败");
     } finally {
       setSavingKey(null);
     }
@@ -260,8 +333,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       await reload();
       onChanged("permission-rule-removed");
       toast.success(row.rolePreset === "deny" ? "已取消禁止访问" : "成员规则已移除");
-    } catch (error: any) {
-      toast.error(error?.message || "操作失败");
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || "操作失败");
     } finally {
       setSavingKey(null);
     }
@@ -347,22 +420,91 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                 <h3 className="text-sm font-semibold text-tx-primary">成员规则</h3>
                 <span className="rounded-full bg-app-hover px-2 py-0.5 text-[11px] text-tx-tertiary">允许 {allowRows.length} · 禁止 {denyRows.length}</span>
               </div>
-              <button
-                type="button"
-                disabled={!currentUser || managementDisabled}
-                onClick={() => {
-                  if (!ensureCanManageMembers()) return;
-                  setShowAddMember((current) => !current);
-                  setSelectedUser(null);
-                  setUserQuery("");
-                  setUserCandidates([]);
-                  setCandidateOpen(true);
-                }}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-accent-primary hover:bg-accent-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <UserPlus size={16} />添加成员
-              </button>
+              <div className="flex items-center gap-1.5">
+                {node.workspaceId && canManageMembers && (
+                  <button
+                    type="button"
+                    disabled={managementDisabled}
+                    aria-expanded={showGroupGrant}
+                    onClick={() => {
+                      if (!ensureCanManageMembers()) return;
+                      setShowGroupGrant((current) => !current);
+                      setShowAddMember(false);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                  >
+                    <Users size={15} />按用户组授权
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!currentUser || managementDisabled}
+                  onClick={() => {
+                    if (!ensureCanManageMembers()) return;
+                    setShowAddMember((current) => !current);
+                    setShowGroupGrant(false);
+                    setSelectedUser(null);
+                    setUserQuery("");
+                    setUserCandidates([]);
+                    setCandidateOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-accent-primary hover:bg-accent-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <UserPlus size={16} />添加成员
+                </button>
+              </div>
             </div>
+
+            {showGroupGrant && node.workspaceId && (
+              <div className="mt-3 rounded-xl border border-app-border bg-app-hover/30 p-3">
+                {workspaceGroups.length === 0 ? (
+                  <p className="text-xs text-tx-tertiary">
+                    当前工作区暂无用户组，请先在工作区「成员与设置 → 用户组」中创建分组。
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        aria-label="选择要授权的用户组"
+                        value={selectedGroupId}
+                        disabled={managementDisabled}
+                        onChange={(event) => setSelectedGroupId(event.target.value)}
+                        className="h-10 flex-1 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <option value="">选择工作区用户组…</option>
+                        {workspaceGroups.map((group) => (
+                          <option key={group.id} value={group.id} disabled={group.memberCount === 0}>
+                            {group.name}（{group.memberCount} 人）
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="用户组授权角色"
+                        value={groupRole}
+                        disabled={managementDisabled}
+                        onChange={(event) => setGroupRole(event.target.value as KnowledgeRolePreset)}
+                        className="h-10 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary disabled:cursor-not-allowed disabled:opacity-40 sm:w-36"
+                      >
+                        {ROLE_OPTIONS.map((preset) => (
+                          <option key={preset} value={preset}>{ROLE_LABELS[preset]}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!selectedGroupId || managementDisabled}
+                        onClick={() => void grantGroup()}
+                        className="flex h-10 min-w-24 items-center justify-center rounded-lg bg-accent-primary px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {savingKey === "grant-group" ? <Loader2 size={16} className="animate-spin" /> : "批量授权"}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-tx-tertiary">
+                      将为所选用户组内所有有效工作区成员批量写入当前节点的「{ROLE_LABELS[groupRole]}」规则。
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {showAddMember && (
               <div className="mt-3 rounded-xl border border-accent-primary/25 bg-accent-primary/[0.04] p-3">
@@ -505,6 +647,91 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
               </div>
             ))}
           </section>
+
+          {canManageMembers && node.workspaceId && workspaceMembers.length > 0 && (
+            <section className="mt-4 rounded-xl border border-app-border bg-app-hover/20 p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
+                  <Stethoscope size={15} className="text-accent-primary" />
+                  生效权限诊断
+                </div>
+                <button
+                  type="button"
+                  aria-expanded={showDiagnosis}
+                  onClick={() => {
+                    setShowDiagnosis((prev) => {
+                      const next = !prev;
+                      if (next && !diagUserId && workspaceMembers[0]) {
+                        setDiagUserId(workspaceMembers[0].userId);
+                      }
+                      return next;
+                    });
+                  }}
+                  className="rounded-lg px-2.5 py-1 text-xs font-medium text-accent-primary hover:bg-accent-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                >
+                  {showDiagnosis ? "收起诊断" : "检查成员最终权限"}
+                </button>
+              </div>
+
+              {showDiagnosis && (
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label htmlFor="knowledge-perm-diag-user" className="text-xs text-tx-secondary">
+                      诊断对象：
+                    </label>
+                    <select
+                      id="knowledge-perm-diag-user"
+                      aria-label="选择要诊断生效权限的成员"
+                      value={diagUserId}
+                      onChange={(event) => setDiagUserId(event.target.value)}
+                      className="h-9 flex-1 min-w-[200px] rounded-lg border border-app-border bg-app-bg px-3 text-xs text-tx-primary"
+                    >
+                      <option value="">请选择工作区成员…</option>
+                      {workspaceMembers.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.username}（空间角色：{member.role}）
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {diagLoading ? (
+                    <div className="flex items-center gap-2 py-2 text-xs text-tx-tertiary" role="status">
+                      <Loader2 size={14} className="animate-spin" />
+                      正在计算最终生效权限…
+                    </div>
+                  ) : diagnosis ? (
+                    <div className="space-y-2.5 rounded-lg border border-app-border bg-app-surface p-3" role="status" aria-live="polite">
+                      <div className="text-xs leading-5 text-tx-primary">
+                        <span className="font-semibold">{diagnosis.user.displayName || diagnosis.user.username}</span>
+                        {" · "}
+                        <span>{diagnosis.explanation}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                        {CAPABILITY_ITEMS.map((cap) => {
+                          const allowed = diagnosis.effective.capabilities[cap.key];
+                          return (
+                            <div
+                              key={cap.key}
+                              aria-label={`${cap.label}：${allowed ? "允许" : "不允许"}`}
+                              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
+                                allowed
+                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                  : "bg-app-hover/60 text-tx-tertiary"
+                              }`}
+                            >
+                              {allowed ? <Check size={13} /> : <X size={13} />}
+                              <span>{cap.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          )}
         </main>
       </div>
     </div>,

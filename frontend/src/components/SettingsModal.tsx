@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Palette, Shield, Database, X, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText, Rocket } from "lucide-react";
 import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
@@ -29,6 +29,7 @@ import WorkspaceManagement from "@/components/WorkspaceManagement";
 import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
+import AppGalleryDownloadLink from "@/components/settings/AppGalleryDownloadLink";
 import PreferencesPanel from "@/components/settings/preferences/PreferencesPanel";
 import { revealSettingsTarget } from "@/components/settings/preferences/revealSettingsTarget";
 import type { RelatedSettingsTab } from "@/components/settings/preferences/preferenceSearch";
@@ -44,8 +45,23 @@ import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
 import HotUpdateStatusCard from "./settings/HotUpdateStatusCard";
+import NowenEcosystemPanel from "./settings/NowenEcosystemPanel";
+import {
+  PlayfulSegmentedControl,
+  SettingsBentoCard,
+  SettingsTabHero,
+} from "./settings/shell/SettingsVisualKit";
+import {
+  SettingsDesktopSidebar,
+  SettingsMobileTopBar,
+} from "./settings/shell/SettingsNavSidebar";
+import {
+  SETTINGS_NAV_GROUP_META,
+  SETTINGS_TAB_META,
+  type SettingsTabId,
+} from "./settings/shell/settingsNavMeta";
 
-type TabId = "appearance" | "preferences" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "extensions" | "download" | "about";
+type TabId = SettingsTabId;
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -192,14 +208,26 @@ function VersionCompareCard() {
     release.version !== serverVersion;
 
   return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">版本信息</h3>
+    <SettingsBentoCard className="p-4 space-y-3 bg-gradient-to-br from-slate-50/85 via-white to-sky-50/45 dark:from-zinc-900/75 dark:via-zinc-900/55 dark:to-sky-950/25">
+      <div className="relative flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span aria-hidden className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
+            <Server size={14} />
+          </span>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">版本信息</h3>
+          <span
+            aria-hidden
+            className={cn(
+              "h-2 w-2 rounded-full",
+              hasNewerRelease ? "bg-blue-500 animate-pulse" : isOutdated ? "bg-amber-500 animate-pulse" : "bg-emerald-500",
+            )}
+          />
+        </div>
         <button
           type="button"
           onClick={handleRetry}
           disabled={loading}
-          className="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400 hover:text-accent-primary disabled:opacity-50"
+          className="nowen-tactile-btn inline-flex items-center gap-1 rounded-xl border border-zinc-200/80 bg-white/80 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700/80 dark:bg-zinc-900/70 dark:text-zinc-300"
           title="重新拉取"
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -207,65 +235,81 @@ function VersionCompareCard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-2 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
         {/* 客户端 */}
-        <span className="text-zinc-500 dark:text-zinc-400">当前客户端</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100">v{clientVersion}</span>
-        <span className="text-zinc-400 dark:text-zinc-600">
-          {typeof navigator !== "undefined" && navigator.userAgent.includes("Electron")
-            ? "Desktop"
-            : desktop
-              ? "Desktop"
-              : "Web"}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>当前客户端</span>
+            <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+              {typeof navigator !== "undefined" && navigator.userAgent.includes("Electron")
+                ? "Desktop"
+                : desktop
+                  ? "Desktop"
+                  : "Web"}
+            </span>
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+            v{clientVersion}
+          </div>
+        </div>
 
         {/* 服务端 */}
-        <span className="text-zinc-500 dark:text-zinc-400">服务端</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100">
-          {serverError ? (
-            <span className="text-amber-500">unknown</span>
-          ) : serverVersion ? (
-            <>v{serverVersion}</>
-          ) : (
-            <span className="text-zinc-400">—</span>
-          )}
-        </span>
-        <span className="text-right">
-          {isOutdated ? (
-            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
-              需刷新
-            </span>
-          ) : serverVersion ? (
-            <span className="text-emerald-500">匹配</span>
-          ) : null}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>服务端</span>
+            {isOutdated ? (
+              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                需刷新
+              </span>
+            ) : serverVersion ? (
+              <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                匹配
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">
+            {serverError ? (
+              <span className="text-amber-500">unknown</span>
+            ) : serverVersion ? (
+              <>v{serverVersion}</>
+            ) : (
+              <span className="text-zinc-400">—</span>
+            )}
+          </div>
+        </div>
 
         {/* GitHub 最新 release */}
-        <span className="text-zinc-500 dark:text-zinc-400">最新发布</span>
-        <span className="font-mono text-zinc-900 dark:text-zinc-100 truncate">
-          {release?.available ? (
-            <a
-              href={release.htmlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent-primary hover:underline"
-              title={release.name || release.tag}
-            >
-              v{release.version}
-            </a>
-          ) : release && !release.available ? (
-            <span className="text-zinc-400">不可用</span>
-          ) : (
-            <span className="text-zinc-400">—</span>
-          )}
-        </span>
-        <span className="text-right">
-          {hasNewerRelease ? (
-            <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400">
-              可升级
-            </span>
-          ) : null}
-        </span>
+        <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-900/60 px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+            <span>最新发布</span>
+            {hasNewerRelease ? (
+              <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                可升级
+              </span>
+            ) : release?.available ? (
+              <span className="rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-400">
+                最新
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate tabular-nums">
+            {release?.available ? (
+              <a
+                href={release.htmlUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-primary hover:underline"
+                title={release.name || release.tag}
+              >
+                v{release.version}
+              </a>
+            ) : release && !release.available ? (
+              <span className="text-zinc-400">不可用</span>
+            ) : (
+              <span className="text-zinc-400">—</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 桌面端：检查更新按钮 + autoUpdater 状态
@@ -324,7 +368,7 @@ function VersionCompareCard() {
           )}
         </div>
       )}
-    </div>
+    </SettingsBentoCard>
   );
 }
 
@@ -396,8 +440,9 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string; onClo
   );
 }
 
-function AboutPanel() {
+function AboutPanel({ onOpenEcosystem }: { onOpenEcosystem?: () => void }) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const contactEmail = "nowenlab@qq.com";
   const feedbackMailto = `mailto:${contactEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
   const feedbackQqGroupNumber = "1093473044";
@@ -405,274 +450,482 @@ function AboutPanel() {
   const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showAuthorStory, setShowAuthorStory] = useState(false);
-  // 赞赏码大图预览：点击赞赏码缩略图时弹起 Lightbox
+  // 赞赏码 / 社群码大图预览 Lightbox
   const [sponsorPreviewOpen, setSponsorPreviewOpen] = useState(false);
   const [feedbackQqPreviewOpen, setFeedbackQqPreviewOpen] = useState(false);
+  const [communityPreviewOpen, setCommunityPreviewOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [qqCopied, setQqCopied] = useState(false);
+  const [logoCheers, setLogoCheers] = useState(0);
+  const [logoBooped, setLogoBooped] = useState(false);
   const sponsorImage = sponsorMethod === "wechat" ? wechatSponsorQr : alipaySponsorQr;
   const sponsorLabel = sponsorMethod === "wechat"
     ? t('about.sponsorWechat')
     : t('about.sponsorAlipay');
+
+  const handleCopyShare = () => {
+    const text = t('about.shareText');
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(text).then(() => {
+        setShareCopied(true);
+        window.setTimeout(() => setShareCopied(false), 2200);
+      }).catch(() => {});
+    }
+  };
+
+  const handleCopyQq = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(feedbackQqGroupNumber).then(() => {
+        setQqCopied(true);
+        window.setTimeout(() => setQqCopied(false), 2000);
+      }).catch(() => {});
+    }
+  };
+
+  const highlights = [
+    {
+      key: "featureEditor",
+      titleKey: "featureEditorTitle",
+      Icon: FileText,
+      iconTone: "from-sky-400/20 to-blue-500/15 text-sky-700 ring-sky-500/20 dark:text-sky-300",
+      cardTint: "from-sky-500/[0.04] via-white to-white dark:from-sky-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-sky-400/45",
+    },
+    {
+      key: "featureAI",
+      titleKey: "featureAITitle",
+      Icon: Bot,
+      iconTone: "from-fuchsia-400/20 to-violet-500/15 text-fuchsia-700 ring-fuchsia-500/20 dark:text-fuchsia-300",
+      cardTint: "from-fuchsia-500/[0.04] via-white to-white dark:from-fuchsia-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-fuchsia-400/45",
+    },
+    {
+      key: "featureSelfHost",
+      titleKey: "featureSelfHostTitle",
+      Icon: Shield,
+      iconTone: "from-emerald-400/20 to-teal-500/15 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+      cardTint: "from-emerald-500/[0.04] via-white to-white dark:from-emerald-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-emerald-400/45",
+    },
+    {
+      key: "featureSync",
+      titleKey: "featureSyncTitle",
+      Icon: WifiOff,
+      iconTone: "from-indigo-400/20 to-cyan-500/15 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300",
+      cardTint: "from-indigo-500/[0.04] via-white to-white dark:from-indigo-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-indigo-400/45",
+    },
+    {
+      key: "featureClipper",
+      titleKey: "featureClipperTitle",
+      Icon: Layers,
+      iconTone: "from-amber-400/20 to-orange-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+      cardTint: "from-amber-500/[0.04] via-white to-white dark:from-amber-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-amber-400/45",
+    },
+    {
+      key: "featureMindMap",
+      titleKey: "featureMindMapTitle",
+      Icon: Blocks,
+      iconTone: "from-cyan-400/20 to-sky-500/15 text-cyan-700 ring-cyan-500/20 dark:text-cyan-300",
+      cardTint: "from-cyan-500/[0.04] via-white to-white dark:from-cyan-500/[0.06] dark:via-zinc-900/60 dark:to-zinc-900/60 hover:border-cyan-400/45",
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* 标题区 */}
-      <div className="text-center py-4">
-        <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('about.appName')}</h2>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('about.slogan')}</p>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-          <span className="inline-block px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
-            {t('about.version')} {__APP_VERSION__}
-          </span>
-          <a
-            href="https://nowen.cn/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
-          >
-            <Globe size={12} />
-            {t('about.website')}
-            <ExternalLink size={11} />
-          </a>
-          <a
-            href="https://apps.microsoft.com/detail/9MZ7Z6S39LL3"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
-          >
-            <Download size={12} />
-            {t('about.microsoftStoreDownload')}
-            <ExternalLink size={11} />
-          </a>
-        </div>
-        {import.meta.env.MODE === "harmony" && (
-          <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-            <p>{t('about.appFilingNumber')}</p>
-            <a
-              href="https://beian.miit.gov.cn/"
-              onClick={async (event) => {
-                event.preventDefault();
-                await Browser.open({ url: "https://beian.miit.gov.cn/" });
+    <div className="space-y-5 pb-2">
+      {/* 1. 品牌极光名片 Hero — 第一眼建立信任感 + 核心增长 CTA */}
+      <motion.section
+        initial={reducedMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 360, damping: 28 }}
+        className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.10] via-white to-indigo-500/[0.08] p-5 shadow-sm dark:border-sky-400/20 dark:from-sky-500/[0.14] dark:via-zinc-900/80 dark:to-fuchsia-500/[0.10]"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-gradient-to-br from-sky-400/25 to-indigo-500/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-14 -left-10 h-36 w-36 rounded-full bg-gradient-to-tr from-fuchsia-400/15 to-cyan-400/20 blur-3xl"
+        />
+
+        <div className="relative flex flex-col items-center text-center">
+          {/* 品牌 Logo + 俏皮连击打 call 彩蛋 + 版本胶囊 */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setLogoCheers((c) => c + 1);
+                setLogoBooped(true);
+                window.setTimeout(() => setLogoBooped(false), 180);
               }}
-              className="inline-flex items-center gap-1 hover:text-accent-primary transition-colors"
+              title="点一下给 Nowen 打 call"
+              className={cn(
+                "nowen-playful-emblem relative rounded-2xl p-0.5 bg-white/80 dark:bg-zinc-900/80 ring-1 ring-black/5 dark:ring-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
+                logoBooped && "nowen-playful-emblem--booped",
+              )}
             >
-              粤ICP备2026067978号-2A
-              <ExternalLink size={11} />
-            </a>
+              <img
+                src="/nowen-note-icon.svg"
+                alt={t('about.appName')}
+                className="h-16 w-16 rounded-2xl"
+                draggable={false}
+              />
+              {!reducedMotion && logoCheers > 0 && (
+                <span key={logoCheers} aria-hidden className="pointer-events-none absolute inset-0 overflow-visible">
+                  {[
+                    { x: -26, y: -22, color: "#6366f1" },
+                    { x: 0, y: -32, color: "#38bdf8" },
+                    { x: 26, y: -22, color: "#f472b6" },
+                    { x: -22, y: 14, color: "#f59e0b" },
+                    { x: 22, y: 14, color: "#34d399" },
+                  ].map((spark, idx) => (
+                    <span
+                      key={idx}
+                      className="nowen-sparkle-burst absolute left-1/2 top-1/2 h-2 w-2 rounded-full"
+                      style={{
+                        backgroundColor: spark.color,
+                        ["--spark-x" as string]: `${spark.x}px`,
+                        ["--spark-y" as string]: `${spark.y}px`,
+                      }}
+                    />
+                  ))}
+                </span>
+              )}
+            </button>
+            <span className="pointer-events-none absolute -bottom-1.5 -right-2.5 rounded-full bg-accent-primary px-2 py-0.5 font-mono text-[10px] font-semibold text-white shadow-sm ring-2 ring-white dark:ring-zinc-900">
+              v{__APP_VERSION__}
+            </span>
+            {logoCheers > 0 && (
+              <span className="pointer-events-none absolute -top-2 -left-10 whitespace-nowrap rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-300">
+                ✨ ×{logoCheers}
+              </span>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}
-      <VersionCompareCard />
-      <HotUpdateStatusCard />
+          <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
+            <Sparkles size={11} aria-hidden />
+            {t('about.heroBadge')}
+          </span>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+          <h2 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {t('about.appName')}
+          </h2>
+          <p className="mt-1 max-w-lg text-sm font-medium text-zinc-700 dark:text-zinc-200">
+            {t('about.slogan')}
+          </p>
+          <p className="mt-2 max-w-xl text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            {t('about.description')}
+          </p>
 
-      {/* 简介 */}
-      <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-        {t('about.description')}
-      </p>
+          {/* 3 枚信任差异化徽章 */}
+          <div className="mt-3.5 flex flex-wrap items-center justify-center gap-1.5">
+            {[
+              { label: t('about.trustOwned'), tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+              { label: t('about.trustOffline'), tone: "bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+              { label: t('about.trustAiEco'), tone: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
+            ].map((badge) => (
+              <span
+                key={badge.label}
+                className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium", badge.tone)}
+              >
+                <Check size={11} aria-hidden />
+                {badge.label}
+              </span>
+            ))}
+          </div>
 
-      {/* 核心能力 */}
-      <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">{t('about.features')}</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[
-            'featureEditor', 'featureAI', 'featureClipper',
-            'featureMindMap', 'featureSync', 'featureSelfHost',
-          ].map((key) => (
-            <div key={key} className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/40">
-              <Check size={14} className="text-accent-primary mt-0.5 shrink-0" />
-              <span className="text-xs text-zinc-700 dark:text-zinc-300">{t(`about.${key}`)}</span>
+          {/* 黄金转化 CTA 按钮行：GitHub Star + 一键安利给朋友 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <a
+              href="https://github.com/cropflre/nowen-note"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex h-9 items-center gap-1.5 rounded-xl bg-zinc-900 px-4 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:bg-zinc-800 hover:shadow motion-safe:hover:-translate-y-0.5 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            >
+              <Star size={14} className="text-amber-400 fill-amber-400 transition-transform duration-200 motion-safe:group-hover:scale-110 motion-safe:group-hover:rotate-12" aria-hidden />
+              {t('about.starOnGithub')}
+              <ArrowUpRight size={13} className="opacity-70" aria-hidden />
+            </a>
+            <button
+              type="button"
+              onClick={handleCopyShare}
+              className={cn(
+                "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-medium shadow-xs transition-all duration-200 motion-safe:hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary",
+                shareCopied
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-zinc-200/90 bg-white/90 text-zinc-700 hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200",
+              )}
+            >
+              {shareCopied ? <Check size={14} aria-hidden /> : <Share2 size={14} aria-hidden />}
+              {shareCopied ? t('about.shareCopied') : t('about.shareApp')}
+            </button>
+          </div>
+
+          {/* 快捷官方直达入口条 */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+            <a
+              href="https://nowen.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+            >
+              <Globe size={12} aria-hidden />
+              {t('about.website')}
+              <ExternalLink size={11} aria-hidden />
+            </a>
+            <a
+              href="https://apps.microsoft.com/detail/9MZ7Z6S39LL3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+            >
+              <Download size={12} aria-hidden />
+              {t('about.microsoftStoreDownload')}
+              <ExternalLink size={11} aria-hidden />
+            </a>
+            <AppGalleryDownloadLink className="inline-flex items-center gap-1 text-xs text-zinc-600 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors" />
+          </div>
+
+          {import.meta.env.MODE === "harmony" && (
+            <div className="mt-3 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+              <p>{t('about.appFilingNumber')}</p>
+              <a
+                href="https://beian.miit.gov.cn/"
+                onClick={async (event) => {
+                  event.preventDefault();
+                  await Browser.open({ url: "https://beian.miit.gov.cn/" });
+                }}
+                className="inline-flex items-center gap-1 hover:text-accent-primary transition-colors"
+              >
+                粤ICP备2026067978号-2A
+                <ExternalLink size={11} />
+              </a>
             </div>
+          )}
+        </div>
+      </motion.section>
+
+      {/* 2. 核心竞争力 2×3 价值矩阵 */}
+      <section className="space-y-2.5">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.features')}</h3>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t('about.featuresSubtitle')}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {highlights.map(({ key, titleKey, Icon, iconTone, cardTint }) => (
+            <SettingsBentoCard
+              key={key}
+              as="div"
+              interactive
+              className={cn(
+                "group/feat flex items-start gap-3 bg-gradient-to-br p-3 hover:border-zinc-300/80 dark:hover:border-zinc-700/80",
+                cardTint,
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ring-1 ring-inset transition-transform duration-200 motion-safe:group-hover/feat:scale-110 motion-safe:group-hover/feat:-rotate-6",
+                  iconTone,
+                )}
+              >
+                <Icon size={15} />
+              </span>
+              <div className="relative z-10 min-w-0">
+                <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t(`about.${titleKey}`)}</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">{t(`about.${key}`)}</p>
+              </div>
+            </SettingsBentoCard>
           ))}
         </div>
-      </div>
+      </section>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
-
-      {/* 开源信息 */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div>
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('about.openSource')}</span>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('about.license')}</p>
-        </div>
-        <a
-          href="https://github.com/cropflre/nowen-note"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-medium hover:opacity-80 transition-opacity"
+      {/* 3. 弄文生态家族快捷跳转卡 */}
+      {onOpenEcosystem && (
+        <button
+          type="button"
+          onClick={onOpenEcosystem}
+          className="nowen-settings-card nowen-settings-card--interactive group/eco flex w-full items-center justify-between gap-3 rounded-2xl border-indigo-500/25 bg-gradient-to-r from-indigo-500/[0.08] via-sky-500/[0.06] to-emerald-500/[0.08] p-4 text-left hover:border-indigo-400/50 dark:from-indigo-500/[0.13] dark:via-sky-500/[0.08] dark:to-emerald-500/[0.11] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
         >
-          <ExternalLink size={12} />
-          {t('about.github')}
-        </a>
-      </div>
-
-      {/* Nowen 开源实验室公众号 */}
-      <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            {t('about.communityQrTitle')}
-          </div>
-          <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            {t('about.communityQrDesc')}
-          </div>
-        </div>
-        <img
-          src={communityQr}
-          alt={t('about.communityQrTitle')}
-          className="w-28 h-28 object-contain rounded-lg bg-white p-1 shrink-0"
-          loading="lazy"
-          draggable={false}
-        />
-      </div>
-
-      {/* 更新日志 */}
-      <button
-        type="button"
-        onClick={() => setShowWhatsNew(true)}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent-primary/10 text-accent-primary">
-            <Sparkles size={16} />
-          </span>
-          <div>
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.changelog')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.changelogDesc')}
-            </div>
-          </div>
-        </div>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
-          {t('about.viewChangelog')}
-        </span>
-      </button>
-
-      {/* 作者感言 —— 项目背后的故事 */}
-      <button
-        type="button"
-        onClick={() => setShowAuthorStory(true)}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500">
-            <BookOpen size={16} />
-          </span>
-          <div>
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.authorStory')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.authorStoryDesc')}
-            </div>
-          </div>
-        </div>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
-          {t('about.authorStoryAction')}
-        </span>
-      </button>
-
-      <a
-        href={`mailto:${contactEmail}`}
-        className="flex w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface p-4 text-left transition-colors hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary" aria-hidden>
-          <Building2 size={16} />
-        </span>
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-tx-primary">{t('about.businessPartnerships')}</div>
-          <div className="mt-0.5 break-all text-xs text-tx-secondary">{contactEmail}</div>
-        </div>
-      </a>
-
-      {/* 意见与 Bug 反馈 */}
-      <a
-        href={feedbackMailto}
-        className="w-full flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
-            <Mail size={16} />
-          </span>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('about.feedback')}
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('about.feedbackDesc')}
-            </div>
-          </div>
-        </div>
-        <div className="ml-4 text-right shrink-0">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t('about.feedbackAction')}
-          </div>
-          <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
-            {contactEmail}
-          </div>
-        </div>
-      </a>
-
-      {/* QQ 群反馈 */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
-              <Users size={16} />
+          <div className="flex min-w-0 items-center gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/25 to-emerald-500/20 text-indigo-600 ring-1 ring-inset ring-indigo-500/25 transition-transform duration-200 motion-safe:group-hover/eco:scale-110 motion-safe:group-hover/eco:-rotate-6 dark:text-indigo-300"
+            >
+              <Rocket size={18} />
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                {t('about.feedbackQqGroup')}
+              <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <span>{t("ecosystem.aboutPromoTitle")}</span>
               </div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                {t('about.feedbackQqGroupDesc')}
-              </div>
-              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mt-1">
-                {t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
-              </div>
+              <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t("ecosystem.aboutPromoDesc")}
+              </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setFeedbackQqPreviewOpen(true)}
-            className="shrink-0 rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
-            title={t('about.feedbackQqGroup')}
-            aria-label={t('about.feedbackQqGroup')}
-          >
-            <img
-              src={qqGroupQr}
-              alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
-              className="w-16 h-16 object-cover bg-white p-1"
-              loading="lazy"
-              draggable={false}
-            />
-          </button>
-        </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors group-hover/eco:bg-indigo-600">
+            <span>{t("ecosystem.aboutPromoAction")}</span>
+            <ArrowUpRight size={13} className="transition-transform motion-safe:group-hover/eco:translate-x-0.5 motion-safe:group-hover/eco:-translate-y-0.5" aria-hidden />
+          </span>
+        </button>
+      )}
+
+      {/* 4. 版本信息 & 在线更新卡（严格保留 DockerUpdateCenter 挂载契约） */}
+      <div className="space-y-3">
+        <VersionCompareCard />
+        <HotUpdateStatusCard />
       </div>
 
-      {/* 支持作者 / 打赏 */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
+      {/* 4. 情感连接与透明演进：作者感言 + 更新日志 双列卡片 */}
+      <section className="space-y-2.5">
+        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.storySectionTitle')}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowAuthorStory(true)}
+            className="nowen-settings-card nowen-settings-card--interactive group/story flex items-start justify-between gap-3 rounded-2xl border-amber-500/20 bg-gradient-to-br from-amber-500/[0.08] via-white to-orange-500/[0.04] p-4 text-left hover:border-amber-400/50 dark:from-amber-500/[0.10] dark:via-zinc-900/70 dark:to-orange-500/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400/25 to-orange-500/15 text-amber-700 ring-1 ring-inset ring-amber-500/25 transition-transform duration-200 motion-safe:group-hover/story:scale-110 motion-safe:group-hover/story:-rotate-6 dark:text-amber-300">
+                <BookOpen size={17} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {t('about.authorStory')}
+                  <ArrowUpRight size={13} className="text-amber-600/70 transition-transform motion-safe:group-hover/story:translate-x-0.5 motion-safe:group-hover/story:-translate-y-0.5 dark:text-amber-300/70" aria-hidden />
+                </div>
+                <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {t('about.authorStoryDesc')}
+                </p>
+                <span className="mt-2 inline-flex items-center text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  {t('about.authorStoryAction')} →
+                </span>
+              </div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowWhatsNew(true)}
+            className="nowen-settings-card nowen-settings-card--interactive group/log flex items-start justify-between gap-3 rounded-2xl border-indigo-500/20 bg-gradient-to-br from-indigo-500/[0.08] via-white to-violet-500/[0.04] p-4 text-left hover:border-indigo-400/50 dark:from-indigo-500/[0.10] dark:via-zinc-900/70 dark:to-violet-500/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400/25 to-violet-500/15 text-indigo-700 ring-1 ring-inset ring-indigo-500/25 transition-transform duration-200 motion-safe:group-hover/log:scale-110 motion-safe:group-hover/log:-rotate-6 dark:text-indigo-300">
+                <Sparkles size={17} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {t('about.changelog')}
+                  <ArrowUpRight size={13} className="text-indigo-600/70 transition-transform motion-safe:group-hover/log:translate-x-0.5 motion-safe:group-hover/log:-translate-y-0.5 dark:text-indigo-300/70" aria-hidden />
+                </div>
+                <p className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                  {t('about.changelogDesc')}
+                </p>
+                <span className="mt-2 inline-flex items-center text-[11px] font-medium text-indigo-700 dark:text-indigo-300">
+                  {t('about.viewChangelog')} →
+                </span>
+              </div>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      {/* 5. 社区阵地（公众号 + QQ 群双列 Bento 卡） */}
+      <section className="space-y-2.5">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('about.communitySectionTitle')}</h3>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{t('about.communitySectionSubtitle')}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Nowen 开源实验室公众号 */}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] via-white to-teal-500/[0.03] p-4 shadow-xs dark:from-emerald-500/[0.08] dark:via-zinc-900/70 dark:to-teal-500/[0.04]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <Compass size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden />
+                <span className="truncate">{t('about.communityQrTitle')}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t('about.communityQrDesc')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCommunityPreviewOpen(true)}
+              className="group relative shrink-0 overflow-hidden rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-black/5 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              title={t('about.communityQrTitle')}
+              aria-label={t('about.communityQrTitle')}
+            >
+              <img
+                src={communityQr}
+                alt={t('about.communityQrTitle')}
+                className="h-20 w-20 object-contain transition-transform duration-200 group-hover:scale-105"
+                loading="lazy"
+                draggable={false}
+              />
+            </button>
+          </div>
+
+          {/* QQ 群反馈 */}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] via-white to-blue-500/[0.03] p-4 shadow-xs dark:from-sky-500/[0.08] dark:via-zinc-900/70 dark:to-blue-500/[0.04]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <Users size={15} className="text-sky-600 dark:text-sky-400 shrink-0" aria-hidden />
+                <span className="truncate">{t('about.feedbackQqGroup')}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t('about.feedbackQqGroupDesc')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-sky-700 dark:text-sky-300">
+                  {t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyQq}
+                  className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-zinc-500 hover:bg-sky-500/10 hover:text-sky-700 dark:text-zinc-400 dark:hover:text-sky-300 transition-colors"
+                >
+                  {qqCopied ? <Check size={11} aria-hidden /> : <Copy size={11} aria-hidden />}
+                  {qqCopied ? t('about.copiedQqNumber') : t('about.copyQqNumber')}
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeedbackQqPreviewOpen(true)}
+              className="group relative shrink-0 overflow-hidden rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-black/5 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              title={t('about.feedbackQqGroup')}
+              aria-label={t('about.feedbackQqGroup')}
+            >
+              <img
+                src={qqGroupQr}
+                alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+                className="h-20 w-20 object-cover transition-transform duration-200 group-hover:scale-105"
+                loading="lazy"
+                draggable={false}
+              />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. 温暖情感高光卡：支持持续开源 / 打赏 */}
+      <div className="relative overflow-hidden rounded-2xl border border-rose-500/25 bg-gradient-to-br from-rose-500/[0.08] via-white to-amber-500/[0.06] shadow-xs dark:from-rose-500/[0.12] dark:via-zinc-900/75 dark:to-amber-500/[0.08]">
         <button
           type="button"
           onClick={() => setShowSponsor((v) => !v)}
-          className="w-full flex items-center justify-between p-4 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors"
+          className="group/sponsor w-full flex items-center justify-between gap-3 p-4 hover:bg-rose-500/[0.04] transition-colors"
         >
-          <div className="flex items-center gap-3">
-            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-rose-500/10 text-rose-500">
-              <Heart size={16} fill="currentColor" />
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500/20 to-amber-500/20 text-rose-600 ring-1 ring-inset ring-rose-500/25 transition-transform duration-200 motion-safe:group-hover/sponsor:scale-110 dark:text-rose-300">
+              <Heart size={18} fill="currentColor" aria-hidden />
             </span>
-            <div className="text-left">
-              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <div className="min-w-0 text-left">
+              <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {t('about.sponsor')}
               </div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              <div className="mt-0.5 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
                 {t('about.sponsorDesc')}
               </div>
             </div>
           </div>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
+          <span className="shrink-0 rounded-xl bg-rose-500 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-transform duration-150 group-hover/sponsor:bg-rose-600">
             {showSponsor ? t('about.sponsorCollapse') : t('about.sponsorAction')}
           </span>
         </button>
@@ -685,57 +938,60 @@ function AboutPanel() {
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="px-4 pb-4 pt-2 flex flex-col items-center gap-3 border-t border-zinc-200/60 dark:border-zinc-800/60">
+              <div className="px-4 pb-5 pt-3 flex flex-col items-center gap-3 border-t border-rose-200/60 dark:border-rose-900/40">
                 <div
-                  className="grid w-full max-w-xs grid-cols-2 rounded-lg bg-zinc-200/70 p-1 dark:bg-zinc-800"
+                  className="nowen-segmented-track grid w-full max-w-xs grid-cols-2 rounded-xl p-1"
                   role="tablist"
                   aria-label={t('about.sponsorMethod')}
                 >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={sponsorMethod === "wechat"}
-                    onClick={() => setSponsorMethod("wechat")}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                      sponsorMethod === "wechat"
-                        ? "bg-emerald-500 text-white shadow-sm"
-                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                    )}
-                  >
-                    {t('about.sponsorWechat')}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={sponsorMethod === "alipay"}
-                    onClick={() => setSponsorMethod("alipay")}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                      sponsorMethod === "alipay"
-                        ? "bg-blue-500 text-white shadow-sm"
-                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                    )}
-                  >
-                    {t('about.sponsorAlipay')}
-                  </button>
+                  {(["wechat", "alipay"] as const).map((method) => {
+                    const selected = sponsorMethod === method;
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => setSponsorMethod(method)}
+                        className={cn(
+                          "relative z-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                          selected
+                            ? "text-white"
+                            : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                        )}
+                      >
+                        {selected && (
+                          <motion.span
+                            layoutId="nowen-sponsor-method-pill"
+                            transition={reducedMotion ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 42, mass: 0.8 }}
+                            aria-hidden
+                            className={cn(
+                              "absolute inset-0 -z-10 rounded-lg shadow-sm",
+                              method === "wechat" ? "bg-emerald-500" : "bg-blue-500",
+                            )}
+                          />
+                        )}
+                        <span className="relative z-10">
+                          {method === "wechat" ? t('about.sponsorWechat') : t('about.sponsorAlipay')}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                {/* 点击图片打开 Lightbox 看大图（按钮包裹 → 无障碍/键盘可达） */}
                 <button
                   type="button"
                   onClick={() => setSponsorPreviewOpen(true)}
-                  className="group relative rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                  className="group relative rounded-xl overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                   title={sponsorLabel}
                   aria-label={sponsorLabel}
                 >
                   <img
                     src={sponsorImage}
                     alt={sponsorLabel}
-                    className="w-44 sm:w-52 max-h-72 object-contain rounded-lg bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
+                    className="w-44 sm:w-52 max-h-72 object-contain rounded-xl bg-white p-2 shadow-sm transition-transform duration-200 group-hover:scale-[1.02]"
                     loading="lazy"
                     draggable={false}
                   />
-                  {/* hover 时浮现的放大图标提示 */}
                   <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/20 transition-colors">
                     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 text-white text-[11px]">
                       <ZoomIn size={12} />
@@ -743,7 +999,7 @@ function AboutPanel() {
                     </span>
                   </span>
                 </button>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 text-center">
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 text-center">
                   {sponsorMethod === "wechat"
                     ? t('about.sponsorWechatTip')
                     : t('about.sponsorAlipayTip')}
@@ -754,22 +1010,79 @@ function AboutPanel() {
         </AnimatePresence>
       </div>
 
-      {/* 底部 */}
-      <p className="text-center text-xs text-zinc-400 dark:text-zinc-600">
-        {t('about.madeWith')}
-      </p>
+      {/* 7. 联系与合作（紧凑双列） */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <a
+          href={feedbackMailto}
+          className="group/mail flex items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 text-left transition-all duration-200 hover:border-sky-400/45 hover:bg-white hover:shadow-xs dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400" aria-hidden>
+            <Mail size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+              <span>{t('about.feedback')}</span>
+              <ArrowUpRight size={12} className="text-zinc-400 group-hover/mail:text-sky-500" aria-hidden />
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">{t('about.feedbackDesc')}</p>
+          </div>
+        </a>
 
-      {/* 更新日志 Modal —— 用户点"查看更新"按钮时唤起 */}
+        <a
+          href={`mailto:${contactEmail}`}
+          className="group/biz flex items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/60 p-3.5 text-left transition-all duration-200 hover:border-accent-primary/45 hover:bg-white hover:shadow-xs dark:border-zinc-800/80 dark:bg-zinc-900/50 dark:hover:bg-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary" aria-hidden>
+            <Building2 size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1 text-xs font-semibold text-tx-primary">
+              <span>{t('about.businessPartnerships')}</span>
+              <ArrowUpRight size={12} className="text-zinc-400 group-hover/biz:text-accent-primary" aria-hidden />
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-tx-secondary">{contactEmail}</div>
+          </div>
+        </a>
+      </div>
+
+      {/* 8. 开源协议与底部收尾 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200/70 bg-zinc-50/50 px-4 py-3 text-xs dark:border-zinc-800/70 dark:bg-zinc-900/40">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-500 dark:text-zinc-400">
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">{t('about.openSource')}</span>
+          <span>·</span>
+          <a
+            href="https://github.com/cropflre/nowen-note/blob/main/LICENSE"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-accent-primary hover:underline transition-colors"
+          >
+            {t('about.license')}
+          </a>
+        </div>
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+          {t('about.madeWith')}
+        </span>
+      </div>
+
+      {/* 更新日志 Modal */}
       <WhatsNewModal
         open={showWhatsNew}
         onClose={() => setShowWhatsNew(false)}
       />
 
-      {/* 作者感言 Modal —— 项目背后的故事 */}
+      {/* 作者感言 Modal */}
       <AuthorStoryModal
         open={showAuthorStory}
         onClose={() => setShowAuthorStory(false)}
       />
+
+      {communityPreviewOpen && (
+        <ImageLightbox
+          src={communityQr}
+          alt={t('about.communityQrTitle')}
+          onClose={() => setCommunityPreviewOpen(false)}
+        />
+      )}
 
       {feedbackQqPreviewOpen && (
         <ImageLightbox
@@ -779,7 +1092,6 @@ function AboutPanel() {
         />
       )}
 
-      {/* 赞赏码大图预览 Lightbox */}
       {sponsorPreviewOpen && (
         <ImageLightbox
           src={sponsorImage}
@@ -822,7 +1134,7 @@ function AppearancePanel() {
   useEffect(() => {
     let cancelled = false;
     api.getMe()
-      .then((u) => { if (!cancelled) setIsAdmin((u as any)?.role === "admin"); })
+      .then((u) => { if (!cancelled) setIsAdmin((u as { role?: string })?.role === "admin"); })
       .catch(() => { if (!cancelled) setIsAdmin(false); });
     return () => { cancelled = true; };
   }, []);
@@ -930,8 +1242,9 @@ function AppearancePanel() {
       setUploadSuccess(result.uploaded.length > 0);
       await loadFonts();
       setTimeout(() => { setUploadMessage(""); setUploadSuccess(false); }, 4000);
-    } catch (err: any) {
-      setUploadMessage(err.message || t('settings.fontUploadFailed'));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      setUploadMessage(msg || t('settings.fontUploadFailed'));
       setUploadSuccess(false);
     } finally {
       setIsUploading(false);
@@ -950,466 +1263,521 @@ function AppearancePanel() {
     } catch { /* ignore */ }
   };
 
+  const previewFontSizePx = userPrefs.editorFontSize > 0 ? userPrefs.editorFontSize : 14;
+  const isCompactDensity = userPrefs.readingDensity === "compact";
+
   return (
-    <div className="space-y-6">
-      {/* 站点标识 */}
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('settings.siteIdentity')}</h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-2">{t('settings.siteIdentityDesc')}</p>
-        {!isLoaded && <p className="mb-2 text-sm text-zinc-500">{t("settings.siteIdentityLoading")}</p>}
-        {!isAdmin && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-            {t('settings.siteIdentityAdminOnly')}
-          </p>
-        )}
-        {isAdmin && <div className="mb-6" />}
-
-        <div className="flex flex-col sm:flex-row gap-6 items-start">
-          {/* Logo 上传区域 */}
-          <div className="flex flex-col items-center gap-2.5">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteIcon')}</span>
-            <div
-              className={cn(
-                "relative w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 flex items-center justify-center overflow-hidden group transition-colors",
-                canEditSiteIdentity
-                  ? "cursor-pointer hover:border-accent-primary"
-                  : "cursor-not-allowed opacity-60"
-              )}
-              onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
-            >
-              {previewIcon ? (
-                <img src={previewIcon} alt={t("settings.siteIcon")} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex flex-col items-center gap-1 text-zinc-400 dark:text-zinc-600">
-                  <Camera size={20} />
-                  <span className="text-[10px]">{t('settings.upload')}</span>
-                </div>
-              )}
-              {isAdmin && (
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Camera className="w-5 h-5 text-white" />
-                </div>
-              )}
-            </div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageChange}
-              accept="image/png,image/jpeg,image/svg+xml,image/x-icon,image/webp"
-              className="hidden"
-              disabled={!canEditSiteIdentity}
-            />
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-500">PNG/SVG/ICO · &lt;1MB</span>
-              {previewIcon && isAdmin && (
-                <button
-                  onClick={handleRemoveIcon}
-                  disabled={!canEditSiteIdentity}
-                  className="text-[10px] text-red-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t('settings.remove')}
-                </button>
-              )}
-            </div>
+    <div className="space-y-4 pb-2">
+      {/* 1. 快捷双控 Bento：明暗模式 + 界面语言 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <SettingsBentoCard interactive className="flex items-center justify-between gap-3 p-3.5">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t('settings.themeMode')}</div>
+            <div className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400">{t('settings.themeModeDesc')}</div>
           </div>
-
-          {/* 站点名称 */}
-          <div className="flex-1 space-y-3 w-full">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteName')}</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => { setTitle(e.target.value); setSaveMessage(""); }}
-                maxLength={20}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                placeholder={t('settings.siteNamePlaceholder')}
-              />
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{title.length} / 20</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
-              <input
-                id="site-share-footer-text"
-                type="text"
-                value={shareFooterText}
-                onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
-                maxLength={100}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
-                placeholder={t("auditI18n.shareFooterPlaceholder")}
-              />
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="site-share-page-width" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.sharePageWidth')}</label>
-              <select
-                id="site-share-page-width"
-                value={sharePageWidth}
-                onChange={(e) => { setSharePageWidth(normalizeSharePageWidth(e.target.value)); setSaveMessage(""); }}
-                disabled={!canEditSiteIdentity}
-                className="w-full px-3 py-2 bg-app-elevated border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {(["standard", "wide", "full"] as const).map(width => (
-                  <option key={width} value={width}>{t(`settings.sharePageWidth_${width}`)}</option>
-                ))}
-              </select>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('settings.sharePageWidthHint')}</p>
-            </div>
-
-            <ShareBannerEditor value={shareBanner} onChange={value => { setShareBanner(value); setSaveMessage(""); }} disabled={!canEditSiteIdentity} />
-
-            {isAdmin && (
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleSave}
-                  disabled={!canEditSiteIdentity || !title.trim() || !hasChanges}
-                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  {t('settings.saveChanges')}
-                </button>
-                {saveMessage && (
-                  <span className={`text-xs ${saveMessage === t('settings.saveSuccess') ? "text-emerald-500" : "text-red-500"}`}>
-                    {saveMessage}
-                  </span>
-                )}
-              </div>
-            )}
+          <div className="shrink-0">
+            <ThemeToggle />
           </div>
-        </div>
-      </div>
+        </SettingsBentoCard>
 
-      {/* 分割线 */}
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
-
-      {/* 外观与主题 */}
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('settings.appearanceTheme')}</h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">{t('settings.appearanceThemeDesc')}</p>
-      </div>
-
-      <div className="space-y-4">
-        {/* 外观风格（Skin）：默认 / macOS —— 与下方明暗模式正交 */}
-        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-3">
-          <div>
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('appearance.skinTitle', { defaultValue: '外观风格' })}
+        <SettingsBentoCard interactive className="flex items-center justify-between gap-3 p-3.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span aria-hidden className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300">
+              <Globe size={14} />
             </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('appearance.skinDesc', { defaultValue: '选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。' })}
-            </p>
+            <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">{t('language.label')}</span>
           </div>
+          <PlayfulSegmentedControl
+            layoutId="nowen-appearance-lang-pill"
+            ariaLabel={t('language.label')}
+            value={(i18n.resolvedLanguage || i18n.language) === "en" ? "en" : "zh-CN"}
+            onChange={(code) => {
+              try { localStorage.setItem("i18nextLng", code); } catch { /* ignore storage quota */ }
+              void i18n.changeLanguage(code);
+            }}
+            options={[
+              { value: "zh-CN", label: t('language.zh') },
+              { value: "en", label: t('language.en') },
+            ]}
+          />
+        </SettingsBentoCard>
+      </div>
+
+      {/* 2. 外观风格（Skin）：视觉主题选择 */}
+      <SettingsBentoCard className="p-4 space-y-3">
+        <div className="relative">
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={14} className="text-indigo-500" aria-hidden />
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              {t('appearance.skinTitle', { defaultValue: '外观风格' })}
+            </h4>
+          </div>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('appearance.skinDesc', { defaultValue: '选择整体视觉语言。macOS 风格在 Apple 设备上体验最佳。' })}
+          </p>
+        </div>
+        <div className="relative">
           <SkinSwitcher />
         </div>
+      </SettingsBentoCard>
 
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div>
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.themeMode')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.themeModeDesc')}</p>
-          </div>
-          <ThemeToggle />
-        </div>
-
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.sidebarTextStyle')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.sidebarTextStyleDesc')}</p>
-          </div>
-          <div role="group" aria-label={t('settings.sidebarTextStyle')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
-            {(["readable", "classic"] as const).map((style) => (
-              <button
-                key={style}
-                type="button"
-                aria-pressed={sidebarTextStyle === style}
-                onClick={() => setSidebarTextStyle(style)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  sidebarTextStyle === style
-                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
-                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-                )}
-              >
-                {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.knowledgeTreeDisplaySize')}</span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.knowledgeTreeDisplaySizeHint')}</p>
-          </div>
-          <div role="group" aria-label={t('settings.knowledgeTreeDisplaySize')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
-            {(["default", "large", "extra-large"] as const).map(size => (
-              <button
-                key={size}
-                type="button"
-                aria-pressed={treeDisplaySize === size}
-                onClick={() => setTreeDisplaySize(size)}
-                className={cn(
-                  "min-h-10 rounded-md px-3 py-1 text-sm transition-colors",
-                  treeDisplaySize === size
-                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
-                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-                )}
-              >
-                {t(`settings.knowledgeTreeDisplaySize_${size}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 编辑器字体 - 可交互 */}
-        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.editorFont')}</span>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.editorFontDesc')}</p>
+      {/* 3. 阅读与排版工作室（字体 + 默认字号 + 阅读密度 + 实时预览） */}
+      <SettingsBentoCard className="!overflow-visible">
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-200/60 bg-gradient-to-r from-violet-500/[0.06] via-transparent to-transparent px-4 py-3 rounded-t-2xl dark:border-zinc-800/70">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              aria-hidden
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-400/20 to-indigo-500/15 text-violet-700 ring-1 ring-inset ring-violet-500/20 dark:text-violet-300"
+            >
+              <Type size={14} />
+            </span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {t('settings.readingStudioTitle', { defaultValue: '阅读与排版' })}
+              </h4>
+              <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                {t('settings.readingStudioDesc', { defaultValue: '调节字体、字号与段落密度，下方实时预览排版效果' })}
+              </p>
             </div>
-            {isSwitchingFont && <Loader2 size={14} className="animate-spin text-accent-primary" />}
           </div>
+          {isSwitchingFont && <Loader2 size={14} className="shrink-0 animate-spin text-accent-primary" />}
+        </div>
 
-          {/* 字体选择器下拉 */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setFontDropdownOpen(!fontDropdownOpen)}
-              className="w-full flex items-center justify-between px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-sm text-zinc-900 dark:text-zinc-100 hover:border-accent-primary/50 transition-colors"
-            >
-              <span className="flex items-center gap-2">
-                <Type size={14} className="text-zinc-400" />
-                {currentFontName}
-              </span>
-              <ChevronDown size={14} className={cn("text-zinc-400 transition-transform", fontDropdownOpen && "rotate-180")} />
-            </button>
+        <div className="p-4 space-y-4">
+          {/* 编辑器字体 + 导入字体包 */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.editorFont')}</span>
+                <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.editorFontDesc')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => fontFileRef.current?.click()}
+                disabled={isUploading}
+                className="nowen-tactile-btn inline-flex h-7 items-center gap-1 rounded-xl border border-dashed border-zinc-300 px-2.5 text-[11px] font-medium text-zinc-600 hover:border-accent-primary/60 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400"
+              >
+                {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                {t('settings.importFont')}
+              </button>
+              <input
+                type="file"
+                ref={fontFileRef}
+                onChange={handleUploadFonts}
+                accept=".otf,.otc,.ttc,.ttf,.woff,.woff2"
+                multiple
+                className="hidden"
+              />
+            </div>
 
-            <AnimatePresence>
-              {fontDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute z-50 top-full left-0 mt-1 w-full max-h-64 overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl"
-                >
-                  {/* 内置字体 */}
-                  <div className="px-2 pt-2 pb-1">
-                    <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.builtinFonts')}</span>
-                  </div>
-                  {BUILTIN_FONTS.map(font => (
-                    <button
-                      key={font.id}
-                      onClick={() => handleSelectFont(font.id)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
-                    >
-                      <span style={{ fontFamily: font.family }}>{getBuiltinFontName(font)}</span>
-                      {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
-                    </button>
-                  ))}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setFontDropdownOpen(!fontDropdownOpen)}
+                className="nowen-tactile-btn w-full flex items-center justify-between px-3 py-2 border border-zinc-200/90 dark:border-zinc-700 rounded-xl bg-white/90 dark:bg-zinc-900/90 text-sm text-zinc-900 dark:text-zinc-100 hover:border-accent-primary/50"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Type size={14} className="shrink-0 text-zinc-400" />
+                  <span className="truncate">{currentFontName}</span>
+                </span>
+                <ChevronDown size={14} className={cn("shrink-0 text-zinc-400 transition-transform", fontDropdownOpen && "rotate-180")} />
+              </button>
 
-                  {/* 自定义字体 */}
-                  {customFonts.length > 0 && (
-                    <>
-                      <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-2 my-1" />
-                      <div className="px-2 pt-1 pb-1">
-                        <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.importedFonts')}</span>
-                      </div>
-                      {customFonts.map(font => (
-                        <div
-                          key={font.id}
-                          className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
-                        >
-                          <button
-                            onClick={() => handleSelectFont(font.id)}
-                            className="flex-1 text-left text-sm text-zinc-700 dark:text-zinc-300"
-                          >
-                            {font.name}
-                            <span className="ml-2 text-[10px] text-zinc-400">.{font.format}</span>
-                          </button>
-                          <div className="flex items-center gap-1.5">
-                            {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteFont(font.id); }}
-                              className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all"
-                              title={t('settings.deleteFont')}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+              <AnimatePresence>
+                {fontDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, y: -4 }}
+                    transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute z-50 top-full left-0 mt-1.5 w-full max-h-64 overflow-y-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl"
+                  >
+                    <div className="px-2 pt-2 pb-1">
+                      <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.builtinFonts')}</span>
+                    </div>
+                    {BUILTIN_FONTS.map(font => (
+                      <button
+                        key={font.id}
+                        type="button"
+                        onClick={() => handleSelectFont(font.id)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                      >
+                        <span style={{ fontFamily: font.family }}>{getBuiltinFontName(font)}</span>
+                        {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
+                      </button>
+                    ))}
+
+                    {customFonts.length > 0 && (
+                      <>
+                        <div className="h-px bg-zinc-100 dark:bg-zinc-800 mx-2 my-1" />
+                        <div className="px-2 pt-1 pb-1">
+                          <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 uppercase tracking-wider px-2">{t('settings.importedFonts')}</span>
                         </div>
-                      ))}
-                    </>
-                  )}
-                </motion.div>
+                        {customFonts.map(font => (
+                          <div
+                            key={font.id}
+                            className="flex items-center justify-between px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors group"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleSelectFont(font.id)}
+                              className="flex-1 text-left text-sm text-zinc-700 dark:text-zinc-300"
+                            >
+                              {font.name}
+                              <span className="ml-2 text-[10px] text-zinc-400">.{font.format}</span>
+                            </button>
+                            <div className="flex items-center gap-1.5">
+                              {siteConfig.editorFontFamily === font.id && <Check size={14} className="text-accent-primary" />}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleDeleteFont(font.id); }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all"
+                                title={t('settings.deleteFont')}
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.importFontHint')}</span>
+              {uploadMessage && (
+                <span className={cn("text-xs", uploadSuccess ? "text-emerald-500" : "text-amber-500")}>{uploadMessage}</span>
               )}
-            </AnimatePresence>
+            </div>
           </div>
 
-          {/* 字体导入 */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => fontFileRef.current?.click()}
-              disabled={isUploading}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg text-xs text-zinc-600 dark:text-zinc-400 hover:border-accent-primary/50 hover:text-accent-primary transition-colors disabled:opacity-50"
+          <div className="h-px bg-zinc-200/60 dark:bg-zinc-800/70" />
+
+          {/* 默认字号 + 阅读密度 */}
+          <div className="space-y-3.5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+                </div>
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
+                </p>
+              </div>
+              <PlayfulSegmentedControl
+                layoutId="nowen-appearance-fontsize-pill"
+                ariaLabel={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+                value={userPrefs.editorFontSize}
+                onChange={(value) => setUserPref("editorFontSize", value as 0 | 14 | 16 | 18 | 20 | 22 | 24)}
+                className="grid grid-cols-4 flex-shrink-0 sm:grid-cols-7"
+                buttonClassName="min-w-8 px-2 max-sm:min-h-9"
+                options={[
+                  { value: 0, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
+                  ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
+                ]}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                  {t('settings.readingDensity', { defaultValue: '阅读密度' })}
+                </div>
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
+                  {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
+                </p>
+              </div>
+              <PlayfulSegmentedControl
+                layoutId="nowen-appearance-density-pill"
+                ariaLabel={t('settings.readingDensity', { defaultValue: '阅读密度' })}
+                value={userPrefs.readingDensity}
+                onChange={(code) => setUserPref("readingDensity", code)}
+                className="self-start sm:self-auto"
+                buttonClassName="px-3"
+                options={[
+                  { value: "cozy" as const, label: t('settings.densityCozy', { defaultValue: '宽松' }) },
+                  { value: "compact" as const, label: t('settings.densityCompact', { defaultValue: '紧凑' }) },
+                ]}
+              />
+            </div>
+          </div>
+
+          {/* 所见即所得实时排版预览 */}
+          <div className="overflow-hidden rounded-xl border border-zinc-200/80 bg-zinc-50/75 dark:border-zinc-800 dark:bg-zinc-950/70">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/60 bg-white/75 px-3 py-1.5 text-[11px] dark:border-zinc-800/70 dark:bg-zinc-900/60">
+              <span className="inline-flex items-center gap-1.5 font-medium text-zinc-500 dark:text-zinc-400">
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                {t('settings.livePreviewLabel', { defaultValue: '实时排版预览' })}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">{currentFontName}</span>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800 tabular-nums">
+                  {userPrefs.editorFontSize > 0 ? `${userPrefs.editorFontSize}px` : t('settings.fontSizeDefault', { defaultValue: '默认' })}
+                </span>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                  {isCompactDensity ? t('settings.densityCompact', { defaultValue: '紧凑' }) : t('settings.densityCozy', { defaultValue: '宽松' })}
+                </span>
+              </div>
+            </div>
+            <div
+              className={cn(
+                "px-3.5 py-3 transition-all duration-150",
+                isCompactDensity ? "space-y-1 leading-snug" : "space-y-2 leading-relaxed",
+              )}
+              style={{
+                fontFamily: "var(--editor-font-family)",
+                fontSize: `${previewFontSizePx}px`,
+              }}
             >
-              {isUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-              {t('settings.importFont')}
-            </button>
-            <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.importFontHint')}</span>
-            <input
-              type="file"
-              ref={fontFileRef}
-              onChange={handleUploadFonts}
-              accept=".otf,.otc,.ttc,.ttf,.woff,.woff2"
-              multiple
-              className="hidden"
-            />
+              <p className="text-zinc-800 dark:text-zinc-200">{t('settings.fontPreviewZh')}</p>
+              <p className="text-zinc-500 dark:text-zinc-400">{t('settings.fontPreviewEn')}</p>
+            </div>
           </div>
+        </div>
+      </SettingsBentoCard>
 
-          {uploadMessage && (
-            <p className={cn("text-xs", uploadSuccess ? "text-emerald-500" : "text-amber-500")}>{uploadMessage}</p>
+      {/* 4. 界面显示与可读性（导航文字风格 + 知识树字号） */}
+      <section className="space-y-2.5">
+        <h4 className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+          {t('settings.interfaceDisplayTitle', { defaultValue: '界面显示与可读性' })}
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <SettingsBentoCard interactive className="flex flex-col justify-between gap-3 p-3.5">
+            <div>
+              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('settings.sidebarTextStyle')}</span>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">{t('settings.sidebarTextStyleDesc')}</p>
+            </div>
+            <PlayfulSegmentedControl
+              layoutId="nowen-appearance-sidebar-style"
+              ariaLabel={t('settings.sidebarTextStyle')}
+              value={sidebarTextStyle}
+              onChange={setSidebarTextStyle}
+              fullWidth
+              className="grid-cols-2"
+              buttonClassName="min-h-8 px-3"
+              options={[
+                { value: "readable" as const, label: t('settings.sidebarTextReadable') },
+                { value: "classic" as const, label: t('settings.sidebarTextClassic') },
+              ]}
+            />
+          </SettingsBentoCard>
+
+          <SettingsBentoCard interactive className="flex flex-col justify-between gap-3 p-3.5">
+            <div>
+              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('settings.knowledgeTreeDisplaySize')}</span>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">{t('settings.knowledgeTreeDisplaySizeHint')}</p>
+            </div>
+            <PlayfulSegmentedControl
+              layoutId="nowen-appearance-tree-size"
+              ariaLabel={t('settings.knowledgeTreeDisplaySize')}
+              value={treeDisplaySize}
+              onChange={setTreeDisplaySize}
+              fullWidth
+              className="grid-cols-3"
+              buttonClassName="min-h-10 px-2"
+              options={[
+                { value: "default" as const, label: t('settings.knowledgeTreeDisplaySize_default') },
+                { value: "large" as const, label: t('settings.knowledgeTreeDisplaySize_large') },
+                { value: "extra-large" as const, label: t('settings.knowledgeTreeDisplaySize_extra-large') },
+              ]}
+            />
+          </SettingsBentoCard>
+        </div>
+      </section>
+
+      {/* 5. 站点标识与分享页外观（全站共享配置） */}
+      <SettingsBentoCard>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/60 bg-gradient-to-r from-amber-500/[0.05] via-transparent to-transparent px-4 py-3 dark:border-zinc-800/70">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              aria-hidden
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400/20 to-orange-500/15 text-amber-700 ring-1 ring-inset ring-amber-500/20 dark:text-amber-300"
+            >
+              <Building2 size={14} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('settings.siteIdentity')}</h3>
+                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                  {t('settings.siteIdentityScopeBadge', { defaultValue: '全站配置' })}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{t('settings.siteIdentityDesc')}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {!isLoaded && (
+            <p className="rounded-xl bg-zinc-100/80 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
+              {t("settings.siteIdentityLoading")}
+            </p>
+          )}
+          {!isAdmin && (
+            <p className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              {t('settings.siteIdentityAdminOnly')}
+            </p>
           )}
 
-          {/* 字体预览 */}
-          <div
-            className="px-3 py-3 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950"
-            style={{ fontFamily: "var(--editor-font-family)" }}
-          >
-            <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
-              {t('settings.fontPreviewEn')}
-            </p>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed mt-1">
-              {t('settings.fontPreviewZh')}
-            </p>
-          </div>
-        </div>
+          <div className="flex flex-col sm:flex-row gap-5 items-start">
+            {/* Logo 上传区域 */}
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.siteIcon')}</span>
+              <div
+                className={cn(
+                  "relative w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-900/60 flex items-center justify-center overflow-hidden group transition-colors",
+                  canEditSiteIdentity
+                    ? "cursor-pointer hover:border-accent-primary"
+                    : "cursor-not-allowed opacity-60"
+                )}
+                onClick={() => { if (canEditSiteIdentity) fileInputRef.current?.click(); }}
+              >
+                {previewIcon ? (
+                  <img src={previewIcon} alt={t("settings.siteIcon")} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-zinc-400 dark:text-zinc-600">
+                    <Camera size={20} />
+                    <span className="text-[10px]">{t('settings.upload')}</span>
+                  </div>
+                )}
+                {isAdmin && (
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Camera className="w-5 h-5 text-white" />
+                  </div>
+                )}
+              </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageChange}
+                accept="image/png,image/jpeg,image/svg+xml,image/x-icon,image/webp"
+                className="hidden"
+                disabled={!canEditSiteIdentity}
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">PNG/SVG · &lt;1MB</span>
+                {previewIcon && isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveIcon}
+                    disabled={!canEditSiteIdentity}
+                    className="text-[10px] text-red-500 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {t('settings.remove')}
+                  </button>
+                )}
+              </div>
+            </div>
 
-        {/* 语言切换 */}
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div className="flex items-center gap-2">
-            <Globe size={16} className="text-zinc-500 dark:text-zinc-400" />
-            <div>
-              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('language.label')}</span>
+            {/* 站点名称 + 分享页宽度 + 页尾文字 */}
+            <div className="flex-1 space-y-3 w-full min-w-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.siteName')}</label>
+                    <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 tabular-nums">{title.length}/20</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => { setTitle(e.target.value); setSaveMessage(""); }}
+                    maxLength={20}
+                    disabled={!canEditSiteIdentity}
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                    placeholder={t('settings.siteNamePlaceholder')}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="site-share-page-width" className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.sharePageWidth')}</label>
+                  <select
+                    id="site-share-page-width"
+                    value={sharePageWidth}
+                    onChange={(e) => { setSharePageWidth(normalizeSharePageWidth(e.target.value)); setSaveMessage(""); }}
+                    disabled={!canEditSiteIdentity}
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {(["standard", "wide", "full"] as const).map(width => (
+                      <option key={width} value={width}>{t(`settings.sharePageWidth_${width}`)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.sharePageWidthHint')}</p>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
+                  <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 tabular-nums">{shareFooterText.length}/100</span>
+                </div>
+                <input
+                  id="site-share-footer-text"
+                  type="text"
+                  value={shareFooterText}
+                  onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
+                  maxLength={100}
+                  disabled={!canEditSiteIdentity}
+                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                  placeholder={t("auditI18n.shareFooterPlaceholder")}
+                />
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800">
-            {([
-              { code: "zh-CN", label: t('language.zh') },
-              { code: "en", label: t('language.en') },
-            ] as const).map(lang => (
-              <button
-                key={lang.code}
-                onClick={() => i18n.changeLanguage(lang.code)}
-                className={cn(
-                  "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  i18n.language === lang.code
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {lang.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（账号同步偏好） */}
-        <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-          <div className="min-w-0 pr-3">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('settings.readingDensity', { defaultValue: '阅读密度' })}
-            </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
-              {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
-            </p>
+          <div className="border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+            <ShareBannerEditor value={shareBanner} onChange={value => { setShareBanner(value); setSaveMessage(""); }} disabled={!canEditSiteIdentity} />
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
-            {([
-              { code: "cozy" as const, label: t('settings.densityCozy', { defaultValue: '宽松' }) },
-              { code: "compact" as const, label: t('settings.densityCompact', { defaultValue: '紧凑' }) },
-            ]).map(opt => (
-              <button
-                key={opt.code}
-                onClick={() => setUserPref("readingDensity", opt.code)}
-                className={cn(
-                  "relative px-3 py-1 rounded-md text-xs font-medium transition-colors",
-                  userPrefs.readingDensity === opt.code
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* 编辑器字号：账号级显示偏好，不改写笔记内容中的字号格式 */}
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
-          <div className="min-w-0">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
-            </span>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
-            </p>
-          </div>
-          <div
-            role="group"
-            aria-label={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
-            className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 sm:grid-cols-7"
-          >
-            {([
-              { value: 0 as const, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
-              ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
-            ]).map(option => (
+          {isAdmin && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+              <div className="text-xs">
+                {saveMessage ? (
+                  <span className={saveMessage === t('settings.saveSuccess') ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-red-500"}>
+                    {saveMessage}
+                  </span>
+                ) : hasChanges ? (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {t('settings.unsavedChangesHint', { defaultValue: '有未保存的站点更改' })}
+                  </span>
+                ) : null}
+              </div>
               <button
-                key={option.value}
                 type="button"
-                aria-pressed={userPrefs.editorFontSize === option.value}
-                onClick={() => setUserPref("editorFontSize", option.value)}
-                className={cn(
-                  "min-w-8 rounded-md px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 max-sm:min-h-10",
-                  userPrefs.editorFontSize === option.value
-                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
-                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
+                onClick={handleSave}
+                disabled={!canEditSiteIdentity || !title.trim() || !hasChanges}
+                className="nowen-tactile-btn inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-accent-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {option.label}
+                {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {t('settings.saveChanges')}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
-
-        {/*
-         * 个人空间导入/导出的功能开关已下沉为 per-user 字段
-         * （users.personalExportEnabled / personalImportEnabled，schema v6 起）。
-         * 现在管理员需要在「用户管理」tab 里逐个用户编辑，不再是站点级全局开关。
-         * 这里历史上的 FeatureTogglesSection 已整体移除。
-         */}
-      </div>
+      </SettingsBentoCard>
     </div>
   );
 }
 
 const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const reducedMotion = useReducedMotion();
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const [searchQuery, setSearchQuery] = useState("");
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
   const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const isEnglish = (i18n.resolvedLanguage || i18n.language || "").toLowerCase().startsWith("en");
 
   const fetchCurrentUser = useCallback(() => {
     let cancelled = false;
     api.getMe()
-      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role, username: u.username, displayName: u.displayName }); })
+      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as { role?: string }).role, username: u.username, displayName: u.displayName }); })
       .catch(() => { if (!cancelled) setCurrentUser(null); });
     return () => { cancelled = true; };
   }, []);
@@ -1453,6 +1821,36 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     mobileTabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [activeTab]);
 
+  // Press "/" outside inputs to jump into sidebar quick search; "Escape" inside search clears it.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && document.activeElement === searchInputRef.current && searchQuery) {
+        event.preventDefault();
+        setSearchQuery("");
+        return;
+      }
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      // Don't hijack "/" when the shortcuts panel is recording or focus is inside an editor/input.
+      if (activeTab === "shortcuts") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
+        return;
+      }
+      if (searchInputRef.current && searchInputRef.current.offsetParent !== null) {
+        event.preventDefault();
+        searchInputRef.current.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTab, searchQuery]);
+
+  const handleSelectTab = useCallback((tabId: TabId) => {
+    setActiveTab(tabId);
+    setRevealRequest(null);
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, []);
+
   const SETTING_TABS = [
     { id: "appearance" as const, label: t('settings.appearance'), icon: Palette },
     { id: "preferences" as const, label: t('settings.preferences'), icon: SlidersHorizontal },
@@ -1473,12 +1871,13 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     // Flag 关闭时组件内部会自行降级为一句说明，不需要在这里做条件渲染。
     { id: "sync" as const, label: isAndroidNativeRuntime() ? t("auditI18n.dataAndSync") : t("auditI18n.sync"), icon: RefreshCw },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
-    ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
+    ...(isDesktop() ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：
     //   用户主要在中国大陆，GitHub Releases 下载体验差，这里按平台列出产物并提供
     //   「GitHub 直连 + 多个公共加速代理」的换源能力。与 about 的「前往下载页」区别：后者只能调起
     //   GitHub 。该面板本身不调用任何需要鉴权的接口（releases/latest 未鉴权）。
     { id: "download" as const, label: t('settings.download', { defaultValue: '下载客户端' }), icon: Download },
+    { id: "ecosystem" as const, label: t('ecosystem.tab'), icon: Rocket },
     { id: "about" as const, label: t('about.title'), icon: Info },
   ];
 
@@ -1530,108 +1929,79 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           - onPointerDownCapture stopPropagation：把指针事件在捕获阶段就拦下，
             杜绝事件\"绕过\"主体冒到外层 motion.div 上。 */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 12 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-        className="relative flex h-[80dvh] max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 md:flex-row max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
+        exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97, y: 8 }}
+        transition={reducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 360, damping: 30, mass: 0.9 }}
+        className="nowen-settings-shell relative flex h-[82dvh] max-h-[calc(100dvh-2.5rem)] min-h-0 w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-200/85 shadow-2xl dark:border-zinc-800/90 md:flex-row max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
         style={{ touchAction: "pan-y pinch-zoom" }}
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
       >
-        {/* 移动端：顶部标签栏 + 关闭按钮
-            - sticky top-0：避免内容滚动时 tab 栏跟着上移露出后面的遮罩；
-            - touch-action: pan-x：仅允许横向滑动（tab 多时可滑），杜绝竖向手势
-              漂移到外层被识别为关闭/系统手势。 */}
-        <div
-          className="md:hidden sticky top-0 z-10 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/95 backdrop-blur"
-          style={{ paddingTop: 'var(--safe-area-top)', touchAction: 'pan-x' }}
-        >
-          <div ref={mobileTabsRef} className="flex-1 flex items-center gap-1 px-3 py-2 overflow-x-auto no-scrollbar" style={{ touchAction: 'pan-x' }}>
-            {SETTING_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => { setActiveTab(tab.id); setRevealRequest(null); }}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0",
-                    isActive
-                      ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
-                      : "text-zinc-500 dark:text-zinc-400 active:bg-zinc-200/40 dark:active:bg-zinc-800/50"
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 mr-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg transition-colors shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <div aria-hidden className="nowen-settings-aurora-line pointer-events-none absolute inset-x-0 top-0 z-30 h-[2px]" />
 
-        {/* 桌面端：左侧导航栏 */}
-        <div className="hidden min-h-0 w-56 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50 md:flex">
-          <div className="flex items-center gap-2 mb-6 px-2">
-            <Settings className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-            <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{t('settings.title')}</span>
-          </div>
+        {/* 移动端：顶部弹性胶囊标签栏 + 关闭按钮 */}
+        <SettingsMobileTopBar
+          tabs={SETTING_TABS}
+          activeTab={activeTab}
+          mobileTabsRef={mobileTabsRef}
+          onSelectTab={handleSelectTab}
+          onClose={onClose}
+        />
 
-          <nav aria-label="设置分类" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-1">
-            {SETTING_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => { setActiveTab(tab.id); setRevealRequest(null); }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
-                      : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/40 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200"
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* 底部版本信息：版本号由 vite.config.ts 从根 package.json 注入 */}
-          <div className="mt-auto pt-4 border-t border-zinc-200 dark:border-zinc-800 px-2">
-            <p className="text-xs text-zinc-400 dark:text-zinc-600">{siteConfig.title} v{__APP_VERSION__}</p>
-          </div>
-        </div>
+        {/* 桌面端：灵动分组侧边栏 + 搜索框 + 彩蛋徽章 */}
+        <SettingsDesktopSidebar
+          title={t('settings.title')}
+          siteTitle={siteConfig.title}
+          appVersion={__APP_VERSION__}
+          isEnglish={isEnglish}
+          tabs={SETTING_TABS}
+          activeTab={activeTab}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchInputRef={searchInputRef}
+          onSelectTab={handleSelectTab}
+        />
 
         {/* 右侧内容区 */}
         <div ref={contentRef} className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {/* 关闭按钮 — 桌面端 */}
           <button
+            type="button"
             onClick={onClose}
-            className="hidden md:block sticky top-4 ml-auto mr-4 -mb-7 w-fit p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors z-20"
+            aria-label={t('common.close', { defaultValue: '关闭设置' })}
+            title={t('common.close', { defaultValue: '关闭设置' })}
+            className="nowen-tactile-btn hidden md:flex sticky top-4 ml-auto mr-4 -mb-8 h-8 w-8 items-center justify-center rounded-xl border border-zinc-200/75 bg-white/80 text-zinc-400 shadow-2xs backdrop-blur-sm hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700/80 dark:bg-zinc-900/80 dark:hover:border-zinc-600 dark:hover:text-zinc-200 z-20"
           >
             <X className="w-4 h-4" />
           </button>
 
           {/* 动态渲染内容 */}
-          <div className="min-w-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-8 md:pr-14">
+          <div className="min-w-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-7 md:pr-14">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: 0.15 }}
+                initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               >
+                {(() => {
+                  const activeItem = SETTING_TABS.find((tab) => tab.id === activeTab);
+                  if (!activeItem || activeTab === "shortcuts" || activeTab === "about") return null;
+                  const tabMeta = SETTINGS_TAB_META[activeTab];
+                  const groupMeta = SETTINGS_NAV_GROUP_META[tabMeta.group];
+                  return (
+                    <SettingsTabHero
+                      icon={activeItem.icon}
+                      title={activeItem.label}
+                      tagline={isEnglish ? tabMeta.taglineEn : tabMeta.taglineZh}
+                      groupLabel={isEnglish ? groupMeta.labelEn : groupMeta.labelZh}
+                      badgeTone={tabMeta.badgeTone}
+                      heroGlow={tabMeta.heroGlow}
+                    />
+                  );
+                })()}
                 {/*
                   PanelErrorBoundary 用 activeTab 做 key：每次切 tab 都重新创建一个
                   Boundary 实例，已经"中过招"的 panel 不会污染下一个 panel 的状态；
@@ -1666,10 +2036,12 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "security" && <div className="space-y-6">
               {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
               {!isMobileLocalMode() && <SecuritySettings />}
-              {!isMobileLocalMode() && <details className="rounded-2xl border border-[var(--color-border)]">
-                <summary className="cursor-pointer px-4 py-3 text-sm text-[var(--color-text-secondary)]">开发者访问令牌</summary>
-                <div className="p-4"><TokenManagement /></div>
-              </details>}
+              {!isMobileLocalMode() && <SettingsBentoCard as="div" spotlight={false} className="!overflow-visible">
+                <details>
+                  <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-[var(--color-text-secondary)]">开发者访问令牌</summary>
+                  <div className="border-t border-zinc-200/60 p-4 dark:border-zinc-800/70"><TokenManagement /></div>
+                </details>
+              </SettingsBentoCard>}
             </div>}
             {activeTab === "tokens" && <McpConnectionPanel />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
@@ -1680,7 +2052,8 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   {activeTab === "sync" && <SyncSettingsTab />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}
-                  {activeTab === "about" && <AboutPanel />}
+                  {activeTab === "ecosystem" && <NowenEcosystemPanel />}
+                  {activeTab === "about" && <AboutPanel onOpenEcosystem={() => handleSelectTab("ecosystem")} />}
                 </PanelErrorBoundary>
               </motion.div>
             </AnimatePresence>

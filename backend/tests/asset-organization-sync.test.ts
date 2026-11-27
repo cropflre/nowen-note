@@ -132,3 +132,42 @@ test("incoming trash visibility cannot reopen a previously public link after res
   assert.deepEqual(db.prepare("SELECT path,hash,trashedAt FROM attachments WHERE id='policy-file'").get(),{path:'kept-path',hash:'kept-hash',trashedAt:null});
   assert.equal((db.prepare("SELECT externalAccessEnabled FROM attachment_link_policies WHERE attachmentId='policy-file'").get() as {externalAccessEnabled:number}).externalAccessEnabled,0);
 });
+
+test("DCC-004: keep-remote resolves desktop attachment_organization push conflict across distinct local and remote userIds while rejecting foreign users",async()=>{
+  const {getDb}=await import("../src/db/schema");await getDb().backup(path.join(temp,"resolve-cross-user.db"));
+  const db=new Database(path.join(temp,"resolve-cross-user.db"));locals.push(db);db.pragma("foreign_keys=ON");
+  const {createProfile,switchActiveProfile}=await import("../src/sync/profile");
+  const {ensureDevice}=await import("../src/sync/device");
+  const {recordConflict}=await import("../src/sync/conflict");
+  const {applyConflictResolution}=await import("../src/sync/resolve");
+  const localUser="desktop-local-user";
+  const remoteUser="nas-remote-user";
+  db.prepare("INSERT OR IGNORE INTO users(id,username,passwordHash) VALUES (?,?,'x')").run(localUser,localUser);
+  const profile=createProfile(db,{name:"Cross user NAS",serverUrl:"http://cross-user.test"});
+  switchActiveProfile(db,profile.id);
+  db.prepare("UPDATE sync_profiles SET remoteUserId=?,bootstrapStatus='ready' WHERE id=?").run(remoteUser,profile.id);
+  const device=ensureDevice(db,{profileId:profile.id});
+
+  const conflictId=recordConflict(db,{
+    profileId:profile.id,scopeKey:"personal",entityType:"attachment_organization",entityId:"folder:nas-folder-1",
+    localPayload:{id:"folder:nas-folder-1",kind:"folder",resourceId:"nas-folder-1",userId:localUser,name:"Local Name",parentId:null,deleted:0,version:1},
+    remotePayload:{id:"folder:nas-folder-1",kind:"folder",resourceId:"nas-folder-1",userId:remoteUser,name:"Remote Name",parentId:null,deleted:0,version:2},
+    localVersion:1,remoteVersion:2,
+  });
+  applyConflictResolution(db,{conflictId,resolution:"keep-remote",deviceId:device.id,userId:localUser});
+  assert.deepEqual(
+    db.prepare("SELECT name,userId FROM attachment_folders WHERE id='nas-folder-1'").get(),
+    {name:"Remote Name",userId:localUser},
+  );
+
+  const foreignConflictId=recordConflict(db,{
+    profileId:profile.id,scopeKey:"personal",entityType:"attachment_organization",entityId:"folder:foreign-folder",
+    localPayload:{id:"folder:foreign-folder",kind:"folder",resourceId:"foreign-folder",userId:localUser,name:"Local",parentId:null,deleted:0,version:1},
+    remotePayload:{id:"folder:foreign-folder",kind:"folder",resourceId:"foreign-folder",userId:"someone-else",name:"Foreign",parentId:null,deleted:0,version:2},
+    localVersion:1,remoteVersion:2,
+  });
+  assert.throws(
+    ()=>applyConflictResolution(db,{conflictId:foreignConflictId,resolution:"keep-remote",deviceId:device.id,userId:localUser}),
+    (error:unknown)=>(error as {code?:string})?.code==="SCOPE_FORBIDDEN",
+  );
+});

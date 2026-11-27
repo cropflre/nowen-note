@@ -20,15 +20,20 @@ describe("knowledge tree create naming", () => {
   it("offers Markdown, Word and WeChat article imports from the plus menu", () => {
     expect(menuSource).toContain('label: "导入 Markdown 文件"');
     expect(menuSource).toContain('label: "导入 Word 文档"');
+    expect(menuSource).toContain('label: "导入 PPTX 演示文稿"');
+    expect(menuSource).toContain('label: "导入表格（XLSX / CSV）"');
     expect(menuSource).toContain('label: "导入公众号文章"');
     expect(menuSource).toContain("也可将 .md 文件拖拽到目录树导入");
     expect(runtimeSource).toContain("setImportRequest({");
     expect(runtimeSource).toContain("importRequest={importRequest}");
     expect(panelSource).toContain("importRequest?: KnowledgeTreeImportRequest;");
     expect(panelSource).toContain("importWordIntoKnowledgeTree");
+    expect(panelSource).toContain("importPptIntoKnowledgeTree");
+    expect(panelSource).toContain("importSheetIntoKnowledgeTree");
     expect(panelSource).toContain("importMarkdownIntoKnowledgeTree");
     expect(panelSource).toContain("importWeChatArticleIntoKnowledgeTree");
     expect(quickPanelSource).toContain("importMarkdownIntoKnowledgeTree");
+    expect(quickPanelSource).toContain("importSheetIntoKnowledgeTree");
   });
 
   it("adds child duplication to the plus menu while preserving the existing sibling duplicate action", () => {

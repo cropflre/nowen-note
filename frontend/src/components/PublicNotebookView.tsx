@@ -3,6 +3,7 @@ import {
   BookOpen,
   BrainCircuit,
   ChevronRight,
+  FileSpreadsheet,
   FileText,
   Globe2,
   KeyRound,
@@ -57,12 +58,14 @@ function hasLoginToken(): boolean {
 function ResourceIcon({ type }: { type: PublicKnowledgeResourceSummary["resourceType"] }) {
   if (type === "mindmap") return <BrainCircuit size={13} className="shrink-0" />;
   if (type === "sheet") return <Table2 size={13} className="shrink-0" />;
+  if (type === "excel") return <FileSpreadsheet size={13} className="shrink-0 text-emerald-600" />;
   return <FileText size={13} className="shrink-0" />;
 }
 
 function resourceLabel(type: PublicKnowledgeResourceSummary["resourceType"]): string {
   if (type === "mindmap") return "思维导图";
   if (type === "sheet") return "轻量表格";
+  if (type === "excel") return "Excel 表格";
   return "文档";
 }
 

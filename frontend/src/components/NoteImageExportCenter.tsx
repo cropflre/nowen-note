@@ -51,7 +51,7 @@ function optionClass(active: boolean, disabled = false): string {
 }
 
 function languageCopy() {
-  const lang = (navigator.language || "zh-CN").toLowerCase();
+  const lang = (document.documentElement.lang || navigator.language || "en").toLowerCase();
   const zh = lang.startsWith("zh");
   return zh ? {
     title: "导出笔记图片",

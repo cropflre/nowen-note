@@ -144,7 +144,8 @@ test("legacy hosted publication stays disabled and unified publication remains v
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
   assert.equal(workflow.permissions.contents, "read");
   assert.deepEqual(workflow.jobs.github.needs, ["verify", "docker"]);
-  assert.match(workflow.jobs.github.if, /needs\.docker\.result == 'skipped'/);
+  assert.match(workflow.jobs.github.if, /needs\.docker\.result == 'success'/);
+  assert.doesNotMatch(workflow.jobs.github.if, /needs\.docker\.result == 'skipped'/);
   assert.equal(workflow.jobs.github.permissions.contents, "write");
   assert.equal(workflow.jobs.github.environment, "release-github");
   assert.equal(workflow.jobs.docker.needs, "verify");

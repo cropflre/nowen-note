@@ -341,6 +341,7 @@ function tableXml(table: TableNode, ctx: SerializerCtx): string {
 }
 
 function blockXml(block: BlockNode, ctx: SerializerCtx): string {
+  if (block.type === "pageBreak") return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
   if (block.type === "table") return tableXml(block, ctx);
   return paragraphXml(block, ctx);
 }
@@ -460,9 +461,16 @@ export async function createDocx(
   // 页面属性
   const pageW = lastSection.pageSize?.w ?? 595; // A4 默认（pt）
   const pageH = lastSection.pageSize?.h ?? 842;
+  const isLandscape = lastSection.orientation === "landscape" || pageW > pageH;
   const m = lastSection.margins || { top: 72, right: 72, bottom: 72, left: 72 };
+  const headerText = (lastSection.headerText || "").trim();
+  const footerText = (lastSection.footerText || "").trim();
+  const orientAttr = isLandscape ? ' w:orient="landscape"' : "";
+  const headerRefXml = headerText ? '<w:headerReference w:type="default" r:id="rIdHeader1"/>' : "";
+  const footerRefXml = footerText ? '<w:footerReference w:type="default" r:id="rIdFooter1"/>' : "";
   const sectPr = `<w:sectPr>
-    <w:pgSz w:w="${ptToTwip(pageW)}" w:h="${ptToTwip(pageH)}"/>
+    ${headerRefXml}${footerRefXml}
+    <w:pgSz w:w="${ptToTwip(pageW)}" w:h="${ptToTwip(pageH)}"${orientAttr}/>
     <w:pgMar w:top="${ptToTwip(m.top)}" w:right="${ptToTwip(m.right)}" w:bottom="${ptToTwip(m.bottom)}" w:left="${ptToTwip(m.left)}" w:header="720" w:footer="720" w:gutter="0"/>
   </w:sectPr>`.replace(/\n\s*/g, "");
 
@@ -480,6 +488,16 @@ export async function createDocx(
     `<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`,
     `<Relationship Id="rIdNumbering" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>`,
   ];
+  if (headerText) {
+    documentRels.push(
+      `<Relationship Id="rIdHeader1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`,
+    );
+  }
+  if (footerText) {
+    documentRels.push(
+      `<Relationship Id="rIdFooter1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>`,
+    );
+  }
   for (const m of ctx.media) {
     documentRels.push(
       `<Relationship Id="${m.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${m.relTarget}"/>`,
@@ -548,6 +566,8 @@ ${documentRels.join("\n")}
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  ${headerText ? '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' : ""}
+  ${footerText ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ""}
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>`;
@@ -592,6 +612,18 @@ ${documentRels.join("\n")}
   zip.file("word/_rels/document.xml.rels", documentRelsXml);
   zip.file("word/styles.xml", stylesXml);
   zip.file("word/numbering.xml", numberingXml);
+  if (headerText) {
+    zip.file(
+      "word/header1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:color w:val="666666"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${escXml(headerText)}</w:t></w:r></w:p></w:hdr>`,
+    );
+  }
+  if (footerText) {
+    zip.file(
+      "word/footer1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:color w:val="666666"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${escXml(footerText)}</w:t></w:r></w:p></w:ftr>`,
+    );
+  }
   zip.file("docProps/core.xml", coreXml);
   zip.file("docProps/app.xml", appXml);
   for (const m of ctx.media) {

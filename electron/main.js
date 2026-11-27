@@ -7,7 +7,8 @@ const http = require("http");
 const crypto = require("crypto");
 
 const { buildMenu, applyFormatState } = require("./menu");
-const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray");
+const { createTray, updateTrayMenu, destroyTray, markQuitting, getIsQuitting } = require("./tray");
+const { resolveSystemLocale, normalizeLocale, isChineseLocale } = require("./locale");
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { isMicrosoftStorePackage } = require("./storeChannel");
 const { initLogger, getLogDir } = require("./logger");
@@ -1898,6 +1899,77 @@ function registerHotUpdateIpc() {
   }
 }
 
+let currentLocale = null;
+
+function getSystemLocale() {
+  let appLocale = "";
+  try {
+    appLocale = typeof app.getLocale === "function" ? app.getLocale() : "";
+  } catch {
+    appLocale = "";
+  }
+  return resolveSystemLocale({ env: process.env, appLocale });
+}
+
+function getActiveLocale() {
+  return currentLocale || getSystemLocale();
+}
+
+function applyDockMenu(locale) {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const focusAndSend = (channel) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    }
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      if (mainWindow.webContents.isLoading()) {
+        mainWindow.webContents.once("did-finish-load", () => {
+          mainWindow.webContents.send(channel);
+        });
+      } else {
+        mainWindow.webContents.send(channel);
+      }
+    }
+  };
+  const zh = isChineseLocale(locale);
+  const dockMenu = Menu.buildFromTemplate([
+    {
+      label: zh ? "新建笔记" : "New Note",
+      click: () => focusAndSend("dock:new-note"),
+    },
+    {
+      label: zh ? "搜索笔记" : "Search Notes",
+      click: () => focusAndSend("dock:search"),
+    },
+  ]);
+  app.dock.setMenu(dockMenu);
+}
+
+function refreshNativeMenus() {
+  const locale = getActiveLocale();
+  buildMenu({
+    onCheckForUpdates: () => checkForUpdatesManually(),
+    openAboutWindow,
+    mode: currentMode,
+    liteOnly: isLiteOnlyBuild(),
+    locale,
+    onSwitchToLite: () => switchToLite(mainWindow),
+    onSwitchToFull: () => switchToFull(),
+    onChangeServer: () => changeRemoteServer(),
+  });
+  applyMenuBarPreference();
+  applyDockMenu(locale);
+  updateTrayMenu({ locale });
+}
+
+// Register before any BrowserWindow loads preload.js so renderer can read systemLocale synchronously.
+ipcMain.on("app:system-locale", (event) => {
+  event.returnValue = getSystemLocale();
+});
+
 function registerAppIpc() {
   ipcMain.removeHandler("client:http-json");
   ipcMain.handle("client:http-json", async (event, payload = {}) => {
@@ -2098,6 +2170,15 @@ function registerAppIpc() {
     return readWechatArticleClipboard(clipboard);
   });
 
+  ipcMain.removeAllListeners("app:set-language");
+  ipcMain.on("app:set-language", (event, language) => {
+    if (assertMainWindowSender(event)) return;
+    const next = normalizeLocale(language);
+    if (!next || next === currentLocale) return;
+    currentLocale = next;
+    refreshNativeMenus();
+  });
+
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
   ipcMain.removeHandler("app:info");
   ipcMain.handle("app:info", (event) => {
@@ -2257,6 +2338,7 @@ function registerAppIpc() {
     if (isLiteOnlyBuild()) return { ok: false, error: "请安装完整版客户端后下载到本机。" };
     const serverUrl = String(payload?.serverUrl || "").trim().slice(0, 2048).replace(/\/+$/, "");
     const token = String(payload?.token || "").slice(0, 8192);
+    const refreshToken = typeof payload?.refreshToken === "string" ? payload.refreshToken.trim().slice(0, 8192) : "";
     if (!/^https?:\/\//i.test(serverUrl) || !token) {
       return { ok: false, error: "invalid-params" };
     }
@@ -2296,7 +2378,7 @@ function registerAppIpc() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localAuthCache.token}`,
           },
-          body: JSON.stringify({ serverUrl, token }),
+          body: JSON.stringify(refreshToken ? { serverUrl, token, refreshToken } : { serverUrl, token }),
         },
       );
       const data = await res.json().catch(() => ({}));
@@ -2778,11 +2860,13 @@ app.whenReady().then(async () => {
   }
 
   // 原生菜单（accelerator 同时担当全局快捷键）
+  const initialLocale = getActiveLocale();
   buildMenu({
     onCheckForUpdates: () => checkForUpdatesManually(),
     openAboutWindow,
     mode: currentMode,
     liteOnly: isLiteOnlyBuild(),
+    locale: initialLocale,
     onSwitchToLite: () => switchToLite(mainWindow),
     onSwitchToFull: () => switchToFull(),
     onChangeServer: () => changeRemoteServer(),
@@ -2792,39 +2876,7 @@ app.whenReady().then(async () => {
   // ---------- macOS Dock Quick Action（HIG：Dock 右键菜单） ----------
   // 用户未启动窗口时右键 Dock 即可快速进入关键操作。app.dock 仅存在于 darwin，
   // 其它平台跳过；点击会先确保主窗口可见并聚焦，再向 renderer 发送业务事件。
-  if (process.platform === "darwin" && app.dock) {
-    const focusAndSend = (channel) => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        // 窗口已销毁（例如最后一个窗口关闭后）：重建
-        createWindow();
-        // createWindow 是同步的，但实际 show 要等 ready-to-show；事件先落盘
-      }
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-        // webContents 可能尚未 did-finish-load；对两种情况都覆盖
-        if (mainWindow.webContents.isLoading()) {
-          mainWindow.webContents.once("did-finish-load", () => {
-            mainWindow.webContents.send(channel);
-          });
-        } else {
-          mainWindow.webContents.send(channel);
-        }
-      }
-    };
-    const dockMenu = Menu.buildFromTemplate([
-      {
-        label: "新建笔记",
-        click: () => focusAndSend("dock:new-note"),
-      },
-      {
-        label: "搜索笔记",
-        click: () => focusAndSend("dock:search"),
-      },
-    ]);
-    app.dock.setMenu(dockMenu);
-  }
+  applyDockMenu(initialLocale);
 
   // 托盘
   createTray({
@@ -2836,6 +2888,7 @@ app.whenReady().then(async () => {
     },
     mode: currentMode,
     liteOnly: isLiteOnlyBuild(),
+    locale: initialLocale,
     onSwitchToLite: () => switchToLite(mainWindow),
     onSwitchToFull: () => switchToFull(),
     onChangeServer: () => changeRemoteServer(),
@@ -2857,6 +2910,53 @@ app.whenReady().then(async () => {
       return { cancelled: true };
     }
     return { cancelled: false, path: result.filePaths[0] };
+  });
+
+  // 桌面端本地文件夹零拷贝直导 IPC：由主进程原生弹窗选目录并附带桌面密钥调用本地后端，
+  // renderer 无法伪造任意路径，也不经过浏览器打包和 HTTP 上传。
+  ipcMain.handle("migration:import-local-folder", async (event, payload) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    if (!backendPort || currentRuntime !== "local") {
+      return { ok: false, code: "MIGRATION_LOCAL_DIR_UNAVAILABLE", error: "仅桌面端本地模式支持直接导入本地文件夹" };
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { ok: true, cancelled: true };
+    }
+    const token = (typeof payload?.token === "string" && payload.token.trim())
+      ? payload.token.trim().slice(0, 8192)
+      : (localAuthCache?.token || "");
+    if (!token) {
+      return { ok: false, code: "UNAUTHENTICATED", error: "请先登录" };
+    }
+    const body = { directoryPath: result.filePaths[0] };
+    if (typeof payload?.workspaceId === "string" && payload.workspaceId.trim()) {
+      body.workspaceId = payload.workspaceId.trim().slice(0, 128);
+    }
+    if (typeof payload?.targetNotebookId === "string" && payload.targetNotebookId.trim()) {
+      body.targetNotebookId = payload.targetNotebookId.trim().slice(0, 128);
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:${backendPort}/api/migrations/local-directory`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "X-Nowen-Desktop-Secret": getLocalAccountSecret(),
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, status: res.status, code: data?.code || "MIGRATION_REQUEST_FAILED", error: data?.error || "导入本地文件夹失败" };
+      }
+      return { ok: true, cancelled: false, job: data };
+    } catch (err) {
+      return { ok: false, code: "MIGRATION_LOCAL_DIR_FAILED", error: err?.message || String(err) };
+    }
   });
   ipcMain.handle("folder-sync:get-configs", (event) => {
     const reject = assertMainWindowSender(event);

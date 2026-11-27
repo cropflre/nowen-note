@@ -15,6 +15,8 @@ import {
   parseNoteAppPath,
   pushNoteAppPath,
 } from "@/lib/noteDeepLink";
+import { pushExcelAppPath, replaceExcelAppPath } from "@/lib/excelDeepLink";
+import { pushSheetAppPath, replaceSheetAppPath } from "@/lib/sheetDeepLink";
 import { toast } from "@/lib/toast";
 import type { Note, ViewMode } from "@/types";
 
@@ -117,6 +119,15 @@ export default function NoteDeepLinkBridge() {
           if (disposed || sequence !== routeLoadSequenceRef.current) return;
           if (getCurrentNoteAppRoute().noteId !== noteId) return;
 
+          if (note.noteType === "excel" || note.noteType === "sheet") {
+            pendingRouteNoteIdRef.current = null;
+            activeNoteRef.current = null;
+            actions.setActiveNote(null);
+            if (note.noteType === "excel") replaceExcelAppPath(note.id);
+            else replaceSheetAppPath(note.id);
+            return;
+          }
+
           activeNoteRef.current = note;
           actions.setActiveNote(note);
           actions.setSelectedNotebook(note.notebookId);
@@ -197,6 +208,17 @@ export default function NoteDeepLinkBridge() {
     }
 
     if (state.activeNote?.id) {
+      if (state.activeNote.noteType === "excel" || state.activeNote.noteType === "sheet") {
+        const targetId = state.activeNote.id;
+        const targetType = state.activeNote.noteType;
+        pendingRouteNoteIdRef.current = null;
+        activeNoteRef.current = null;
+        actions.setActiveNote(null);
+        actions.removeNoteTab?.(targetId);
+        if (targetType === "excel") pushExcelAppPath(targetId);
+        else pushSheetAppPath(targetId);
+        return;
+      }
       if (currentRoute.noteId === state.activeNote.id) return;
       // A different resource route may coexist with a stale activeNote in AppContext.
       // Only take over that route when this render represents explicit note navigation:
@@ -211,7 +233,7 @@ export default function NoteDeepLinkBridge() {
     if (currentRoute.matched) {
       replaceAppPathState("/");
     }
-  }, [state.activeNote?.id, state.viewMode]);
+  }, [actions, state.activeNote?.id, state.activeNote?.noteType, state.viewMode]);
 
   return null;
 }

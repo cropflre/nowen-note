@@ -3,7 +3,7 @@ import test from "node:test";
 import Database from "better-sqlite3";
 
 import { excelDocumentsMigration } from "../src/db/excelDocumentsMigration";
-import { reconcileForkMigrationLedger } from "../src/db/forkMigrationCompat";
+import { ensureForkExcelDocumentSchema, reconcileForkMigrationLedger } from "../src/db/forkMigrationCompat";
 import { getPendingMigrations, MIGRATIONS } from "../src/db/migrations";
 
 const OFFICIAL_V141 = MIGRATIONS.find((migration) => migration.name === "ai-migration-hub");
@@ -74,6 +74,52 @@ test("已是当前版本且唯一时不重复写库", () => {
     reconcileForkMigrationLedger(db);
     reconcileForkMigrationLedger(db);
     assert.deepEqual(ledgerRows(db, "excel-univer-documents"), [excelDocumentsMigration.version]);
+  } finally {
+    db.close();
+  }
+});
+
+function createLegacyExcelDatabase(): Database.Database {
+  const db = new Database(":memory:");
+  // 模拟 fork v900001 时期创建的旧表：没有官方 v148 引入的 revision 列。
+  db.exec(`
+    CREATE TABLE excel_documents (
+      noteId TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      workspaceId TEXT,
+      data TEXT NOT NULL DEFAULT '{}',
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      updatedAt TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+    );
+  `);
+  return db;
+}
+
+function hasRevisionColumn(db: Database.Database): boolean {
+  const columns = db.prepare("PRAGMA table_info(excel_documents)").all() as Array<{ name: string }>;
+  return columns.some((column) => column.name === "revision");
+}
+
+test("旧库 excel_documents 缺 revision 列时自动补齐", () => {
+  const db = createLegacyExcelDatabase();
+  try {
+    assert.equal(hasRevisionColumn(db), false);
+    ensureForkExcelDocumentSchema(db);
+    assert.equal(hasRevisionColumn(db), true);
+    const column = (db.prepare("PRAGMA table_info(excel_documents)").all() as Array<{ name: string; dflt_value: string | null }>)
+      .find((item) => item.name === "revision");
+    assert.equal(column?.dflt_value, "1");
+  } finally {
+    db.close();
+  }
+});
+
+test("已有 revision 列时保持幂等，不重复添加", () => {
+  const db = createLegacyExcelDatabase();
+  try {
+    ensureForkExcelDocumentSchema(db);
+    assert.doesNotThrow(() => ensureForkExcelDocumentSchema(db));
+    assert.equal(hasRevisionColumn(db), true);
   } finally {
     db.close();
   }

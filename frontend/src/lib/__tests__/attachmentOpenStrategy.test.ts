@@ -29,6 +29,8 @@ describe("附件主操作策略", () => {
     ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "报告.bin", "docx"],
     ["image/png", "图片.bin", "image"],
     ["text/plain", "说明.bin", "text"],
+    ["text/html; charset=utf-8", "简历.bin", "text"],
+    ["application/octet-stream", "简历.html", "text"],
     ["application/octet-stream", "演示.mp4", "video"],
   ])("%s / %s 保持现有 %s 预览", (mimeType, filename, kind) => {
     expect(detectAttachmentPreviewKind(mimeType, filename)).toBe(kind);

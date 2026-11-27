@@ -13,6 +13,7 @@ import {
     getUploadMonthPath,
     writeAttachmentObject,
 } from "./attachment-storage";
+import { findExistingDedupAttachment } from "../routes/attachments-core";
 
 const unzipper = require("unzipper");
 
@@ -523,20 +524,22 @@ async function savePhysicalAsset(args: {
 
     const buffer = await args.entry.buffer();
     const hash = crypto.createHash("sha256").update(buffer).digest("hex");
-    const db = getDb();
-    const existing = db
-        .prepare(
-            args.workspaceId
-                ? `SELECT path, filename, mimeType, size, hash FROM attachments
-            WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-                : `SELECT path, filename, mimeType, size, hash FROM attachments
-            WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
-        )
-        .get(...(args.workspaceId ? [args.userId, args.workspaceId, hash] : [args.userId, hash])) as PhysicalAsset | undefined;
+    const existing = await findExistingDedupAttachment({
+        userId: args.userId,
+        workspaceId: args.workspaceId,
+        hash,
+    });
 
     if (existing) {
-        args.physicalCache.set(entryPath, existing);
-        return existing;
+        const physical: PhysicalAsset = {
+            filename: existing.filename || path.basename(entryPath) || existing.path,
+            mimeType: existing.mimeType,
+            size: existing.size,
+            path: existing.path,
+            hash: existing.hash || hash,
+        };
+        args.physicalCache.set(entryPath, physical);
+        return physical;
     }
 
     const mimeType = getAssetMime(entryPath);

@@ -8,6 +8,11 @@ import { enAssetOrganizationTranslations, zhCNAssetOrganizationTranslations } fr
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
+import {
+  normalizeAppLanguage,
+  readDesktopSystemLocale,
+  syncDocumentLanguage,
+} from "./locale";
 import zhCN from "./locales/zh-CN.json";
 import en from "./locales/en.json";
 import {
@@ -63,6 +68,8 @@ import { enEditorActionTranslations, zhCNEditorActionTranslations } from "./edit
 import { enAutomationTranslations, zhCNAutomationTranslations } from "./automationTranslations";
 import { enMcpConnectTranslations, zhCNMcpConnectTranslations } from "./mcpConnectTranslations";
 import { enPreferencesTranslations, zhCNPreferencesTranslations } from "./preferencesTranslations";
+import { enMobileLiteTranslations, zhCNMobileLiteTranslations } from "./mobileLiteTranslations";
+import { enEcosystemTranslations, zhCNEcosystemTranslations } from "./ecosystemTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
@@ -111,6 +118,8 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNAIMemoryTranslations,
   zhCNMcpConnectTranslations,
   zhCNPreferencesTranslations,
+  zhCNMobileLiteTranslations,
+  zhCNEcosystemTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -144,6 +153,8 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enAIMemoryTranslations,
   enMcpConnectTranslations,
   enPreferencesTranslations,
+  enMobileLiteTranslations,
+  enEcosystemTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(
@@ -178,24 +189,54 @@ const enWithRuntimeOverrides = mergeTranslations(
   },
 );
 
+const languageDetector = new LanguageDetector();
+languageDetector.addDetector({
+  name: "desktopSystemLocale",
+  lookup() {
+    return readDesktopSystemLocale() ?? undefined;
+  },
+});
+
+function notifyDesktopLanguage(language: "zh-CN" | "en") {
+  try {
+    if (typeof window === "undefined") return;
+    const desktop = (window as unknown as {
+      nowenDesktop?: { setLanguage?: (lang: "zh-CN" | "en") => void };
+    }).nowenDesktop;
+    desktop?.setLanguage?.(language);
+  } catch {
+    // Ignore when desktop bridge is unavailable.
+  }
+}
+
 i18n
-  .use(LanguageDetector)
+  .use(languageDetector)
   .use(initReactI18next)
   .init({
     resources: {
       "zh-CN": { translation: zhCNWithRuntimeOverrides },
       en: { translation: enWithRuntimeOverrides },
     },
-    fallbackLng: "zh-CN",
+    supportedLngs: ["zh-CN", "en"],
+    fallbackLng: "en",
     interpolation: {
       escapeValue: false,
     },
     detection: {
-      order: ["localStorage", "navigator"],
+      order: ["localStorage", "desktopSystemLocale", "navigator"],
       lookupLocalStorage: "i18nextLng",
-      caches: ["localStorage"],
+      caches: [],
+      convertDetectedLanguage: (lng) => normalizeAppLanguage(lng),
     },
   });
+
+const initialLanguage = syncDocumentLanguage(i18n.resolvedLanguage || i18n.language);
+notifyDesktopLanguage(initialLanguage);
+
+i18n.on("languageChanged", (lng) => {
+  const normalized = syncDocumentLanguage(lng);
+  notifyDesktopLanguage(normalized);
+});
 
 // Release compatibility: translate only known legacy hardcoded copy inside SettingsModal.
 // The bridge is DOM-scoped and does not touch the note/editor workspace.

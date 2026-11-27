@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 import { parseServerTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { getTaskNotificationSurface, showTestTaskNotification } from "@/lib/taskNotifications";
-import type { Task, TaskPriority, TaskReminder, TaskDependency } from "@/types";
+import type { Task, TaskPriority, TaskReminder, TaskDependency, WorkspaceMember } from "@/types";
 import { isRepeatingTask } from "./taskRepeatUtils";
 // TASK-RECURRENCE-LUNAR-01: 农历转换
 import { solarToLunar, LUNAR_MONTH_NAMES, LUNAR_DAY_NAMES } from "./lunarUtils";
@@ -203,6 +203,31 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setSnapshotDraft({title:draft.title,description:draft.description});
   };
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
+  const [assigneeId, setAssigneeId] = useState<string>(task.assigneeId || "");
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+
+  useEffect(() => {
+    setAssigneeId(task.assigneeId || "");
+  }, [task.id, task.assigneeId]);
+
+  useEffect(() => {
+    if (!task.workspaceId) {
+      setWorkspaceMembers([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getWorkspaceMembers(task.workspaceId)
+      .then((list) => {
+        if (!cancelled) setWorkspaceMembers(list);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceMembers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.workspaceId]);
   const [dueDate, setDueDate] = useState(getDateValue(task.dueDate || task.dueAt));
   const [dueAt, setDueAt] = useState(getDueTimeValue(task.dueAt || task.dueDate));
   const [startDate, setStartDate] = useState(getDateValue(task.startDate));
@@ -577,6 +602,36 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
             </div>
           )}
         </div>
+
+        {/* 团队任务负责人（仅工作区任务展示） */}
+        {task.workspaceId && (
+          <div>
+            <label
+              htmlFor="nowen-task-assignee-select"
+              className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block"
+            >
+              负责人
+            </label>
+            <select
+              id="nowen-task-assignee-select"
+              aria-label="任务负责人"
+              value={assigneeId}
+              onChange={(e) => {
+                const next = e.target.value;
+                setAssigneeId(next);
+                onUpdate(task.id, { assigneeId: next || null });
+              }}
+              className="w-full h-9 rounded-md border border-app-border bg-app-bg px-2.5 text-xs text-tx-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-primary"
+            >
+              <option value="">未指派</option>
+              {workspaceMembers.map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.username}{m.email ? ` (${m.email})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Priority */}
         <div>

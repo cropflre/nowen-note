@@ -17,8 +17,13 @@ import {
   Check,
   ExternalLink,
   Info,
+  Sparkles,
+  Zap,
+  Terminal,
+  Store,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import AppGalleryDownloadLink from "@/components/settings/AppGalleryDownloadLink";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +60,18 @@ interface Asset {
   name: string;
   size: number;
   browserDownloadUrl: string;
+}
+
+/** 检测用户当前设备平台，用于在列表中优先推荐对应安装包。 */
+function detectCurrentPlatform(): PlatformCategory | null {
+  if (typeof navigator === "undefined") return null;
+  const ua = `${navigator.userAgent || ""} ${navigator.platform || ""}`.toLowerCase();
+  if (ua.includes("android")) return "android";
+  if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("ipod")) return "ios";
+  if (ua.includes("mac")) return "macos";
+  if (ua.includes("win")) return "windows";
+  if (ua.includes("linux")) return "linux";
+  return null;
 }
 
 /** 文件名 → 分类。命名规则与 scripts/release.sh / build-fpk.mjs / build-upk.mjs 一致。 */
@@ -150,23 +167,57 @@ export function preferCorrectedFpk<T extends { name: string }>(all: T[]): T[] {
     : all;
 }
 
-/** 平台分组顺序与图标映射 —— 不受 GitHub assets 原始顺序影响。
- *  icon 直接用 lucide-react 自己导出的 LucideIcon，避免手写窄签名（{size:number}）
- *  与库里 size: string|number 不兼容导致 TS2322（更新 @types/react / lucide-react 后会触发）。
- */
-const PLATFORM_ORDER: Array<{
-  category: PlatformCategory;
-  icon: LucideIcon;
-}> = [
-  { category: "windows", icon: Monitor },
-  { category: "android", icon: Smartphone },
-  { category: "macos", icon: Apple },
-  { category: "ios", icon: Smartphone },
-  { category: "linux", icon: Monitor },
-  { category: "other", icon: HardDrive },
-];
+const PLATFORM_META: Record<
+  PlatformCategory,
+  {
+    icon: LucideIcon;
+    iconTone: string;
+    headerTint: string;
+    accentBorder: string;
+  }
+> = {
+  windows: {
+    icon: Monitor,
+    iconTone: "from-sky-400/20 to-blue-500/15 text-sky-700 ring-sky-500/20 dark:text-sky-300",
+    headerTint: "from-sky-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-sky-500/25 dark:border-sky-400/25",
+  },
+  macos: {
+    icon: Apple,
+    iconTone: "from-indigo-400/20 to-violet-500/15 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300",
+    headerTint: "from-indigo-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-indigo-500/25 dark:border-indigo-400/25",
+  },
+  android: {
+    icon: Smartphone,
+    iconTone: "from-emerald-400/20 to-teal-500/15 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+    headerTint: "from-emerald-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-emerald-500/25 dark:border-emerald-400/25",
+  },
+  ios: {
+    icon: Smartphone,
+    iconTone: "from-fuchsia-400/20 to-pink-500/15 text-fuchsia-700 ring-fuchsia-500/20 dark:text-fuchsia-300",
+    headerTint: "from-fuchsia-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-fuchsia-500/25 dark:border-fuchsia-400/25",
+  },
+  linux: {
+    icon: Terminal,
+    iconTone: "from-amber-400/20 to-orange-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+    headerTint: "from-amber-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-amber-500/25 dark:border-amber-400/25",
+  },
+  other: {
+    icon: HardDrive,
+    iconTone: "from-cyan-400/20 to-teal-500/15 text-cyan-700 ring-cyan-500/20 dark:text-cyan-300",
+    headerTint: "from-cyan-500/[0.06] via-transparent to-transparent",
+    accentBorder: "border-cyan-500/25 dark:border-cyan-400/25",
+  },
+};
+
+const BASE_PLATFORM_ORDER: PlatformCategory[] = ["windows", "macos", "android", "ios", "linux", "other"];
 
 const GITHUB_RELEASE_URL = "https://github.com/cropflre/nowen-note/releases/latest";
+const MICROSOFT_STORE_URL = "https://apps.microsoft.com/detail/9MZ7Z6S39LL3";
 
 const DOCKER_RUN_COMMAND =
   "docker run -d --name nowen-note -p 3001:3001 -v ~/nowen-data:/app/data cropflre/nowen-note:latest";
@@ -196,6 +247,7 @@ async function copyText(value: string): Promise<boolean> {
 
 export default function DownloadPanel() {
   const { t } = useTranslation();
+  const currentPlatform = useMemo(() => detectCurrentPlatform(), []);
 
   const [loading, setLoading] = useState(true);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -205,6 +257,7 @@ export default function DownloadPanel() {
   const [reloadTick, setReloadTick] = useState(0);
   // R2 is the default; unmirrored files automatically use GitHub official URLs.
   const [activeMirror, setActiveMirror] = useState<string>("r2");
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformCategory | "all">("all");
   const [r2Urls, setR2Urls] = useState<Record<string, string>>({});
   const [r2Status, setR2Status] = useState<"loading" | "ready" | "unavailable">("loading");
 
@@ -296,6 +349,18 @@ export default function DownloadPanel() {
     return map;
   }, [assets]);
 
+  // 当前设备所在平台自动提前展示，方便用户一眼找到对应安装包。
+  const orderedPlatforms = useMemo(() => {
+    const present = BASE_PLATFORM_ORDER.filter((p) => (grouped.get(p)?.length ?? 0) > 0);
+    if (!currentPlatform || !present.includes(currentPlatform)) return present;
+    return [currentPlatform, ...present.filter((p) => p !== currentPlatform)];
+  }, [grouped, currentPlatform]);
+
+  const visiblePlatforms = useMemo(
+    () => (selectedPlatform === "all" ? orderedPlatforms : orderedPlatforms.filter((p) => p === selectedPlatform)),
+    [orderedPlatforms, selectedPlatform],
+  );
+
   const releaseUrl = htmlUrl || GITHUB_RELEASE_URL;
 
   const handleCopyLink = async (url: string) => {
@@ -314,126 +379,195 @@ export default function DownloadPanel() {
     return MIRROR_SOURCES.find((m) => m.id === activeMirror) ?? null;
   }, [activeMirror]);
 
+  const mirrorPill = (active: boolean) =>
+    cn(
+      "inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40",
+      active
+        ? "bg-accent-primary text-white shadow-xs"
+        : "bg-white/90 text-zinc-600 ring-1 ring-zinc-200/90 hover:bg-zinc-100 hover:text-zinc-900 dark:bg-zinc-800/80 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-700/70",
+    );
+
   return (
-    <div className="space-y-6">
-      {/* 标题 */}
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1 flex items-center gap-2">
-          <Download size={18} className="text-accent-primary" />
-          {t("download.title", { defaultValue: "下载客户端" })}
-        </h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          {t("download.subtitle", {
-            defaultValue: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
-          })}
-        </p>
-      </div>
+    <div className="space-y-5 pb-2">
+      {/* 1. 极光下载中心 Hero（整合标题 + 最新版本 + 加速下载源切换） */}
+      <section className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.09] via-white to-indigo-500/[0.07] p-4 shadow-sm dark:border-sky-400/20 dark:from-sky-500/[0.12] dark:via-zinc-900/80 dark:to-indigo-500/[0.08]">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-sky-400/20 to-indigo-400/15 blur-2xl"
+        />
 
-      {/* 头部信息卡 */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
-        <div className="space-y-1">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            {t("download.latestVersion", { defaultValue: "最新版本" })}
-          </div>
-          <div className="font-mono text-sm text-zinc-900 dark:text-zinc-100">
-            {loading ? "…" : version ? `v${version}` : "—"}
+        <div className="relative flex items-start gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300"
+          >
+            <Download size={19} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <h3 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+                  {t("download.title", { defaultValue: "下载客户端" })}
+                </h3>
+                <span className="inline-flex items-center rounded-full bg-accent-primary/12 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-accent-primary tabular-nums">
+                  {loading ? "…" : version ? `v${version}` : "—"}
+                </span>
+                {r2Status === "ready" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                    <Zap size={10} aria-hidden />
+                    {t("download.r2ReadyBadge", { defaultValue: "R2 加速就绪" })}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <a
+                  href={releaseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-zinc-200/90 bg-white/90 px-2.5 text-xs font-medium text-zinc-700 shadow-2xs transition-colors hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200"
+                  title={t("download.viewOnGithub", { defaultValue: "在 GitHub 查看完整 release" })}
+                >
+                  <ExternalLink size={12} aria-hidden />
+                  GitHub
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setReloadTick((v) => v + 1)}
+                  disabled={loading}
+                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-zinc-200/90 bg-white/90 px-2.5 text-xs font-medium text-zinc-700 shadow-2xs transition-colors hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200"
+                  title={t("download.refresh", { defaultValue: "刷新" })}
+                >
+                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} aria-hidden />
+                  {t("download.refresh", { defaultValue: "刷新" })}
+                </button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+              {t("download.subtitle", {
+                defaultValue: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
+              })}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <a
-            href={releaseUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/40 transition-colors"
-            title={t("download.viewOnGithub", { defaultValue: "在 GitHub 查看完整 release" })}
-          >
-            <ExternalLink size={12} />
-            GitHub
-          </a>
-          <button
-            type="button"
-            onClick={() => setReloadTick((v) => v + 1)}
-            disabled={loading}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/40 transition-colors disabled:opacity-50"
-            title={t("download.refresh", { defaultValue: "刷新" })}
-          >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-            {t("download.refresh", { defaultValue: "刷新" })}
-          </button>
-        </div>
-      </div>
 
-      {/* 加速源切换 */}
-      <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-2.5">
-        <div className="flex items-start gap-2">
-          <Info size={14} className="text-accent-primary mt-0.5 shrink-0" />
-          <div className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+        {/* 加速下载源切换条（内嵌在 Hero 底部，消除孤立信息框） */}
+        <div className="relative mt-3.5 space-y-2 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+              <Info size={12} className="text-accent-primary" aria-hidden />
+              {t("download.mirrorLabel", { defaultValue: "下载源" })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setActiveMirror("r2")}
+              className={mirrorPill(activeMirror === "r2")}
+            >
+              R2 官方下载
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMirror("")}
+              className={mirrorPill(!activeMirror)}
+            >
+              GitHub
+            </button>
+            {MIRROR_SOURCES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setActiveMirror(m.id)}
+                className={mirrorPill(activeMirror === m.id)}
+                title={m.prefix}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             {t("download.proxyTip", {
               defaultValue:
                 "R2 安装包已与 GitHub 正式版校验；未镜像的 UPK、便携版等继续走 GitHub。也可自行切换下载源。",
             })}
+          </p>
+        </div>
+      </section>
+
+      {/* 2. 官方应用商店双列直达（Windows 微软商店 + HarmonyOS 华为应用市场） */}
+      <section className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Store size={14} className="text-accent-primary" aria-hidden />
+          <h4 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+            {t("download.storeSectionTitle", { defaultValue: "官方应用商店" })}
+          </h4>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* 微软商店 */}
+          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] via-white to-blue-500/[0.03] p-3.5 shadow-xs transition-all duration-200 hover:border-sky-400/45 hover:shadow-sm motion-safe:hover:-translate-y-0.5 dark:from-sky-500/[0.08] dark:via-zinc-900/70 dark:to-blue-500/[0.04]">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/20 to-blue-500/15 text-sky-700 ring-1 ring-inset ring-sky-500/20 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-sky-300"
+                >
+                  <Monitor size={15} />
+                </span>
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {t("download.microsoftStoreTitle", { defaultValue: "Microsoft Store" })}
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t("download.microsoftStoreDesc", { defaultValue: "适用于 Windows 10 / 11，支持商店一键安装与自动更新。" })}
+              </p>
+            </div>
+            <a
+              href={MICROSOFT_STORE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-medium text-white shadow-2xs transition-opacity hover:opacity-90"
+            >
+              {t("download.microsoftStoreLink", { defaultValue: "微软商店下载" })}
+              <ExternalLink size={12} aria-hidden />
+            </a>
+          </div>
+
+          {/* HarmonyOS 华为应用市场 */}
+          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-rose-500/20 bg-gradient-to-br from-rose-500/[0.06] via-white to-amber-500/[0.03] p-3.5 shadow-xs transition-all duration-200 hover:border-rose-400/45 hover:shadow-sm motion-safe:hover:-translate-y-0.5 dark:from-rose-500/[0.08] dark:via-zinc-900/70 dark:to-amber-500/[0.04]">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-400/20 to-amber-500/15 text-rose-700 ring-1 ring-inset ring-rose-500/20 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-rose-300"
+                >
+                  <Smartphone size={15} />
+                </span>
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">HarmonyOS</div>
+              </div>
+              <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {t("download.harmonyRequirement")}
+              </p>
+            </div>
+            <AppGalleryDownloadLink className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-medium text-white shadow-2xs transition-opacity hover:opacity-90" />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setActiveMirror("r2")}
-            className={cn(
-              "px-2.5 py-1 rounded-md text-xs font-medium transition-colors border",
-              activeMirror === "r2"
-                ? "bg-accent-primary text-white border-accent-primary"
-                : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40",
-            )}
-          >
-            R2 官方下载
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMirror("")}
-            className={cn(
-              "px-2.5 py-1 rounded-md text-xs font-medium transition-colors border",
-              !activeMirror
-                ? "bg-accent-primary text-white border-accent-primary"
-                : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40",
-            )}
-          >
-            GitHub
-          </button>
-          {MIRROR_SOURCES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setActiveMirror(m.id)}
-              className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium transition-colors border",
-                activeMirror === m.id
-                  ? "bg-accent-primary text-white border-accent-primary"
-                  : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40",
-              )}
-              title={m.prefix}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      </section>
 
       {/* 错误降级：拿不到 release 列表时给用户兜底链接 */}
       {errMsg && !loading && (
-        <div className="p-4 rounded-xl border border-amber-300/60 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 space-y-2">
-          <div className="text-sm text-amber-700 dark:text-amber-300">
+        <div className="rounded-2xl border border-amber-300/60 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-900/20 p-4 space-y-2">
+          <div className="text-sm font-medium text-amber-800 dark:text-amber-200">
             {t("download.unavailable", { defaultValue: "无法获取最新版本信息" })}
           </div>
           <div className="text-xs text-amber-700/80 dark:text-amber-400/80 break-all">{errMsg}</div>
-          <div className="text-xs text-amber-800/80 dark:text-amber-200/80 break-all select-all">
+          <div className="text-xs font-mono text-amber-800/80 dark:text-amber-200/80 break-all select-all">
             {releaseUrl}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 pt-0.5">
             <a
               href={releaseUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-200 hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 dark:text-amber-200 hover:underline"
             >
               <ExternalLink size={12} />
               {t("download.openGithubManually", { defaultValue: "前往 GitHub Releases 手动选择" })}
@@ -441,7 +575,7 @@ export default function DownloadPanel() {
             <button
               type="button"
               onClick={() => handleCopyLink(releaseUrl)}
-              className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-200 hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 dark:text-amber-200 hover:underline"
             >
               {copiedLink === releaseUrl ? <Check size={12} /> : <Copy size={12} />}
               {copiedLink === releaseUrl
@@ -452,114 +586,210 @@ export default function DownloadPanel() {
         </div>
       )}
 
-      {/* 资产分组列表 */}
-      {assets.length > 0 && (
-        <div className="space-y-3">
-          {PLATFORM_ORDER.map((g) => {
-            const items = grouped.get(g.category);
-            if (!items || items.length === 0) return null;
-            const Icon = g.icon;
-            return (
-              <div
-                key={g.category}
-                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden"
-              >
-                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200/60 dark:border-zinc-800/60">
-                  <Icon size={14} className="text-zinc-500 dark:text-zinc-400" />
-                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-                    {t(`download.platform.${g.category}`, {
-                      defaultValue: defaultPlatformLabel(g.category),
-                    })}
-                  </span>
-                </div>
-                <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
-                  {items.map(({ asset: a, category }) => {
-                    const mirroredUrl = r2Urls[a.name];
-                    const usesR2 = activeMirror === "r2" && Boolean(mirroredUrl);
-                    const url = usesR2 ? mirroredUrl : resolveDownloadUrl(a.browserDownloadUrl, activeMirrorSource);
-                    const fallbackToGithub = activeMirror === "r2" && !mirroredUrl;
-                    return (
-                      <div
-                        key={a.name}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                            {t(`download.asset.${category}`, {
-                              defaultValue: defaultAssetLabel(category),
-                            })}
-                          </div>
-                          <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate mt-0.5" title={a.name}>
-                            {a.name}
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {a.size > 0 && (
-                              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                                {formatSize(a.size)}
-                              </span>
-                            )}
-                            {fallbackToGithub && r2Status !== "loading" && (
-                              <span className="text-[11px] text-amber-600 dark:text-amber-400">
-                                {t("download.r2FallbackTip", {
-                                  defaultValue: "R2 未镜像，使用 GitHub",
-                                })}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent-primary text-white text-xs font-medium hover:opacity-90"
-                            download
-                          >
-                            <Download size={12} />
-                            {usesR2 || activeMirrorSource
-                              ? t("download.btnAccelerated", { defaultValue: "加速下载" })
-                              : t("download.btnDownload", { defaultValue: "下载" })}
-                          </a>
-                          <a
-                            href={a.browserDownloadUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
-                            title={a.browserDownloadUrl}
-                          >
-                            <ExternalLink size={12} />
-                            {t("download.originalLink", { defaultValue: "原始链接" })}
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyLink(url)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
-                            title={url}
-                          >
-                            {copiedLink === url ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedLink === url
-                              ? t("download.copied", { defaultValue: "已复制" })
-                              : t("download.copyLink", { defaultValue: "复制链接" })}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+      {/* 加载骨架 */}
+      {loading && assets.length === 0 && (
+        <div className="space-y-3" aria-hidden>
+          {[0, 1].map((idx) => (
+            <div key={idx} className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/40 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-zinc-200/70 dark:bg-zinc-800 motion-safe:animate-pulse" />
+                <div className="h-3.5 w-24 rounded bg-zinc-200/70 dark:bg-zinc-800 motion-safe:animate-pulse" />
               </div>
-            );
-          })}
+              <div className="h-12 w-full rounded-xl bg-zinc-100/90 dark:bg-zinc-800/60 motion-safe:animate-pulse" />
+            </div>
+          ))}
         </div>
       )}
 
+      {/* 3. 平台筛选胶囊 + 分组安装包列表 */}
+      {orderedPlatforms.length > 0 && (
+        <section className="space-y-3">
+          {orderedPlatforms.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                aria-pressed={selectedPlatform === "all"}
+                onClick={() => setSelectedPlatform("all")}
+                className={mirrorPill(selectedPlatform === "all")}
+              >
+                {t("download.filterAll", { defaultValue: "全部平台" })}
+              </button>
+              {orderedPlatforms.map((platform) => {
+                const Icon = PLATFORM_META[platform].icon;
+                const count = grouped.get(platform)?.length ?? 0;
+                const active = selectedPlatform === platform;
+                return (
+                  <button
+                    key={platform}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSelectedPlatform(platform)}
+                    className={mirrorPill(active)}
+                  >
+                    <Icon size={12} aria-hidden />
+                    <span>
+                      {t(`download.platform.${platform}`, {
+                        defaultValue: defaultPlatformLabel(platform),
+                      })}
+                    </span>
+                    <span className={cn("text-[10px] tabular-nums", active ? "text-white/80" : "text-zinc-400")}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {visiblePlatforms.map((platform) => {
+              const items = grouped.get(platform);
+              if (!items || items.length === 0) return null;
+              const meta = PLATFORM_META[platform];
+              const Icon = meta.icon;
+              const isCurrent = platform === currentPlatform;
+              return (
+                <div
+                  key={platform}
+                  className={cn(
+                    "overflow-hidden rounded-2xl border bg-white/80 shadow-xs dark:bg-zinc-900/50",
+                    isCurrent ? meta.accentBorder : "border-zinc-200/85 dark:border-zinc-800/85",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex items-center justify-between gap-2 border-b border-zinc-200/60 bg-gradient-to-r px-4 py-2.5 dark:border-zinc-800/70",
+                      meta.headerTint,
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ring-1 ring-inset",
+                          meta.iconTone,
+                        )}
+                      >
+                        <Icon size={14} />
+                      </span>
+                      <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                        {t(`download.platform.${platform}`, {
+                          defaultValue: defaultPlatformLabel(platform),
+                        })}
+                      </span>
+                      {isCurrent && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary/12 px-2 py-0.5 text-[10px] font-semibold text-accent-primary">
+                          <Sparkles size={10} aria-hidden />
+                          {t("download.currentDeviceBadge", { defaultValue: "当前设备" })}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-mono text-zinc-400 dark:text-zinc-500 tabular-nums">
+                      {items.length}
+                    </span>
+                  </div>
+
+                  <div className="divide-y divide-zinc-200/55 dark:divide-zinc-800/65">
+                    {items.map(({ asset: a, category }) => {
+                      const mirroredUrl = r2Urls[a.name];
+                      const usesR2 = activeMirror === "r2" && Boolean(mirroredUrl);
+                      const url = usesR2 ? mirroredUrl : resolveDownloadUrl(a.browserDownloadUrl, activeMirrorSource);
+                      const fallbackToGithub = activeMirror === "r2" && !mirroredUrl;
+                      return (
+                        <div
+                          key={a.name}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-zinc-50/90 dark:hover:bg-zinc-800/35"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                                {t(`download.asset.${category}`, {
+                                  defaultValue: defaultAssetLabel(category),
+                                })}
+                              </span>
+                              {a.size > 0 && (
+                                <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 tabular-nums">
+                                  {formatSize(a.size)}
+                                </span>
+                              )}
+                              {usesR2 && (
+                                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                                  <Zap size={9} aria-hidden />
+                                  {t("download.r2VerifiedTag", { defaultValue: "R2 官方加速" })}
+                                </span>
+                              )}
+                              {fallbackToGithub && r2Status !== "loading" && (
+                                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                                  {t("download.r2FallbackTip", {
+                                    defaultValue: "R2 未镜像，使用 GitHub",
+                                  })}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-400 dark:text-zinc-500" title={a.name}>
+                              {a.name}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-semibold text-white shadow-2xs transition-all hover:opacity-90"
+                              download
+                            >
+                              <Download size={12} aria-hidden />
+                              {usesR2 || activeMirrorSource
+                                ? t("download.btnAccelerated", { defaultValue: "加速下载" })
+                                : t("download.btnDownload", { defaultValue: "下载" })}
+                            </a>
+                            <a
+                              href={a.browserDownloadUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 items-center gap-1 rounded-xl border border-zinc-200/90 bg-white/80 px-2.5 text-xs text-zinc-600 transition-colors hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700/80 dark:bg-zinc-800/60 dark:text-zinc-300 dark:hover:text-zinc-100"
+                              title={a.browserDownloadUrl}
+                            >
+                              <ExternalLink size={12} aria-hidden />
+                              {t("download.originalLink", { defaultValue: "原始链接" })}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyLink(url)}
+                              className={cn(
+                                "inline-flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs transition-colors",
+                                copiedLink === url
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                                  : "border-zinc-200/90 bg-white/80 text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700/80 dark:bg-zinc-800/60 dark:text-zinc-300 dark:hover:text-zinc-100",
+                              )}
+                              title={url}
+                            >
+                              {copiedLink === url ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+                              {copiedLink === url
+                                ? t("download.copied", { defaultValue: "已复制" })
+                                : t("download.copyLink", { defaultValue: "复制链接" })}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {!loading && assets.length === 0 && !errMsg && (
-        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 dark:text-zinc-400 space-y-2">
+        <div className="rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 p-5 text-center text-sm text-zinc-500 dark:text-zinc-400 space-y-2">
           <div>{t("download.noAssets", { defaultValue: "本次发布没有可用的下载资产，请在 GitHub Releases 查看。" })}</div>
           <a
             href={releaseUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-accent-primary hover:underline"
           >
             <ExternalLink size={12} />
             {t("download.openGithubManually", { defaultValue: "前往 GitHub Releases 手动选择" })}
@@ -567,36 +797,48 @@ export default function DownloadPanel() {
         </div>
       )}
 
-      {/* Docker 一键部署 */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200/60 dark:border-zinc-800/60">
-          <Container size={14} className="text-zinc-500 dark:text-zinc-400" />
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-            {t("download.dockerTitle", { defaultValue: "Docker 一键部署" })}
-          </span>
+      {/* 4. Docker 自托管一键部署终端卡 */}
+      <section className="overflow-hidden rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/[0.06] via-white to-slate-500/[0.03] shadow-xs dark:border-cyan-400/20 dark:from-cyan-500/[0.08] dark:via-zinc-900/75 dark:to-slate-900/50">
+        <div className="flex items-center justify-between gap-2 border-b border-zinc-200/60 px-4 py-2.5 dark:border-zinc-800/70">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400/20 to-sky-500/15 text-cyan-700 ring-1 ring-inset ring-cyan-500/20 dark:text-cyan-300"
+            >
+              <Container size={14} />
+            </span>
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+              {t("download.dockerTitle", { defaultValue: "Docker 一键部署" })}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyDocker}
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-medium transition-colors",
+              copied
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200",
+            )}
+            title={t("download.copy", { defaultValue: "复制" })}
+          >
+            {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+            {copied
+              ? t("download.copied", { defaultValue: "已复制" })
+              : t("download.copy", { defaultValue: "复制" })}
+          </button>
         </div>
         <div className="p-4 space-y-2.5">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
             {t("download.dockerDesc", {
               defaultValue:
                 "在自己的服务器或 NAS 上跑一个最简洁的实例。启动后访问 http://<host>:3001 完成首次配置。",
             })}
           </p>
-          <div className="flex items-stretch gap-2">
-            <code className="flex-1 px-3 py-2 rounded-md bg-zinc-900 text-zinc-100 text-xs font-mono break-all">
+          <div className="rounded-xl bg-zinc-950 px-3.5 py-2.5 ring-1 ring-white/10">
+            <code className="block font-mono text-xs leading-relaxed text-emerald-300 break-all">
               {DOCKER_RUN_COMMAND}
             </code>
-            <button
-              type="button"
-              onClick={handleCopyDocker}
-              className="flex items-center gap-1 px-3 rounded-md bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-100 text-xs font-medium hover:opacity-90 shrink-0"
-              title={t("download.copy", { defaultValue: "复制" })}
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied
-                ? t("download.copied", { defaultValue: "已复制" })
-                : t("download.copy", { defaultValue: "复制" })}
-            </button>
           </div>
           <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
             {t("download.dockerCnTip", {
@@ -605,7 +847,7 @@ export default function DownloadPanel() {
             })}
           </p>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -624,7 +866,7 @@ function defaultPlatformLabel(c: PlatformCategory): string {
     case "linux":
       return "Linux";
     case "other":
-      return "其他";
+      return "NAS 与扩展";
   }
 }
 

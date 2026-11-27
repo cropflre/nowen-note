@@ -54,9 +54,13 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
 
   const showCreator =
     !!task.creatorName && getCurrentWorkspace() !== "personal";
+  const showAssignee =
+    !!task.assigneeName && getCurrentWorkspace() !== "personal";
 
   const progressInfo = hasChildren ? calculateTaskProgress(task) : null;
   const indentPx = Math.min(depth, 6) * 24;
+  const hasDesktopExtraContent = Boolean(descriptionPreview) || showCreator;
+  const hasMobileExtraContent = hasDesktopExtraContent || Boolean(task.dueDate);
 
   return (
     <>
@@ -68,7 +72,9 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         exit={{ opacity: 0, x: -20, transition: { duration: 0.15 } }}
         style={{ paddingLeft: `${indentPx}px` }}
         className={cn(
-          "group flex items-start gap-2 w-full min-w-0 pr-3 py-2 rounded-lg border transition-all cursor-pointer",
+          "group flex gap-2 w-full min-w-0 pr-3 py-2 rounded-lg border transition-all cursor-pointer",
+          hasMobileExtraContent ? "items-start" : "items-center",
+          hasDesktopExtraContent ? "md:items-start" : "md:items-center",
           isCompleted
             ? "border-transparent bg-app-hover/50 opacity-60"
             : "border-app-border bg-app-elevated hover:shadow-md hover:border-accent-primary/30"
@@ -79,7 +85,11 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         {hasChildren ? (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleExpand(task.id); }}
-            className="flex-shrink-0 mt-0.5 p-0.5 rounded hover:bg-app-hover transition-colors"
+            className={cn(
+              "flex-shrink-0 inline-flex items-center justify-center p-0.5 rounded hover:bg-app-hover transition-colors",
+              hasMobileExtraContent ? "mt-0.5" : "mt-0",
+              hasDesktopExtraContent ? "md:mt-0.5" : "md:mt-0",
+            )}
             title={isExpanded ? t('tasks.collapse') : t('tasks.expand')}
           >
             {isExpanded
@@ -94,7 +104,11 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         <button
           disabled={!!task.archivedAt}
           onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}
-          className="flex-shrink-0 mt-0.5 transition-transform hover:scale-110"
+          className={cn(
+            "flex-shrink-0 inline-flex items-center justify-center transition-transform hover:scale-110",
+            hasMobileExtraContent ? "mt-0.5" : "mt-0",
+            hasDesktopExtraContent ? "md:mt-0.5" : "md:mt-0",
+          )}
         >
           {isCompleted ? (
             <CheckCircle2 className="w-5 h-5 text-indigo-500" />
@@ -122,6 +136,14 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           {(task.dueDate || showCreator) && (
             <div className="md:hidden flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
               <DateBadge dateStr={task.dueDate} dueAt={task.dueAt} isCompleted={isCompleted} />
+              {showAssignee && (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 shrink-0"
+                  title={`负责人：${task.assigneeName}`}
+                >
+                  @{task.assigneeName}
+                </span>
+              )}
               {showCreator && (
                 <span
                   className="flex items-center gap-1 text-[10px] text-tx-tertiary min-w-0"
@@ -145,7 +167,13 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         </div>
 
         {/* Right side badges */}
-        <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+        <div
+          className={cn(
+            "flex items-center gap-2 flex-shrink-0",
+            hasMobileExtraContent ? "mt-0.5" : "mt-0",
+            hasDesktopExtraContent ? "md:mt-0.5" : "md:mt-0",
+          )}
+        >
           {/* Action buttons (visible on hover) */}
           <button
             disabled={!!task.archivedAt}

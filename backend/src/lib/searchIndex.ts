@@ -50,6 +50,32 @@ function collectFallbackJsonText(value: unknown, output: string[]): void {
   if (Array.isArray(record.content)) collectFallbackJsonText(record.content, output);
 }
 
+function extractPptJsonText(source: string): string {
+  try {
+    const parsed = JSON.parse(source) as { slides?: Array<Record<string, unknown>> };
+    if (!parsed || !Array.isArray(parsed.slides)) return "";
+    const parts: string[] = [];
+    for (const slide of parsed.slides) {
+      if (!slide || typeof slide !== "object") continue;
+      for (const key of ["title", "subtitle", "rightTitle", "quote", "quoteAuthor", "notes"]) {
+        if (typeof slide[key] === "string" && (slide[key] as string).trim()) {
+          parts.push((slide[key] as string).trim());
+        }
+      }
+      for (const listKey of ["bullets", "rightBullets"]) {
+        if (Array.isArray(slide[listKey])) {
+          for (const item of slide[listKey] as unknown[]) {
+            if (typeof item === "string" && item.trim()) parts.push(item.trim());
+          }
+        }
+      }
+    }
+    return parts.join("\n").replace(/\u0000/g, "").trim();
+  } catch {
+    return "";
+  }
+}
+
 /**
  * The server is the source of truth for text used by literal search and FTS.
  * Client-provided contentText is treated only as transport compatibility data.
@@ -60,6 +86,9 @@ export function extractSearchableText(
 ): string {
   if (isEncryptedNoteFormat(contentFormat)) return "";
   const source = typeof content === "string" ? content : "";
+  if (contentFormat === "ppt-json") {
+    return extractPptJsonText(source);
+  }
   const format = normalizeContentFormat(
     typeof contentFormat === "string" ? contentFormat : undefined,
   );

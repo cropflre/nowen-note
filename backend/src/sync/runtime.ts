@@ -22,17 +22,22 @@ import type { SyncEngineStatus } from "./engine";
 import { isLocalFirstSyncV2Enabled } from "./flag";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { ensureDevice } from "./device";
-import { getActiveProfile } from "./profile";
-import { createBlobClientForProfile, createRemoteClientForProfile } from "./credentials";
+import { getActiveProfile, setProfileLocalUser } from "./profile";
+import {
+  createBlobClientForProfile,
+  createRemoteClientForProfile,
+  getRemoteCredential,
+  refreshRemoteCredential,
+} from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
 import { isBootstrapReady } from "./bootstrap";
 import { SyncRealtimeSubscription } from "./realtime";
-import { getRemoteCredential } from "./credentials";
 
 interface ActiveEngine {
   engine: SyncEngine;
   profileId: string;
   deviceId: string;
+  userId: string;
   /**
    * 远端变更通知订阅（阶段 L）。
    *
@@ -114,12 +119,14 @@ export function reconcileSyncEngine(
     return null;
   }
 
-  // 已经在跑同一个 Profile：无需重建，保住它的内存状态与退避节奏。
-  if (active && active.profileId === enabled.id) {
+  const userId = resolveLocalUserId(db, options.userId ?? enabled.localUserId);
+
+  // 已经在跑同一个 Profile 且绑定同一本地用户：无需重建，保住它的内存状态与退避节奏。
+  if (active && active.profileId === enabled.id && (!userId || active.userId === userId)) {
     return active.engine;
   }
 
-  // Profile 变了（切换服务器）：必须先停旧的，否则会双写。
+  // Profile 或绑定的本地用户变了：必须先停旧的，否则会双写或继续用错误 userId 撞 NOTEBOOK_ID_COLLISION。
   stopSyncEngine();
 
   const client = createRemoteClientForProfile(enabled.id, enabled.serverUrl);
@@ -129,10 +136,12 @@ export function reconcileSyncEngine(
     return null;
   }
 
-  const userId = options.userId || resolveLocalUserId(db);
   if (!userId) {
     logSyncWarn("runtime.no-user", { profileId: enabled.id });
     return null;
+  }
+  if (!enabled.localUserId) {
+    try { setProfileLocalUser(db, enabled.id, userId); } catch { /* 绑定失败不阻断启动 */ }
   }
 
   const device = ensureDevice(db, {
@@ -197,6 +206,8 @@ export function reconcileSyncEngine(
       realtime = new SyncRealtimeSubscription({
         serverUrl: enabled.serverUrl,
         token: credential.token,
+        getToken: () => getRemoteCredential(enabled.id)?.token ?? credential.token,
+        refreshToken: () => refreshRemoteCredential(enabled.id),
         // 收到通知只触发同步，不做任何 apply ——
         // Change Feed 才是数据来源（第二十八条）。
         onNotice: () => {
@@ -217,7 +228,7 @@ export function reconcileSyncEngine(
     }
   }
 
-  active = { engine, profileId: enabled.id, deviceId: device.id, realtime };
+  active = { engine, profileId: enabled.id, deviceId: device.id, userId, realtime };
   engine.start();
   logSyncInfo("runtime.started", { profileId: enabled.id, deviceId: device.id });
   return engine;
@@ -226,15 +237,67 @@ export function reconcileSyncEngine(
 /**
  * 推断本地用户 ID。
  *
- * Desktop 是单用户场景：Embedded Backend 里只有 ensureLocalAccount 建的那个账号。
- * 取最早创建的用户即可，避免调用方到处传 userId。
+ * 优先级：
+ * 1. 显式传入或 sync_profiles.localUserId 已绑定的真实本地账号；
+ * 2. 兼容老版本升级（localUserId 为空且本地库存在多个账号，如手动登录账号 + 旧默认账号 / sync-remote-*）：
+ *    优先选择真正持有个人空间笔记与目录的启用本地账号，避免误选空账号导致 NOTEBOOK_ID_COLLISION；
+ * 3. 其次选择最近登录会话所属的启用本地账号；
+ * 4. 最后回退到最早创建的非同步占位账号。
  */
-function resolveLocalUserId(db: Database.Database): string | null {
+function resolveLocalUserId(db: Database.Database, preferredUserId?: string | null): string | null {
   try {
-    const row = db.prepare(
-      "SELECT id FROM users ORDER BY createdAt ASC LIMIT 1",
-    ).get() as { id?: string } | undefined;
-    return row?.id ?? null;
+    if (preferredUserId) {
+      const hit = db.prepare(
+        "SELECT id FROM users WHERE id = ? AND id NOT GLOB 'sync-remote-*' LIMIT 1",
+      ).get(preferredUserId) as { id?: string } | undefined;
+      if (hit?.id) return hit.id;
+    }
+
+    const ownerByContent = db.prepare(`
+      SELECT u.id
+      FROM users u
+      WHERE u.id NOT GLOB 'sync-remote-*' AND COALESCE(u.isDisabled, 0) = 0
+      ORDER BY (
+        (SELECT COUNT(*) FROM notes n WHERE n.userId = u.id AND n.workspaceId IS NULL)
+        + (SELECT COUNT(*) FROM notebooks nb WHERE nb.userId = u.id AND nb.workspaceId IS NULL)
+      ) DESC,
+      u.createdAt ASC
+      LIMIT 1
+    `).get() as { id?: string } | undefined;
+
+    if (ownerByContent?.id) {
+      const hasData = db.prepare(`
+        SELECT 1 FROM notes WHERE userId = ? AND workspaceId IS NULL
+        UNION ALL
+        SELECT 1 FROM notebooks WHERE userId = ? AND workspaceId IS NULL
+        LIMIT 1
+      `).get(ownerByContent.id, ownerByContent.id);
+      if (hasData) return ownerByContent.id;
+    }
+
+    try {
+      const recentSession = db.prepare(`
+        SELECT s.userId AS id
+        FROM user_sessions s
+        JOIN users u ON u.id = s.userId
+        WHERE u.id NOT GLOB 'sync-remote-*' AND COALESCE(u.isDisabled, 0) = 0
+          AND s.revokedAt IS NULL
+        ORDER BY COALESCE(s.lastSeenAt, s.createdAt) DESC
+        LIMIT 1
+      `).get() as { id?: string } | undefined;
+      if (recentSession?.id) return recentSession.id;
+    } catch { /* user_sessions 可能不存在于极简测试库 */ }
+
+    const fallback = db.prepare(`
+      SELECT id FROM users
+      WHERE id NOT GLOB 'sync-remote-*' AND COALESCE(isDisabled, 0) = 0
+      ORDER BY createdAt ASC LIMIT 1
+    `).get() as { id?: string } | undefined;
+    if (fallback?.id) return fallback.id;
+
+    const anyUser = db.prepare("SELECT id FROM users ORDER BY createdAt ASC LIMIT 1")
+      .get() as { id?: string } | undefined;
+    return anyUser?.id ?? null;
   } catch {
     return null;
   }

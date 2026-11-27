@@ -58,10 +58,36 @@ export function assertAssetMetadata(id: string, p: Record<string, unknown>, user
   }
 }
 
+/**
+ * Rebind incoming remote personal-scope asset metadata to the local account userId.
+ * Remote NAS userId almost always differs from Desktop's local userId; verify remoteUserId
+ * when known so cross-account payloads are still rejected.
+ */
+export function normalizeIncomingAssetMetadata(
+  id: string,
+  payload: Record<string, unknown>,
+  localUserId: string,
+  expectedRemoteUserId?: string | null,
+): Record<string, unknown> {
+  if (typeof payload.userId !== "string" || !payload.userId.trim()) {
+    throw new SyncError("INVALID_PAYLOAD", "附件整理元数据无效");
+  }
+  if (expectedRemoteUserId && payload.userId !== expectedRemoteUserId && payload.userId !== localUserId) {
+    throw new SyncError("SCOPE_FORBIDDEN", "附件目录身份不匹配");
+  }
+  const normalized = { ...payload, userId: localUserId };
+  assertAssetMetadata(id, normalized, localUserId);
+  return normalized;
+}
+
 /** Push accepts organization intentions, never attachment bytes, ownership or trash writes. */
 export function applyAssetOrganization(db: Database.Database, input: ApplyMutationInput): number {
-  const p = input.payload || {};
+  const raw = input.payload || {};
   if (input.workspaceId || input.operation !== "upsert") throw new SyncError("INVALID_PAYLOAD", "仅支持个人附件整理同步");
+  // Desktop local userId differs from server userId; bind ownership strictly to authenticated input.userId.
+  const p = typeof raw.userId === "string" && raw.userId.trim()
+    ? { ...raw, userId: input.userId }
+    : raw;
   assertAssetMetadata(input.entityId,p,input.userId);
   const foreign = db.prepare("SELECT userId FROM asset_sync_metadata WHERE id=?").get(input.entityId) as { userId: string } | undefined;
   if (foreign && foreign.userId !== input.userId) throw new SyncError("SCOPE_FORBIDDEN", "无权整理此附件或目录");

@@ -397,7 +397,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 >
                   {result.resourceType === "mindmap"
                     ? <BrainCircuit size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
-                    : result.resourceType === "sheet"
+                    : result.resourceType === "sheet" || result.resourceType === "excel"
                       ? <Table2 size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
                       : <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />}
                   <div className="min-w-0 flex-1">

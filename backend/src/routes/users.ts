@@ -561,7 +561,7 @@ function assertTransferredTreeConsistent(db: import("better-sqlite3").Database, 
  *    note_acl.userId**, note_yupdates.userId,
  *    knowledge_tree_nodes.userId/scopeKey, diary_attachments.userId, task_attachments.userId,
  *    task_reminders.userId, task_projects.userId, task_labels.userId/scopeKey*,
- *    task_recurrence_state.scopeKey, mindmaps.userId, mindmap_folders.userId, sheets.userId,
+ *    task_recurrence_state.scopeKey, mindmaps.userId, mindmap_folders.userId, sheets.userId, excel_documents.userId,
  *    note_templates.createdBy, notebook_share_links.createdBy, workspace_journals.createdBy
  *
  *    *  tags 存在 UNIQUE(userId,name) 约束：对接收方已存在同名标签时，需要重写 note_tags
@@ -723,6 +723,7 @@ function transferAndDeleteUser(
     moved.mindmapFolders = run("UPDATE mindmap_folders SET userId = ? WHERE userId = ?", toId, fromId);
     moved.mindmaps = run("UPDATE mindmaps SET userId = ? WHERE userId = ?", toId, fromId);
     moved.sheets = run("UPDATE sheets SET userId = ? WHERE userId = ?", toId, fromId);
+    moved.excelDocuments = run("UPDATE excel_documents SET userId = ? WHERE userId = ?", toId, fromId);
     moved.noteTemplates = run("UPDATE note_templates SET createdBy = ? WHERE createdBy = ?", toId, fromId);
     moved.notebookShareLinks = run(
       "UPDATE notebook_share_links SET createdBy = ? WHERE createdBy = ?",

@@ -1,6 +1,10 @@
 import { agentP2Migration } from "./agentP2Migration.js";
 import { aiMemoryMigration } from "./aiMemoryMigration.js";
 import { diaryFileAttachmentsMigration } from "./diaryFileAttachmentsMigration.js";
+import { excelSyncOutboxMigration, excelWorkbookDocumentsMigration } from "./excelWorkbookDocumentsMigration.js";
+import { taskAssigneeMigration } from "./taskAssigneeMigration.js";
+import { workspaceGroupsMigration } from "./workspaceGroupsMigration.js";
+import { syncAttachmentUpdateTriggerMigration } from "./syncAttachmentUpdateTriggerMigration.js";
 import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { migrationDecisionsMigration } from "./migrationDecisionsMigration.js";
 import { migrationStableSourcesMigration } from "./migrationStableSourcesMigration.js";
@@ -101,7 +105,7 @@ import { syncV2KnowledgeTreeConflictMigration } from "./syncV2KnowledgeTreeConfl
 import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTreeScopeReadinessMigration.js";
 import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
 import { excelDocumentsMigration } from "./excelDocumentsMigration.js";
-import { reconcileForkMigrationLedger } from "./forkMigrationCompat.js";
+import { reconcileForkMigrationLedger, ensureForkExcelDocumentSchema } from "./forkMigrationCompat.js";
 import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
 import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
@@ -468,6 +472,11 @@ export const MIGRATIONS: Migration[] = [
   sharedAIProfilesMigration,
   aiMemoryMigration,
   diaryFileAttachmentsMigration,
+  excelWorkbookDocumentsMigration,
+  excelSyncOutboxMigration,
+  taskAssigneeMigration,
+  workspaceGroupsMigration,
+  syncAttachmentUpdateTriggerMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
@@ -531,7 +540,10 @@ export function runMigrations(db: Database.Database): number {
   // Looking only at MAX(version) permanently skips a migration added later with
   // a lower historical version (the v48 block schema was affected by this).
   const pending = getPendingMigrations(db);
-  if (pending.length === 0) return 0;
+  if (pending.length === 0) {
+    ensureForkExcelDocumentSchema(db);
+    return 0;
+  }
 
   const insert = db.prepare(
     "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
@@ -553,5 +565,7 @@ export function runMigrations(db: Database.Database): number {
       );
     }
   }
+  // 迁移全部跑完后对齐 fork 旧库可能缺失的列（如官方 v148 引入的 excel_documents.revision）。
+  ensureForkExcelDocumentSchema(db);
   return applied;
 }

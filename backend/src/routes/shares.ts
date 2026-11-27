@@ -136,7 +136,7 @@ sharesRouter.post("/", async (c) => {
     return c.json({ error: "缺少 noteId 参数" }, 400);
   }
 
-  const note = db.prepare("SELECT id, userId, title, contentFormat FROM notes WHERE id = ?").get(noteId) as any;
+  const note = db.prepare("SELECT id, userId, title, contentFormat, note_type FROM notes WHERE id = ?").get(noteId) as any;
   if (!note) return c.json({ error: "笔记不存在" }, 404);
   if (note.contentFormat?.startsWith("encrypted-")) return c.json({ error: "加密笔记暂不支持公开分享", code: "ENCRYPTED_NOTE_SHARING_FORBIDDEN" }, 400);
   const folderPasswordError = requireUnlockedNoteForShare(c, noteId, userId);
@@ -151,6 +151,9 @@ sharesRouter.post("/", async (c) => {
   const perm = permission || "view";
   if (!["view", "comment", "edit", "edit_auth"].includes(perm)) {
     return c.json({ error: "分享权限无效" }, 400);
+  }
+  if (note.note_type === "excel" && (perm === "edit" || perm === "edit_auth")) {
+    return c.json({ error: "Excel 表格分享仅支持只读或评论权限", code: "EXCEL_SHARE_EDIT_UNSUPPORTED" }, 400);
   }
 
   // 如果设置了密码，使用 bcrypt 加密
@@ -425,7 +428,7 @@ sharedRouter.get("/:token/content", (c) => {
 
   const share = db.prepare(`
     SELECT s.id AS shareId, s.noteId, s.isActive, s.expiresAt, s.maxViews, s.viewCount, s.password, s.permission,
-           n.title, n.content, n.contentText, n.contentFormat, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
+           n.title, n.content, n.contentText, n.contentFormat, n.note_type AS noteType, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
            n.isLocked AS noteIsLocked,
            n.userId AS noteOwnerId,
            n.workspaceId AS noteWorkspaceId
@@ -482,12 +485,32 @@ sharedRouter.get("/:token/content", (c) => {
     noteWorkspaceId: share.noteWorkspaceId || null,
   });
 
+  let excelData: string | undefined;
+  if (share.noteType === "excel") {
+    const excelRow = db.prepare("SELECT data FROM excel_documents WHERE noteId = ?")
+      .get(share.noteId) as { data: string } | undefined;
+    if (!excelRow) {
+      return c.json({ error: "Excel 表格不存在", code: "EXCEL_NOT_FOUND" }, 404);
+    }
+    try {
+      const parsed = JSON.parse(excelRow.data);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return c.json({ error: "Excel 表格数据已损坏", code: "EXCEL_DATA_CORRUPT" }, 500);
+      }
+    } catch {
+      return c.json({ error: "Excel 表格数据已损坏", code: "EXCEL_DATA_CORRUPT" }, 500);
+    }
+    excelData = excelRow.data;
+  }
+
   return c.json({
     noteId: share.noteId,
     title: share.title,
     content: rewrittenContent,
     contentText: share.contentText,
     contentFormat: share.contentFormat,
+    noteType: share.noteType || "normal",
+    ...(excelData !== undefined ? { excelData } : {}),
     permission: share.permission,
     updatedAt: share.noteUpdatedAt,
     version: share.noteVersion,
@@ -527,13 +550,16 @@ sharedRouter.put("/:token/content", async (c) => {
   const share = db.prepare(`
     SELECT s.id AS shareId, s.noteId, s.permission, s.password, s.isActive, s.expiresAt, s.maxViews, s.viewCount,
            n.isLocked, n.version AS noteVersion, n.title AS noteTitle, n.content AS noteContent,
-           n.contentText AS noteContentText, n.contentFormat AS noteContentFormat, n.userId AS noteUserId
+           n.contentText AS noteContentText, n.contentFormat AS noteContentFormat, n.note_type AS noteType, n.userId AS noteUserId
     FROM shares s
     LEFT JOIN notes n ON s.noteId = n.id
     WHERE s.shareToken = ?
   `).get(token) as any;
 
   if (!share || !share.isActive) return c.json({ error: "分享不存在或已失效" }, 404);
+  if (share.noteType === "excel") {
+    return c.json({ error: "Excel 表格分享不支持在线编辑", code: "EXCEL_SHARE_EDIT_UNSUPPORTED" }, 400);
+  }
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
     return c.json({ error: "分享链接已过期" }, 410);
   }

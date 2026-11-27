@@ -361,7 +361,15 @@ export function installSyncChangesV2Triggers(
 
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'attachment', NEW.id, NEW.noteId, NEW.userId, n.workspaceId, 'upsert', NULL
-        FROM notes n WHERE n.id = NEW.noteId ${noteScopeCondition};
+        FROM notes n WHERE n.id = NEW.noteId ${noteScopeCondition}
+          AND (
+            OLD.noteId IS NOT NEW.noteId
+            OR OLD.userId IS NOT NEW.userId
+            OR OLD.filename IS NOT NEW.filename
+            OR OLD.mimeType IS NOT NEW.mimeType
+            OR OLD.size IS NOT NEW.size
+            OR OLD.hash IS NOT NEW.hash
+          );
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_attachments_delete;

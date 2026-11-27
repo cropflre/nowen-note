@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, FolderOpen, History, Info, Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api } from "@/lib/api";
+import { api, getBaseUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/authSession";
+import { getDesktopMigrationBridge } from "@/lib/desktopBridge";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { migrationApi, migrationIsActive, type MigrationJob } from "@/lib/migrations";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
@@ -10,7 +12,7 @@ import { openAIMemory } from "@/lib/aiMemory";
 import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import {
-  IMPORT_ACCEPT, filesFromInput, importErrorKind, importPhase, importRisks, packageImport, planImport, warningText,
+  IMPORT_ACCEPT, MIGRATION_UPLOAD_LIMIT_MB, filesFromInput, formatUploadLimit, importErrorKind, importPhase, importRisks, packageImport, planImport, warningText,
   type ImportErrorKind, type ImportFile,
 } from "@/lib/smartImport";
 import { Button } from "@/components/ui/button";
@@ -24,12 +26,13 @@ interface Props {
   workspaceId: string;
   disabled: boolean;
   localOnly?: boolean;
+  canConfigureLimits?: boolean;
   onLegacyImport: () => void;
   onImported: (job: MigrationJob) => void;
   onView: (job: MigrationJob) => Promise<void>;
 }
 
-type Problem = ImportErrorKind | "no-notes" | "unsupported-files" | "invalid";
+type Problem = ImportErrorKind | "no-notes" | "unsupported-files" | "folder-too-large" | "invalid";
 type Preparing = { stage: "packaging" | "hashing" | "uploading" | "checking"; percent?: number; current: number; total: number };
 
 const card = "space-y-4 rounded-2xl border border-app-border bg-app-surface p-5";
@@ -43,11 +46,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Everything else (where to put it, per-note choices, the AI assistant path, history) stays out of the way
  * until it is needed. The server-side migration jobs underneath are unchanged.
  */
-export default function MigrationHub({ workspaceId, disabled, localOnly = false, onLegacyImport, onImported, onView }: Props) {
+export default function MigrationHub({ workspaceId, disabled, localOnly = false, canConfigureLimits = false, onLegacyImport, onImported, onView }: Props) {
   const { t } = useTranslation();
   const [view, setView] = useState<"files" | "assistant">("files");
   const [target, setTarget] = useState("");
   const [locationOpen, setLocationOpen] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitSaving, setLimitSaving] = useState(false);
+  const [limitFeedback, setLimitFeedback] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [jobs, setJobs] = useState<MigrationJob[]>([]);
   const [job, setJob] = useState<MigrationJob | null>(null);
@@ -56,7 +62,12 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   const [problem, setProblem] = useState<Problem | null>(null);
   // An AI chat export waiting for the person to choose where it goes.
   const [chatExport, setChatExport] = useState<(AIChatExport & { files: ImportFile[] }) | null>(null);
-  const { siteConfig } = useSiteSettings();
+  const { siteConfig, updateMigrationMaxUploadMb } = useSiteSettings();
+  const maxUploadMb = siteConfig.migrationMaxUploadMb || MIGRATION_UPLOAD_LIMIT_MB.default;
+  const maxUploadBytes = maxUploadMb * 1024 * 1024;
+  const maxUploadLabel = formatUploadLimit(maxUploadMb);
+  const [limitDraft, setLimitDraft] = useState(String(maxUploadMb));
+  useEffect(() => { setLimitDraft(String(maxUploadMb)); }, [maxUploadMb]);
   const aiAvailable = useAIConnectionAvailable();
   const assistantVisible = aiAvailable && view === "assistant";
   const archiveAvailable = aiAvailable && siteConfig.aiMemoryEnabled;
@@ -71,6 +82,11 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   const initialScope = useRef(getOfflineQueueStorageKey());
   const current = useCallback(() => mounted.current && initialScope.current === getOfflineQueueStorageKey(), []);
   const available = !disabled && !localOnly && !!workspaceId;
+  const desktopMigration = getDesktopMigrationBridge();
+  const desktopLocalFolder = Boolean(
+    desktopMigration?.importLocalFolder
+    && /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(getBaseUrl()),
+  );
   const selectedId = job?.id;
   const phase = importPhase(job, preparing !== null);
   const pollDelay = assistantVisible || jobs.some((item) => migrationIsActive(item.status)) ? 2500 : 15000;
@@ -145,9 +161,13 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       const chat = await detectAIChatExport(files);
       if (chat) { if (current()) { setProblem(null); setChatExport({ ...chat, files }); } return; }
     }
-    const plan = planImport(files, t("migration.defaultName"));
+    const plan = planImport(files, t("migration.defaultName"), { maxUploadBytes });
     if (!plan.ok) {
-      setProblem(plan.reason === "too-large" || plan.reason === "too-many" ? "size" : plan.reason === "unsupported" ? "unsupported-files" : "no-notes");
+      setProblem(
+        plan.reason === "folder-too-large" ? "folder-too-large"
+          : plan.reason === "too-large" || plan.reason === "too-many" ? "size"
+            : plan.reason === "unsupported" ? "unsupported-files" : "no-notes",
+      );
       return;
     }
     busyRef.current = true; setBusy(true); setProblem(null); setDetailsOpen(false); setSkipped(plan.unsupported.length);
@@ -166,7 +186,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
         const upload = plan.uploads[index];
         const file = upload.kind === "file" ? upload.file : await packageImport(upload.name, upload.entries, (percent) => step("packaging", percent));
         if (!current() || stopRequested.current) return;
-        next = await migrationApi.uploadResumable(next.id, file, { current, onProgress: (progress) => step(progress.phase, Math.floor(progress.loaded / Math.max(1, progress.total) * 100)) });
+        next = await migrationApi.uploadResumable(next.id, file, { current, maxUploadBytes, onProgress: (progress) => step(progress.phase, Math.floor(progress.loaded / Math.max(1, progress.total) * 100)) });
         receive(next);
         step("checking");
         // The server checks and sorts each file in the background; the next one waits for it.
@@ -182,6 +202,45 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       if (current() && !stopRequested.current) receive(await migrationApi.preview(next.id));
     } catch (cause) { if (current() && !stopRequested.current) setProblem(problemOf(cause)); }
     finally {
+      busyRef.current = false;
+      if (current()) { setBusy(false); setPreparing(null); }
+    }
+  };
+
+  const startLocalFolder = async () => {
+    if (!available || busyRef.current || !current() || !desktopMigration?.importLocalFolder) return;
+    busyRef.current = true; setBusy(true); setProblem(null); setDetailsOpen(false); setSkipped(0);
+    stopRequested.current = false;
+    try {
+      const result = await desktopMigration.importLocalFolder({
+        workspaceId,
+        ...(target ? { targetNotebookId: target } : {}),
+        token: getAccessToken() || undefined,
+      });
+      if (!current() || stopRequested.current || result.cancelled) return;
+      if (!result.ok || !result.job) {
+        throw Object.assign(new Error(result.error || result.code || "MIGRATION_PROCESS_FAILED"), {
+          code: result.code || "MIGRATION_PROCESS_FAILED",
+          status: result.status,
+        });
+      }
+      setPreparing({ stage: "checking", current: 1, total: 1 });
+      let next = result.job as MigrationJob;
+      receive(next);
+      while (["UPLOADING", "SCANNING", "NORMALIZING"].includes(next.status)) {
+        await sleep(1000);
+        if (!current() || stopRequested.current) return;
+        next = await migrationApi.get(next.id);
+        receive(next);
+      }
+      if (terminal.has(next.status)) return;
+      if (!preparatory.has(next.status)) {
+        throw Object.assign(new Error(next.error || "MIGRATION_PROCESS_FAILED"), { code: next.error || "MIGRATION_PROCESS_FAILED" });
+      }
+      if (current() && !stopRequested.current) receive(await migrationApi.preview(next.id));
+    } catch (cause) {
+      if (current() && !stopRequested.current) setProblem(problemOf(cause));
+    } finally {
       busyRef.current = false;
       if (current()) { setBusy(false); setPreparing(null); }
     }
@@ -221,13 +280,42 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
   };
   const space = (item: MigrationJob) => t(item.workspaceId ? "dataManager.scope.workspace" : "dataManager.scope.personal");
 
+  const saveUploadLimit = async (rawValue: string | number) => {
+    const parsed = typeof rawValue === "number" ? rawValue : Number(String(rawValue).trim());
+    if (!Number.isInteger(parsed) || parsed < MIGRATION_UPLOAD_LIMIT_MB.min || parsed > MIGRATION_UPLOAD_LIMIT_MB.max) {
+      setLimitFeedback({
+        tone: "error",
+        text: t("migration.smart.limitRangeError", { min: MIGRATION_UPLOAD_LIMIT_MB.min, max: MIGRATION_UPLOAD_LIMIT_MB.max }),
+      });
+      return;
+    }
+    setLimitSaving(true);
+    setLimitFeedback(null);
+    try {
+      await updateMigrationMaxUploadMb(parsed);
+      if (current()) {
+        setLimitDraft(String(parsed));
+        setLimitFeedback({ tone: "ok", text: t("migration.smart.limitSaved", { limit: formatUploadLimit(parsed) }) });
+      }
+    } catch (cause) {
+      if (current()) {
+        setLimitFeedback({
+          tone: "error",
+          text: cause instanceof Error ? cause.message : t("migration.unknownError"),
+        });
+      }
+    } finally {
+      if (current()) setLimitSaving(false);
+    }
+  };
+
   const problemCard = problem && <div role="alert" className="space-y-3 rounded-2xl border border-amber-300/70 bg-amber-50/60 p-4 text-sm text-tx-primary dark:border-amber-900 dark:bg-amber-950/30">
     <p className="flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
-      {problem === "account" ? t("migration.accountChanged") : problem === "invalid" ? t("migration.invalidResponse") : t(`migration.smart.errors.${problem}`)}</p>
+      {problem === "account" ? t("migration.accountChanged") : problem === "invalid" ? t("migration.invalidResponse") : t(`migration.smart.errors.${problem}`, { limit: maxUploadLabel })}</p>
     <div className="flex flex-wrap gap-2">
       {job?.status === "CREATED" && ["network", "changed", "unknown"].includes(problem) && <Button type="button" size="sm" disabled={busy || !available} onClick={() => resumeInput.current?.click()}>{t("migration.smart.resume")}</Button>}
       {job?.status === "PREVIEW_READY" && problem === "changed" && <Button type="button" size="sm" disabled={busy || !available} onClick={() => void run(() => migrationApi.preview(job.id))}>{t("migration.smart.recheck")}</Button>}
-      {["no-notes", "unsupported-files", "format", "encoding", "size"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>}
+      {["no-notes", "unsupported-files", "folder-too-large", "format", "encoding", "size"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>}
       {aiAvailable && ["unsupported-files", "format"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={openAssistant}>{t("migration.smart.useAssistant")}</Button>}
     </div>
   </div>;
@@ -247,10 +335,21 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       ? <AssistantMove jobs={jobs} notebooks={notebooks} disabled={!available || busy} onBack={() => setView("files")}
         onOpenJob={(prepared) => { setView("files"); void run(() => migrationApi.get(prepared.id)); }} />
       : <div className="space-y-3">
-        <ImportDropZone disabled={!available || busy} onFiles={(files) => void start(files)} />
-        <div className="text-xs text-tx-secondary">
-          {t("migration.smart.location", { place: target ? t("migration.smart.locationUnder", { name: notebooks.find((item) => item.id === target)?.name || "" }) : t("migration.smart.locationNew") })}
-          {" "}<button type="button" className="text-accent-primary hover:underline" aria-expanded={locationOpen} onClick={() => setLocationOpen((open) => !open)}>{t("migration.smart.changeLocation")}</button>
+        <ImportDropZone
+          disabled={!available || busy}
+          onFiles={(files) => void start(files)}
+          onPickLocalFolder={desktopLocalFolder ? () => void startLocalFolder() : undefined}
+          maxUploadLabel={maxUploadLabel}
+        />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-tx-secondary">
+          <span>
+            {t("migration.smart.location", { place: target ? t("migration.smart.locationUnder", { name: notebooks.find((item) => item.id === target)?.name || "" }) : t("migration.smart.locationNew") })}
+            {" "}<button type="button" className="text-accent-primary hover:underline" aria-expanded={locationOpen} onClick={() => setLocationOpen((open) => !open)}>{t("migration.smart.changeLocation")}</button>
+          </span>
+          {canConfigureLimits && !localOnly && <span>
+            {t("migration.smart.limitLabel", { limit: maxUploadLabel })}
+            {" "}<button type="button" className="text-accent-primary hover:underline" aria-expanded={limitOpen} onClick={() => { setLimitOpen((open) => !open); setLimitFeedback(null); }}>{t("migration.smart.changeLimit")}</button>
+          </span>}
         </div>
         {locationOpen && <label className="block max-w-md text-xs font-medium text-tx-primary">{t("migration.target")}
           <select className={`${field} mt-1`} value={target} disabled={busy} onChange={(event) => setTarget(event.target.value)}>
@@ -259,6 +358,44 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
           </select>
           <span className="mt-1 block font-normal text-tx-secondary">{t("migration.smart.locationHint")}</span>
         </label>}
+        {canConfigureLimits && !localOnly && limitOpen && <div className="max-w-md space-y-2.5 rounded-xl border border-app-border bg-app-surface p-3 text-xs">
+          <div className="flex flex-wrap gap-1.5">
+            {[512, 1024, 2048, 3584].map((preset) => (
+              <Button
+                key={preset}
+                type="button"
+                size="sm"
+                variant={maxUploadMb === preset ? "default" : "outline"}
+                disabled={limitSaving}
+                onClick={() => void saveUploadLimit(preset)}
+              >
+                {formatUploadLimit(preset)}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex flex-1 items-center gap-2 text-tx-primary">
+              <span className="shrink-0">{t("migration.smart.limitInputLabel")}</span>
+              <input
+                type="number"
+                min={MIGRATION_UPLOAD_LIMIT_MB.min}
+                max={MIGRATION_UPLOAD_LIMIT_MB.max}
+                step={1}
+                value={limitDraft}
+                disabled={limitSaving}
+                onChange={(event) => { setLimitDraft(event.target.value); setLimitFeedback(null); }}
+                className="min-h-8 w-28 rounded-lg border border-app-border bg-app-bg px-2.5 py-1 text-xs text-tx-primary"
+                aria-label={t("migration.smart.limitInputLabel")}
+              />
+              <span className="text-tx-secondary">MB</span>
+            </label>
+            <Button type="button" size="sm" disabled={limitSaving} onClick={() => void saveUploadLimit(limitDraft)}>
+              {t("migration.smart.limitSave")}
+            </Button>
+          </div>
+          <p className="text-tx-secondary">{t("migration.smart.limitHint", { min: MIGRATION_UPLOAD_LIMIT_MB.min, max: MIGRATION_UPLOAD_LIMIT_MB.max })}</p>
+          {limitFeedback && <p role={limitFeedback.tone === "error" ? "alert" : "status"} className={limitFeedback.tone === "error" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}>{limitFeedback.text}</p>}
+        </div>}
         {aiAvailable && <Button type="button" variant="link" size="sm" className="h-auto min-h-8 whitespace-normal py-1 text-left px-0" onClick={() => { setProblem(null); setView("assistant"); }}>
           <Sparkles size={14} className="mr-1.5" aria-hidden="true" />{t("migration.smart.assistantLink")}
         </Button>}

@@ -38,6 +38,7 @@ import { Extension } from "@tiptap/core";
 import {
   TextStyle,
   Color,
+  FontFamily,
   FontSize as FontSizeBase,
 } from "@tiptap/extension-text-style";
 import { TableFidelityExtension } from "@/components/extensions/TableFidelityExtensions";
@@ -134,6 +135,7 @@ const ClearInlineFormatHotkey = Extension.create({
 export const TextStyleKit = [
   TextStyle,
   Color,
+  FontFamily,
   FontSize,
   ClearInlineFormatHotkey,
   TableFidelityExtension,

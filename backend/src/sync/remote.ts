@@ -31,6 +31,8 @@ export interface RemoteCredentials {
 export interface RemotePlan {
   scopeKey: string;
   accessFingerprint: string;
+  assetOrganization?: string | null;
+  entityTypes?: SyncNegotiatedEntityType[];
   serverSequence: number;
   minAvailableSequence: number;
   resetRequired: boolean;
@@ -146,6 +148,7 @@ export type FetchLike = (
 }>;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const HEAVY_REQUEST_TIMEOUT_MS = 60_000;
 
 function joinUrl(serverUrl: string, route: string, query = ""): string {
   const base = serverUrl.replace(/\/+$/, "");
@@ -155,75 +158,145 @@ function joinUrl(serverUrl: string, route: string, query = ""): string {
 export class SyncRemoteClient {
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
+  private readonly hasCustomTimeout: boolean;
+  private readonly getToken?: () => string;
+  private readonly refreshToken?: () => Promise<string | null>;
+  private abortSignal: AbortSignal | null = null;
 
   constructor(
     private readonly credentials: RemoteCredentials,
-    options: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
+    options: {
+      fetchImpl?: FetchLike;
+      timeoutMs?: number;
+      getToken?: () => string;
+      refreshToken?: () => Promise<string | null>;
+    } = {},
   ) {
     this.fetchImpl = options.fetchImpl
       ?? (globalThis.fetch as unknown as FetchLike);
+    this.hasCustomTimeout = options.timeoutMs !== undefined;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.getToken = options.getToken;
+    this.refreshToken = options.refreshToken;
+  }
+
+  /** 绑定引擎生命周期取消信号，停机/重登时立即中止在途 HTTP 请求，避免新旧实例竞态。 */
+  setAbortSignal(signal: AbortSignal | null): void {
+    this.abortSignal = signal;
   }
 
   /**
    * 统一请求入口。
    *
    * 错误分类是这里最重要的职责：
-   * - 网络层异常 / 超时 → NETWORK_UNAVAILABLE（可重试）
-   * - 401 / 403        → AUTH_EXPIRED（暂停同步，等重新授权）
-   * - 404              → 远端未启用 V2，按服务端错误处理，避免误判为"数据不存在"
-   * - 5xx              → SERVER_ERROR（可重试）
-   * - 其它 4xx         → INVALID_PAYLOAD（重发同样会失败，不该无脑轮询）
+   * - 网络层异常 / 超时 / 408 → NETWORK_UNAVAILABLE（可重试）
+   * - 401                    → 尝试续期并重试一次，仍失效再归为 AUTH_EXPIRED
+   * - 403                    → 保留权限拒绝，普通拒绝归为 AUTH_EXPIRED
+   * - 404 / 429 / 5xx        → SERVER_ERROR（可重试）
+   * - 其它 4xx               → INVALID_PAYLOAD（重发同样会失败，不该无脑轮询）
    */
   private async request<T>(
     route: string,
-    init: { method: string; query?: string; body?: unknown },
+    init: { method: string; query?: string; body?: unknown; timeoutMs?: number },
+    retriedAuth = false,
+    extSignal = this.abortSignal,
   ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-
+    const effectiveTimeout = this.hasCustomTimeout
+      ? this.timeoutMs
+      : (init.timeoutMs ?? this.timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, effectiveTimeout);
+    const onExtAbort = () => controller.abort();
+    if (extSignal?.aborted) {
+      controller.abort();
+    } else if (extSignal) {
+      extSignal.addEventListener("abort", onExtAbort, { once: true });
+    }
     let response: Awaited<ReturnType<FetchLike>>;
+    let activeRequestToken: string;
+    let payload: any;
+    let invalidJson = false;
     try {
+      controller.signal.throwIfAborted();
+      activeRequestToken = this.getToken ? this.getToken() : this.credentials.token;
       response = await this.fetchImpl(
         joinUrl(this.credentials.serverUrl, route, init.query || ""),
         {
           method: init.method,
           headers: {
-            Authorization: `Bearer ${this.credentials.token}`,
+            Authorization: `Bearer ${activeRequestToken}`,
             ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
           },
           body: init.body === undefined ? undefined : JSON.stringify(init.body),
           signal: controller.signal,
         },
       );
-    } catch (error: any) {
-      // AbortError 与 DNS/连接失败都归为网络不可用：都应该继续重试。
-      throw new SyncError("NETWORK_UNAVAILABLE", error?.message || "网络请求失败");
+      try {
+        payload = await response.json();
+      } catch (error) {
+        if (controller.signal.aborted || (response.ok && !(error instanceof SyntaxError))) {
+          throw error;
+        }
+        invalidJson = true;
+      }
+      controller.signal.throwIfAborted();
+    } catch {
+      const reason = extSignal?.aborted
+        ? "ENGINE_STOPPED"
+        : timedOut
+          ? "REQUEST_TIMEOUT"
+          : "NETWORK_ERROR";
+      throw new SyncError("NETWORK_UNAVAILABLE", "同步网络请求中断", {
+        step: `http.${init.method.toLowerCase()}${route}`,
+        reason,
+      });
     } finally {
       clearTimeout(timer);
+      if (extSignal) extSignal.removeEventListener("abort", onExtAbort);
     }
 
     if (!response.ok) {
-      let payload: any = null;
-      try { payload = await response.json(); } catch { /* 非 JSON 错误响应 */ }
       const remoteCode = typeof payload?.code === "string" ? payload.code : "";
       if (remoteCode === "ACCESS_REVOKED" || remoteCode === "SCOPE_FORBIDDEN") {
         throw new SyncError(remoteCode, payload?.error || remoteCode);
       }
+      if (response.status === 401 && !retriedAuth && this.refreshToken) {
+        const refreshed = (this.getToken && this.getToken() !== activeRequestToken)
+          || await this.refreshToken();
+        if (refreshed) {
+          return this.request<T>(route, init, true, extSignal);
+        }
+      }
       if (response.status === 401 || response.status === 403) {
         throw new SyncError("AUTH_EXPIRED", `远端拒绝访问（${response.status}）`);
+      }
+      if (response.status === 408) {
+        throw new SyncError("NETWORK_UNAVAILABLE", "远端请求超时（408）", {
+          step: `http.${init.method.toLowerCase()}${route}`,
+          reason: "HTTP_408_TIMEOUT",
+        });
+      }
+      if (response.status === 429) {
+        throw new SyncError("SERVER_ERROR", "远端请求频率受限（429）", {
+          step: `http.${init.method.toLowerCase()}${route}`,
+          reason: "HTTP_429_RATE_LIMITED",
+        });
       }
       if (response.status >= 500 || response.status === 404) {
         throw new SyncError("SERVER_ERROR", `远端返回 ${response.status}`);
       }
-      throw new SyncError("INVALID_PAYLOAD", `远端返回 ${response.status}`);
+      throw new SyncError("INVALID_PAYLOAD", `远端返回 ${response.status}`, {
+        step: `http.${init.method.toLowerCase()}${route}`,
+        reason: `HTTP_${response.status}`,
+      });
     }
 
-    try {
-      return await response.json() as T;
-    } catch {
-      throw new SyncError("SERVER_ERROR", "远端响应不是合法 JSON");
-    }
+    if (invalidJson) throw new SyncError("SERVER_ERROR", "远端响应不是合法 JSON");
+    return payload as T;
   }
 
   private query(
@@ -285,7 +358,11 @@ export class SyncRemoteClient {
       snapshotSequence: snapshotSequence > 0 ? snapshotSequence : undefined,
       limit,
     }, subscription);
-    return this.request<RemoteSnapshotPage<T>>(SYNC_V2_ROUTES.snapshot, { method: "GET", query })
+    return this.request<RemoteSnapshotPage<T>>(SYNC_V2_ROUTES.snapshot, {
+      method: "GET",
+      query,
+      timeoutMs: HEAVY_REQUEST_TIMEOUT_MS,
+    })
       .then((response) => {
         assertSupportedItems(response.items, "snapshot", subscription);
         return response;
@@ -301,6 +378,7 @@ export class SyncRemoteClient {
     return this.request<RemotePushResult>(SYNC_V2_ROUTES.push, {
       method: "POST",
       query: this.query(scopeKey, {}, subscription),
+      timeoutMs: HEAVY_REQUEST_TIMEOUT_MS,
       body: {
         scopeKey, deviceId,
         mutations: mutations.map((mutation) => mutation.entityType === "note" && mutation.operation === "upsert" && mutation.payload

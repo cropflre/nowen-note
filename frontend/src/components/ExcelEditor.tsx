@@ -1,15 +1,22 @@
+/**
+ * Excel 表格编辑器（Univer）。功能来源：cropflre/nowen-note PR #802。
+ *
+ * 本组件由 App 以 React.lazy 按需加载；Univer 与 XLSX/CSV 转换模块也只在打开表格 / 导入导出时加载。
+ * 保存可靠性由 ExcelSaveController 负责：只有服务端返回新 revision 才显示“已保存”。
+ */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Download, FileSpreadsheet, Loader2, Save, Upload, X } from "lucide-react";
+import { AlertTriangle, Download, FileSpreadsheet, Loader2, RefreshCw, Save, Upload, X } from "lucide-react";
 
+import { confirm } from "@/components/ui/confirm";
 import { getExcelDocument, saveExcelDocument } from "@/lib/excelApi";
 import {
-  csvToWorkbookSnapshot,
-  createEmptyWorkbookSnapshot,
-  workbookSnapshotToCsv,
-  workbookSnapshotToXlsx,
-  xlsxToWorkbookSnapshot,
-  XLSX_FILE_MIME,
-} from "@/lib/excelExchange";
+  ExcelSaveController,
+  hasPendingExcelSaves,
+  keepPendingExcelSave,
+  takePendingExcelSave,
+  type ExcelSaveState,
+  type ExcelSnapshot,
+} from "@/lib/excelSaveController";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -18,140 +25,162 @@ interface ExcelEditorProps {
   onRequestClose?: () => void;
 }
 
-interface UniverWorkbook {
-  getId: () => string;
-  save: () => Record<string, unknown>;
-  onCommandExecuted: (listener: () => void) => { dispose: () => void };
-}
+type UniverModules = Awaited<ReturnType<typeof loadUniverModules>>;
+type UniverAPI = ReturnType<UniverModules["createUniver"]>["univerAPI"];
 
-interface UniverInstance {
-  univer: { dispose: () => void };
-  univerAPI: {
-    createWorkbook: (data: unknown) => UniverWorkbook | null;
-    getActiveWorkbook: () => UniverWorkbook | null;
-    disposeUnit: (unitId: string) => boolean;
-  };
-}
+let univerModules: Promise<{
+  createUniver: typeof import("@univerjs/presets")["createUniver"];
+  LocaleType: typeof import("@univerjs/presets")["LocaleType"];
+  mergeLocales: typeof import("@univerjs/presets")["mergeLocales"];
+  defaultTheme: typeof import("@univerjs/presets")["defaultTheme"];
+  UniverSheetsCorePreset: typeof import("@univerjs/preset-sheets-core")["UniverSheetsCorePreset"];
+  zhCN: Record<string, unknown>;
+}> | null = null;
 
-let univerModulesPromise: Promise<typeof import("@univerjs/presets") & Record<string, unknown>> | null = null;
-
-/** Univer 体积大，打开 Excel 表格时才动态加载（含样式与中文语言包）。 */
-async function loadUniverModules() {
-  if (!univerModulesPromise) {
-    univerModulesPromise = (async () => {
-      const [presets, sheetsPreset, zhCN] = await Promise.all([
-        import("@univerjs/presets"),
-        import("@univerjs/preset-sheets-core"),
-        import("@univerjs/preset-sheets-core/locales/zh-CN"),
-        import("@univerjs/preset-sheets-core/lib/index.css"),
-      ]);
-      // 注意：不能 Object.assign 到 ESM 命名空间对象上（只读，dev 模式会抛错），
-      // 返回普通合并对象即可。
-      return { ...presets, UniverSheetsCorePreset: sheetsPreset.UniverSheetsCorePreset, zhCN: zhCN.default };
-    })() as never;
+function loadUniverModules() {
+  if (!univerModules) {
+    univerModules = Promise.all([
+      import("@univerjs/presets"),
+      import("@univerjs/preset-sheets-core"),
+      import("@univerjs/preset-sheets-core/locales/zh-CN"),
+      import("@univerjs/preset-sheets-core/lib/index.css"),
+    ]).then(([presets, sheets, zhCN]) => ({
+      createUniver: presets.createUniver,
+      LocaleType: presets.LocaleType,
+      mergeLocales: presets.mergeLocales,
+      defaultTheme: presets.defaultTheme,
+      UniverSheetsCorePreset: sheets.UniverSheetsCorePreset,
+      zhCN: zhCN.default as Record<string, unknown>,
+    })).catch((error) => {
+      univerModules = null;
+      throw error;
+    });
   }
-  return univerModulesPromise as Promise<typeof import("@univerjs/presets") & { UniverSheetsCorePreset: (typeof import("@univerjs/preset-sheets-core"))["UniverSheetsCorePreset"]; zhCN: unknown }>;
+  return univerModules;
+}
+
+const loadFileModule = () => import("@/lib/excelWorkbookFile");
+
+const MUTATION = 2;
+
+const STATUS_LABEL: Record<ExcelSaveState["status"], string> = {
+  saved: "已保存",
+  dirty: "待保存",
+  saving: "保存中…",
+  retrying: "保存失败，正在重试",
+  conflict: "有冲突",
+  failed: "未保存",
+};
+
+function safeFileName(title: string): string {
+  return (title || "Excel 表格").replace(/[\\/:*?"<>|]+/g, "_");
+}
+
+function download(blob: Blob, filename: string): void {
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+}
+
+function warningList(items: string[]): string {
+  return items.map((item) => `· ${item}`).join("\n");
 }
 
 export default function ExcelEditor({ noteId, onRequestClose }: ExcelEditorProps) {
   const [title, setTitle] = useState("Excel 表格");
   const [canEdit, setCanEdit] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [booting, setBooting] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving" | "conflict" | "error">("saved");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [restoredLocal, setRestoredLocal] = useState(false);
+  const [saveState, setSaveState] = useState<ExcelSaveState>({ status: "saved", revision: 0, attempt: 0 });
+  const [busy, setBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const univerRef = useRef<UniverInstance | null>(null);
-  const commandSubscriptionRef = useRef<{ dispose: () => void } | null>(null);
-  const dirtyRef = useRef(false);
-  const updatedAtRef = useRef("");
-  const savedJsonRef = useRef("");
-  const saveTimerRef = useRef(0);
-  const savingRef = useRef(false);
+  const apiRef = useRef<UniverAPI | null>(null);
+  const controllerRef = useRef<ExcelSaveController | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const xlsxInputRef = useRef<HTMLInputElement>(null);
 
-  const performSave = useCallback(async () => {
-    const instance = univerRef.current;
-    if (!instance || savingRef.current) return;
-    const snapshot = instance.univerAPI.getActiveWorkbook()?.save();
-    if (!snapshot) return;
-    const serialized = JSON.stringify(snapshot);
-    if (serialized === savedJsonRef.current) {
-      setSaveState((state) => (state === "dirty" ? "saved" : state));
-      return;
-    }
-    savingRef.current = true;
-    setSaveState("saving");
-    try {
-      const result = await saveExcelDocument(noteId, snapshot, updatedAtRef.current);
-      updatedAtRef.current = result.updatedAt;
-      savedJsonRef.current = JSON.stringify(result.data);
-      setSaveState(dirtyRef.current ? "dirty" : "saved");
-    } catch (caughtError: unknown) {
-      const error = caughtError as Error & { code?: string };
-      if (error?.code === "EXCEL_CONFLICT") {
-        setSaveState("conflict");
-        toast.error("表格已在其他窗口更新，请刷新后继续编辑");
-      } else {
-        setSaveState("error");
-        toast.error(error?.message || "Excel 表格保存失败");
-      }
-    } finally {
-      savingRef.current = false;
-    }
-  }, [noteId]);
+  const snapshot = useCallback((): ExcelSnapshot | null => {
+    const workbook = apiRef.current?.getActiveWorkbook();
+    return workbook ? (workbook.save() as unknown as ExcelSnapshot) : null;
+  }, []);
 
-  const markDirty = useCallback(() => {
-    if (!canEdit) return;
-    dirtyRef.current = true;
-    setSaveState("dirty");
-    window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
-      dirtyRef.current = false;
-      void performSave();
-    }, 500);
-  }, [canEdit, performSave]);
-
-  // 加载文档数据 + 启动 Univer。
   useEffect(() => {
     let cancelled = false;
+    let dispose: (() => void) | null = null;
 
     async function boot() {
       setLoading(true);
-      setLoadError(false);
+      setLoadError(null);
+      setRestoredLocal(false);
       try {
-        const [document, modules] = await Promise.all([
-          getExcelDocument(noteId),
-          loadUniverModules(),
-        ]);
-        if (cancelled || !containerRef.current) return;
+        const pending = takePendingExcelSave(noteId);
+        const [document, modules] = await Promise.all([getExcelDocument(noteId), loadUniverModules()]);
+        if (cancelled || !containerRef.current) {
+          if (pending) keepPendingExcelSave(pending);
+          return;
+        }
         setTitle(document.title);
         setCanEdit(document.canEdit);
-        updatedAtRef.current = document.updatedAt;
-        const { createUniver, defaultTheme, LocaleType, mergeLocales, UniverSheetsCorePreset, zhCN } = modules;
+        const { createUniver, LocaleType, mergeLocales, defaultTheme, UniverSheetsCorePreset, zhCN } = modules;
         const { univer, univerAPI } = createUniver({
           locale: LocaleType.ZH_CN,
-          locales: mergeLocales({ [LocaleType.ZH_CN]: zhCN as Record<string, string> }),
+          locales: mergeLocales({ [LocaleType.ZH_CN]: zhCN }) as never,
           theme: defaultTheme,
-          presets: [
-            UniverSheetsCorePreset({ container: containerRef.current! }),
-          ],
+          darkMode: window.document.documentElement.classList.contains("dark"),
+          presets: [UniverSheetsCorePreset({ container: containerRef.current })],
         });
-        const data = document.data && Object.keys(document.data as object).length > 0
-          ? document.data
-          : createEmptyWorkbookSnapshot(document.title);
-        const fWorkbook = univerAPI.createWorkbook(data);
-        savedJsonRef.current = JSON.stringify(fWorkbook?.save() || {});
-        univerRef.current = { univer, univerAPI } as unknown as UniverInstance;
-        commandSubscriptionRef.current = fWorkbook?.onCommandExecuted(() => markDirtyRef.current()) || null;
-        setBooting(false);
-      } catch (caughtError: unknown) {
+        // 有尚未确认的本机版本时优先展示它，绝不用服务器旧版本覆盖。
+        const initial = pending?.frozenSnapshot && pending.hasUnsavedChanges ? pending.frozenSnapshot : document.data;
+        const workbook = univerAPI.createWorkbook(initial as never);
+        apiRef.current = univerAPI;
+        if (!document.canEdit) await workbook.getWorkbookPermission().setReadOnly();
+
+        let controller: ExcelSaveController;
+        if (pending && pending.hasUnsavedChanges) {
+          controller = pending;
+          controller.setCallbacks(snapshot, setSaveState);
+          setRestoredLocal(true);
+          void controller.retryNow();
+        } else {
+          pending?.dispose();
+          controller = new ExcelSaveController({
+            noteId,
+            revision: document.revision,
+            save: (data, expected) => saveExcelDocument(noteId, data, expected),
+            readSnapshot: snapshot,
+            onChange: setSaveState,
+          });
+          setSaveState(controller.state);
+        }
+        controllerRef.current = controller;
+
+        const subscription = univerAPI.addEvent(univerAPI.Event.CommandExecuted, (event) => {
+          const params = event.params as { unitId?: string } | undefined;
+          if (event.type !== MUTATION || (event.options as { onlyLocal?: boolean } | undefined)?.onlyLocal) return;
+          if (params?.unitId && params.unitId !== univerAPI.getActiveWorkbook()?.getId()) return;
+          if (document.canEdit) controller.markDirty();
+        });
+
+        dispose = () => {
+          subscription.dispose();
+          // 先冻结快照，保存在编辑器销毁后继续，直到服务端确认或用户重新打开接回。
+          controller.freeze(snapshot());
+          keepPendingExcelSave(controller);
+          controllerRef.current = null;
+          apiRef.current = null;
+          univer.dispose();
+        };
+        if (cancelled) dispose();
+      } catch (caught) {
         if (cancelled) return;
-        const error = caughtError as Error;
-        toast.error(error?.message || "Excel 表格加载失败");
-        setLoadError(true);
+        const error = caught as Error & { status?: number };
+        setLoadError(error.status === 403 ? "没有查看该表格的权限" : error.message || "Excel 表格加载失败");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -160,116 +189,135 @@ export default function ExcelEditor({ noteId, onRequestClose }: ExcelEditorProps
     void boot();
     return () => {
       cancelled = true;
-      commandSubscriptionRef.current?.dispose();
-      commandSubscriptionRef.current = null;
-      window.clearTimeout(saveTimerRef.current);
-      univerRef.current?.univer.dispose();
-      univerRef.current = null;
+      dispose?.();
     };
-  }, [noteId]);
+  }, [noteId, reloadKey, snapshot]);
 
-  const markDirtyRef = useRef(markDirty);
-  useEffect(() => { markDirtyRef.current = markDirty; }, [markDirty]);
-
-  const download = useCallback((blob: Blob, suffix: string) => {
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = href;
-    anchor.download = `${(title || "Excel 表格").replace(/[\\/:*?"<>|]+/g, "_")}${suffix}`;
-    anchor.click();
-    URL.revokeObjectURL(href);
-  }, [title]);
-
-  const currentSnapshot = useCallback((): Record<string, unknown> | null => {
-    return univerRef.current?.univerAPI.getActiveWorkbook()?.save() || null;
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (controllerRef.current?.hasUnsavedChanges || hasPendingExcelSaves()) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
   }, []);
 
-  const exportXlsx = useCallback(async () => {
-    const snapshot = currentSnapshot();
-    if (!snapshot) return;
-    try {
-      const buffer = workbookSnapshotToXlsx(snapshot);
-      download(new Blob([buffer], { type: XLSX_FILE_MIME }), ".xlsx");
-    } catch (caughtError: unknown) {
-      toast.error((caughtError as Error)?.message || "XLSX 导出失败");
-    }
-  }, [currentSnapshot, download]);
+  const replaceWorkbook = useCallback(async (next: ExcelSnapshot) => {
+    const univerAPI = apiRef.current;
+    const controller = controllerRef.current;
+    if (!univerAPI || !controller) return;
+    const current = univerAPI.getActiveWorkbook();
+    if (current) univerAPI.disposeUnit(current.getId());
+    univerAPI.createWorkbook(next as never);
+    // 显式标记并立即保存：是否已保存只看服务端返回，不与本地快照做比较。
+    controller.markDirty();
+    await controller.flush();
+  }, []);
 
-  const exportCsv = useCallback(() => {
-    const snapshot = currentSnapshot();
-    if (!snapshot) return;
-    try {
-      const csv = workbookSnapshotToCsv(snapshot);
-      download(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }), ".csv");
-    } catch (caughtError: unknown) {
-      toast.error((caughtError as Error)?.message || "CSV 导出失败");
-    }
-  }, [currentSnapshot, download]);
-
-  const replaceWorkbook = useCallback((next: Record<string, unknown>) => {
-    const instance = univerRef.current;
-    if (!instance) return;
-    const unitId = instance.univerAPI.getActiveWorkbook()?.getId();
-    if (unitId) instance.univerAPI.disposeUnit(unitId);
-    const fWorkbook = instance.univerAPI.createWorkbook(next);
-    savedJsonRef.current = JSON.stringify(fWorkbook?.save() || {});
-    commandSubscriptionRef.current?.dispose();
-    commandSubscriptionRef.current = fWorkbook?.onCommandExecuted(() => markDirtyRef.current()) || null;
-    markDirty();
-  }, [markDirty]);
-
-  const importXlsx = useCallback(async (file: File | undefined) => {
+  const importFile = useCallback(async (file: File | undefined, kind: "xlsx" | "csv") => {
     if (!file || !canEdit) return;
+    setBusy(true);
     try {
-      const buffer = await file.arrayBuffer();
-      const snapshot = xlsxToWorkbookSnapshot(buffer, title);
-      replaceWorkbook(snapshot);
+      const files = await loadFileModule();
+      const result = kind === "xlsx"
+        ? await files.readXlsxWorkbook(file, title)
+        : files.readCsvWorkbook(await file.text(), title);
+      const ok = await confirm({
+        title: `导入 ${file.name}`,
+        description: (result.warnings.length
+          ? `以下内容无法导入，导入后将不会保留：\n${warningList(result.warnings)}\n\n`
+          : "")
+          + "导入会替换当前表格的全部内容。",
+        confirmText: "替换并导入",
+        danger: result.warnings.length > 0,
+      });
+      if (!ok) return;
+      await replaceWorkbook(result.workbook as unknown as ExcelSnapshot);
       toast.success(`已导入 ${file.name}`);
-    } catch (caughtError: unknown) {
-      toast.error((caughtError as Error)?.message || "XLSX 导入失败");
+    } catch (caught) {
+      toast.error((caught as Error)?.message || "导入失败");
     } finally {
+      setBusy(false);
       if (xlsxInputRef.current) xlsxInputRef.current.value = "";
-    }
-  }, [canEdit, replaceWorkbook, title]);
-
-  const importCsv = useCallback(async (file: File | undefined) => {
-    if (!file || !canEdit) return;
-    try {
-      const snapshot = csvToWorkbookSnapshot(await file.text(), title);
-      replaceWorkbook(snapshot);
-      toast.success(`已导入 ${file.name}`);
-    } catch (caughtError: unknown) {
-      toast.error((caughtError as Error)?.message || "CSV 导入失败");
-    } finally {
       if (csvInputRef.current) csvInputRef.current.value = "";
     }
   }, [canEdit, replaceWorkbook, title]);
 
-  const statusLabel = saveState === "saving"
-    ? "保存中…"
-    : saveState === "dirty"
-      ? "待保存"
-      : saveState === "conflict"
-        ? "有冲突"
-        : saveState === "error"
-          ? "保存失败"
-          : "已保存";
+  const exportXlsx = useCallback(async (suffix = "") => {
+    const data = snapshot();
+    if (!data) return;
+    try {
+      const files = await loadFileModule();
+      const workbook = data as unknown as Parameters<typeof files.writeXlsxWorkbook>[0];
+      const warnings = files.xlsxExportWarnings(workbook);
+      if (warnings.length && !await confirm({ title: "导出 XLSX", description: `以下内容不会写入文件：\n${warningList(warnings)}`, confirmText: "继续导出" })) return;
+      const buffer = await files.writeXlsxWorkbook(workbook);
+      download(new Blob([buffer], { type: files.XLSX_MIME }), `${safeFileName(title)}${suffix}.xlsx`);
+    } catch (caught) {
+      toast.error((caught as Error)?.message || "XLSX 导出失败");
+    }
+  }, [snapshot, title]);
+
+  const exportCsv = useCallback(async () => {
+    const data = snapshot();
+    if (!data) return;
+    try {
+      const files = await loadFileModule();
+      const activeSheet = apiRef.current?.getActiveWorkbook()?.getActiveSheet()?.getSheetId();
+      const { csv, warnings } = files.writeCsvSheet(data as never, activeSheet);
+      if (warnings.length && !await confirm({ title: "导出 CSV", description: warningList(warnings), confirmText: "继续导出" })) return;
+      download(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }), `${safeFileName(title)}.csv`);
+    } catch (caught) {
+      toast.error((caught as Error)?.message || "CSV 导出失败");
+    }
+  }, [snapshot, title]);
+
+  const loadServerVersion = useCallback(async () => {
+    const ok = await confirm({
+      title: "载入服务器版本",
+      description: "本机尚未保存的修改将被丢弃。建议先点击“导出本机副本”保留一份。",
+      confirmText: "丢弃本机修改并载入",
+      danger: true,
+    });
+    if (!ok) return;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    controller?.dispose();
+    setReloadKey((value) => value + 1);
+  }, []);
+
+  const overwriteServer = useCallback(async () => {
+    const ok = await confirm({
+      title: "以本机版本覆盖",
+      description: "服务器上由其他窗口或设备保存的修改将被本机内容替换。",
+      confirmText: "覆盖服务器版本",
+      danger: true,
+    });
+    if (ok) await controllerRef.current?.overwriteServer();
+  }, []);
+
+  const { status } = saveState;
+  const problem = status === "conflict" || status === "failed" || status === "retrying";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-app-bg" data-excel-editor>
       <header className="flex min-h-12 items-center gap-2 border-b border-app-border px-3">
         <FileSpreadsheet size={18} className="shrink-0 text-emerald-600" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{title}</div>
-        <span className={cn("text-xs", saveState === "conflict" || saveState === "error" ? "text-red-500" : "text-tx-tertiary")}>
-          {saveState === "saving" ? <Loader2 size={13} className="inline animate-spin" /> : <Save size={13} className="inline" />} {statusLabel}
-        </span>
-        {(saveState === "conflict" || saveState === "error") && (
-          <button
-            className="rounded-md border border-app-border px-2 py-1 text-xs text-tx-secondary hover:bg-app-hover"
-            onClick={() => window.location.reload()}
+        {!loading && !loadError && (
+          <span
+            className={cn("flex items-center gap-1 text-xs", problem ? "text-red-500" : "text-tx-tertiary")}
+            title={status === "saved" ? `服务器已确认版本 ${saveState.revision}` : saveState.message}
+            data-excel-save-status={status}
           >
-            重新加载
-          </button>
+            {status === "saving" ? <Loader2 size={13} className="animate-spin" /> : problem ? <AlertTriangle size={13} /> : <Save size={13} />}
+            {canEdit ? STATUS_LABEL[status] : "只读"}
+          </span>
+        )}
+        {(status === "failed" || status === "retrying") && (
+          <button className="excel-tool" onClick={() => void controllerRef.current?.retryNow()}><RefreshCw size={13} />重试</button>
         )}
         {onRequestClose && (
           <button className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" onClick={onRequestClose} aria-label="关闭表格">
@@ -278,27 +326,32 @@ export default function ExcelEditor({ noteId, onRequestClose }: ExcelEditorProps
         )}
       </header>
 
+      {status === "conflict" && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" role="alert">
+          <AlertTriangle size={14} />
+          <span className="mr-auto">表格已在其他窗口或设备更新，本机修改尚未保存，已暂停自动保存。</span>
+          <button className="excel-tool" onClick={() => void exportXlsx("（本机副本）")}><Download size={13} />导出本机副本</button>
+          <button className="excel-tool" onClick={() => void loadServerVersion()}>载入服务器版本</button>
+          <button className="excel-tool" onClick={() => void overwriteServer()}>以本机版本覆盖</button>
+        </div>
+      )}
+      {restoredLocal && status !== "saved" && (
+        <div className="border-b border-app-border bg-app-surface px-3 py-1.5 text-xs text-tx-secondary">已恢复上次离开时尚未保存的修改，正在保存。</div>
+      )}
+      {status === "failed" && saveState.message && (
+        <div className="border-b border-app-border bg-red-50 px-3 py-1.5 text-xs text-red-600 dark:bg-red-950/40" role="alert">{saveState.message}。修改仍保留在本页，请处理后重试或导出副本。</div>
+      )}
+
       <div className="flex flex-wrap items-center gap-1 border-b border-app-border bg-app-surface px-2 py-1.5">
-        <input
-          ref={xlsxInputRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => void importXlsx(event.target.files?.[0])}
-        />
-        <input
-          ref={csvInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          onChange={(event) => void importCsv(event.target.files?.[0])}
-        />
-        <button disabled={!canEdit} className="excel-tool" onClick={() => xlsxInputRef.current?.click()}><Upload size={14} />导入 XLSX</button>
-        <button disabled={!canEdit} className="excel-tool" onClick={() => csvInputRef.current?.click()}><Upload size={14} />导入 CSV</button>
+        <input ref={xlsxInputRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden"
+          onChange={(event) => void importFile(event.target.files?.[0], "xlsx")} />
+        <input ref={csvInputRef} type="file" accept=".csv,text/csv" className="hidden"
+          onChange={(event) => void importFile(event.target.files?.[0], "csv")} />
+        <button disabled={!canEdit || busy || loading} className="excel-tool" onClick={() => xlsxInputRef.current?.click()}><Upload size={14} />导入 XLSX</button>
+        <button disabled={!canEdit || busy || loading} className="excel-tool" onClick={() => csvInputRef.current?.click()}><Upload size={14} />导入 CSV</button>
         <span className="mx-1 h-5 w-px bg-app-border" />
-        <button className="excel-tool" onClick={() => void exportXlsx()}><Download size={14} />导出 XLSX</button>
-        <button className="excel-tool" onClick={exportCsv}><Download size={14} />导出 CSV</button>
-        <span className="ml-auto text-[11px] text-tx-tertiary">公式 · 合并单元格 · 填充柄 · 回车跳格</span>
+        <button disabled={loading || !!loadError} className="excel-tool" onClick={() => void exportXlsx()}><Download size={14} />导出 XLSX</button>
+        <button disabled={loading || !!loadError} className="excel-tool" onClick={() => void exportCsv()}><Download size={14} />导出 CSV</button>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -310,11 +363,11 @@ export default function ExcelEditor({ noteId, onRequestClose }: ExcelEditorProps
         {loadError && !loading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-tx-secondary">
             <FileSpreadsheet size={28} />
-            <span>无法打开 Excel 表格</span>
-            <button className="rounded-md border border-app-border px-3 py-1.5 text-sm" onClick={() => window.location.reload()}>重新加载</button>
+            <span>{loadError}</span>
+            <button className="rounded-md border border-app-border px-3 py-1.5 text-sm" onClick={() => setReloadKey((value) => value + 1)}>重新加载</button>
           </div>
         )}
-        <div ref={containerRef} className="h-full w-full" style={{ display: booting ? "none" : "block" }} />
+        <div ref={containerRef} className="h-full w-full" />
       </div>
       <style>{`
         .excel-tool { display:inline-flex;align-items:center;gap:4px;border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-secondary); }

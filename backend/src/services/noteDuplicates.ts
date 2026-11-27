@@ -17,6 +17,7 @@ import {
 } from "./noteAttachmentCopy.js";
 import { yFlush } from "./yjs.js";
 import { rebuildYjsSubdocumentsIfEnabled } from "./yjs-subdocuments.js";
+import { serializeExcelText, validateExcelData } from "./excelData.js";
 
 type SupportedNoteFormat = "tiptap-json" | "markdown";
 export type DuplicateNotePlacement = "sibling" | "child";
@@ -27,6 +28,7 @@ interface SourceNoteRow {
   title: string;
   content: string;
   contentFormat: string;
+  noteType: string | null;
   isLocked: number;
   isTrashed: number;
   version: number;
@@ -55,7 +57,7 @@ export class DuplicateNoteError extends Error {
 function readSourceNote(db: Database.Database, noteId: string): SourceNoteRow | null {
   return (db.prepare(`
     SELECT note.id, note.workspaceId, note.title,
-           note.content, note.contentFormat, note.isLocked,
+           note.content, note.contentFormat, note.note_type AS noteType, note.isLocked,
            note.isTrashed, note.version, tree.parentId AS treeParentId,
            tree.scopeKey AS treeScopeKey, tree.id AS treeNodeId
     FROM notes note
@@ -147,6 +149,78 @@ export async function duplicateNote(input: {
   }
   if (source.isLocked === 1) {
     throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_LOCKED", 403, "请先解锁笔记再创建副本");
+  }
+  // Excel 工作簿正文保存在 excel_documents 中，单独走工作簿快照复制事务。
+  if (source.noteType === "excel") {
+    resolveDuplicateParent(db, source, input.userId, placement);
+    const stableSource = source;
+    try {
+      return db.transaction(() => {
+        const current = readSourceNote(db, stableSource.id);
+        if (!current || current.isTrashed === 1 || current.isLocked === 1 || current.noteType !== "excel") {
+          throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_CHANGED", 409, "源表格状态已变化，请刷新后重试");
+        }
+        const currentPermission = resolveNotePermission(current.id, input.userId).permission;
+        if (!hasPermission(currentPermission, "read")) {
+          throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_FORBIDDEN", 403, "没有读取源表格的权限");
+        }
+        const sourceDoc = db.prepare("SELECT data FROM excel_documents WHERE noteId = ?")
+          .get(current.id) as { data: string } | undefined;
+        let parsed: unknown = null;
+        if (sourceDoc) {
+          try { parsed = JSON.parse(sourceDoc.data); } catch { parsed = null; }
+        }
+        const validated = validateExcelData(parsed);
+        if (!validated) {
+          throw new DuplicateNoteError("NOTE_DUPLICATE_EXCEL_CORRUPT", 500, "源 Excel 表格数据损坏，已停止复制");
+        }
+
+        const parentId = resolveDuplicateParent(db, current, input.userId, placement);
+        const title = nextDuplicateTitle(db, current, parentId);
+        const created = createKnowledgeChild({
+          actorUserId: input.userId,
+          workspaceId: current.workspaceId,
+          parentId,
+          nodeType: "excel",
+          title,
+          db,
+        });
+        const cloned = { ...validated.data, name: title };
+        const clonedValidated = validateExcelData(cloned);
+        if (!clonedValidated) {
+          throw new DuplicateNoteError("NOTE_DUPLICATE_EXCEL_CORRUPT", 500, "源 Excel 表格数据损坏，已停止复制");
+        }
+        db.prepare(`
+          UPDATE excel_documents
+          SET data = ?, revision = 1, updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+          WHERE noteId = ?
+        `).run(clonedValidated.json, created.resourceId);
+        db.prepare("UPDATE notes SET contentText = ?, updatedAt = datetime('now') WHERE id = ?")
+          .run(serializeExcelText(clonedValidated.data), created.resourceId);
+        db.prepare(`
+          INSERT OR IGNORE INTO note_tags (noteId, tagId)
+          SELECT ?, tagId FROM note_tags WHERE noteId = ?
+        `).run(created.resourceId, current.id);
+
+        const createdRecord = db.prepare(`
+          SELECT id, userId, notebookId, workspaceId, title, content, contentText,
+                 isPinned, 0 AS isFavorite, isLocked, isArchived, isTrashed,
+                 version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, note_type AS noteType
+          FROM notes WHERE id = ?
+        `).get(created.resourceId) as Record<string, unknown> | undefined;
+        if (!createdRecord) {
+          throw new DuplicateNoteError("NOTE_DUPLICATE_CREATE_FAILED", 500, "副本创建失败");
+        }
+        const createdTags = db.prepare(`
+          SELECT tag.* FROM tags tag
+          JOIN note_tags relation ON relation.tagId = tag.id
+          WHERE relation.noteId = ?
+        `).all(created.resourceId) as Array<Record<string, unknown>>;
+        return { node: created, note: createdRecord, tags: createdTags };
+      })();
+    } catch (error) {
+      mapKnownError(error);
+    }
   }
   if (source.contentFormat !== "markdown" && source.contentFormat !== "tiptap-json") {
     throw new DuplicateNoteError("NOTE_DUPLICATE_FORMAT_UNSUPPORTED", 400, "仅支持复制富文本和 Markdown 笔记");

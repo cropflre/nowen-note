@@ -1,5 +1,5 @@
 import { validateSheetData } from "./sheetData.js";
-import { validateExcelData } from "./excelData.js";
+import { createDefaultExcelWorkbook } from "./excelData.js";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
@@ -255,14 +255,13 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel";
+  nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "mindmap" | "sheet" | "excel";
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
   noteId?: string;
   contentFormat?: "plaintext";
   sheetData?: unknown;
-  excelData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   const db = input.db || getDb();
@@ -281,10 +280,12 @@ export function createKnowledgeChild(input: {
   if (input.sheetData !== undefined && (input.nodeType !== "sheet" || input.encryptedContent || !sheetData)) {
     throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "表格数据格式无效");
   }
-
-  const excelData = input.excelData === undefined ? undefined : validateExcelData(input.excelData);
-  if (input.excelData !== undefined && (input.nodeType !== "excel" || input.encryptedContent || !excelData)) {
-    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "Excel 表格数据格式无效");
+  // Excel 工作簿正文存在 excel_documents，不能走加密正文通道，否则会留下明文快照。
+  if (input.nodeType === "excel" && input.encryptedContent) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "Excel 表格暂不支持加密");
+  }
+  if (input.nodeType === "ppt" && input.encryptedContent) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "PPT 演示文稿暂不支持加密");
   }
 
   const title = input.title.trim() || (
@@ -296,7 +297,11 @@ export function createKnowledgeChild(input: {
           ? "无标题表格"
           : input.nodeType === "excel"
             ? "无标题 Excel 表格"
-            : "无标题笔记"
+            : input.nodeType === "word"
+              ? "无标题 Word 文档"
+              : input.nodeType === "ppt"
+                ? "无标题 PPT 演示文稿"
+                : "无标题笔记"
   );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
@@ -326,8 +331,24 @@ export function createKnowledgeChild(input: {
         throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "笔记 ID 格式无效");
       }
       const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : input.noteId || uuid();
-      const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
-      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : "normal";
+      const contentFormat = input.encryptedContent
+        ? "encrypted-note-v1"
+        : input.nodeType === "ppt"
+          ? "ppt-json"
+          : input.nodeType === "note" && input.contentFormat === "plaintext"
+            ? "plaintext"
+            : input.nodeType === "markdown"
+              ? "markdown"
+              : "tiptap-json";
+      const noteType = input.nodeType === "word"
+        ? "word"
+        : input.nodeType === "ppt"
+          ? "ppt"
+          : input.nodeType === "sheet"
+            ? "sheet"
+            : input.nodeType === "excel"
+              ? "excel"
+              : "normal";
       const content = input.encryptedContent || (contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
       db.prepare(`
         INSERT INTO notes (
@@ -364,29 +385,9 @@ export function createKnowledgeChild(input: {
         db.prepare(`
           INSERT INTO excel_documents (noteId, userId, workspaceId, data)
           VALUES (?, ?, ?, ?)
-        `).run(
-          noteId,
-          resourceOwnerUserId,
-          normalizedWorkspaceId,
-          JSON.stringify(excelData || {
-            id: "workbook-01",
-            name: title,
-            appVersion: "1.0.3",
-            locale: "zh-CN",
-            styles: {},
-            sheetOrder: ["sheet-01"],
-            sheets: {
-              "sheet-01": {
-                id: "sheet-01",
-                name: "Sheet1",
-                rowCount: 200,
-                columnCount: 30,
-                cellData: {},
-                mergeData: [],
-              },
-            },
-          }),
-        );
+        `).run(noteId, resourceOwnerUserId, normalizedWorkspaceId, JSON.stringify(createDefaultExcelWorkbook(title)));
+        // 在 excel_documents 写入后同事务触达 notes，确保 Sync V2 Outbox 捕获到完整初始工作簿快照。
+        db.prepare("UPDATE notes SET updatedAt = datetime('now') WHERE id = ?").run(noteId);
       }
       createdNode = nodeForResource(db, "note", noteId);
     }

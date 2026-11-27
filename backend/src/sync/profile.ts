@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
+import type { SyncFailureDiagnostic } from "./errors";
 import type { SyncProfileRow, SyncStateRow } from "./types";
 
 /**
@@ -16,6 +17,18 @@ export interface CreateProfileInput {
   name: string;
   serverUrl: string;
   remoteUserId?: string | null;
+  localUserId?: string | null;
+}
+
+const profileLocalUserColumnChecked = new WeakSet<object>();
+
+function ensureProfileLocalUserColumn(db: Database.Database): void {
+  if (profileLocalUserColumnChecked.has(db as object)) return;
+  const cols = db.prepare(`PRAGMA table_info(${SYNC_TABLES.profiles})`).all() as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === "localUserId")) {
+    db.exec(`ALTER TABLE ${SYNC_TABLES.profiles} ADD COLUMN localUserId TEXT`);
+  }
+  profileLocalUserColumnChecked.add(db as object);
 }
 
 function normalizeServerUrl(raw: string): string {
@@ -26,6 +39,7 @@ export function createProfile(
   db: Database.Database,
   input: CreateProfileInput,
 ): SyncProfileRow {
+  ensureProfileLocalUserColumn(db);
   const serverUrl = normalizeServerUrl(input.serverUrl);
   if (!serverUrl) {
     throw new Error("[sync-v2] createProfile 需要有效的 serverUrl");
@@ -34,9 +48,9 @@ export function createProfile(
   const id = randomUUID();
   db.prepare(`
     INSERT INTO ${SYNC_TABLES.profiles} (
-      id, name, serverUrl, remoteUserId, enabled, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, 0, datetime('now'), datetime('now'))
-  `).run(id, input.name, serverUrl, input.remoteUserId ?? null);
+      id, name, serverUrl, remoteUserId, localUserId, enabled, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+  `).run(id, input.name, serverUrl, input.remoteUserId ?? null, input.localUserId ?? null);
 
   return getProfile(db, id) as SyncProfileRow;
 }
@@ -45,12 +59,14 @@ export function getProfile(
   db: Database.Database,
   profileId: string,
 ): SyncProfileRow | null {
+  ensureProfileLocalUserColumn(db);
   const row = db.prepare(`SELECT * FROM ${SYNC_TABLES.profiles} WHERE id = ?`)
     .get(profileId) as SyncProfileRow | undefined;
   return row || null;
 }
 
 export function listProfiles(db: Database.Database): SyncProfileRow[] {
+  ensureProfileLocalUserColumn(db);
   return db.prepare(`
     SELECT * FROM ${SYNC_TABLES.profiles} ORDER BY createdAt ASC
   `).all() as SyncProfileRow[];
@@ -160,6 +176,7 @@ export function disableAllProfiles(db: Database.Database): string[] {
 
 /** 当前唯一的 Active Profile；"仅此设备"时为 null。 */
 export function getActiveProfile(db: Database.Database): SyncProfileRow | null {
+  ensureProfileLocalUserColumn(db);
   const row = db.prepare(`
     SELECT * FROM ${SYNC_TABLES.profiles}
     WHERE enabled = 1
@@ -182,6 +199,20 @@ export function setProfileRemoteUser(
   `).run(remoteUserId, profileId);
 }
 
+/** 绑定本机账号 ID，避免多账号桌面库里引擎误选到其他本地用户导致 NOTEBOOK_ID_COLLISION。 */
+export function setProfileLocalUser(
+  db: Database.Database,
+  profileId: string,
+  localUserId: string,
+): void {
+  ensureProfileLocalUserColumn(db);
+  db.prepare(`
+    UPDATE ${SYNC_TABLES.profiles}
+    SET localUserId = ?, updatedAt = datetime('now')
+    WHERE id = ?
+  `).run(localUserId, profileId);
+}
+
 /**
  * 停用一个 Profile。
  *
@@ -197,11 +228,33 @@ export function disableProfile(db: Database.Database, profileId: string): void {
 // 同步游标
 // ---------------------------------------------------------------------------
 
+const diagnosticColumnChecked = new WeakSet<object>();
+
+function ensureSyncStateDiagnosticColumn(db: Database.Database): void {
+  if (diagnosticColumnChecked.has(db as object)) return;
+  const cols = db.prepare(`PRAGMA table_info(${SYNC_TABLES.state})`).all() as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === "lastErrorDiagnostic")) {
+    db.exec(`ALTER TABLE ${SYNC_TABLES.state} ADD COLUMN lastErrorDiagnostic TEXT`);
+  }
+  diagnosticColumnChecked.add(db as object);
+}
+
+function sanitizeSyncStateDiagnostic(diagnostic?: SyncFailureDiagnostic | null): string | null {
+  if (!diagnostic) return null;
+  const safe: Record<string, string> = {};
+  for (const key of ["stage", "step", "reason", "sqliteCode", "entityType", "entityId", "parentId", "parentState"] as const) {
+    const val = diagnostic[key];
+    if (typeof val === "string" && val.length > 0) safe[key] = val.slice(0, 120);
+  }
+  return Object.keys(safe).length > 0 ? JSON.stringify(safe) : null;
+}
+
 export function getSyncState(
   db: Database.Database,
   profileId: string,
   scopeKey: string = SYNC_PERSONAL_SCOPE_KEY,
 ): SyncStateRow | null {
+  ensureSyncStateDiagnosticColumn(db);
   const row = db.prepare(`
     SELECT * FROM ${SYNC_TABLES.state}
     WHERE profileId = ? AND scopeKey = ?
@@ -221,13 +274,15 @@ export function advanceSyncState(
   sequence: number,
   scopeKey: string = SYNC_PERSONAL_SCOPE_KEY,
 ): void {
+  ensureSyncStateDiagnosticColumn(db);
   db.prepare(`
-    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError)
-    VALUES (?, ?, ?, datetime('now'), NULL)
+    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError, lastErrorDiagnostic)
+    VALUES (?, ?, ?, datetime('now'), NULL, NULL)
     ON CONFLICT(profileId, scopeKey) DO UPDATE SET
       lastSequence = MAX(lastSequence, excluded.lastSequence),
       lastSyncAt = excluded.lastSyncAt,
-      lastError = NULL
+      lastError = NULL,
+      lastErrorDiagnostic = NULL
   `).run(profileId, scopeKey, sequence);
 }
 
@@ -236,12 +291,17 @@ export function recordSyncError(
   profileId: string,
   errorCode: string,
   scopeKey: string = SYNC_PERSONAL_SCOPE_KEY,
+  diagnostic?: SyncFailureDiagnostic | null,
 ): void {
+  ensureSyncStateDiagnosticColumn(db);
+  const encoded = sanitizeSyncStateDiagnostic(diagnostic);
   db.prepare(`
-    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError)
-    VALUES (?, ?, 0, NULL, ?)
-    ON CONFLICT(profileId, scopeKey) DO UPDATE SET lastError = excluded.lastError
-  `).run(profileId, scopeKey, errorCode);
+    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError, lastErrorDiagnostic)
+    VALUES (?, ?, 0, NULL, ?, ?)
+    ON CONFLICT(profileId, scopeKey) DO UPDATE SET
+      lastError = excluded.lastError,
+      lastErrorDiagnostic = excluded.lastErrorDiagnostic
+  `).run(profileId, scopeKey, errorCode, encoded);
 }
 
 /**
@@ -255,12 +315,14 @@ export function resetSyncState(
   profileId: string,
   scopeKey: string = SYNC_PERSONAL_SCOPE_KEY,
 ): void {
+  ensureSyncStateDiagnosticColumn(db);
   db.prepare(`
-    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError)
-    VALUES (?, ?, 0, NULL, NULL)
+    INSERT INTO ${SYNC_TABLES.state} (profileId, scopeKey, lastSequence, lastSyncAt, lastError, lastErrorDiagnostic)
+    VALUES (?, ?, 0, NULL, NULL, NULL)
     ON CONFLICT(profileId, scopeKey) DO UPDATE SET
       lastSequence = 0,
       lastSyncAt = NULL,
-      lastError = NULL
+      lastError = NULL,
+      lastErrorDiagnostic = NULL
   `).run(profileId, scopeKey);
 }

@@ -58,16 +58,19 @@ export function useBackButton({
   mobileSidebarOpen,
   onBackToList,
   onCloseSidebar,
+  onBackToNotes,
 }: {
   mobileView: "list" | "editor";
   mobileSidebarOpen: boolean;
   onBackToList: () => void;
   onCloseSidebar: () => void;
+  /** 精简模式下在非笔记扩展模块时退回笔记列表；返回 true 表示已消费本次返回键。 */
+  onBackToNotes?: () => boolean;
 }) {
   // 用于双击返回退出的时间戳
   const lastBackPress = useRef(0);
-  const stateRef = useRef({ mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar });
-  stateRef.current = { mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar };
+  const stateRef = useRef({ mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar, onBackToNotes });
+  stateRef.current = { mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar, onBackToNotes };
 
   useEffect(() => {
     if (!isNativePlatform()) return;
@@ -87,6 +90,11 @@ export function useBackButton({
       // 层级 4：编辑器视图 → 返回笔记列表
       if (current.mobileView === "editor") {
         current.onBackToList();
+        return;
+      }
+
+      // 层级 4.5：精简模式下停留在扩展模块（任务/导图/回收站等）→ 回到笔记列表
+      if (current.onBackToNotes?.()) {
         return;
       }
 

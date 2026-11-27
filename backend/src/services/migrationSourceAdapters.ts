@@ -31,6 +31,7 @@ export type MigrationSourceFile = { readonly diskPath: string; readonly size: nu
 export interface MigrationSourceAdapterContext {
   readonly source: Pick<NmfNote["source"], "platform" | "exportId">;
   readonly files: ReadonlyMap<string, MigrationSourceFile>;
+  readonly maxNotes?: number;
   readText(name: string, maxBytes: number): string;
   managedPath(file: MigrationSourceFile): string;
   sniffAsset(diskPath: string, name: string): Promise<string>;
@@ -49,7 +50,7 @@ export async function normalizeMigrationSource(adapters: readonly MigrationSourc
   let emitted = 0;
   const checked: MigrationSourceAdapterContext = { ...context, onNote: async (note) => {
     context.assertActive?.();
-    if (++emitted > MIGRATION_LIMITS.notes) throw new Error("MIGRATION_NOTE_COUNT_LIMIT");
+    if (++emitted > (context.maxNotes ?? MIGRATION_LIMITS.notes)) throw new Error("MIGRATION_NOTE_COUNT_LIMIT");
     await context.onNote(nmfNoteSchema.parse(note));
   } };
   for (const adapter of adapters) {

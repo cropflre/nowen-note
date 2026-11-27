@@ -43,7 +43,7 @@ export function CreateAppLanding({ onPick }: { onPick: (spec: StudioSpec) => voi
         <h3 id="create-templates-heading" className="text-base font-semibold text-tx-primary">{t("extensionCenter.create.templatesHeading")}</h3>
         <p className="mt-1 text-xs text-tx-secondary">{t("extensionCenter.create.templatesHint")}</p>
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{STUDIO_TEMPLATES.map((template) => {
+      <ul className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">{STUDIO_TEMPLATES.map((template) => {
         const Icon = TEMPLATE_ICON[template.id];
         const key = `extensionCenter.create.templates.${template.id}`;
         return <li key={template.id} className="min-w-0">

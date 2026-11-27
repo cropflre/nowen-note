@@ -1181,6 +1181,7 @@ export default function DataManager() {
         workspaceId={effectiveWorkspaceId}
         disabled={(scope === "personal" && personalImportLocked) || workspaceScopeNotReady}
         localOnly={isMobileLocalMode()}
+        canConfigureLimits={isAdmin}
         onLegacyImport={() => setActiveSubTab("import")}
         onImported={(job) => {
           if ((job.workspaceId || "personal") === (getCurrentWorkspace() || "personal")) {
@@ -2632,6 +2633,13 @@ export function DataFileSection() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {t("dataManager.dataFile.description")}
         </p>
+
+        <div
+          role="note"
+          className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-300"
+        >
+          自托管存储提示：SQLite（WAL）运行目录请保留在宿主机本地磁盘或 Docker 本地卷，切勿直接挂载到 NFS / SMB 网络盘或网盘同步目录；异地容灾请使用下方 `.data` 导出或 WebDAV / 邮件自动备份。
+        </div>
 
         {/* ===== 占用统计卡片 ===== */}
         <div>

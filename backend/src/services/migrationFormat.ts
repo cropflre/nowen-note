@@ -1,18 +1,38 @@
 import { z } from "zod";
 
+const DEFAULT_MIGRATION_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+const MIN_MIGRATION_UPLOAD_BYTES = 512 * 1024 * 1024;
+/** 保持低于 4GiB 标准 32-bit ZIP 上限，避免无 ZIP64 预检时截断。 */
+const MAX_MIGRATION_UPLOAD_BYTES = 3584 * 1024 * 1024;
+
+function resolveMigrationUploadBytes(): number {
+  const raw = Number(process.env.NOWEN_MIGRATION_MAX_UPLOAD_BYTES);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_MIGRATION_UPLOAD_BYTES;
+  return Math.min(MAX_MIGRATION_UPLOAD_BYTES, Math.max(MIN_MIGRATION_UPLOAD_BYTES, Math.floor(raw)));
+}
+
+const migrationUploadBytes = resolveMigrationUploadBytes();
+
 /** NMF v1 is deliberately bounded. Raising limits is a protocol/resource-budget change. */
 export const MIGRATION_LIMITS = Object.freeze({
   notes: 10_000,
-  files: 20_000,
-  uploadBytes: 512 * 1024 * 1024,
-  extractedBytes: 1024 * 1024 * 1024,
-  temporaryBytes: 2 * 1024 * 1024 * 1024,
-  uploadBytesPerSecond: 32 * 1024 * 1024,
+  files: 50_000,
+  uploadBytes: migrationUploadBytes,
+  extractedBytes: Math.max(4 * 1024 * 1024 * 1024, migrationUploadBytes * 2),
+  temporaryBytes: Math.max(6 * 1024 * 1024 * 1024, migrationUploadBytes * 3),
+  uploadBytesPerSecond: 64 * 1024 * 1024,
   assetBytes: 64 * 1024 * 1024,
   contentBytes: 2 * 1024 * 1024,
   manifestBytes: 8 * 1024 * 1024,
   stageItems: 50,
   stageBytes: 8 * 1024 * 1024,
+});
+
+/** 桌面端本地文件夹直导（零上传、零临时复制）的独立上限。 */
+export const LOCAL_DIRECTORY_MIGRATION_LIMITS = Object.freeze({
+  notes: 50_000,
+  files: 200_000,
+  assetBytes: 256 * 1024 * 1024,
 });
 
 export const migrationRelativePathSchema = z.string().min(1).max(512).transform((value) => value.normalize("NFC"))

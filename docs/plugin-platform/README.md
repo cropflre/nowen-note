@@ -1,5 +1,7 @@
 # Nowen Extension Platform V1
 
+> 💡 **零门槛快速开发**：直接看 [傻瓜式 AI 开发插件指南](./ai-foolproof-plugin-guide.md)（复制提示词给任意 AI，写上你的需求即可生成并打包 `.nowen-plugin`）。
+
 V1 只支持服务端 Action 插件。Web、Desktop、Mobile、MCP 和 AI 都调用同一组服务端 Action API；移动端不会加载本地 Node 插件。
 
 ## 五分钟开始

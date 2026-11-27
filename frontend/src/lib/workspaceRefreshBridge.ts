@@ -53,7 +53,7 @@ function isDesktopClient(): boolean {
 }
 
 function resolveCopy() {
-  const language = document.documentElement.lang || navigator.language || "zh-CN";
+  const language = document.documentElement.lang || navigator.language || "en";
   const chinese = language.toLowerCase().startsWith("zh");
   return chinese
     ? {

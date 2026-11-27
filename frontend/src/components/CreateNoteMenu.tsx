@@ -6,7 +6,10 @@ import {
   importMarkdownIntoKnowledgeTree,
   importMarkdownZipIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
+  importPptIntoKnowledgeTree,
+  importSheetIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
+  type KnowledgeTreeImportKind,
 } from "@/components/knowledgeTreeImport";
 import { prompt } from "@/components/ui/confirm";
 import { api, getCurrentWorkspace } from "@/lib/api";
@@ -27,12 +30,12 @@ import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 
-export type NoteType = "normal" | "markdown" | "plaintext" | "word";
+export type NoteType = "normal" | "markdown" | "plaintext" | "word" | "ppt";
 
 export interface CreateNoteMenuProps {
   open: boolean;
   parentId?: string | null;
-  onPick: (type: NoteType) => void | Promise<void>;
+  onPick: (type: "normal" | "markdown" | "plaintext") => void | Promise<void>;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
@@ -86,7 +89,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
 
   async function create(kind: KnowledgeTreeInlineCreateKind) {
     onClose();
-    const focusRequestId = kind === "note" || kind === "markdown" || kind === "plaintext" ? requestNewNoteTitleFocus() : null;
+    const focusRequestId = kind === "note" || kind === "markdown" || kind === "plaintext" || kind === "word" || kind === "ppt" ? requestNewNoteTitleFocus() : null;
     try {
       if (isMobileLocalMode() && (kind === "note" || kind === "markdown" || kind === "plaintext")) {
         await onPick(kind === "note" ? "normal" : kind);
@@ -114,13 +117,21 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
     }
   }
 
-  async function importContent(kind: "markdown" | "markdown-zip" | "word" | "wechat") {
+  async function importContent(kind: KnowledgeTreeImportKind) {
     onClose();
     try {
       const target = await resolveTarget();
+      if (kind === "sheet") {
+        const sheetNode = await importSheetIntoKnowledgeTree(target);
+        if (!sheetNode) return;
+        refresh(target.parent?.id ?? null, sheetNode.id);
+        pushSheetAppPath(sheetNode.resourceId);
+        return;
+      }
       const importer = kind === "markdown" ? importMarkdownIntoKnowledgeTree
         : kind === "markdown-zip" ? importMarkdownZipIntoKnowledgeTree
-          : kind === "word" ? importWordIntoKnowledgeTree : importWeChatArticleIntoKnowledgeTree;
+          : kind === "word" ? importWordIntoKnowledgeTree
+            : kind === "ppt" ? importPptIntoKnowledgeTree : importWeChatArticleIntoKnowledgeTree;
       const note = await importer(target);
       if (!note) return;
       refresh(target.parent?.id ?? null);

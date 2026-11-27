@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
@@ -215,16 +214,6 @@ export async function saveLocalizedAttachment(args: {
   downloaded: DownloadedRemoteImage;
 }): Promise<{ imported: ImportedRemoteImage; created: CreatedAttachment | null }> {
   const db = getDb();
-  const hash = crypto.createHash("sha256").update(args.downloaded.buffer).digest("hex");
-  const existingScopeRows = db.prepare(
-    args.workspaceId
-      ? "SELECT id, noteId, path FROM attachments WHERE userId = ? AND workspaceId = ? AND hash = ?"
-      : "SELECT id, noteId, path FROM attachments WHERE userId = ? AND workspaceId IS NULL AND hash = ?",
-  ).all(...(args.workspaceId ? [args.userId, args.workspaceId, hash] : [args.userId, hash])) as Array<{
-    id: string;
-    noteId: string;
-    path: string;
-  }>;
   const uploadSource = `historical-localization:${args.jobId}`.slice(0, 64);
   const imported = await saveDownloadedRemoteImageForNote({
     downloaded: args.downloaded,
@@ -239,7 +228,7 @@ export async function saveLocalizedAttachment(args: {
   return {
     imported,
     created: row?.uploadSource === uploadSource
-      ? { id: imported.id, path: row.path, createdPhysicalObject: existingScopeRows.length === 0 }
+      ? { id: imported.id, path: row.path, createdPhysicalObject: !imported.deduplicated }
       : null,
   };
 }

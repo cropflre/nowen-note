@@ -2,6 +2,54 @@
 
 核对时间：2026-11-02。状态：**APP 备案已通过，华为版本草稿准备中，尚未提交审核**。
 
+> 2026-11-18 更新：首次提交已被驳回，共 4 个错误问题。下方 2026-11-02 的记录仅作历史追溯，最新状态以「2026-11-18 审核驳回结果」一节为准。
+
+## 2026-11-18 审核驳回结果
+
+版本 1.0.0（1000000），审核环境 HarmonyOS 7.0.0（HUAWEI Mate 70）/ API 26，中文。结论：**审核未通过，4 个错误**（应用信息 1 + 应用功能 3）。AI 内容标识、APP 备案号本轮均未被挑出。
+
+| 编号 | 审核原文要点 | 判定与处理 |
+| --- | --- | --- |
+| 应用信息-1 | 第三张（截图）内容含「AI 快记、AI 问答」，与应用实际情况不符 | 当前发布分支（`codex/integrate-all-v160-20261113`）未隐藏 AI，包内入口可见，但依赖用户自建服务器，审核员点开无法使用。截图展示的是可用状态，与实际可操作性不符。隐藏 AI 的改动仍在 `codex/harmony-hide-ai` 工作树未提交 |
+| 应用功能-1 | 设置 → 账号与安全 / 数据管理 / 数据与同步需要连接服务器，无法审核 | 未提供审核可用服务器与账号。需在「应用审核信息」提交公网可达地址与专用测试账号 |
+| 应用功能-2 | 隐私弹窗 → 点击「许可证」打开空白 | 定位到「设置 → 关于 → 开源项目」卡片：`MIT License` 即审核员所称「许可证」，右侧 GitHub 按钮是 `<a target="_blank">`。`WebViewPage` 没有 `onWindowNew`，ArkWeb 会阻塞渲染进程导致白屏。已修复，见下 |
+| 应用功能-3 | 功能异常提示项，「本次问题暂不影响 APP 上架」 | 记录待后续版本，不阻塞本轮 |
+
+### 本轮代码改动
+
+`entry/src/main/ets/pages/WebViewPage.ets`：
+
+- 新增 `openExternal()`，用 `startAbility({ action: 'ohos.want.action.viewData' })` 交给系统浏览器，仅放行 http/https。
+- 增加 `.multiWindowAccess(true)` 与 `.onWindowNew()`；回调内先 `event.handler.setWebController(null)`。ArkWeb 规定不调用该接口会阻塞渲染进程，表现为点击链接后页面空白。
+- `onLoadIntercept` 改为：仅拦截主框架的非 `localhost` 导航，转系统浏览器后返回 `true`；子框架保持放行。
+
+`frontend/src/components/SettingsModal.tsx`：关于页的 `MIT License` 文字改为指向仓库 `LICENSE` 的可点链接（`target="_blank"`），点击后由上述逻辑交给系统浏览器。
+
+已重新执行 `npm run build:harmony:web` 并打包，`entry-default-unsigned.hap`（24 MB）内含新 bundle 与 LICENSE 链接。`assembleHap` 编译通过，产物仍未签名，发布前需在 DevEco 重新签名。
+
+### 审核服务器现状（2026-11-18 实测）
+
+| 检查项 | 结果 |
+| --- | --- |
+| `http://note.nowen.cn/api/health` | `{"status":"ok","service":"nowen-note","version":"1.5.5"}`，可用 |
+| `http://note.nowen.cn/api/auth/register/config` | `{"allowRegistration":true,"userCount":258}`，生产库、开放注册 |
+| `hm.nowen.cn` | **NXDOMAIN，域名不存在**。与 APP 备案登记的后台域名不一致 |
+| `http://119.91.135.176:7673/` | 根路径 200 但 `/api/health` 返回 `Access Temporarily Unavailable`，被网关拦截，不能作为审核地址 |
+| `https://note.nowen.cn` | TLS `unrecognized name`，无证书，仅 HTTP |
+
+结论：审核地址先填 `http://note.nowen.cn`；`hm.nowen.cn` 需补解析与反向代理，或走备案变更改成 `note.nowen.cn`，否则备案信息与实际不符。只有 HTTP 会被审核质疑明文传输，建议补证书。
+
+### 下一轮送审前必须完成
+
+- [ ] `hm.nowen.cn` 补 A/CNAME 记录指向 `119.91.135.176`，服务器 nginx 增加对应 `server_name`；或走备案变更把后台域名改为 `note.nowen.cn`。
+- [ ] 给审核域名配证书，至少让 `https://` 能握手，避免「明文传输」质疑。
+- [ ] 预建专用审核账号（生产库已开放注册，不要依赖审核员自己注册）。
+- [ ] 在控制台「应用审核信息」填写专用测试账号、密码、服务器地址与操作步骤；账号长期有效，不含真实笔记。
+- [ ] 重拍 3–5 张商店截图，全部使用免登录可走通的界面；应用介绍、一句话简介同步去掉未开放的 AI 描述。
+- [ ] 若保留 AI 功能，需补齐说明函与标识证据；若隐藏，则截图、文案、包内入口三者必须一致。
+- [ ] 「隐私弹窗」入口确认：如指首启隐私政策弹窗，当前包内不存在，需先补弹窗再送审。
+- [ ] 用真机复验：任意外链（备案号、GitHub、政策页）点击后在系统浏览器打开，不再白屏。
+
 ## 本轮核对与验证
 
 2026-11-03 已完成候选前端连接正式环境的 AI 快记、保存重开及 PNG 元数据验收。详见 [AI 标识送审资料草稿](ai-review-materials.md)。

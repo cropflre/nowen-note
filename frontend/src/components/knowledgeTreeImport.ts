@@ -13,6 +13,14 @@ import { toast } from "@/lib/toast";
 
 type LoadedNote = Awaited<ReturnType<typeof api.getNote>>;
 
+export type KnowledgeTreeImportKind =
+  | "markdown"
+  | "markdown-zip"
+  | "word"
+  | "ppt"
+  | "sheet"
+  | "wechat";
+
 interface KnowledgeTreeImportOptions {
   parent: KnowledgeTreeNode | null;
   nodes: KnowledgeTreeNode[];
@@ -68,6 +76,47 @@ export async function importWordIntoKnowledgeTree(
     toast.dismiss(toastId);
     toast.success("导入成功");
     return note as LoadedNote;
+  } catch (error) {
+    toast.dismiss(toastId);
+    throw error;
+  }
+}
+
+export async function importPptIntoKnowledgeTree(
+  options: KnowledgeTreeImportOptions,
+): Promise<LoadedNote | null> {
+  const notebookId = await resolvePhysicalNotebookId(options);
+  const { pickPptxFile, importPptxAsNote } = await import("@/lib/pptNoteService");
+  const file = await pickPptxFile();
+  if (!file) return null;
+  const toastId = toast.info("正在导入 PPTX 演示文稿…", 0);
+  try {
+    const { note } = await importPptxAsNote({ notebookId, file });
+    await moveImportedNote(note.id, notebookId, options.parent);
+    toast.dismiss(toastId);
+    toast.success("导入成功");
+    return note as LoadedNote;
+  } catch (error) {
+    toast.dismiss(toastId);
+    throw error;
+  }
+}
+
+export async function importSheetIntoKnowledgeTree(
+  options: KnowledgeTreeImportOptions,
+): Promise<KnowledgeTreeNode | null> {
+  const { pickSheetFile, importSheetFileAsNode } = await import("@/lib/sheetNoteService");
+  const file = await pickSheetFile();
+  if (!file) return null;
+  const toastId = toast.info("正在导入表格…", 0);
+  try {
+    const node = await importSheetFileAsNode({
+      parentId: options.parent?.id ?? null,
+      file,
+    });
+    toast.dismiss(toastId);
+    toast.success("导入成功");
+    return node;
   } catch (error) {
     toast.dismiss(toastId);
     throw error;

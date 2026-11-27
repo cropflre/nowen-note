@@ -404,10 +404,14 @@ export interface NowenDesktopAPI {
   completeLocalLoginHint?: (payload: { serverUrl: string; username: string }) => Promise<{ ok: boolean; reason?: string }>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
   resetLocalAuth?: () => Promise<{ ok: boolean; cancelled?: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string }>;
-  startLiteMigration?: (serverUrl: string, token: string) => Promise<LiteMigrationResult>;
+  startLiteMigration?: (serverUrl: string, token: string, refreshToken?: string | null) => Promise<LiteMigrationResult>;
   getLiteMigrationProgress?: () => Promise<LiteMigrationResult>;
   isDesktop: true;
   platform: string;
+  /** 主进程按 LC_ALL / LC_MESSAGES / LANG / app.getLocale() 解析出的系统语言（"zh-CN" | "en"）。 */
+  systemLocale?: string;
+  /** 通知主进程重建原生菜单/托盘语言。 */
+  setLanguage?: (language: "zh-CN" | "en") => void;
   /**
    * 发布渠道（"lite" | "latest"）。由 preload 根据启动参数判定，
    * 与 electron-builder publish.channel 对齐；旧版本 preload 不暴露此字段 → undefined。
@@ -424,6 +428,21 @@ export interface NowenDesktopAPI {
   isPortable?: boolean;
   /** 文件夹同步（Phase B：配置 CRUD；后续扩展扫描/导入）。旧版本 preload 无此字段。 */
   folderSync?: FolderSyncAPI;
+  /** 桌面端本地文件夹零拷贝直导（旧版本 preload 无此字段）。 */
+  migration?: {
+    importLocalFolder?: (options?: {
+      workspaceId?: string;
+      targetNotebookId?: string;
+      token?: string;
+    }) => Promise<{
+      ok: boolean;
+      cancelled?: boolean;
+      status?: number;
+      code?: string;
+      error?: string;
+      job?: unknown;
+    }>;
+  };
   /** 桌面端多账号登录历史；令牌由主进程 safeStorage 加密。 */
   accountHistory?: DesktopAccountHistoryAPI;
   /** 桌面端 JSON API 原生请求通道；避免 file:// renderer 依赖 CORS 预检。 */
@@ -447,6 +466,11 @@ export function isFolderSyncAvailable(): boolean {
 /** 获取文件夹同步桥接 API */
 export function getFolderSyncBridge(): FolderSyncAPI | null {
   return (window as any).nowenDesktop?.folderSync ?? null;
+}
+
+/** 获取桌面端本地迁移直导桥接 API */
+export function getDesktopMigrationBridge() {
+  return getBridge()?.migration ?? null;
 }
 
 /**
@@ -560,10 +584,10 @@ export interface DesktopLocalLoginHint {
   role: "admin";
 }
 
-export async function startLiteMigration(serverUrl: string, token: string): Promise<LiteMigrationResult> {
+export async function startLiteMigration(serverUrl: string, token: string, refreshToken?: string | null): Promise<LiteMigrationResult> {
   const bridge = getBridge();
   if (!bridge?.startLiteMigration) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
-  return bridge.startLiteMigration(serverUrl,token);
+  return refreshToken ? bridge.startLiteMigration(serverUrl,token,refreshToken) : bridge.startLiteMigration(serverUrl,token);
 }
 
 export async function getLiteMigrationProgress(): Promise<LiteMigrationResult> {

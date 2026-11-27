@@ -43,3 +43,29 @@ test('DCC-007: a missing file remains visible and queued for download without de
   const other=seed();
   assert.equal((await readOfflineReadiness(db,other.profile.id,other.userId)).attachments.total,0);
 });
+
+test('DCC-005: offline readiness preserves verified attachment counts across incremental sync updates instead of resetting to zero', async () => {
+  const {db,userId,note,profile} = seed();
+  for(let i=0;i<70;i++) {
+    const id=randomUUID(), file=`offline-monotonic/${id}.txt`;
+    db.prepare("INSERT INTO attachments(id,userId,noteId,filename,mimeType,path,size,createdAt) VALUES (?,?,?,'x.txt','text/plain',?,3,datetime('now'))").run(id,userId,note,file);
+    await writeAttachmentObject(file,Buffer.from('abc'));
+  }
+  const r1 = await readOfflineReadiness(db,profile.id,userId);
+  assert.equal(r1.attachments.available, 32);
+  assert.equal(r1.verificationPending, true);
+
+  const r2 = await readOfflineReadiness(db,profile.id,userId);
+  assert.equal(r2.attachments.available, 64);
+
+  // 模拟后台同步新下载完成 1 个附件：旧实现会因 fingerprint 变化把 available 重置回 32
+  const addedId = randomUUID(), addedFile = `offline-monotonic/${addedId}.txt`;
+  db.prepare("INSERT INTO attachments(id,userId,noteId,filename,mimeType,path,size,createdAt) VALUES (?,?,?,'added.txt','text/plain',?,3,datetime('now'))").run(addedId,userId,note,addedFile);
+  await writeAttachmentObject(addedFile,Buffer.from('abc'));
+
+  const r3 = await readOfflineReadiness(db,profile.id,userId);
+  assert.equal(r3.attachments.total, 71);
+  assert.equal(r3.attachments.available, 71, '新增附件或状态变化时已校验的附件数不得归零重头再数');
+  assert.equal(r3.verificationPending, false);
+  assert.equal(r3.fullyAvailable, true);
+});

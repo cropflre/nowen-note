@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { OfflineAvailability } from "./OfflineAvailability";
 import {
   AlertTriangle,
+  Check,
   Cloud,
+  Copy,
   HardDrive,
   Info,
   Loader2,
@@ -52,8 +54,8 @@ export function SyncSettingsPanel() {
         setServerUrl((current) => current || savedUrl);
       }
       setUnavailable(false);
-      setDiagnostics(null);
       setDiagnosticsError(null);
+      setDiagnostics((current) => current?.profileId === (next.activeProfile?.id ?? null) ? current : null);
       if (next.profiles.length > 0) {
         try {
           setDiagnostics(await fetchSyncDiagnostics());
@@ -385,6 +387,16 @@ export function SyncSettingsPanel() {
  * 真实用户反馈同步问题时，这一页是唯一能定位的依据。
  * 只展示标识符与计数，不含任何笔记正文或凭据。
  */
+const SYNC_ERROR_LABELS: Record<string, string> = {
+  DATA_STRUCTURE: "目录或引用结构与本机约束不一致（已停止自动重试，本机与服务器数据均未改动）",
+  AUTH_EXPIRED: "登录授权已失效，请重新登录同步服务器",
+  NETWORK_UNAVAILABLE: "暂时无法连接同步服务器，联网后会自动重试",
+  INVALID_PAYLOAD: "同步数据格式不兼容，建议将客户端与服务端升级至一致版本",
+  ACCESS_REVOKED: "工作区访问权限已变更或撤销，本机副本已保留",
+  SCOPE_FORBIDDEN: "当前账号缺少目标工作区的同步权限",
+  SERVER_ERROR: "同步服务器暂时异常，稍后会自动重试",
+};
+
 function SyncDiagnosticsPanel({
   diagnostics,
   onRefresh,
@@ -394,6 +406,7 @@ function SyncDiagnosticsPanel({
   onRefresh: () => Promise<void> | void;
   disabled: boolean;
 }) {
+  const [copiedDiagnostic, setCopiedDiagnostic] = useState(false);
   const rows: Array<[string, string]> = [
     ["设备 ID", diagnostics.deviceId || "—"],
     ["同步服务器", diagnostics.serverUrl || "—"],
@@ -404,6 +417,32 @@ function SyncDiagnosticsPanel({
     ["最近通信", diagnostics.lastSeenAt || "—"],
     ["最近错误", diagnostics.lastError || "无"],
   ];
+
+  const diagnosticDetail = diagnostics.lastErrorDiagnostic;
+  const diagnosticSummary = diagnosticDetail
+    ? Object.entries(diagnosticDetail)
+      .filter(([, value]) => typeof value === "string" && value.length > 0)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(" · ")
+    : "";
+
+  const handleCopyDiagnostic = async () => {
+    const payload = JSON.stringify({
+      deviceId: diagnostics.deviceId,
+      localCursor: diagnostics.localCursor,
+      pendingMutations: diagnostics.pendingMutations,
+      conflictCount: diagnostics.conflictCount,
+      lastSyncAt: diagnostics.lastSyncAt,
+      lastSeenAt: diagnostics.lastSeenAt,
+      lastError: diagnostics.lastError,
+      diagnostic: diagnosticDetail ?? null,
+    }, null, 2);
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopiedDiagnostic(true);
+      window.setTimeout(() => setCopiedDiagnostic(false), 2000);
+    } catch { /* ignore clipboard failure */ }
+  };
 
   return (
     <section className="space-y-2">
@@ -432,10 +471,36 @@ function SyncDiagnosticsPanel({
         ))}
       </dl>
 
+      {diagnostics.lastError ? (
+        <div role="alert" className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs">
+          <div className="flex items-start justify-between gap-2">
+            <p className="flex items-start gap-2 text-destructive">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{SYNC_ERROR_LABELS[diagnostics.lastError] || `同步遇到错误（${diagnostics.lastError}）`}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => { void handleCopyDiagnostic(); }}
+              className="inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {copiedDiagnostic ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copiedDiagnostic ? "已复制" : "复制诊断"}
+            </button>
+          </div>
+          {diagnosticSummary ? (
+            <p className="break-all font-mono text-[11px] text-muted-foreground">
+              脱敏明细：{diagnosticSummary}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {diagnostics.pendingSample.length > 0 ? (
         <details className="rounded-md border p-3 text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            待同步明细（{diagnostics.pendingSample.length}）
+            {diagnostics.pendingMutations > diagnostics.pendingSample.length
+              ? `待同步明细（展示前 ${diagnostics.pendingSample.length} / 共 ${diagnostics.pendingMutations} 条）`
+              : `待同步明细（${diagnostics.pendingSample.length}）`}
           </summary>
           <ul className="mt-2 space-y-1">
             {diagnostics.pendingSample.map((item) => (

@@ -155,3 +155,56 @@ test("the image lightbox downloads only after clicking a shared image", async ({
   await page.getByRole("button", { name: "关闭图片预览", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "图片预览" })).toBeHidden();
 });
+
+test("shared attachment images fetch signed share-access URLs instead of failing with 404", async ({ page }) => {
+  const attachmentId = "3284ad69-77f3-40fd-b594-4a2bf9ec2555";
+  const imageRequests: string[] = [];
+  let shareAccessRequests = 0;
+
+  await installShareFixture(page, {
+    content: JSON.stringify({
+      type: "doc",
+      content: [
+        { type: "image", attrs: { src: `/api/attachments/${attachmentId}`, alt: "接线图" } },
+      ],
+    }),
+    format: "tiptap-json",
+  });
+
+  await page.route("**/api/attachments/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/attachments/share-access")) {
+      shareAccessRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          noteId: "note-1",
+          urls: {
+            [attachmentId]: `${url.origin}/api/attachments/${attachmentId}?exp=1893456000&sig=test-sig&scope=v2.share`,
+          },
+        }),
+      });
+      return;
+    }
+
+    imageRequests.push(url.toString());
+    if (url.searchParams.get("sig") !== "test-sig") {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "附件不存在" }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="green"/></svg>',
+    });
+  });
+
+  await page.goto("/share/abc_-123");
+  const image = page.locator('main img[alt="接线图"]');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  expect(shareAccessRequests).toBeGreaterThan(0);
+  expect(imageRequests.some((item) => item.includes("sig=test-sig"))).toBe(true);
+  await expect(page.getByText("照片暂时无法预览")).toHaveCount(0);
+});

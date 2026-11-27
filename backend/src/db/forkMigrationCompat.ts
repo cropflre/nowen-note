@@ -60,3 +60,19 @@ export function reconcileForkMigrationLedger(db: Database.Database): void {
   });
   normalize();
 }
+
+/**
+ * 现网旧库的 excel_documents 由 fork 迁移 v900001 创建，不含官方 v148 引入的 revision
+ * 乐观锁列；而官方 v148 的 CREATE TABLE IF NOT EXISTS 会因表已存在而跳过建表，
+ * 后端读写 revision 时会直接报错。这里在迁移流程结束后做一次幂等列对齐。
+ */
+export function ensureForkExcelDocumentSchema(db: Database.Database): void {
+  const table = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'excel_documents'")
+    .get();
+  if (!table) return;
+  const columns = db.prepare("PRAGMA table_info(excel_documents)").all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "revision")) return;
+  db.exec("ALTER TABLE excel_documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 1");
+  console.log("[migrations] reconciled fork schema: excel_documents.revision added");
+}

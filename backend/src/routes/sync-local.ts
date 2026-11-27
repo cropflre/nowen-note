@@ -27,6 +27,7 @@ import {
   getProfile,
   getSyncState,
   listProfiles,
+  setProfileLocalUser,
   setProfileRemoteUser,
   switchActiveProfile,
 } from "../sync/profile";
@@ -46,6 +47,7 @@ import { SyncBlobClient } from "../sync/blob";
 import {
   clearRemoteCredential,
   createRemoteClientForProfile,
+  exchangeRemoteRefreshToken,
   hasRemoteCredential,
   saveRemoteCredential,
 } from "../sync/credentials";
@@ -131,6 +133,7 @@ app.get("/settings", (c) => {
     id: profile.id,
     name: profile.name,
     serverUrl: profile.serverUrl,
+    remoteUserId: profile.remoteUserId ?? null,
     enabled: profile.enabled === 1,
     createdAt: profile.createdAt,
   }));
@@ -173,6 +176,7 @@ app.post("/settings/server", async (c) => {
     name?: unknown;
     remoteUserId?: unknown;
     token?: unknown;
+    refreshToken?: unknown;
   };
   try {
     body = await c.req.json();
@@ -186,6 +190,10 @@ app.post("/settings/server", async (c) => {
   }
   const remoteUserId = typeof body.remoteUserId === "string" ? body.remoteUserId.trim() : null;
   const token = typeof body.token === "string" ? body.token.trim() : "";
+  const refreshToken = typeof body.refreshToken === "string" && body.refreshToken.trim()
+    ? body.refreshToken.trim()
+    : undefined;
+  const userId = c.req.header("X-User-Id") as string;
 
   try {
     const run = db.transaction(() => {
@@ -198,7 +206,9 @@ app.post("/settings/server", async (c) => {
           : new URL(serverUrl).host,
         serverUrl,
         remoteUserId,
+        localUserId: userId,
       });
+      setProfileLocalUser(db, profile.id, userId);
 
       // 切换服务器：switchActiveProfile 在事务内先全部停用再启用目标，
       // 保证"最多一个 active"这个不变量在任何时刻都成立。
@@ -220,6 +230,7 @@ app.post("/settings/server", async (c) => {
         profileId: profile.id,
         serverUrl: profile.serverUrl,
         token,
+        refreshToken,
         remoteUserId,
       });
       // 同一 Profile 重新授权时，旧引擎仍持有构造时的旧 token。
@@ -234,7 +245,7 @@ app.post("/settings/server", async (c) => {
 
     // 立即让引擎跟随新配置，用户不需要重启应用。
     // 未授权时返回 null，属正常情况 —— 本地读写始终可用。
-    const engine = reconcileSyncEngine(db);
+    const engine = reconcileSyncEngine(db, { userId });
 
     return c.json({
       mode: "server",
@@ -338,12 +349,16 @@ app.post("/settings/server/login", async (c) => {
   }
 
   const token = typeof payload?.token === "string" ? payload.token.trim() : "";
+  const refreshToken = typeof payload?.refreshToken === "string" && payload.refreshToken.trim()
+    ? payload.refreshToken.trim()
+    : null;
   const remoteUserId = typeof payload?.user?.id === "string" ? payload.user.id.trim() : "";
   if (!token || !remoteUserId) {
     return c.json({ error: "远端登录响应缺少 Token 或用户身份", code: "INVALID_PAYLOAD" }, 502);
   }
 
   const db = getDb();
+  const userId = c.req.header("X-User-Id") as string;
   try {
     const configured = db.transaction(() => {
       let profile = findProfileByServer(db, serverUrl, remoteUserId);
@@ -359,8 +374,10 @@ app.post("/settings/server/login", async (c) => {
           name: new URL(serverUrl).host,
           serverUrl,
           remoteUserId,
+          localUserId: userId,
         });
       }
+      setProfileLocalUser(db, profile.id, userId);
       switchActiveProfile(db, profile.id);
       const device = ensureDevice(db, { profileId: profile.id, platform: process.platform });
       return { profile, device };
@@ -370,12 +387,13 @@ app.post("/settings/server/login", async (c) => {
       profileId: configured.profile.id,
       serverUrl,
       token,
+      refreshToken,
       remoteUserId,
     });
 
     // 重新登录必须让运行时丢弃旧 client，下一次启动才会使用新 Token。
     stopSyncEngine();
-    const engine = reconcileSyncEngine(db);
+    const engine = reconcileSyncEngine(db, { userId });
     return c.json({
       mode: "server",
       profile: {
@@ -532,7 +550,7 @@ app.post("/bootstrap", async (c) => {
       client,
     });
     // 基线建立完成后立刻启动增量引擎，用户无需重启应用。
-    const engine = progress.status === "ready" ? reconcileSyncEngine(db) : null;
+    const engine = progress.status === "ready" ? reconcileSyncEngine(db, { userId }) : null;
     return c.json({ ...progress, engineRunning: engine !== null });
   } catch (error) {
     // 失败时把当前阶段回传给 UI，便于显示"在哪一步失败了、可否重试"。
@@ -611,7 +629,7 @@ app.post("/lite-migration", async (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  let body: { serverUrl?: unknown; token?: unknown };
+  let body: { serverUrl?: unknown; token?: unknown; refreshToken?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -620,6 +638,9 @@ app.post("/lite-migration", async (c) => {
 
   const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
   const token = typeof body.token === "string" ? body.token.trim() : "";
+  const refreshToken = typeof body.refreshToken === "string" && body.refreshToken.trim()
+    ? body.refreshToken.trim()
+    : undefined;
   if (!/^https?:\/\//i.test(serverUrl)) {
     return c.json({ error: "服务器地址必须以 http(s):// 开头", code: "INVALID_PAYLOAD" }, 400);
   }
@@ -633,9 +654,10 @@ app.post("/lite-migration", async (c) => {
   if (migrationsInFlight.has(db)) return c.json({ error: '正在下载到本机，请等待当前操作完成', code: 'MIGRATION_BUSY' }, 409);
   migrationsInFlight.add(db);
   try {
-    const identityResponse = await fetch(`${normalized}/api/me`, {
-      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000),
+    const requestIdentity = (accessToken: string) => fetch(`${normalized}/api/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
     });
+    const identityResponse = await requestIdentity(token);
     if (!identityResponse.ok) throw new SyncError(classifyHttpStatus(identityResponse.status),
       identityResponse.status === 401 ? '请先重新登录原服务器账号' : `服务器身份核验失败（HTTP ${identityResponse.status}），原数据已保留`);
     const identity = await identityResponse.json() as {id?: string};
@@ -643,15 +665,46 @@ app.post("/lite-migration", async (c) => {
     if (getLiteMigrationProgress(db).stage !== "complete") {
       await getBackupManager().createBackup({ type: "full", description: "下载 NAS 数据到本机前的自动备份" });
     }
+
+    let currentToken = token;
+    let currentRefreshToken = refreshToken;
+    let migrationRefreshInFlight: Promise<string | null> | null = null;
+    const refreshMigrationToken = (): Promise<string | null> => {
+      if (migrationRefreshInFlight) return migrationRefreshInFlight;
+      if (!currentRefreshToken) return Promise.resolve(null);
+      migrationRefreshInFlight = exchangeRemoteRefreshToken(normalized, currentRefreshToken)
+        .then(async (refreshed) => {
+          if (!refreshed) return null;
+          const verified = await requestIdentity(refreshed.token);
+          if (!verified.ok) throw new SyncError(classifyHttpStatus(verified.status), "无法核验续期后的迁移账号");
+          const refreshedIdentity = await verified.json() as { id?: unknown };
+          if (refreshedIdentity.id !== identity.id) {
+            throw new SyncError("AUTH_EXPIRED", "续期后的迁移账号已改变，请重新登录原服务器账号");
+          }
+          currentToken = refreshed.token;
+          currentRefreshToken = refreshed.refreshToken;
+          return currentToken;
+        })
+        .finally(() => { migrationRefreshInFlight = null; });
+      return migrationRefreshInFlight;
+    };
     const progress = await runLiteMigration({
       db,
       remoteUrl: normalized,
       userId,
       remoteUserId: identity.id,
-      client: new SyncRemoteClient({ serverUrl: normalized, token }),
+      client: new SyncRemoteClient(
+        { serverUrl: normalized, token: currentToken },
+        {
+          getToken: () => currentToken,
+          refreshToken: refreshMigrationToken,
+        },
+      ),
       blobClient: new SyncBlobClient({
         serverUrl: normalized,
-        credential: { serverUrl: normalized, token },
+        credential: { serverUrl: normalized, token: currentToken },
+        getToken: () => currentToken,
+        refreshToken: refreshMigrationToken,
       }),
     });
 
@@ -660,9 +713,11 @@ app.post("/lite-migration", async (c) => {
       saveRemoteCredential({
         profileId: progress.profileId,
         serverUrl: normalized,
-        token,
+        token: currentToken,
+        refreshToken: currentRefreshToken,
+        remoteUserId: identity.id,
       });
-      const engine = reconcileSyncEngine(db);
+      const engine = reconcileSyncEngine(db, { userId });
       return c.json({ ...progress, engineRunning: engine !== null });
     }
     return c.json({ ...progress, engineRunning: false });
@@ -743,6 +798,18 @@ app.get("/diagnostics", async (c) => {
   const offline = await readOfflineReadiness(db, active?.id ?? lastProfile?.id ?? null, c.req.header("X-User-Id") as string);
   const pendingUploads = (db.prepare(`SELECT COUNT(*) AS count FROM attachment_sync_state s JOIN attachments a ON a.id=s.attachmentId
     WHERE s.profileId=? AND a.userId=? AND s.remoteOnly=0 AND s.status IN ('pending','failed','uploading')`).get(active?.id ?? null,c.req.header("X-User-Id")) as {count:number}).count;
+  const engineStatus = getActiveEngine()?.getStatus() ?? null;
+  let lastErrorDiagnostic: Record<string, unknown> | null = engineStatus?.lastErrorDiagnostic
+    ? { ...engineStatus.lastErrorDiagnostic }
+    : null;
+  if (!lastErrorDiagnostic && state?.lastErrorDiagnostic) {
+    try {
+      const parsed = JSON.parse(state.lastErrorDiagnostic);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        lastErrorDiagnostic = parsed as Record<string, unknown>;
+      }
+    } catch { /* ignore malformed diagnostic */ }
+  }
   return c.json({
     offline,
     pendingAttachments: pendingUploads + offline.attachments.pendingDownloads + offline.attachments.failedDownloads + offline.attachments.missingFiles,
@@ -753,13 +820,14 @@ app.get("/diagnostics", async (c) => {
     localCursor: state?.lastSequence ?? 0,
     lastSyncAt: state?.lastSyncAt ?? null,
     lastError: state?.lastError ?? null,
+    lastErrorDiagnostic,
     pendingMutations: active ? countPendingMutations(db,active.id) : 0,
     conflictCount: active ? countUnresolvedConflicts(db,active.id) : 0,
     pendingSample: pending,
     // 引擎运行时状态：用户报"改了半天没同步"时，
     // 首先要能区分是引擎没跑、没授权，还是推送失败。
     engineRunning: getActiveEngine() !== null,
-    engineStatus: getActiveEngine()?.getStatus() ?? null,
+    engineStatus,
     authorized: active ? hasRemoteCredential(active.id) : false,
     scopes: active
       ? listWorkspaceScopeStates(db, active.id).map((scope) => ({

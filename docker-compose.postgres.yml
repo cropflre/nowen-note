@@ -8,8 +8,8 @@
 #
 # 注意：
 #   - 此文件不影响默认 docker-compose.yml
-#   - SQLite 仍是默认数据库
-#   - PostgreSQL 仅用于 PG-PILOT 双库测试
+#   - 项目面向个人 / 小团队自托管，SQLite（WAL 模式）为唯一正式支持的生产数据库
+#   - PostgreSQL 适配目前暂停于历史实验脚手架阶段（仅用于存量 PG-PILOT 单元测试），不用于生产部署
 
 services:
   postgres:

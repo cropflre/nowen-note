@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema.js";
-import { IssueError, issueForRead, notifyIssue, requireIssue, textField, validateRelatedNote, workspaceIssueAccess, type WorkspaceIssue } from "../services/workspaceIssues.js";
+import { broadcastNotificationCreated, IssueError, issueForRead, notifyIssue, requireIssue, textField, validateRelatedNote, workspaceIssueAccess, type WorkspaceIssue } from "../services/workspaceIssues.js";
 
 const app = new Hono();
 // V1 为登录账号的协作入口，尚未定义公共 API Token 权限范围。
@@ -56,15 +56,17 @@ app.post("/", async (c) => {
   const content = textField(body.content ?? "", "正文", 100000, true);
   const relatedNoteId = validateRelatedNote(body.relatedNoteId, workspaceId, userId);
   const db = getDb();
+  let notifiedUserIds: string[] = [];
   const issue = db.transaction(() => {
     const number = (db.prepare("SELECT COALESCE(MAX(number), 0) + 1 AS number FROM workspace_issues WHERE workspaceId = ?").get(workspaceId) as { number: number }).number;
     const now = new Date().toISOString();
     const row: WorkspaceIssue = { id: uuid(), workspaceId, number, title, content, status: "open", createdBy: userId, closedBy: null, closedAt: null, relatedNoteId, createdAt: now, updatedAt: now };
     db.prepare(`INSERT INTO workspace_issues (id, workspaceId, number, title, content, createdBy, relatedNoteId, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(row.id, workspaceId, number, title, content, userId, relatedNoteId, now, now);
-    notifyIssue(row, userId, "issue_created", content, now);
+    notifiedUserIds = notifyIssue(row, userId, "issue_created", content, now);
     return row;
   }).immediate();
+  broadcastNotificationCreated(notifiedUserIds, { workspaceId, resourceType: "workspace_issue", resourceId: issue.id, type: "issue_created" });
   return c.json(issueForRead(issue, userId), 201);
 });
 
@@ -93,6 +95,8 @@ app.patch("/:id", async (c) => {
   const changed = next.status !== issue.status;
   if (!editing && !changed) return c.json(issueForRead(issue, userId));
   const db = getDb();
+  let notifiedUserIds: string[] = [];
+  let statusEventType = "";
   db.transaction(() => {
     const now = new Date().toISOString();
     next.updatedAt = now;
@@ -104,10 +108,14 @@ app.patch("/:id", async (c) => {
       .run(next.title, next.content, next.relatedNoteId, next.status, next.closedAt, next.closedBy, now, next.id);
     if (changed) {
       const type = next.status === "closed" ? "closed" : "reopened";
+      statusEventType = `issue_${type}`;
       db.prepare("INSERT INTO workspace_issue_events (id, issueId, userId, type, createdAt) VALUES (?, ?, ?, ?, ?)").run(uuid(), next.id, userId, type, now);
-      notifyIssue(next, userId, `issue_${type}`, "", now);
+      notifiedUserIds = notifyIssue(next, userId, statusEventType, "", now);
     }
   })();
+  if (notifiedUserIds.length > 0) {
+    broadcastNotificationCreated(notifiedUserIds, { workspaceId: next.workspaceId, resourceType: "workspace_issue", resourceId: next.id, type: statusEventType });
+  }
   return c.json(issueForRead(next, userId));
 });
 
@@ -137,12 +145,14 @@ app.post("/:id/comments", async (c) => {
   }
   const row = { id: uuid(), issueId: issue.id, userId, parentId, content, createdAt: new Date().toISOString(), updatedAt: "" };
   row.updatedAt = row.createdAt;
+  let notifiedUserIds: string[] = [];
   db.transaction(() => {
     db.prepare(`INSERT INTO workspace_issue_comments (id, issueId, userId, parentId, content, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(row.id, issue.id, userId, parentId, content, row.createdAt, row.updatedAt);
     db.prepare("UPDATE workspace_issues SET updatedAt = ? WHERE id = ?").run(row.createdAt, issue.id);
-    notifyIssue(issue, userId, "issue_commented", content, row.createdAt);
+    notifiedUserIds = notifyIssue(issue, userId, "issue_commented", content, row.createdAt);
   })();
+  broadcastNotificationCreated(notifiedUserIds, { workspaceId: issue.workspaceId, resourceType: "workspace_issue", resourceId: issue.id, type: "issue_commented" });
   return c.json(row, 201);
 });
 

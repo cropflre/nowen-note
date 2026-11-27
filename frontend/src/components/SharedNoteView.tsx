@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import VoiceMemoAudio from "@/components/VoiceMemoAudio";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
+import ExcelWorkbookPreview from "@/components/ExcelWorkbookPreview";
 import { cn } from "@/lib/utils";
 import { sharePageWidthClass } from "@/lib/sharePageWidth";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
@@ -1233,7 +1234,9 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         )}
       >
         <section className="min-w-0">
-          {isEditing && (content.permission === "edit" || content.permission === "edit_auth") && fakeNoteForEditing ? (
+          {content.noteType === "excel" && content.excelData ? (
+            <ExcelWorkbookPreview data={content.excelData} title={content.title} />
+          ) : isEditing && (content.permission === "edit" || content.permission === "edit_auth") && fakeNoteForEditing ? (
             <div className="shared-note-editor">
               <React.Suspense fallback={<div role="status">正在加载编辑器…</div>}>
                 {content.contentFormat === "plaintext" ? <PlainTextEditor key={fakeNoteForEditing.id} note={fakeNoteForEditing} onUpdate={handleGuestSave} editable={!content.isLocked} isGuest /> : <TiptapEditor

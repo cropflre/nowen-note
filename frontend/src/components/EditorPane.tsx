@@ -11,11 +11,13 @@ import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { Capacitor } from "@capacitor/core";
 import { isEncryptedNoteFormat, sameConversionContent } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors, FilePlus2, FolderPlus, LayoutTemplate } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { confirm } from "@/components/ui/confirm";
+import { confirm, prompt } from "@/components/ui/confirm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
+const WordDocumentEditor = React.lazy(() => import("@/components/WordDocumentEditor"));
+const PptDocumentEditor = React.lazy(() => import("@/components/PptDocumentEditor"));
 import NoteReadingPositionBridge from "@/components/NoteReadingPositionBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import type { NoteEditorHeading, NoteEditorUpdatePayload } from "@/components/editors/types";
@@ -24,12 +26,20 @@ import MarkdownEditor from "@/components/MarkdownEditor";
 import HtmlPreviewPane, { isFullHtmlDocument } from "@/components/HtmlPreviewPane";
 import type { NoteEditorHandle } from "@/components/editors/types";
 import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
+import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { isFolderUnlocked, loadUnlockedFolderIds } from "@/lib/knowledgeTreePassword";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
+import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
+import { pluginApi } from "@/lib/pluginApi";
+import { cancelNewNoteTitleFocus, requestNewNoteTitleFocus } from "@/lib/noteTitleFocus";
+import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import { confirmMediaNotePersistence } from "@/lib/mediaInsertionCommit";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
-import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { MOBILE_SYNC_APPLIED_EVENT, type MobileSyncAppliedDetail } from "@/lib/mobileSyncStatus";
 import {
   applyEditorUpdateToNote,
@@ -56,6 +66,7 @@ import FolderSyncAttachmentPreviewPane, { isFolderSyncAttachmentNote } from "@/c
 import BacklinksPanel from "@/components/BacklinksPanel";
 import MermaidView from "@/components/MermaidView";
 import {
+  EditingLockBanner,
   PresenceBar,
 } from "@/components/PresenceBar";
 import { EditorErrorBoundary } from "@/components/EditorErrorBoundary";
@@ -94,6 +105,8 @@ import {
 } from "@/lib/noteContentPersistence";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
+import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
@@ -130,7 +143,7 @@ import NoteColorMarkPicker from "@/components/NoteColorMarkPicker";
 import type { NoteColorMark } from "@/types";
 import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
-import { shouldApplyDefaultViewLock } from "@/lib/newNoteImmediateEdit";
+import { markNewNoteForImmediateEdit, shouldApplyDefaultViewLock } from "@/lib/newNoteImmediateEdit";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -227,6 +240,7 @@ function OrdinaryEditorPane({
   }, []);
   const { t } = useTranslation();
   const { visible: keyboardVisible } = useKeyboardVisible();
+  const { active: mobileLiteActive } = useMobileLiteMode();
   const aiAvailable = useAIConnectionAvailable();
 
   /**
@@ -319,6 +333,137 @@ function OrdinaryEditorPane({
   const noteMenuViewport = useVisibleViewport(showMobileMenu || showDesktopMoreMenu);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
+  const [childTemplateParentId, setChildTemplateParentId] = useState<string | null>(null);
+  const [childCreateBusy, setChildCreateBusy] = useState(false);
+
+  const resolveCurrentNoteTreeNode = useCallback(async (): Promise<KnowledgeTreeNode | null> => {
+    const note = activeNoteRef.current;
+    if (!note) return null;
+    try {
+      const [owned, shared] = await Promise.allSettled([
+        knowledgeTreeApi.list(),
+        knowledgeTreeApi.listShared(),
+      ]);
+      if (owned.status === "rejected") throw owned.reason;
+      const allNodes = [
+        ...owned.value.nodes,
+        ...(shared.status === "fulfilled" ? shared.value.nodes : []),
+      ];
+      const node = allNodes.find((item) => item.resourceType === "note" && item.resourceId === note.id) || null;
+      if (!node) {
+        toast.warning(t("mobileLite.editorChildCreate.nodeMissing"));
+        return null;
+      }
+      if (!node.access.capabilities.canCreate) {
+        toast.warning(t("mobileLite.editorChildCreate.noPermission"));
+        return null;
+      }
+      if (!isFolderUnlocked(node, loadUnlockedFolderIds())) {
+        toast.warning(t("mobileLite.editorChildCreate.lockedParent"));
+        return null;
+      }
+      return node;
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
+      return null;
+    }
+  }, [t]);
+
+  const openCreatedChildNote = useCallback(async (noteId: string, parentNodeId: string, createdNodeId?: string) => {
+    revealCreatedKnowledgeTreeNote(parentNodeId, createdNodeId);
+    emitKnowledgeTreeRefresh("editor-child-note-created");
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+    const createdNote = await api.getNote(noteId);
+    markNewNoteForImmediateEdit(createdNote.id);
+    actions.setActiveNote(createdNote);
+    actions.addNoteToList(createdNote);
+    actions.setMobileView("editor");
+  }, [actions]);
+
+  const handleCreateChildFromTemplate = useCallback(async () => {
+    if (childCreateBusy) return;
+    setShowMobileMenu(false);
+    setChildCreateBusy(true);
+    try {
+      const node = await resolveCurrentNoteTreeNode();
+      if (!node) return;
+      setChildTemplateParentId(node.id);
+    } finally {
+      setChildCreateBusy(false);
+    }
+  }, [childCreateBusy, resolveCurrentNoteTreeNode]);
+
+  const handleCreateChildNote = useCallback(async () => {
+    if (childCreateBusy) return;
+    setShowMobileMenu(false);
+    setChildCreateBusy(true);
+    const focusRequestId = requestNewNoteTitleFocus();
+    try {
+      const node = await resolveCurrentNoteTreeNode();
+      if (!node) {
+        cancelNewNoteTitleFocus(focusRequestId);
+        return;
+      }
+      const created = await knowledgeTreeApi.create({
+        parentId: node.id,
+        nodeType: "note",
+        title: t("common.untitledNote"),
+      });
+      await openCreatedChildNote(created.resourceId, node.id, created.id);
+    } catch (error) {
+      cancelNewNoteTitleFocus(focusRequestId);
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
+    } finally {
+      setChildCreateBusy(false);
+    }
+  }, [childCreateBusy, openCreatedChildNote, resolveCurrentNoteTreeNode, t]);
+
+  const handleCreateChildFolder = useCallback(async () => {
+    if (childCreateBusy) return;
+    setShowMobileMenu(false);
+    const node = await resolveCurrentNoteTreeNode();
+    if (!node) return;
+    const entered = await prompt({
+      title: t("mobileLite.editorChildCreate.folderPromptTitle"),
+      placeholder: t("mobileLite.editorChildCreate.folderPromptPlaceholder"),
+      confirmText: t("common.confirm"),
+    });
+    if (!entered?.trim()) return;
+    setChildCreateBusy(true);
+    try {
+      const created = await knowledgeTreeApi.create({
+        parentId: node.id,
+        nodeType: "folder",
+        title: entered.trim(),
+      });
+      revealCreatedKnowledgeTreeNote(node.id, created.id);
+      emitKnowledgeTreeRefresh("editor-child-folder-created");
+      actions.refreshNotebooks();
+      toast.success(t("mobileLite.editorChildCreate.folderCreated"));
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
+    } finally {
+      setChildCreateBusy(false);
+    }
+  }, [actions, childCreateBusy, resolveCurrentNoteTreeNode, t]);
+
+  useEffect(() => {
+    if (!showMobileMenu) return;
+    return registerMobileBackHandler("sheet", () => {
+      setShowMobileMenu(false);
+      setShowMobileMoveMenu(false);
+      return true;
+    });
+  }, [showMobileMenu]);
+
+  useEffect(() => {
+    if (!showMobileOutline) return;
+    return registerMobileBackHandler("sheet", () => {
+      setShowMobileOutline(false);
+      return true;
+    });
+  }, [showMobileOutline]);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
@@ -935,6 +1080,7 @@ function OrdinaryEditorPane({
   const handleLocalMirrorUpdate = useCallback((data: NoteEditorUpdatePayload) => {
     const current = activeNoteRef.current;
     if (!current || (data._noteId && data._noteId !== current.id)) return;
+    flagEditingRef.current?.();
     publishEditorSplitMirrorUpdate(current.id, data);
   }, []);
 
@@ -1664,6 +1810,7 @@ function OrdinaryEditorPane({
 
   /** �༭̬�㲥��handleUpdate ����ʱ��ʱ�� editing=true��500ms ���Զ�ȡ�� */
   const editingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flagEditingRef = useRef<(() => void) | null>(null);
   const flagEditing = useCallback(() => {
     rtSetEditing(true);
     if (editingTimerRef.current) clearTimeout(editingTimerRef.current);
@@ -1672,6 +1819,7 @@ function OrdinaryEditorPane({
       editingTimerRef.current = null;
     }, 1500);
   }, [rtSetEditing]);
+  flagEditingRef.current = flagEditing;
   // ���ж��ʱ����
   useEffect(() => {
     return () => {
@@ -2833,7 +2981,7 @@ const moveToTrash = useCallback(async () => {
         {compactMobileEditing ? (
           <div className="flex items-center gap-1">
             <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />
-            {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
+            {!mobileLiteActive && !effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
             <Button
               data-mobile-note-menu-trigger
               variant="ghost"
@@ -2893,6 +3041,7 @@ const moveToTrash = useCallback(async () => {
             - Presence ͷ����С�����岻���ƶ��˲���Ⱦ������˱����� */}
       <header
         data-mobile-editor-compact={compactMobileEditing ? "true" : "false"}
+        data-mobile-lite-editor-header={mobileLiteActive ? "true" : undefined}
         className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "hidden")}
         style={{ paddingTop: 'var(--safe-area-top)' }}
       >
@@ -2901,7 +3050,10 @@ const moveToTrash = useCallback(async () => {
           <button
             data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
-            className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-lg active:bg-app-hover shrink-0"
+            className={cn(
+              "flex items-center justify-center text-accent-primary rounded-lg active:bg-app-hover shrink-0",
+              mobileLiteActive ? "h-11 w-11 -ml-1" : "py-1 px-1 -ml-1",
+            )}
             aria-label={t('editor.back')}
           >
             <ChevronLeft size={22} />
@@ -2913,7 +3065,7 @@ const moveToTrash = useCallback(async () => {
             className="flex-1 min-w-0 flex items-center gap-1 text-xs text-tx-tertiary active:bg-app-hover rounded-md px-1.5 py-1 overflow-hidden"
             title={t('editor.moveToNotebook')}
           >
-            {mobileTitlePinned ? (
+            {mobileLiteActive || mobileTitlePinned ? (
               <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">
                 {activeNote.title || t('editor.untitled')}
               </span>
@@ -2943,14 +3095,16 @@ const moveToTrash = useCallback(async () => {
               本地写入成功就是"已保存"，同步失败只叫"等待同步"，
               绝不能让一次网络抖动显示成"保存失败"。
               Android 保留轻量文字，未开启同步时不渲染。 */}
-          {!compactMobileEditing && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />}
-          <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
-            {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
-            {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
-            {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
-          </span>
-          {!effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
-          {aiAvailable && canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+          {!compactMobileEditing && !mobileLiteActive && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} remotePending={remotePendingNoteId === activeNote.id} />}
+          {!mobileLiteActive && (
+            <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
+              {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
+              {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
+              {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
+            </span>
+          )}
+          {!mobileLiteActive && !effectiveLocked && !isTrashed && <PluginInspector resource={{ type: "note", id: activeNote.id }} workspaceId={activeNote.workspaceId} />}
+          {!mobileLiteActive && aiAvailable && canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
             data-editor-ai-entry="mobile"
             variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-accent-primary"
             onMouseDown={event => event.preventDefault()}
@@ -2962,7 +3116,7 @@ const moveToTrash = useCallback(async () => {
             data-mobile-note-menu-trigger
             variant="ghost"
             size="icon"
-            className="h-8 w-8 shrink-0"
+            className={cn("shrink-0", mobileLiteActive ? "h-11 w-11" : "h-8 w-8")}
             onClick={() => {
               const nextOpen = !showMobileMenu;
               if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
@@ -2971,7 +3125,7 @@ const moveToTrash = useCallback(async () => {
             }}
             aria-label={t('common.more')}
           >
-            <MoreHorizontal size={17} />
+            <MoreHorizontal size={mobileLiteActive ? 20 : 17} />
           </Button>
         </div>
       </header>
@@ -3006,6 +3160,44 @@ const moveToTrash = useCallback(async () => {
                     WebkitOverflowScrolling: "touch",
                   }}
                 >
+                  {!isTrashed && !isMobileLocalMode() && canEditActiveNote && (
+                    <>
+                      <div className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-tx-tertiary">
+                        {t("mobileLite.editorChildCreate.sectionTitle")}
+                      </div>
+                      <button
+                        type="button"
+                        data-mobile-editor-create-child-template=""
+                        onClick={() => { void handleCreateChildFromTemplate(); }}
+                        disabled={childCreateBusy}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        <LayoutTemplate size={15} className="text-indigo-500" />
+                        <span>{t("mobileLite.editorChildCreate.fromTemplate")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-mobile-editor-create-child-note=""
+                        onClick={() => { void handleCreateChildNote(); }}
+                        disabled={childCreateBusy}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        <FilePlus2 size={15} className="text-accent-primary" />
+                        <span>{t("mobileLite.editorChildCreate.newNote")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-mobile-editor-create-child-folder=""
+                        onClick={() => { void handleCreateChildFolder(); }}
+                        disabled={childCreateBusy}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                      >
+                        <FolderPlus size={15} className="text-amber-500" />
+                        <span>{t("mobileLite.editorChildCreate.newFolder")}</span>
+                      </button>
+                      <div className="h-px bg-app-border mx-2 my-1" />
+                    </>
+                  )}
                   {/* �ö� / ȡ���ö� */}
                   {!Capacitor.isNativePlatform() && activeNote.contentFormat !== "plaintext" && <button onClick={beginEncryption} disabled={effectiveLocked || !canEditActiveNote || syncStatus === "saving"}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40">
@@ -3839,7 +4031,7 @@ const moveToTrash = useCallback(async () => {
         </div>
       </div>
 
-      {userPrefs.enableNoteTabs && !state.editorSplit && <NoteTabsBar />}
+      {userPrefs.enableNoteTabs && !state.editorSplit && !mobileLiteActive && <NoteTabsBar />}
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}
       <div className="flex-1 flex overflow-hidden">
@@ -3918,6 +4110,60 @@ const moveToTrash = useCallback(async () => {
               onEditorReady={handleEditorReady}
               editable={false}
             />
+          ) : activeNote.noteType === "sheet" || activeNote.noteType === "excel" ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-sm text-tx-tertiary" role="status" aria-live="polite">
+              <Loader2 size={16} className="animate-spin" />
+              <span>{activeNote.noteType === "excel" ? "正在打开 Excel 表格…" : "正在打开表格…"}</span>
+            </div>
+          ) : activeNote.noteType === "ppt" ? (
+            <React.Suspense
+              fallback={
+                <div
+                  className="flex flex-1 items-center justify-center gap-2 text-sm text-tx-tertiary"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>正在加载 PPT 演示文稿编辑器…</span>
+                </div>
+              }
+            >
+              <PptDocumentEditor
+                key={`ppt-${activeNote.id}`}
+                ref={editorHandleRef}
+                note={activeNote}
+                onUpdate={handleEditorUpdate}
+                onLocalUpdate={handleLocalMirrorUpdate}
+                onHeadingsChange={setHeadings}
+                onEditorReady={handleEditorReady}
+                editable={canEditActiveNote && !effectiveLocked && !modeSwitching}
+              />
+            </React.Suspense>
+          ) : activeNote.noteType === "word" ? (
+            <React.Suspense
+              fallback={
+                <div
+                  className="flex flex-1 items-center justify-center gap-2 text-sm text-tx-tertiary"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>正在加载 Word 文档编辑器…</span>
+                </div>
+              }
+            >
+              <WordDocumentEditor
+                key={`word-${activeNote.id}`}
+                ref={editorHandleRef}
+                note={activeNote}
+                onUpdate={handleEditorUpdate}
+                onLocalUpdate={handleLocalMirrorUpdate}
+                onHeadingsChange={setHeadings}
+                onEditorReady={handleEditorReady}
+                editable={canEditActiveNote && !effectiveLocked && !modeSwitching}
+                searchQuery={state.searchQuery}
+              />
+            </React.Suspense>
           ) : editorMode === "md" ? (
             <MarkdownEditor
               // Phase 3: key �� CRDT ����̬���л� provider ʱǿ���ؽ��༭����
@@ -3951,6 +4197,7 @@ const moveToTrash = useCallback(async () => {
             </PhaseAPerfProfiler>
           )}
           </EditorErrorBoundary>
+          {!collabYDoc && <EditingLockBanner users={presenceUsers} />}
           <NoteReadingPositionBridge
             noteId={activeNote.id}
             userId={selfUser?.userId || "local"}
@@ -3993,6 +4240,28 @@ const moveToTrash = useCallback(async () => {
           onClose={() => setShowShareModal(false)}
         />
       )}
+
+      <NoteTemplatePickerDialog
+        open={childTemplateParentId !== null}
+        onClose={() => setChildTemplateParentId(null)}
+        parentId={childTemplateParentId}
+        onCreate={async (templateId) => {
+          if (!childTemplateParentId) return;
+          const result = await noteTemplatesApi.createNote(templateId, childTemplateParentId);
+          setChildTemplateParentId(null);
+          await openCreatedChildNote(result.noteId, childTemplateParentId, result.node.id);
+        }}
+        onCreatePlugin={async (pluginId, templateId, values) => {
+          if (!childTemplateParentId) return;
+          const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, {
+            workspaceId: getCurrentWorkspace(),
+            parentId: childTemplateParentId,
+            values,
+          });
+          setChildTemplateParentId(null);
+          await openCreatedChildNote(result.noteId, childTemplateParentId, result.node?.id);
+        }}
+      />
 
       {/* �汾��ʷ */}
       {showVersionHistory && (

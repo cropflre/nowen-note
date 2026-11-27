@@ -84,6 +84,8 @@
     "@tiptap/pm": "3.30.1",
     "@tiptap/react": "3.30.1",
     "@tiptap/starter-kit": "3.30.1",
+    "@univerjs/preset-sheets-core": "1.4.0",
+    "@univerjs/presets": "1.4.0",
     "bonjour": "^3.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -123,10 +125,7 @@
     "y-codemirror.next": "^0.3.5",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30",
-    "@univerjs/presets": "^1.0.3",
-    "@univerjs/preset-sheets-core": "^1.0.3",
-    "xlsx": "^0.18.5"
+    "yjs": "^13.6.30"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",

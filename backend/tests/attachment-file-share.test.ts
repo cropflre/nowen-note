@@ -169,8 +169,8 @@ test("expired stable shares return a product-level expiry error instead of INVAL
     allowDownload: true,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   });
-  db().prepare("UPDATE file_shares SET expiresAt = datetime('now', '-1 minute') WHERE id = ?")
-    .run(share.id);
+  db().prepare("UPDATE file_shares SET expiresAt = ? WHERE id = ?")
+    .run(new Date(Date.now() - 60_000).toISOString(), share.id);
 
   const response = await app.request(publicRoute(share.url));
   assert.equal(response.status, 410);

@@ -30,6 +30,8 @@ export interface DocxIR {
   resources?: {
     blobUrls?: string[];
   };
+  /** 解析阶段检测到的降级或不支持特性提示（如修订、批注、SmartArt 等）。 */
+  warnings?: string[];
 }
 
 export interface DocMeta {
@@ -43,12 +45,23 @@ export interface DocMeta {
 export interface Section {
   /** 页面物理尺寸（pt）。A4 默认 595 × 842。 */
   pageSize?: { w: number; h: number };
+  /** 页面方向（纵向 / 横向）。 */
+  orientation?: "portrait" | "landscape";
   margins?: { top: number; right: number; bottom: number; left: number };
+  /** 页眉纯文本（简单单段页眉）。 */
+  headerText?: string;
+  /** 页脚纯文本（简单单段页脚）。 */
+  footerText?: string;
   body: BlockNode[];
 }
 
-/** 块级节点：段落或表格（W1.4-A 起）。后续可扩展浮动图片块、目录块等。 */
-export type BlockNode = ParagraphNode | TableNode;
+/** 显式分页符节点（对应 OOXML <w:br w:type="page"/> 或 <w:pageBreakBefore/>）。 */
+export interface PageBreakNode {
+  type: "pageBreak";
+}
+
+/** 块级节点：段落、表格或显式分页符。后续可扩展浮动图片块、目录块等。 */
+export type BlockNode = ParagraphNode | TableNode | PageBreakNode;
 
 // ---------------------------------------------------------------------------
 // 表格（W1.4-A）

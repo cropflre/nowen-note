@@ -1,4 +1,5 @@
 import { withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
+import { withExcelDocumentSupport } from "../services/excelData.js";
 import { createHash } from 'node:crypto';
 /**
  * Bootstrap / Reconcile：首次开启同步时的基线建立（阶段 D）。
@@ -49,13 +50,15 @@ import { logSyncInfo, logSyncWarn } from "./log";
 import { getDb } from "../db/schema";
 import { recordConflict } from "./conflict";
 import { enqueueMutation } from './outbox';
-import { advanceSyncState } from "./profile";
+import { advanceSyncState, setProfileLocalUser } from "./profile";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges, validateEncryptedRemoteNotes } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
 import { isSyncEntityType, type SyncEntityType } from "./types";
+import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { adoptKnowledgeTreeOnCleanDownload } from "./knowledgeTreeBaseline";
 import {
   resetAllKnowledgeTreeSyncReadiness,
   resetKnowledgeTreeSyncReadiness,
@@ -272,7 +275,7 @@ export function readLocalState(
 
     case "note":
       return (db.prepare(`
-        SELECT id, notebookId, title, content, contentText, contentFormat,
+        SELECT id, notebookId, title, content, contentText, contentFormat, note_type,
                isPinned, isFavorite, isLocked, isArchived, isTrashed,
                trashedAt, themeId, sortOrder, version, createdAt
         FROM notes WHERE userId = ? AND workspaceId IS NULL
@@ -281,7 +284,7 @@ export function readLocalState(
         entityType: "note" as const,
         operation: "upsert" as const,
         entityId: String(r.id),
-        payload: withEncryptedBlocksSupport(r),
+        payload: withExcelDocumentSupport(db, withEncryptedBlocksSupport(r)),
       }));
 
     case "note_tag":
@@ -399,10 +402,32 @@ export function isLocalEmpty(db: Database.Database, userId: string): boolean {
  * 以并集比较会让每个同 ID 实体都被判成"内容不同"——中断后重放、重新对账时
  * 就会把已经一致的数据整批记成冲突。
  */
+const SCHEMA_DEFAULT_OMITTED_VALUES: Record<string, Set<string>> = {
+  note_type: new Set(["normal"]),
+  icon: new Set(["📒"]),
+  isExpanded: new Set(["1"]),
+  isDeleted: new Set(["0"]),
+  sortOrder: new Set(["0"]),
+  repeatRule: new Set(["none"]),
+  repeatInterval: new Set(["1"]),
+  status: new Set(["todo"]),
+  priority: new Set(["2"]),
+  images: new Set(["[]"]),
+  media: new Set(["[]"]),
+  attachments: new Set(["[]"]),
+};
+
+function normalizeComparableField(key: string, value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "boolean") return value ? "1" : "0";
+  if (key === "themeId") return normalizeNoteThemeId(value);
+  return String(value);
+}
+
 function payloadEquals(
   a: Record<string, unknown> | undefined,
   b: Record<string, unknown> | undefined,
-  ignore: string[] = ["updatedAt", "version"],
+  ignore: string[] = ["updatedAt", "version", "encryptedBlocksVersion", "excelRevision"],
 ): boolean {
   if (!a || !b) return false;
   for (const key of Object.keys(a)) {
@@ -411,7 +436,12 @@ function payloadEquals(
     const vb = b[key];
     // null 与 undefined 视为等价：不同来源对"空"的表示可能不同。
     if (va == null && vb == null) continue;
-    if (String(va) !== String(vb)) return false;
+    const na = normalizeComparableField(key, va);
+    const nb = normalizeComparableField(key, vb);
+    if (na === nb) continue;
+    // 旧版服务端未返回新增列或返回 null 时，本机落库采用 schema 默认值，不应误判为内容冲突。
+    if (nb === null && na !== null && SCHEMA_DEFAULT_OMITTED_VALUES[key]?.has(na)) continue;
+    return false;
   }
   return true;
 }
@@ -500,6 +530,7 @@ export async function runBootstrap(
 ): Promise<BootstrapProgress> {
   const { db, profileId, deviceId, userId, client } = options;
   const pageSize = options.pageSize ?? SYNC_SNAPSHOT_PAGE_SIZE;
+  setProfileLocalUser(db, profileId, userId);
 
   let profile = readProfile(db, profileId);
   if (profile.bootstrapStatus === "ready") {
@@ -600,6 +631,12 @@ export async function runBootstrap(
 
       // 冲突入台账：两个版本都保留，用户之后在冲突中心决定。
       for (const { local, remote } of plan.conflicts) {
+        const alreadyOpen = db.prepare(`
+          SELECT 1 FROM sync_conflicts
+          WHERE profileId = ? AND scopeKey = ? AND entityType = ? AND entityId = ? AND status = 'unresolved'
+          LIMIT 1
+        `).get(profileId, SYNC_PERSONAL_SCOPE_KEY, local.entityType, local.entityId);
+        if (alreadyOpen) continue;
         recordConflict(db, {
           profileId,
           entityType: local.entityType,
@@ -818,6 +855,19 @@ export async function runBootstrap(
     // 游标落到收敛点，之后由增量引擎接手。
     advanceSyncState(db, profileId, cursor, SYNC_PERSONAL_SCOPE_KEY);
     await client.ack(deviceId, cursor);
+
+    if (localEmpty) {
+      await adoptKnowledgeTreeOnCleanDownload({
+        db,
+        profileId,
+        deviceId,
+        userId,
+        scopeKey: SYNC_PERSONAL_SCOPE_KEY,
+        workspaceId: null,
+        client,
+        pageSize,
+      });
+    }
 
     // --- ready：基线建立完成，触发器开始写 Outbox，增量引擎可启动 ---
     db.transaction(() => {

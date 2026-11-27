@@ -20,7 +20,8 @@ import { notifySyncChanged } from "../sync/notify.js";
 import { broadcastToUser } from "./realtime.js";
 import { logAudit } from "./audit.js";
 import { yFlush, yDestroyDoc } from "./yjs.js";
-import { MIGRATION_LIMITS, migrationSourceSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat.js";
+import { LOCAL_DIRECTORY_MIGRATION_LIMITS, MIGRATION_LIMITS, migrationSourceSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat.js";
+import { getRuntimeMigrationLimits } from "../lib/migration-limits.js";
 import { migrationDirectoryBytes, sniffMigrationAsset, MigrationSourceError } from "./migrationSourceAdapter.js";
 
 export type MigrationActor = { userId: string; tokenId?: string | null };
@@ -68,6 +69,30 @@ function prepare(sql: string) {
   if (!statement) { statement = connection.prepare<unknown[]>(sql); cache.set(sql, statement); }
   return statement;
 }
+const LOCAL_SOURCE_MANIFEST = ".desktop-local-source.json";
+
+export function isDesktopLocalImportEnabled(): boolean {
+  const secret = process.env.ELECTRON_LOCAL_ACCOUNT_SECRET;
+  return typeof secret === "string" && secret.length >= 16;
+}
+
+function readTrustedLocalSourceRoot(jobId: string): string | null {
+  if (!isDesktopLocalImportEnabled()) return null;
+  const manifestPath = path.join(migrationJobDirectory(jobId), LOCAL_SOURCE_MANIFEST);
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    const stat = fs.lstatSync(manifestPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return null;
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { rootDir?: unknown };
+    if (typeof parsed.rootDir !== "string" || !parsed.rootDir) return null;
+    const realRoot = fs.realpathSync(parsed.rootDir);
+    if (!fs.statSync(realRoot).isDirectory()) return null;
+    return realRoot;
+  } catch {
+    return null;
+  }
+}
+
 export function migrationJobDirectory(id: string): string {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new MigrationError("MIGRATION_NOT_FOUND", "迁移任务不存在", 404);
   return path.join(rootDir(), id);
@@ -76,6 +101,18 @@ function fileFor(job: JobRow, relative: string): string {
   if (!relative || relative.includes("\\") || relative.includes("\0") || path.posix.isAbsolute(relative)
     || relative.split("/").some((part) => part === "." || part === ".." || !part)) {
     throw new MigrationError("MIGRATION_ASSET_PATH", "迁移文件路径无效");
+  }
+  if (relative.startsWith("local/")) {
+    const trustedRoot = readTrustedLocalSourceRoot(job.id);
+    if (!trustedRoot) throw new MigrationError("MIGRATION_ASSET_PATH", "迁移文件路径无效");
+    const subPath = relative.slice("local/".length);
+    const filename = path.join(trustedRoot, subPath);
+    const resolved = fs.realpathSync(filename);
+    const stat = fs.lstatSync(filename);
+    if (!resolved.startsWith(trustedRoot + path.sep) || !stat.isFile() || stat.isSymbolicLink()) {
+      throw new MigrationError("MIGRATION_ASSET_PATH", "迁移文件路径无效");
+    }
+    return filename;
   }
   const filename = path.join(migrationJobDirectory(job.id), relative);
   const root = fs.realpathSync(migrationJobDirectory(job.id));
@@ -249,13 +286,15 @@ async function stage(actor: MigrationActor, job: JobRow, input: unknown[], fromA
       ...(note.contentFormat === "html" ? ["HTML_SANITIZED; 已移除危险脚本与不支持的组件"] : []),
       ...(Object.keys(note.metadata).length ? ["SOURCE_METADATA_REPORTED_ONLY; 特殊属性不写入笔记，未迁移字段名列在报告中"] : []),
     ]);
+    const isLocalSource = readTrustedLocalSourceRoot(job.id) !== null;
     for (const attachment of note.attachments) {
-      if (fromAdapter) {
+      let asset = prepare("SELECT sha256 FROM migration_assets WHERE jobId = ? AND path = ?").get(job.id, attachment.path) as { sha256: string } | undefined;
+      if (fromAdapter && !asset) {
         const filename = fileFor(job, attachment.path);
         if (await fileHash(filename) !== attachment.sha256) throw new MigrationError("MIGRATION_HASH_MISMATCH", "附件校验失败");
         registerMigrationAsset(actor, job.id, attachment.path, attachment.sha256, fs.statSync(filename).size);
+        asset = { sha256: attachment.sha256 };
       }
-      const asset = prepare("SELECT sha256 FROM migration_assets WHERE jobId = ? AND path = ?").get(job.id, attachment.path) as { sha256: string } | undefined;
       if (!asset || asset.sha256 !== attachment.sha256) throw new MigrationError("MIGRATION_ASSET_NOT_STAGED", "请先上传并校验笔记引用的附件");
     }
     const sourceKey = hash(JSON.stringify([note.source.platform, note.source.exportId, note.source.sourceId]));
@@ -267,10 +306,12 @@ async function stage(actor: MigrationActor, job: JobRow, input: unknown[], fromA
       continue;
     }
     const count = (prepare("SELECT COUNT(*) AS count FROM migration_items WHERE jobId = ?").get(job.id) as { count: number }).count;
-    if (count >= MIGRATION_LIMITS.notes) throw new MigrationError("MIGRATION_ITEM_LIMIT", "每个任务最多迁移 10,000 篇笔记", 413);
+    const noteLimit = isLocalSource ? LOCAL_DIRECTORY_MIGRATION_LIMITS.notes : MIGRATION_LIMITS.notes;
+    if (count >= noteLimit) throw new MigrationError("MIGRATION_ITEM_LIMIT", `每个任务最多迁移 ${noteLimit.toLocaleString()} 篇笔记`, 413);
+    const runtimeLimits = getRuntimeMigrationLimits();
     const stagedBytes = (prepare("SELECT stagedBytes AS bytes FROM migration_jobs WHERE id = ?").get(job.id) as { bytes: number }).bytes;
-    const assetBytes = (prepare("SELECT COALESCE(SUM(size),0) AS bytes FROM migration_assets WHERE jobId=?").get(job.id) as { bytes: number }).bytes;
-    if (stagedBytes + assetBytes + Buffer.byteLength(JSON.stringify(note)) > MIGRATION_LIMITS.extractedBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移暂存数据总量超过容量限制", 413);
+    const assetBytes = isLocalSource ? 0 : (prepare("SELECT COALESCE(SUM(size),0) AS bytes FROM migration_assets WHERE jobId=?").get(job.id) as { bytes: number }).bytes;
+    if (stagedBytes + assetBytes + Buffer.byteLength(JSON.stringify(note)) > runtimeLimits.extractedBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移暂存数据总量超过容量限制", 413);
     checkAccess(actor, readJob(job.id), true);
     assertState(readJob(job.id), fromAdapter ? ["SCANNING", "NORMALIZING"] : ["CREATED"]);
     const itemId = crypto.randomUUID();
@@ -278,7 +319,7 @@ async function stage(actor: MigrationActor, job: JobRow, input: unknown[], fromA
     const { content, ...metadata } = note;
     const metadataJson = JSON.stringify({ ...metadata, contentBytes: Buffer.byteLength(content) });
     const diskBytes = stagingBytes.get(job.id) ?? migrationDirectoryBytes(migrationJobDirectory(job.id));
-    if (diskBytes + Buffer.byteLength(content) > MIGRATION_LIMITS.temporaryBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移临时目录超过容量限制", 413);
+    if (diskBytes + Buffer.byteLength(content) > runtimeLimits.temporaryBytes) throw new MigrationError("MIGRATION_STAGING_QUOTA", "迁移临时目录超过容量限制", 413);
     fs.writeFileSync(path.join(migrationJobDirectory(job.id), contentPath), content, { flag: "wx", mode: 0o600 });
     try { db.transaction(() => {
     prepare("INSERT INTO migration_items(id,jobId,sourceKey,contentHash,payloadHash,metadataJson,contentPath,targetNoteId) VALUES (?,?,?,?,?,?,?,?)")
@@ -568,16 +609,24 @@ async function processJob(id: string): Promise<void> {
     const upload = prepare("SELECT * FROM migration_uploads WHERE jobId = ? AND status = 'PENDING' ORDER BY id LIMIT 1").get(id) as UploadRow | undefined;
     if (!upload) { status(id, "CREATED", ["SCANNING", "NORMALIZING"]); return; }
     status(id, "NORMALIZING", ["SCANNING", "NORMALIZING"]);
-    const { stageMigrationFile } = await import("./migrationSourceAdapter.js");
-    const result = await stageMigrationFile({ filePath: fileFor(job, upload.path), filename: upload.filename, jobDir: migrationJobDirectory(id), source: parse<Source>(job.sourceJson), assertActive: () => {
+    const { stageLocalDirectory, stageMigrationFile } = await import("./migrationSourceAdapter.js");
+    const assertActive = () => {
       const current = readJob(id);
       assertState(current, ["SCANNING", "NORMALIZING"]);
       checkAccess(actor, current, true);
-    }, onNote: async (note: NmfNote) => {
+    };
+    const onNote = async (note: NmfNote) => {
       const current = readJob(id);
       if (!["SCANNING", "NORMALIZING"].includes(current.status)) throw new MigrationError("MIGRATION_INTERRUPTED", "迁移任务已停止", 409);
       await stage(actor, current, [note], true);
-    } });
+    };
+    const result = upload.path === LOCAL_SOURCE_MANIFEST
+      ? await (() => {
+        const trustedRoot = readTrustedLocalSourceRoot(id);
+        if (!trustedRoot) throw new MigrationError("MIGRATION_LOCAL_DIR_UNAVAILABLE", "仅桌面端本地模式支持直接导入本地文件夹", 403);
+        return stageLocalDirectory({ rootDir: trustedRoot, source: parse<Source>(job.sourceJson), assertActive, onNote });
+      })()
+      : await stageMigrationFile({ filePath: fileFor(job, upload.path), filename: upload.filename, jobDir: migrationJobDirectory(id), source: parse<Source>(job.sourceJson), assertActive, onNote });
     job = readJob(id);
     if (!["SCANNING", "NORMALIZING"].includes(job.status)) return;
     warnings(job, result.warnings);
@@ -705,6 +754,53 @@ export function controlMigration(actor: MigrationActor, id: string, action: "pau
   }
   return getMigration(actor, id);
 }
+export function startLocalDirectoryMigration(actor: MigrationActor, input: {
+  directoryPath: string;
+  workspaceId?: string | null;
+  targetNotebookId?: string | null;
+  name?: string;
+}) {
+  if (!isDesktopLocalImportEnabled()) {
+    throw new MigrationError("MIGRATION_LOCAL_DIR_FORBIDDEN", "仅桌面端本地模式支持直接导入本地文件夹", 403);
+  }
+  if (actor.tokenId) {
+    throw new MigrationError("MIGRATION_HUMAN_APPROVAL_REQUIRED", "请在 Nowen Note 桌面端中选择要导入的文件夹", 403);
+  }
+  const rawDir = String(input.directoryPath || "").trim();
+  if (!rawDir || rawDir.includes("\0") || rawDir.length > 4096) {
+    throw new MigrationError("MIGRATION_LOCAL_DIR_INVALID", "请选择有效的本地文件夹", 400);
+  }
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(rawDir);
+    if (!fs.statSync(realRoot).isDirectory()) {
+      throw new MigrationError("MIGRATION_LOCAL_DIR_INVALID", "所选路径不是有效文件夹", 400);
+    }
+  } catch (error) {
+    if (error instanceof MigrationError) throw error;
+    throw new MigrationError("MIGRATION_LOCAL_DIR_INVALID", "所选文件夹不存在或无法访问", 400);
+  }
+  if (path.parse(realRoot).root === realRoot) {
+    throw new MigrationError("MIGRATION_LOCAL_DIR_INVALID", "不能直接导入磁盘根目录，请选择具体的笔记文件夹", 400);
+  }
+  const operationId = crypto.randomUUID();
+  const folderName = (input.name?.trim() || path.basename(realRoot) || "本地文件夹").slice(0, 200);
+  const created = createMigration(actor, {
+    operationId,
+    name: folderName,
+    source: { platform: "files", exportId: operationId },
+    workspaceId: input.workspaceId ?? null,
+    targetNotebookId: input.targetNotebookId ?? null,
+  });
+  const manifestPath = path.join(migrationJobDirectory(created.id), LOCAL_SOURCE_MANIFEST);
+  fs.writeFileSync(manifestPath, JSON.stringify({ rootDir: realRoot }), { flag: "wx", mode: 0o600 });
+  prepare("INSERT INTO migration_uploads(id,jobId,filename,path) VALUES (?,?,?,?)")
+    .run(crypto.randomUUID(), created.id, folderName, LOCAL_SOURCE_MANIFEST);
+  status(created.id, "SCANNING", ["CREATED"]);
+  queueMigration(created.id);
+  return getMigration(actor, created.id);
+}
+
 export function beginMigrationUpload(actor: MigrationActor, id: string): void {
   stagingBytes.delete(id);
   if (prepare("SELECT 1 FROM migration_upload_sessions WHERE jobId=? AND status='OPEN' LIMIT 1").get(id)) throw new MigrationError("MIGRATION_UPLOAD_INCOMPLETE", "请继续当前分块上传或取消上传会话", 409);

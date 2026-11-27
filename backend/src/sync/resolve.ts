@@ -1,5 +1,10 @@
 import { isProtectedNotePayload, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
-import { applyAssetMetadataLocal, readAssetMetadata } from "./assetOrganization";
+import {
+  applyAssetMetadataLocal,
+  normalizeIncomingAssetMetadata,
+  readAssetMetadata,
+} from "./assetOrganization";
+import { getProfile } from "./profile";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { SYNC_TABLES } from "./constants";
@@ -186,16 +191,23 @@ export function applyConflictResolution(
     }
     if (row.entityType === "attachment_organization") {
       if (workspaceId || input.resolution === "manual") throw new SyncError("INVALID_PAYLOAD", "附件目录冲突请选择本机或服务器位置");
-      const chosen = input.resolution === "keep-remote" ? remote : readAssetMetadata(db,row.entityId,input.userId) ?? local;
-      if (!chosen || !remote || remote.__delete || input.resolution !== "keep-remote" && remote.deleted === 1) {
+      if (!remote || remote.__delete || input.resolution !== "keep-remote" && remote.deleted === 1) {
         throw new SyncError("INVALID_PAYLOAD", "缺少有效的附件目录基线或远端资源已删除");
       }
-      const version = Number(remote.version) + (input.resolution === "keep-remote" ? 0 : 1);
-      const payload = {...chosen,version};
+      const remoteUserId = getProfile(db, row.profileId)?.remoteUserId ?? null;
+      const normalizedRemote = normalizeIncomingAssetMetadata(row.entityId, remote, input.userId, remoteUserId);
+      const chosen = input.resolution === "keep-remote"
+        ? normalizedRemote
+        : readAssetMetadata(db,row.entityId,input.userId) ?? (local ? normalizeIncomingAssetMetadata(row.entityId, local, input.userId, remoteUserId) : null);
+      if (!chosen) {
+        throw new SyncError("INVALID_PAYLOAD", "缺少有效的附件目录基线或远端资源已删除");
+      }
+      const version = Number(normalizedRemote.version) + (input.resolution === "keep-remote" ? 0 : 1);
+      const payload = {...chosen,userId:input.userId,version};
       applyAssetMetadataLocal(db,[payload],input.userId);
       if (input.resolution !== "keep-remote") enqueueMutation(db, {
         profileId:row.profileId,deviceId:input.deviceId,scopeKey:row.scopeKey,entityType:row.entityType,
-        entityId:row.entityId,operation:"upsert",baseVersion:Number(remote.version),payload,
+        entityId:row.entityId,operation:"upsert",baseVersion:Number(normalizedRemote.version),payload,
       });
       resolveConflict(db,row.id);
       return;

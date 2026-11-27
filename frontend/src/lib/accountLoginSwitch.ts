@@ -53,6 +53,18 @@ async function prepareReauth(account: AccountLoginHistoryItem, message?: string)
   return { status: "requires_reauth", message };
 }
 
+function isLoopbackServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "127.0.0.1"
+      || parsed.hostname === "localhost"
+      || parsed.hostname === "::1"
+      || parsed.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 async function commitSwitch(
   account: AccountLoginHistoryItem,
   token: string,
@@ -61,6 +73,15 @@ async function commitSwitch(
 ): Promise<AccountLoginSwitchResult> {
   setServerUrl(account.serverUrl);
   if (isAndroidNativeRuntime()) completeMobileAccountLogin();
+  if ((window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop) {
+    // 桌面端切换到远端账号时保留 prefer-cloud，避免重载后被已完成的本地迁移强行切回 @desktop；
+    // 切回本机 loopback 地址时清除该标记，恢复本地工作区启动。
+    if (isLoopbackServerUrl(account.serverUrl)) {
+      localStorage.removeItem("nowen-prefer-cloud");
+    } else {
+      localStorage.setItem("nowen-prefer-cloud", "1");
+    }
+  }
   storeAuthTokens({ token, refreshToken: refreshToken ?? null });
   localStorage.setItem(CURRENT_ACCOUNT_HISTORY_ID_KEY, account.id);
   await saveAccountLoginHistory({ serverUrl: account.serverUrl, token, refreshToken, user });

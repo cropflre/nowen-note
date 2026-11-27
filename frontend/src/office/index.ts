@@ -9,6 +9,7 @@ export type {
   DocMeta,
   Section,
   BlockNode,
+  PageBreakNode,
   ParagraphNode,
   RunNode,
   RunProps,
@@ -25,3 +26,31 @@ export type { CreateDocxOptions } from "./serializers/docx-serializer";
 // Tiptap JSON → DocxIR 适配器（W2 MVP）。配合 createDocx 实现"任意笔记导出 .docx"。
 export { tiptapToIr } from "./serializers/tiptap-to-ir";
 export type { TiptapToIrOptions } from "./serializers/tiptap-to-ir";
+// DocxIR → Tiptap JSON 适配器（W2 双向闭环）。配合 parseDocx 实现高保真导入编辑。
+export { irToTiptap } from "./serializers/ir-to-tiptap";
+export type { IrToTiptapOptions, IrToTiptapResult, TiptapJsonNode } from "./serializers/ir-to-tiptap";
+
+// PowerPoint（P1 阶段）—— 结构化幻灯片 IR + 自研 .pptx 双向解析/序列化 + 大纲转 PPT
+export {
+  PPT_THEMES,
+  PPT_LAYOUTS,
+  createSlide,
+  createSlideId,
+  createDefaultPptDeck,
+  normalizePptDeck,
+  parsePptDeckJson,
+  serializePptDeckJson,
+  extractPptPlainText,
+  outlineTextToPptDeck,
+} from "./ir/presentation";
+export type {
+  PptDeckIR,
+  PptSlide,
+  PptLayoutId,
+  PptLayoutMeta,
+  PptThemeId,
+  PptThemeSpec,
+} from "./ir/presentation";
+export { createPptx } from "./serializers/pptx-serializer";
+export type { CreatePptxOptions } from "./serializers/pptx-serializer";
+export { parsePptx } from "./parsers/pptx-parser";

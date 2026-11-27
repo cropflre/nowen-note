@@ -6,18 +6,24 @@ import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({
-  list: vi.fn(), move: vi.fn(), reorder: vi.fn(), success: vi.fn(), error: vi.fn(),
+  list: vi.fn(), move: vi.fn(), batchMove: vi.fn(), reorder: vi.fn(), success: vi.fn(), error: vi.fn(),
   actions: { refreshNotebooks: vi.fn(), refreshNotes: vi.fn() },
+  onMove: null as ((node: KnowledgeTreeNode) => void) | null,
 }));
 vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: { viewMode: "all", searchQuery: "", selectedNotebookId: null, activeNote: null, notebooks: [] } }),
   useAppActions: () => mock.actions,
 }));
 vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: {
-  list: mock.list, listShared: async () => ({ nodes: [] }), move: mock.move, reorder: mock.reorder,
+  list: mock.list, listShared: async () => ({ nodes: [] }), move: mock.move, batchMove: mock.batchMove, reorder: mock.reorder,
 } }));
 vi.mock("@/lib/toast", () => ({ toast: { success: mock.success, error: mock.error } }));
-vi.mock("@/components/KnowledgeTreeNodeMenu", () => ({ default: () => null }));
+vi.mock("@/components/KnowledgeTreeNodeMenu", () => ({
+  default: (props: { onMove?: (node: KnowledgeTreeNode) => void }) => {
+    mock.onMove = props.onMove ?? null;
+    return null;
+  },
+}));
 vi.mock("@/components/KnowledgeTreePermissionsDialog", () => ({ default: () => null }));
 vi.mock("@/components/NoteTemplatePickerDialog", () => ({ default: () => null }));
 vi.mock("@/components/FolderPasswordDialog", () => ({ default: () => null }));
@@ -49,6 +55,10 @@ describe("knowledge tree native drag and drop", () => {
     mock.list.mockImplementation(async () => ({ nodes: nodes.map((item) => ({ ...item })) }));
     mock.move.mockImplementation(async (id, { parentId }) => {
       nodes = nodes.map((item) => item.id === id ? { ...item, parentId } : item);
+    });
+    mock.batchMove.mockImplementation(async (ids: string[], { parentId }) => {
+      nodes = nodes.map((item) => ids.includes(item.id) ? { ...item, parentId } : item);
+      return { nodeIds: ids };
     });
     mock.reorder.mockImplementation(async (items: Array<{ id: string; sortOrder: number }>) => {
       nodes = nodes.map((item) => ({ ...item, sortOrder: items.find((entry) => entry.id === item.id)?.sortOrder ?? item.sortOrder }));
@@ -138,5 +148,95 @@ describe("knowledge tree native drag and drop", () => {
     const ids = Array.from(host.querySelectorAll<HTMLElement>("[data-knowledge-tree-node-id]"))
       .map((element) => element.dataset.knowledgeTreeNodeId).filter((id) => id?.startsWith("level3"));
     expect(ids).toEqual(["level3-a", "level3-b"]);
+  });
+
+  it("moves multiple Ctrl-selected notes into a folder in one drag operation", async () => {
+    await act(async () => root.render(<KnowledgeTreePanel />));
+    const buttonOf = (id: string) => row(id).querySelectorAll("button")[1] as HTMLButtonElement;
+    await act(async () => {
+      buttonOf("level2-a").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    });
+    await act(async () => {
+      buttonOf("level2-b").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    });
+    await drag("level2-a", "destination", 104);
+    expect(mock.batchMove).toHaveBeenCalledWith(["level2-a", "level2-b"], { parentId: "destination" });
+    expect(mock.move).not.toHaveBeenCalled();
+  });
+
+  it("allows dragging a filtered document directly into a folder while searching", async () => {
+    nodes = [
+      node("a02", null, 0, true),
+      { ...node("folder-2083", "a02", 0, true), title: "驰铭-13012510_CM-2083W-MainDrv-V1.0" },
+      { ...node("doc-2083", "a02", 1, false), title: "驰铭-13012083_CM-2055W-PL LED1" },
+    ];
+    await act(async () => root.render(<KnowledgeTreePanel />));
+    const searchInput = host.querySelector<HTMLInputElement>("input[type='text'], input:not([type])")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(searchInput, "2083");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Even dropping near the top edge (104) while searching moves into the target folder instead of rejecting/reordering.
+    await drag("doc-2083", "folder-2083", 104);
+    expect(mock.move).toHaveBeenCalledWith("doc-2083", { parentId: "folder-2083" });
+    expect(mock.reorder).not.toHaveBeenCalled();
+  });
+
+  it("sorts MovePanel with folders first, reacts to sort mode changes, supports search and shrink-0 icons", async () => {
+    nodes = [
+      { ...node("root-a", null, 0, true), title: "A01-包工包料", createdAt: "2025-01-01T00:00:00.000Z" },
+      { ...node("root-b", null, 1, true), title: "A02-来料加工", createdAt: "2025-01-02T00:00:00.000Z" },
+      { ...node("old-doc", "root-b", 0, false), title: "我司-201A00333_YD-5005X-V3-2835-超长标题测试", createdAt: "2025-03-01T00:00:00.000Z" },
+      { ...node("new-folder", "root-b", 1, true), title: "驰铭-13010219_CM5015C-新建文件夹", createdAt: "2026-11-24T00:00:00.000Z" },
+      { ...node("moving-doc", "root-b", 2, false), title: "待移动文档", createdAt: "2026-11-20T00:00:00.000Z" },
+    ];
+    await act(async () => root.render(<KnowledgeTreePanel />));
+    await act(async () => {
+      mock.onMove?.(nodes.find((item) => item.id === "moving-doc")!);
+    });
+
+    const movePanel = () => host.querySelector<HTMLElement>("[data-knowledge-tree-move-panel]")!;
+    const candidateButtons = () => Array.from(movePanel().querySelectorAll<HTMLButtonElement>("button[title]"))
+      .filter((btn) => btn.querySelector("[data-knowledge-tree-icon]"));
+
+    // Manual mode: root folders first, newly created subfolder next, documents last.
+    expect(candidateButtons().map((btn) => btn.textContent)).toEqual([
+      "A01-包工包料",
+      "A02-来料加工",
+      "驰铭-13010219_CM5015C-新建文件夹A02-来料加工",
+      "我司-201A00333_YD-5005X-V3-2835-超长标题测试A02-来料加工",
+    ]);
+
+    // Every candidate icon has shrink-0 so long titles never crush the icon.
+    for (const btn of candidateButtons()) {
+      const icon = btn.querySelector("[data-knowledge-tree-icon]");
+      expect(icon?.getAttribute("class")).toContain("shrink-0");
+    }
+
+    // Switching sort mode immediately reorders MovePanel candidates.
+    const { saveKnowledgeTreeSortMode } = await import("@/lib/knowledgeTreeSort");
+    await act(async () => {
+      saveKnowledgeTreeSortMode("title-desc");
+    });
+    expect(candidateButtons()[0].textContent).toContain("驰铭-13010219_CM5015C-新建文件夹");
+
+    // Folders-only toggle filters out documents.
+    const foldersOnlyBtn = Array.from(movePanel().querySelectorAll("button")).find((btn) => btn.textContent?.includes("仅文件夹"))!;
+    await act(async () => {
+      foldersOnlyBtn.click();
+    });
+    expect(candidateButtons().every((btn) => !btn.textContent?.includes("我司-201A00333"))).toBe(true);
+
+    // Search box filters candidates by keyword.
+    const moveSearch = movePanel().querySelector<HTMLInputElement>('input[aria-label="搜索移动目标"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(moveSearch, "5015C");
+      moveSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(candidateButtons().map((btn) => btn.textContent)).toEqual([
+      "驰铭-13010219_CM5015C-新建文件夹A02-来料加工",
+    ]);
   });
 });

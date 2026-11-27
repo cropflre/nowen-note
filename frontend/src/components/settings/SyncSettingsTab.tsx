@@ -32,7 +32,7 @@ import {
   type LiteMigrationProgress,
 } from "@/lib/desktopBridge";
 import { getServerUrl } from "@/lib/api";
-import { getAccessToken } from "@/lib/authSession";
+import { getAccessToken, getRefreshToken } from "@/lib/authSession";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import { getQueueLength } from '@/lib/offlineQueue';
 import { isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
@@ -166,7 +166,8 @@ function LiteMigrationWizard({progress,onProgress}:{
       }
       if (getAccessToken() !== token || getServerUrl() !== serverUrl) return;
       setError(null);
-      const result = await startLiteMigration(serverUrl,token);
+      const refreshToken = getRefreshToken();
+      const result = refreshToken ? await startLiteMigration(serverUrl, token, refreshToken) : await startLiteMigration(serverUrl, token);
       if (result.progress) onProgress(result.progress);
       if (result.progress?.stage === "complete") {
         sessionStorage.setItem("nowen-lite-migration-complete-this-session","1");

@@ -3,6 +3,14 @@ import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
 export type NoteTemplateFormat = "tiptap-json" | "markdown";
 
+export const NOTE_TEMPLATES_CHANGED_EVENT = "nowen:note-templates-changed";
+
+function emitNoteTemplatesChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(NOTE_TEMPLATES_CHANGED_EVENT));
+  }
+}
+
 export interface NoteTemplateSummary {
   id: string;
   workspaceId: string | null;
@@ -61,18 +69,22 @@ export const noteTemplatesApi = {
     return request<{ templates: NoteTemplateSummary[] }>(`?${workspaceQuery(context)}`);
   },
 
-  createFromNote(noteId: string, name: string) {
-    return request<{ template: NoteTemplateSummary }>(
+  async createFromNote(noteId: string, name: string) {
+    const result = await request<{ template: NoteTemplateSummary }>(
       `/from-note/${encodeURIComponent(noteId)}?${workspaceQuery()}`,
       { method: "POST", body: JSON.stringify({ name }) },
     );
+    emitNoteTemplatesChanged();
+    return result;
   },
 
-  remove(templateId: string, workspaceId?: string | null) {
-    return request<{ success: true }>(
+  async remove(templateId: string, workspaceId?: string | null) {
+    const result = await request<{ success: true }>(
       `/${encodeURIComponent(templateId)}?${workspaceQuery({ workspaceId })}`,
       { method: "DELETE" },
     );
+    emitNoteTemplatesChanged();
+    return result;
   },
 
   createNote(templateId: string, parentId: string | null, workspaceId?: string | null) {

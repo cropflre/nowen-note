@@ -2,13 +2,21 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountLoginHistoryList } from "@/components/AccountLoginHistory";
+import type { DesktopAccountHistoryAPI } from "@/lib/desktopBridge";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-const switchHarness = vi.hoisted(() => ({ switchAccountLogin: vi.fn() }));
+const switchHarness = vi.hoisted(() => ({
+  switchAccountLogin: vi.fn(),
+  fetchSyncSettings: vi.fn(),
+}));
 
 vi.mock("@/lib/accountLoginSwitch", () => ({
   switchAccountLogin: switchHarness.switchAccountLogin,
+}));
+
+vi.mock("@/lib/syncLocalApi", () => ({
+  fetchSyncSettings: switchHarness.fetchSyncSettings,
 }));
 
 vi.mock("react-i18next", async (importOriginal) => ({
@@ -23,6 +31,15 @@ describe("账号登录历史列表", () => {
   beforeEach(() => {
     localStorage.clear();
     switchHarness.switchAccountLogin.mockReset();
+    switchHarness.fetchSyncSettings.mockReset();
+    switchHarness.fetchSyncSettings.mockResolvedValue({
+      mode: "device-only",
+      activeProfile: null,
+      profiles: [],
+      authorized: false,
+      authorizationState: "missing",
+      engineRunning: false,
+    });
     (window as any).nowenDesktop = {
       isDesktop: true,
       accountHistory: {
@@ -223,5 +240,93 @@ describe("账号登录历史列表", () => {
     });
     expect(host.textContent).toContain("Bob");
     expect(host.textContent).toContain("Alice");
+  });
+
+  it("桌面本机工作区已同步 NAS 账号时展示同步横幅并禁用该 NAS 账号的重复切换", async () => {
+    localStorage.setItem("nowen-token", "local-token");
+    localStorage.setItem("nowen-server-url", "http://127.0.0.1:57892");
+    localStorage.setItem("nowen-account-history-current-id", "history-local");
+    const desktop = (window as Window & { nowenDesktop?: { accountHistory: DesktopAccountHistoryAPI } }).nowenDesktop;
+    if (!desktop) throw new Error("缺少桌面账号历史测试夹具");
+    desktop.accountHistory.list = vi.fn(async () => [
+      {
+        id: "history-local",
+        serverUrl: "http://127.0.0.1:57892",
+        userId: "desktop-user",
+        username: "desktop",
+        displayName: "本机用户",
+        avatarUrl: "",
+        lastUsedAt: 300,
+        requiresReauth: false,
+      },
+      {
+        id: "history-billy",
+        serverUrl: "http://home.uniquexm.cn:3001",
+        userId: "billy-id",
+        username: "Billy",
+        displayName: "Billy",
+        avatarUrl: "",
+        lastUsedAt: 200,
+        requiresReauth: false,
+      },
+      {
+        id: "history-alice-same-nas",
+        serverUrl: "http://home.uniquexm.cn:3001",
+        userId: "alice-id",
+        username: "Alice",
+        displayName: "Alice",
+        avatarUrl: "",
+        lastUsedAt: 100,
+        requiresReauth: false,
+      },
+    ]);
+    switchHarness.fetchSyncSettings.mockResolvedValue({
+      mode: "server",
+      activeProfile: {
+        id: "profile-1",
+        name: "home.uniquexm.cn:3001",
+        serverUrl: "http://home.uniquexm.cn:3001",
+        remoteUserId: "billy-id",
+        enabled: true,
+      },
+      profiles: [],
+      authorized: true,
+      authorizationState: "ready",
+      engineRunning: true,
+    });
+    const onOpenSyncSettings = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+
+    await act(async () => {
+      root?.render(<AccountLoginHistoryList onOpenSyncSettings={onOpenSyncSettings} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const banner = host.querySelector("[data-desktop-sync-status]");
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain("auth.loginHistory.localSyncBanner");
+
+    const accountButtons = Array.from(host.querySelectorAll<HTMLButtonElement>("[data-account-login-history] .group > button:first-child"));
+    expect(accountButtons).toHaveLength(3);
+    // 本机当前账号与已同步的 Billy 均禁用切换，避免假切换回弹；同 NAS 的其他账号仍可切换。
+    expect(accountButtons[0].disabled).toBe(true);
+    expect(accountButtons[1].disabled).toBe(true);
+    expect(accountButtons[1].textContent).toContain("auth.loginHistory.synced");
+    expect(accountButtons[2].disabled).toBe(false);
+
+    await act(async () => {
+      accountButtons[1].click();
+      await Promise.resolve();
+    });
+    expect(switchHarness.switchAccountLogin).not.toHaveBeenCalled();
+
+    const openSyncBtn = host.querySelector<HTMLButtonElement>("[data-open-sync-settings]");
+    await act(async () => {
+      openSyncBtn?.click();
+    });
+    expect(onOpenSyncSettings).toHaveBeenCalledTimes(1);
   });
 });

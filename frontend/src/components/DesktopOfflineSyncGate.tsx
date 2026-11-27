@@ -2,12 +2,24 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DesktopDownloadError, automaticallyDownloadDesktopCopy, isLocalAccountBootstrapFailure, needsLocalAccountRecovery } from '@/lib/desktopLocalSession';
 import type { LiteMigrationProgress, NowenDesktopAPI } from '@/lib/desktopBridge';
-import { getAccessToken } from '@/lib/authSession';
+import { getAccessToken, getRefreshToken } from '@/lib/authSession';
 import { getServerUrl } from '@/lib/api';
 import { exportQueueDiagnostics, getFailedQueueItems, getQueueLength, retryFailedQueueItems } from '@/lib/offlineQueue';
 import { getOfflineQueueStorageKey } from '@/lib/offlineScope';
 import { syncNow } from '@/lib/syncEngine';
+import { toast } from '@/lib/toast';
 import '@/loading-experience.css';
+
+const DESKTOP_LOCAL_SYNC_HANDOFF_KEY = 'nowen-desktop-local-sync-handoff';
+
+function formatSyncServerLabel(serverUrl: string): string {
+  try {
+    const parsed = new URL(serverUrl);
+    return `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`;
+  } catch {
+    return serverUrl;
+  }
+}
 
 export default function DesktopOfflineSyncGate({children}: {children:ReactNode}) {
   const { t } = useTranslation();
@@ -49,18 +61,26 @@ export default function DesktopOfflineSyncGate({children}: {children:ReactNode})
         }
         if (getQueueLength() > 0) await syncNow();
         if (!current()) return;
-        const changed = await automaticallyDownloadDesktopCopy(bridge,serverUrl,token,getQueueLength);
+        const changed = await automaticallyDownloadDesktopCopy(bridge,serverUrl,token,getQueueLength,getRefreshToken());
         if (!current()) return;
         if (changed) {
           const info = await bridge.getAppInfo();
           if (!current()) return;
           if (!info?.localServerUrl) throw new Error('本地服务暂不可用，将自动重试。');
+          try { sessionStorage.setItem(DESKTOP_LOCAL_SYNC_HANDOFF_KEY, serverUrl); } catch { /* ignore */ }
           localStorage.removeItem('nowen-prefer-cloud');
           const url = new URL(window.location.href);
           url.searchParams.set('serverUrl',info.localServerUrl);
           window.location.replace(url.href);
           return;
         }
+        try {
+          const handedOffServer = sessionStorage.getItem(DESKTOP_LOCAL_SYNC_HANDOFF_KEY);
+          if (handedOffServer) {
+            sessionStorage.removeItem(DESKTOP_LOCAL_SYNC_HANDOFF_KEY);
+            toast.info(t('offlineAvailability.localSyncHandoffNotice', { server: formatSyncServerLabel(handedOffServer) }));
+          }
+        } catch { /* ignore */ }
         setReady(true);
       } catch (reason) {
         if (!cancelled) {

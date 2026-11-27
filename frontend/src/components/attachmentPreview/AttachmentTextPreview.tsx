@@ -1,8 +1,9 @@
-// 附件文本预览：所有附件只读，Markdown 视图复用笔记的 MarkdownPreview / KaTeX 渲染链路。
+// 附件文本预览：所有附件只读，Markdown 视图复用笔记的 MarkdownPreview / KaTeX，HTML 视图使用隔离沙箱 iframe 渲染。
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, AlertTriangle, Download, Copy, Check, Eye, Code2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { common, createLowlight } from "lowlight";
+import { sanitizeAttachmentHtmlForPreview } from "@/lib/attachmentHtmlPreview";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -42,23 +43,30 @@ function getExt(filename: string): string {
   return filename.slice(idx + 1).toLowerCase();
 }
 
+function normalizeMime(mime: string): string {
+  return (mime || "").toLowerCase().split(";", 1)[0].trim();
+}
+
 function detectLanguage(filename: string, mime: string): string {
   const ext = getExt(filename);
+  const normalizedMime = normalizeMime(mime);
   if (ext && EXT_TO_LANG[ext]) return EXT_TO_LANG[ext];
-  if (mime === "application/json") return "json";
-  if (mime === "application/xml" || mime === "text/xml" || mime === "text/html") return "xml";
-  if (mime === "text/css") return "css";
-  if (mime === "text/javascript" || mime === "application/javascript") return "javascript";
+  if (normalizedMime === "application/json") return "json";
+  if (normalizedMime === "application/xml" || normalizedMime === "text/xml" || normalizedMime === "text/html") return "xml";
+  if (normalizedMime === "text/css") return "css";
+  if (normalizedMime === "text/javascript" || normalizedMime === "application/javascript") return "javascript";
   return "";
 }
 
-type RenderMode = "markdown" | "code" | "json" | "csv" | "svg" | "plain";
+type RenderMode = "markdown" | "html" | "code" | "json" | "csv" | "svg" | "plain";
 function detectRenderMode(filename: string, mime: string): RenderMode {
   const ext = getExt(filename);
-  if (mime === "image/svg+xml" || ext === "svg") return "svg";
-  if (ext === "md" || ext === "markdown" || mime === "text/markdown") return "markdown";
-  if (mime === "application/json" || ext === "json") return "json";
-  if (mime === "text/csv" || mime === "text/tab-separated-values" || ext === "csv" || ext === "tsv") return "csv";
+  const normalizedMime = normalizeMime(mime);
+  if (normalizedMime === "image/svg+xml" || ext === "svg") return "svg";
+  if (ext === "html" || ext === "htm" || normalizedMime === "text/html") return "html";
+  if (ext === "md" || ext === "markdown" || normalizedMime === "text/markdown") return "markdown";
+  if (normalizedMime === "application/json" || ext === "json") return "json";
+  if (normalizedMime === "text/csv" || normalizedMime === "text/tab-separated-values" || ext === "csv" || ext === "tsv") return "csv";
   if (detectLanguage(filename, mime)) return "code";
   return "plain";
 }
@@ -104,9 +112,11 @@ export default function AttachmentTextPreview({ url, filename, mimeType, size, h
   const [truncated, setTruncated] = useState(false);
   const [copied, setCopied] = useState(false);
   const [wrap, setWrap] = useState(false);
-  const [mdView, setMdView] = useState<"rendered" | "source">("rendered");
+  const [richView, setRichView] = useState<"rendered" | "source">("rendered");
   const mode = useMemo(() => detectRenderMode(filename, mimeType), [filename, mimeType]);
   const lang = useMemo(() => detectLanguage(filename, mimeType), [filename, mimeType]);
+  const langBadge = mode === "html" ? "html" : lang;
+  const hasRichView = mode === "markdown" || mode === "html";
 
   useEffect(() => {
     // 使用本次请求独立的 cancelled 标记；不能复用 ref，否则新 URL 会让旧请求重新获得写入资格。
@@ -116,7 +126,7 @@ export default function AttachmentTextPreview({ url, filename, mimeType, size, h
     setErrMsg("");
     setText("");
     setTruncated(false);
-    setMdView("rendered");
+    setRichView("rendered");
 
     (async () => {
       try {
@@ -173,23 +183,23 @@ export default function AttachmentTextPreview({ url, filename, mimeType, size, h
   return <div className="flex flex-col min-w-0">
     <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border bg-app-surface text-[11px]">
       <div className="flex items-center gap-2 text-tx-tertiary min-w-0">
-        {lang && <span className="px-1.5 py-0.5 rounded bg-app-hover text-tx-secondary uppercase text-[10px] font-mono">{lang}</span>}
+        {langBadge && <span className="px-1.5 py-0.5 rounded bg-app-hover text-tx-secondary uppercase text-[10px] font-mono">{langBadge}</span>}
         {truncated && <span className="text-amber-500" title={`原文件 ${(size / 1024 / 1024).toFixed(1)} MB，仅预览前 ${PREVIEW_HEAD_BYTES / 1024} KB`}>
           已截断（仅显示前 {PREVIEW_HEAD_BYTES / 1024}KB）
         </span>}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        {mode === "markdown" && <div className="inline-flex items-center rounded border border-app-border overflow-hidden" role="tablist" aria-label="Markdown 显示模式">
-          <button type="button" role="tab" aria-selected={mdView === "rendered"} onClick={() => setMdView("rendered")}
-            className={cn("px-2 py-0.5 inline-flex items-center gap-1 transition-colors", mdView === "rendered" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary hover:bg-app-hover")} title="渲染视图">
+        {hasRichView && <div className="inline-flex items-center rounded border border-app-border overflow-hidden" role="tablist" aria-label={mode === "html" ? "HTML 显示模式" : "Markdown 显示模式"}>
+          <button type="button" role="tab" aria-selected={richView === "rendered"} onClick={() => setRichView("rendered")}
+            className={cn("px-2 py-0.5 inline-flex items-center gap-1 transition-colors", richView === "rendered" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary hover:bg-app-hover")} title="渲染视图">
             <Eye size={11} />视图
           </button>
-          <button type="button" role="tab" aria-selected={mdView === "source"} onClick={() => setMdView("source")}
-            className={cn("px-2 py-0.5 inline-flex items-center gap-1 transition-colors border-l border-app-border", mdView === "source" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary hover:bg-app-hover")} title="源代码">
+          <button type="button" role="tab" aria-selected={richView === "source"} onClick={() => setRichView("source")}
+            className={cn("px-2 py-0.5 inline-flex items-center gap-1 transition-colors border-l border-app-border", richView === "source" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary hover:bg-app-hover")} title="源代码">
             <Code2 size={11} />源码
           </button>
         </div>}
-        {(mode === "code" || mode === "json" || mode === "plain" || (mode === "markdown" && mdView === "source")) &&
+        {(mode === "code" || mode === "json" || mode === "plain" || (hasRichView && richView === "source")) &&
           <button type="button" onClick={() => setWrap((value) => !value)} className="px-2 py-0.5 rounded hover:bg-app-hover text-tx-secondary" title={wrap ? "切换为不折行" : "切换为自动折行"}>
             {wrap ? "不折行" : "折行"}
           </button>}
@@ -198,11 +208,12 @@ export default function AttachmentTextPreview({ url, filename, mimeType, size, h
         </button>
       </div>
     </div>
-    <div className={cn("relative w-full min-w-0 overflow-auto bg-app-bg", minH)}>
+    <div className={cn("relative w-full min-w-0", mode === "html" && richView === "rendered" ? "flex flex-col overflow-hidden bg-white" : "overflow-auto bg-app-bg", minH)}>
       {mode === "svg" ? <SvgPane text={text} />
-        : mode === "markdown" ? (mdView === "rendered" ? <MarkdownPane text={text} /> : <CodePane text={text} lang="markdown" wrap={wrap} />)
+        : mode === "html" ? (richView === "rendered" ? <HtmlPane text={text} filename={filename} minHeightClass={minH} /> : <CodePane text={text} lang="xml" wrap={wrap} />)
+        : mode === "markdown" ? (richView === "rendered" ? <MarkdownPane text={text} /> : <CodePane text={text} lang="markdown" wrap={wrap} />)
         : mode === "json" ? <CodePane text={prettifyJson(text)} lang="json" wrap={wrap} />
-        : mode === "csv" ? <CsvPane text={text} delim={getExt(filename) === "tsv" || mimeType === "text/tab-separated-values" ? "\t" : ","} />
+        : mode === "csv" ? <CsvPane text={text} delim={getExt(filename) === "tsv" || normalizeMime(mimeType) === "text/tab-separated-values" ? "\t" : ","} />
         : mode === "code" ? <CodePane text={text} lang={lang} wrap={wrap} />
         : <CodePane text={text} lang="" wrap={wrap} />}
     </div>
@@ -240,6 +251,20 @@ function CsvPane({ text, delim }: { text: string; delim: string }) {
 function SvgPane({ text }: { text: string }) {
   const safe = useMemo(() => DOMPurify.sanitize(text, { USE_PROFILES: { svg: true, svgFilters: true } }), [text]);
   return <div className="flex items-center justify-center p-4 [&>svg]:max-w-full [&>svg]:h-auto" dangerouslySetInnerHTML={{ __html: safe }} />;
+}
+
+/** 使用无脚本、不同源的沙箱 iframe 隔离渲染完整 HTML 页面样式与排版。 */
+function HtmlPane({ text, filename, minHeightClass }: { text: string; filename: string; minHeightClass: string }) {
+  const srcDoc = useMemo(() => sanitizeAttachmentHtmlForPreview(text), [text]);
+  return (
+    <iframe
+      title={filename || "HTML 预览"}
+      srcDoc={srcDoc}
+      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      referrerPolicy="no-referrer"
+      className={cn("block w-full flex-1 border-0 bg-white", minHeightClass)}
+    />
+  );
 }
 
 /** 与原生 Markdown 笔记共用同一套数学公式预处理、KaTeX 和安全渲染逻辑；附件仍保持只读。 */

@@ -4,15 +4,20 @@ import crypto from "crypto";
 import Database from "better-sqlite3";
 import { pipeline } from "node:stream/promises";
 import {
+  beginDbMaintenance,
   closeDb,
+  endDbMaintenance,
   getCodeSchemaVersion,
   getDb,
   getDbPath,
+  withDbMaintenanceBypass,
+  withDbMaintenanceBypassAsync,
 } from "../db/schema.js";
 import { BackupManager, type RestoreResult } from "../services/backup.js";
 import { requireSqliteVecForStoredTables } from "../db/sqlite-vec-extension.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 import { quarantineRestoredAutomations } from "../automation/recovery.js";
+import { resetSyncChangeWatermark } from "../sync/feedNotifier.js";
 import {
   auditAttachmentBackup,
   replaceDirectoriesFromStagingSafe,
@@ -24,6 +29,12 @@ import { probeAttachmentStorage } from "../services/attachment-storage.js";
 const unzipper = require("unzipper");
 
 const PATCH_FLAG = Symbol.for("nowen.backupLargeArchiveRestore.patched");
+const RESTORE_LOCK_KEY = Symbol.for("nowen-note.backup-restore-lock");
+const restoreLockGlobal = globalThis as typeof globalThis & {
+  [RESTORE_LOCK_KEY]?: { active: boolean };
+};
+const restoreLock = restoreLockGlobal[RESTORE_LOCK_KEY] || { active: false };
+restoreLockGlobal[RESTORE_LOCK_KEY] = restoreLock;
 // backup.ts 当前格式版本。运行时补丁只接管 v2+ ZIP，不改变旧 JSON/db-only 语义。
 const BACKUP_FORMAT_VERSION = 2;
 const MAX_META_BYTES = 2 * 1024 * 1024;
@@ -240,32 +251,34 @@ function checkSqliteIntegrity(dbPath: string, label: string): void {
 }
 
 function verifyCurrentDbUsable(curDbPath: string): void {
-  const current = getDb();
-  const integrity = (current.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check;
-  if (integrity !== "ok") {
-    throw new Error(`恢复后完整性检查失败: ${integrity}`);
-  }
+  withDbMaintenanceBypass(() => {
+    const current = getDb();
+    const integrity = (current.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check;
+    if (integrity !== "ok") {
+      throw new Error(`恢复后完整性检查失败: ${integrity}`);
+    }
 
-  // A readable SQLite file is not enough: attachment upload also needs a writable DB.
-  // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
-  // is committed, while the probe leaves no persistent row behind.
-  try {
-    current.exec("SAVEPOINT nowen_restore_write_probe");
-    current.prepare(
-      `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
-    ).run("backup:restore-write-probe", String(Date.now()));
-    current.exec("ROLLBACK TO nowen_restore_write_probe");
-    current.exec("RELEASE nowen_restore_write_probe");
-  } catch (error) {
-    try { current.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
-    try { current.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
-    throw new Error(
-      "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
-    );
-  }
+    // A readable SQLite file is not enough: attachment upload also needs a writable DB.
+    // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
+    // is committed, while the probe leaves no persistent row behind.
+    try {
+      current.exec("SAVEPOINT nowen_restore_write_probe");
+      current.prepare(
+        `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
+      ).run("backup:restore-write-probe", String(Date.now()));
+      current.exec("ROLLBACK TO nowen_restore_write_probe");
+      current.exec("RELEASE nowen_restore_write_probe");
+    } catch (error) {
+      try { current.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
+      try { current.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
+      throw new Error(
+        "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
+      );
+    }
 
-  closeDb();
-  cleanupWalShm(curDbPath);
+    closeDb();
+    cleanupWalShm(curDbPath);
+  });
 }
 
 function replaceDbFile(tmpDb: string, curDbPath: string): void {
@@ -443,32 +456,44 @@ async function restoreZipStreaming(
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
 
-    // Closing the connection checkpoints WAL before the pre-restore copy is taken.
-    closeDb();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    if (!fs.existsSync(curDbPath)) {
-      throw new Error(`当前数据库不存在，拒绝执行破坏性恢复: ${curDbPath}`);
-    }
-    fs.copyFileSync(curDbPath, safetyBak);
-
+    // 维护门闩：从关闭连接到替换/校验/重建连接完成，阻止任何后台任务或并发请求重开旧库。
+    beginDbMaintenance();
     try {
-      replaceDbFile(tmpDb, curDbPath);
-      verifyCurrentDbUsable(curDbPath);
-      await replaceDirectoriesFromStagingSafe([
-        { stagedDir: stagedAttachments, destDir: path.join(manager.dataDir, "attachments") },
-        { stagedDir: stagedFonts, destDir: path.join(manager.dataDir, "fonts") },
-        { stagedDir: stagedPlugins, destDir: hasInstalledLayout ? path.join(manager.dataDir, "plugins", "installed") : path.join(manager.dataDir, "plugins") },
-      ], restoreId, async () => {
-        const health = await probeAttachmentStorage();
-        if (!health.ok) {
-          throw new Error(
-            "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
-            + (health.error || "unknown storage error"),
-          );
-        }
+      // Closing the connection checkpoints WAL before the pre-restore copy is taken.
+      closeDb();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (!fs.existsSync(curDbPath)) {
+        throw new Error(`当前数据库不存在，拒绝执行破坏性恢复: ${curDbPath}`);
+      }
+      fs.copyFileSync(curDbPath, safetyBak);
+
+      try {
+        replaceDbFile(tmpDb, curDbPath);
+        verifyCurrentDbUsable(curDbPath);
+        await replaceDirectoriesFromStagingSafe([
+          { stagedDir: stagedAttachments, destDir: path.join(manager.dataDir, "attachments") },
+          { stagedDir: stagedFonts, destDir: path.join(manager.dataDir, "fonts") },
+          { stagedDir: stagedPlugins, destDir: hasInstalledLayout ? path.join(manager.dataDir, "plugins", "installed") : path.join(manager.dataDir, "plugins") },
+        ], restoreId, async () => {
+          const health = await withDbMaintenanceBypassAsync(() => probeAttachmentStorage());
+          if (!health.ok) {
+            throw new Error(
+              "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
+              + (health.error || "unknown storage error"),
+            );
+          }
+        });
+      } catch (error) {
+        rollbackDb(curDbPath, safetyBak, error);
+      }
+
+      // 替换完成后立即重建活跃数据库连接并重置同步通知水位，避免后续中间件拿到已关闭句柄。
+      withDbMaintenanceBypass(() => {
+        getDb();
       });
-    } catch (error) {
-      rollbackDb(curDbPath, safetyBak, error);
+      resetSyncChangeWatermark();
+    } finally {
+      endDbMaintenance();
     }
 
     // Preserve existing semantics: secret restoration is warning-only after DB/files succeed.
@@ -541,14 +566,24 @@ function installLargeArchiveRestorePatch(): void {
       return nativeRestore.call(this, filename, opts);
     }
 
+    const dryRun = !!opts.dryRun;
+    if (!dryRun) {
+      if (restoreLock.active) {
+        return { success: false, error: "BACKUP_RESTORE_IN_PROGRESS: 已有备份恢复正在进行中，请勿重复提交" };
+      }
+      restoreLock.active = true;
+    }
+
     try {
-      return await restoreZipStreaming(manager, filePath, !!opts.dryRun);
+      return await restoreZipStreaming(manager, filePath, dryRun);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException)?.code;
       if (code === "ENOSPC") {
         return { success: false, error: "恢复失败：磁盘空间不足，请释放空间后重试" };
       }
       return { success: false, error: formatError(error) };
+    } finally {
+      if (!dryRun) restoreLock.active = false;
     }
   } as BackupManager["restoreFromBackup"];
 }

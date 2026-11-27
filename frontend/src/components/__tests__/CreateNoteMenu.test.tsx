@@ -7,7 +7,8 @@ import { KnowledgeTreeCreateDropdown } from "../KnowledgeTreeCreateMenuRuntime";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({
   list: vi.fn(), listShared: vi.fn(), create: vi.fn(), getNote: vi.fn(), prompt: vi.fn(),
-  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), wechat: vi.fn() },
+  pushSheetAppPath: vi.fn(),
+  imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), ppt: vi.fn(), sheet: vi.fn(), wechat: vi.fn() },
   template: vi.fn(), pluginTemplate: vi.fn(), error: vi.fn(),
   state: { selectedNotebookId: "book", viewMode: "notebook", notebooks: [{ id: "book" }] },
   actions: { setActiveNote: vi.fn(), addNoteToList: vi.fn(), setMobileView: vi.fn(), refreshNotes: vi.fn(), refreshNotebooks: vi.fn() },
@@ -16,12 +17,15 @@ vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: mock.state }), us
 vi.mock("../KnowledgeTreePanel", () => ({ default: () => null, FOCUS_KNOWLEDGE_TREE_EVENT: "nowen:focus-knowledge-tree", KNOWLEDGE_TREE_CHANGED_EVENT: "nowen:knowledge-tree-changed" }));
 vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: { list: mock.list, listShared: mock.listShared, create: mock.create } }));
 vi.mock("@/lib/api", () => ({ api: { getNote: mock.getNote }, getCurrentWorkspace: () => "personal" }));
+vi.mock("@/lib/sheetDeepLink", () => ({ pushSheetAppPath: mock.pushSheetAppPath }));
 vi.mock("@/lib/knowledgeTreeDuplicateAsChild", () => ({ resolveDuplicableKnowledgeTreeNote: async () => null, duplicateKnowledgeTreeNoteAsChild: vi.fn() }));
 vi.mock("@/components/ui/confirm", () => ({ prompt: mock.prompt }));
 vi.mock("@/components/knowledgeTreeImport", () => ({
   importMarkdownIntoKnowledgeTree: mock.imports.markdown,
   importMarkdownZipIntoKnowledgeTree: mock.imports["markdown-zip"],
   importWordIntoKnowledgeTree: mock.imports.word,
+  importPptIntoKnowledgeTree: mock.imports.ppt,
+  importSheetIntoKnowledgeTree: mock.imports.sheet,
   importWeChatArticleIntoKnowledgeTree: mock.imports.wechat,
 }));
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.template } }));
@@ -56,8 +60,25 @@ describe("note list create menu", () => {
     await act(async () => root.render(<MenuHost key={++renderCount} />));
   }
   async function pick(label: string) {
-    await act(async () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === label)!.click());
+    const findButton = () => Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === label);
+    let target = findButton();
+    if (!target) {
+      const expandLabel = label.startsWith("导入") ? "导入内容" : "更多类型";
+      const toggle = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes(expandLabel));
+      if (toggle) {
+        await act(async () => toggle.click());
+        target = findButton();
+      }
+    }
+    await act(async () => target!.click());
   }
+  it("keeps primary create menu compact by collapsing secondary types and imports by default", async () => {
+    await renderMenu();
+    const initialItems = Array.from(document.querySelectorAll('[role="menuitem"]')).map((node) => node.textContent);
+    expect(initialItems).toEqual(["富文本文档", "Word 文档", "Markdown 文档", "文件夹", "从模板新建"]);
+    expect(initialItems).not.toContain("导入 Markdown 文件");
+    expect(initialItems).not.toContain("纯文本文档（TXT）");
+  });
   it("creates a blank TXT note through the normal tree node and persisted plaintext format", async () => {
     await renderMenu();
     await pick("纯文本文档（TXT）");
@@ -70,10 +91,15 @@ describe("note list create menu", () => {
     await act(async () => root.render(<KnowledgeTreeCreateDropdown menu={{ parentId: "folder", anchor: anchor.getBoundingClientRect() }} onClose={vi.fn()} onCreate={vi.fn()} onCreateFromTemplate={vi.fn()} onCreateEncrypted={vi.fn()} onImport={vi.fn()} />));
     expect(listMenu).toBe(document.querySelector('[role="menu"]')!.innerHTML);
   });
-  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["思维导图", "mindmap"], ["轻量表格", "sheet"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
+  it.each([["富文本文档", "note"], ["Markdown 文档", "markdown"], ["PPT 演示文稿", "ppt"], ["思维导图", "mindmap"], ["文件夹", "folder"]])("creates %s under the selected directory", async (label, kind) => {
     await renderMenu(); await pick(label);
     expect(mock.create).toHaveBeenCalledWith(expect.objectContaining({ parentId: "folder", nodeType: kind }));
     expect(mock.actions.refreshNotebooks).toHaveBeenCalled();
+  });
+  it("hides the legacy lightweight sheet creation entry", async () => {
+    await renderMenu();
+    const labels = Array.from(document.querySelectorAll('[role="menuitem"]')).map((node) => node.textContent);
+    expect(labels).not.toContain("轻量表格");
   });
   it("resolves a selected notebook when no explicit tree parent is available", async () => {
     await renderMenu(undefined, true); await pick("Markdown 文档");
@@ -83,10 +109,17 @@ describe("note list create menu", () => {
     await renderMenu(null); await pick("富文本文档");
     expect(mock.create).toHaveBeenCalledWith(expect.objectContaining({ parentId: null }));
   });
-  it.each([["导入 Markdown 文件", "markdown"], ["导入 Markdown + 附件（ZIP）", "markdown-zip"], ["导入 Word 文档", "word"], ["导入公众号文章", "wechat"]] as const)("imports %s into the same directory", async (label, kind) => {
+  it.each([["导入 Markdown 文件", "markdown"], ["导入 Markdown + 附件（ZIP）", "markdown-zip"], ["导入 Word 文档", "word"], ["导入 PPTX 演示文稿", "ppt"], ["导入公众号文章", "wechat"]] as const)("imports %s into the same directory", async (label, kind) => {
     await renderMenu(); await pick(label);
     expect(mock.imports[kind]).toHaveBeenCalledWith(expect.objectContaining({ parent: folder }));
     expect(mock.actions.setActiveNote).toHaveBeenCalledWith(note);
+  });
+  it("imports a spreadsheet into the same directory and navigates to the created sheet", async () => {
+    mock.imports.sheet.mockResolvedValue({ id: "sheet:s1", resourceId: "s1", resourceType: "sheet" });
+    await renderMenu(); await pick("导入表格（XLSX / CSV）");
+    expect(mock.imports.sheet).toHaveBeenCalledWith(expect.objectContaining({ parent: folder }));
+    expect(mock.pushSheetAppPath).toHaveBeenCalledWith("s1");
+    expect(mock.actions.refreshNotebooks).toHaveBeenCalled();
   });
   it("does not silently fall back to the root when the target is gone", async () => {
     mock.list.mockResolvedValue({ nodes: [] });

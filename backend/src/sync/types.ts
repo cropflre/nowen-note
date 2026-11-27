@@ -105,6 +105,7 @@ export interface SyncProfileRow {
   name: string;
   serverUrl: string;
   remoteUserId: string | null;
+  localUserId?: string | null;
   /** SQLite 布尔列 */
   enabled: 0 | 1;
   createdAt: string;
@@ -128,6 +129,7 @@ export interface SyncStateRow {
   lastSequence: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  lastErrorDiagnostic?: string | null;
   accessFingerprint?: string | null;
   accessStatus?: "active" | "replan_required" | "access_revoked";
   accessChangedAt?: string | null;

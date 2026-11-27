@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     setViewMode: vi.fn(),
     setSelectedNotebook: vi.fn(),
     openNoteTab: vi.fn(),
+    removeNoteTab: vi.fn(),
   },
   loadNote: vi.fn(),
   cancelNoteLoad: vi.fn(),
@@ -348,5 +349,42 @@ describe("NoteDeepLinkBridge", () => {
     });
 
     expect(window.location.pathname).toBe(`/notes/${NOTE_A}`);
+  });
+
+  it.each([
+    ["excel", `/excel/${NOTE_A}`],
+    ["sheet", `/sheets/${NOTE_A}`],
+  ] as const)("redirects /notes/:id to %s route instead of opening rich text", async (noteType, expectedPath) => {
+    window.history.replaceState(null, "", `/notes/${NOTE_A}`);
+    mocks.api.getNote.mockResolvedValue({ ...note(NOTE_A), noteType });
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(expectedPath);
+    expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(null);
+    expect(mocks.actions.setActiveNote).not.toHaveBeenCalledWith(expect.objectContaining({ id: NOTE_A }));
+    expect(mocks.actions.openNoteTab).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["excel", `/excel/${NOTE_B}`],
+    ["sheet", `/sheets/${NOTE_B}`],
+  ] as const)("redirects active %s note out of rich-text editor", async (noteType, expectedPath) => {
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    mocks.state.activeNote = { ...note(NOTE_B), noteType };
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(expectedPath);
+    expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(null);
+    expect(mocks.actions.removeNoteTab).toHaveBeenCalledWith(NOTE_B);
   });
 });

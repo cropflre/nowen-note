@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Loader2, LogIn, Pencil, Trash2, UserPlus, UsersRound, X } from "lucide-react";
+import { ChevronDown, Loader2, LogIn, Pencil, RefreshCw, Trash2, UserPlus, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   type AccountLoginHistoryItem,
@@ -13,6 +13,7 @@ import {
 import { switchAccountLogin } from "@/lib/accountLoginSwitch";
 import { getServerUrl, setServerUrl, testServerConnection } from "@/lib/api";
 import { normalizeServerBaseUrl } from "@/lib/serverUrl";
+import { fetchSyncSettings, type SyncProfileSummary } from "@/lib/syncLocalApi";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
@@ -28,6 +29,33 @@ function serverLabel(serverUrl: string): string {
   }
 }
 
+function normalizeServerUrlForCompare(serverUrl: string): string {
+  return serverUrl.replace(/\/+$/, "").toLowerCase();
+}
+
+function isLoopbackServerUrl(serverUrl: string): boolean {
+  try {
+    const url = new URL(serverUrl);
+    return url.hostname === "127.0.0.1"
+      || url.hostname === "localhost"
+      || url.hostname === "::1"
+      || url.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isSyncedRemoteAccount(
+  item: AccountLoginHistoryItem,
+  profile: SyncProfileSummary | null,
+): boolean {
+  if (!profile?.serverUrl) return false;
+  if (normalizeServerUrlForCompare(item.serverUrl) !== normalizeServerUrlForCompare(profile.serverUrl)) {
+    return false;
+  }
+  return !profile.remoteUserId || profile.remoteUserId === item.userId;
+}
+
 function initials(item: AccountLoginHistoryItem): string {
   return (item.displayName || item.username).trim().slice(0, 1).toUpperCase() || "?";
 }
@@ -41,16 +69,19 @@ export function AccountLoginHistoryList({
   onBusyChange,
   onSwitched,
   onRequiresReauth,
+  onOpenSyncSettings,
   title,
 }: {
   className?: string;
   onBusyChange?: (busy: boolean) => void;
   onSwitched?: (token: string, user: User) => void;
   onRequiresReauth?: (account: AccountLoginHistoryItem, message?: string) => void;
+  onOpenSyncSettings?: () => void;
   title?: string;
 }) {
   const { t } = useTranslation();
   const [items, setItems] = useState<AccountLoginHistoryItem[]>([]);
+  const [activeSyncProfile, setActiveSyncProfile] = useState<SyncProfileSummary | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState<{ item: AccountLoginHistoryItem; isCurrent: boolean } | null>(null);
@@ -58,6 +89,12 @@ export function AccountLoginHistoryList({
   const [savingServer, setSavingServer] = useState(false);
   const [serverError, setServerError] = useState("");
   const supported = isAccountLoginHistorySupported();
+  const currentServer = getServerUrl().replace(/\/+$/, "").toLowerCase();
+  const hasActiveToken = !!localStorage.getItem("nowen-token");
+  const isDesktopLocalWorkspace = !!(window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop
+    && hasActiveToken
+    && !title
+    && isLoopbackServerUrl(currentServer);
 
   const refresh = useCallback(() => {
     if (!supported) return;
@@ -71,6 +108,24 @@ export function AccountLoginHistoryList({
   }, [refresh]);
 
   useEffect(() => {
+    if (!isDesktopLocalWorkspace) {
+      setActiveSyncProfile(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchSyncSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setActiveSyncProfile(settings.mode === "server" ? settings.activeProfile : null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setActiveSyncProfile(null);
+      });
+    return () => { cancelled = true; };
+  }, [isDesktopLocalWorkspace]);
+
+  useEffect(() => {
     if (items.length <= 2) setExpanded(false);
   }, [items.length]);
 
@@ -80,15 +135,24 @@ export function AccountLoginHistoryList({
 
   if (!supported || items.length === 0) return null;
 
-  const currentServer = getServerUrl().replace(/\/+$/, "").toLowerCase();
-  const hasActiveToken = !!localStorage.getItem("nowen-token");
   const currentHistoryId = localStorage.getItem(CURRENT_ACCOUNT_HISTORY_ID_KEY) || "";
   const isCollapsible = !!title && items.length > 2;
   const visibleItems = isCollapsible && !expanded ? items.slice(0, 2) : items;
+  const syncedAccount = activeSyncProfile
+    ? items.find((item) => isSyncedRemoteAccount(item, activeSyncProfile)) || null
+    : null;
   let currentMarked = false;
 
+  const openSyncSettings = () => {
+    if (onOpenSyncSettings) {
+      onOpenSyncSettings();
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("nowen:open-settings", { detail: { tab: "sync" } }));
+  };
+
   const handleSwitch = async (item: AccountLoginHistoryItem) => {
-    if (loadingId || savingServer) return;
+    if (loadingId || savingServer || isSyncedRemoteAccount(item, activeSyncProfile)) return;
     setLoadingId(item.id);
     const result = await switchAccountLogin(item);
     if (result.status === "switched") {
@@ -211,6 +275,31 @@ export function AccountLoginHistoryList({
             )}
           </div>
         )}
+        {activeSyncProfile && !title && (
+          <div
+            data-desktop-sync-status
+            className="flex items-center justify-between gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-2 text-xs text-tx-secondary"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <RefreshCw size={13} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="truncate">
+                {t("auth.loginHistory.localSyncBanner", {
+                  target: syncedAccount
+                    ? `@${syncedAccount.username} · ${serverLabel(activeSyncProfile.serverUrl)}`
+                    : serverLabel(activeSyncProfile.serverUrl),
+                })}
+              </span>
+            </div>
+            <button
+              type="button"
+              data-open-sync-settings
+              onClick={openSyncSettings}
+              className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-accent-primary transition-colors hover:bg-accent-primary/10"
+            >
+              {t("auth.loginHistory.manageSync")}
+            </button>
+          </div>
+        )}
         <div className={cn("space-y-1.5", isCollapsible && expanded && "max-h-52 overflow-y-auto pr-1")}>
           {visibleItems.map((item) => {
             const sameServer = item.serverUrl.replace(/\/+$/, "").toLowerCase() === currentServer;
@@ -218,6 +307,7 @@ export function AccountLoginHistoryList({
               currentHistoryId ? item.id === currentHistoryId : sameServer && !currentMarked
             );
             if (isCurrent) currentMarked = true;
+            const isSyncedRemote = !isCurrent && isSyncedRemoteAccount(item, activeSyncProfile);
             return (
               <div
                 key={item.id}
@@ -226,7 +316,7 @@ export function AccountLoginHistoryList({
                 <button
                   type="button"
                   onClick={() => void handleSwitch(item)}
-                  disabled={!!loadingId || savingServer || isCurrent}
+                  disabled={!!loadingId || savingServer || isCurrent || isSyncedRemote}
                   className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left disabled:cursor-default disabled:opacity-70 sm:min-h-0"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-xs font-semibold text-accent-primary">
@@ -236,13 +326,14 @@ export function AccountLoginHistoryList({
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium text-tx-primary">{item.displayName || item.username}</span>
                       {isCurrent && <span className="shrink-0 rounded bg-accent-primary/10 px-1.5 py-0.5 text-[10px] text-accent-primary">{t("common.current")}</span>}
+                      {isSyncedRemote && <span className="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">{t("auth.loginHistory.synced")}</span>}
                       {item.requiresReauth && <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">{t("auth.loginHistory.reauth")}</span>}
                     </span>
                     <span className="block truncate text-xs text-tx-tertiary">@{item.username} · {serverLabel(item.serverUrl)}</span>
                   </span>
                   {loadingId === item.id ? (
                     <Loader2 size={16} className="shrink-0 animate-spin text-accent-primary" />
-                  ) : isCurrent ? null : (
+                  ) : isCurrent || isSyncedRemote ? null : (
                     <LogIn size={16} className="shrink-0 text-tx-tertiary group-hover:text-accent-primary" />
                   )}
                 </button>
@@ -371,6 +462,12 @@ export function AccountLoginHistoryDialog({ open, onClose }: { open: boolean; on
     window.location.reload();
   };
 
+  const handleOpenSyncSettings = () => {
+    if (busy) return;
+    onClose();
+    window.dispatchEvent(new CustomEvent("nowen:open-settings", { detail: { tab: "sync" } }));
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-[220] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={dialogTitle} onMouseDown={handleClose}>
       <div className="max-h-[78dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-app-border bg-app-elevated p-4 shadow-2xl sm:rounded-2xl" style={{ paddingBottom: "calc(1rem + var(--safe-area-bottom, 0px))" }} onMouseDown={(event) => event.stopPropagation()}>
@@ -381,7 +478,7 @@ export function AccountLoginHistoryDialog({ open, onClose }: { open: boolean; on
           </div>
           <button type="button" onClick={handleClose} disabled={busy} className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover disabled:opacity-40" aria-label={t("common.close")}><X size={16} /></button>
         </div>
-        <AccountLoginHistoryList onBusyChange={setBusy} />
+        <AccountLoginHistoryList onBusyChange={setBusy} onOpenSyncSettings={handleOpenSyncSettings} />
         <button type="button" onClick={handleAddAccount} disabled={busy} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-app-border px-3 py-2.5 text-sm text-tx-secondary hover:border-accent-primary/50 hover:bg-app-hover hover:text-accent-primary disabled:opacity-40">
           <UserPlus size={16} />
           {t("auth.loginHistory.addAccount")}

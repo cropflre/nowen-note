@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useMobileLiteMode } from "@/hooks/useMobileLiteMode";
 import { getAppInfo, isDesktop, setDesktopHideMenuBar } from "@/lib/desktopBridge";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
@@ -72,6 +73,7 @@ function useStoredValue<T>(load: () => T, storageKey: string, changedEvent: stri
 
 /** Device-only layout switches. Storage keys and change events are shared with the sidebar. */
 export function useDeviceLayoutPreferences() {
+  const { enabled: mobileLiteMode, setEnabled: setMobileLiteMode } = useMobileLiteMode();
   const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
   const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useStoredValue<MobileKnowledgeTreeViewMode>(
     loadMobileKnowledgeTreeViewMode,
@@ -107,6 +109,8 @@ export function useDeviceLayoutPreferences() {
   }, [setDesktopKnowledgeTreeMode]);
 
   return {
+    mobileLiteMode,
+    setMobileLiteMode,
     mobileRailHidden,
     setMobileRailHidden,
     mobileTreeEnabled: mobileKnowledgeTreeMode === "tree",

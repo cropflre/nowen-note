@@ -22,6 +22,7 @@ import { SYNC_V2_BLOB_PATH } from "./constants";
 import { parseSyncScopeKey } from "./scope";
 import { SyncError, classifyHttpStatus } from "./errors";
 import { logSyncInfo, logSyncWarn } from "./log";
+import { runChangeFeedSuppressed } from "./suppression";
 import type { RemoteCredentials } from "./remote";
 import {
   listPendingDownloads,
@@ -57,6 +58,8 @@ export interface BlobClientOptions {
   /** 单次请求超时；附件大所以远比 JSON 请求宽松。 */
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  getToken?: () => string;
+  refreshToken?: () => Promise<string | null>;
 }
 
 export interface BlobTransferResult {
@@ -89,6 +92,8 @@ export class SyncBlobClient {
   private readonly credential: RemoteCredentials;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly getToken?: () => string;
+  private readonly refreshToken?: () => Promise<string | null>;
 
   constructor(options: BlobClientOptions) {
     this.base = options.serverUrl.replace(/\/+$/, "");
@@ -96,15 +101,18 @@ export class SyncBlobClient {
     // 60s：20MB 在 3Mbps 上行下约需 55s，太短会让大附件永远传不完。
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.getToken = options.getToken;
+    this.refreshToken = options.refreshToken;
   }
 
   private url(attachmentId: string, scopeKey: string): string {
     return `${this.base}${SYNC_V2_BLOB_PATH}/${encodeURIComponent(attachmentId)}?scopeKey=${encodeURIComponent(scopeKey)}`;
   }
 
-  private headers(extra?: Record<string, string>): Record<string, string> {
+  private headers(extra?: Record<string, string>, tokenOverride?: string): Record<string, string> {
+    const activeToken = tokenOverride ?? (this.getToken ? this.getToken() : this.credential.token);
     return {
-      Authorization: `Bearer ${this.credential.token}`,
+      Authorization: `Bearer ${activeToken}`,
       ...(extra || {}),
     };
   }
@@ -113,11 +121,13 @@ export class SyncBlobClient {
     attachmentId: string,
     init: RequestInit,
     scopeKey = "personal",
+    retriedAuth = false,
   ): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response;
     try {
-      return await this.fetchImpl(this.url(attachmentId, scopeKey), {
+      response = await this.fetchImpl(this.url(attachmentId, scopeKey), {
         ...init,
         signal: controller.signal,
       });
@@ -131,6 +141,15 @@ export class SyncBlobClient {
     } finally {
       clearTimeout(timer);
     }
+    if (response.status === 401 && !retriedAuth && this.refreshToken) {
+      const refreshed = await this.refreshToken();
+      if (refreshed) {
+        const nextHeaders = new Headers(init.headers);
+        nextHeaders.set("Authorization", `Bearer ${refreshed}`);
+        return this.request(attachmentId, { ...init, headers: nextHeaders }, scopeKey, true);
+      }
+    }
+    return response;
   }
 
   /** 探测远端是否已有该二进制，避免重复上传（hash 去重下很常见）。 */
@@ -367,17 +386,21 @@ export async function pullAttachmentBlobs(
 
       // 落盘成功后才更新元数据与状态，顺序不能颠倒：
       // 先置 available 再写盘，中途崩溃会让 UI 以为图片已就绪。
-      db.transaction(() => { db.prepare(`
-        UPDATE attachments
-           SET path = ?, size = ?, hash = COALESCE(hash, ?)
-         WHERE id = ?
-      `).run(
-        relPath,
-        buffer.length,
-        crypto.createHash("sha256").update(buffer).digest("hex"),
-        row.attachmentId,
-      );
-      markAttachmentDownloaded(db, row.attachmentId);
+      // 回填本地 path/size/hash 属于下行同步落地，必须抑制触发器，避免再次进入 Outbox。
+      db.transaction(() => {
+        runChangeFeedSuppressed(db, () => {
+          db.prepare(`
+            UPDATE attachments
+               SET path = ?, size = ?, hash = COALESCE(hash, ?)
+             WHERE id = ?
+          `).run(
+            relPath,
+            buffer.length,
+            crypto.createHash("sha256").update(buffer).digest("hex"),
+            row.attachmentId,
+          );
+          markAttachmentDownloaded(db, row.attachmentId);
+        });
       })();
       result.downloaded += 1;
     } catch (error) {

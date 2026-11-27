@@ -33,9 +33,11 @@ import { pullAttachmentBlobs } from "./blob";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges, type RemoteEntityPayload } from "./applyLocal";
-import { createProfile, findProfileByServer, getProfile, switchActiveProfile } from "./profile";
+import { createProfile, findProfileByServer, getProfile, setProfileLocalUser, switchActiveProfile } from "./profile";
 import { ensureDevice } from "./device";
+import { SYNC_PERSONAL_SCOPE_KEY, SYNC_SNAPSHOT_REBUILD_PAGE_SIZE } from "./constants";
 import { markBootstrapReady, readLocalState, reconcile, validateBootstrapPage } from "./bootstrap";
+import { adoptKnowledgeTreeOnCleanDownload } from "./knowledgeTreeBaseline";
 import { recordConflict } from './conflict';
 import { enqueueMutation } from './outbox';
 import type { SyncEntityType } from "./types";
@@ -336,7 +338,7 @@ export async function runLiteMigration(
   options: LiteMigrationOptions,
 ): Promise<LiteMigrationProgress> {
   const { db, remoteUrl, userId, client, blobClient } = options;
-  const pageSize = options.pageSize ?? 200;
+  const pageSize = options.pageSize ?? SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
 
   ensureStateTable(db);
   let state = readState(db);
@@ -355,6 +357,14 @@ export async function runLiteMigration(
   // 失败时诊断要报告"实际卡在哪一步"。持久化的 stage 要到第一页落库后才变成 applying，
   // 不能拿来定位，所以单独跟踪。
   let phase: LiteMigrationStage = "preparing";
+  // 记录首次下载前本机是否没有任何知识树节点：只有全新空库下载才直接采用远端知识树结构，
+  // 已有本地笔记/目录的设备仍交由 runKnowledgeTreeBaseline 保留真实冲突（DCC-004）。
+  const localTreeEmptyBeforeImport = state.downloaded === 0
+    && Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_tree_nodes'").get())
+    && Number((db.prepare(`
+      SELECT COUNT(*) AS c FROM knowledge_tree_nodes
+      WHERE userId = ? AND workspaceId IS NULL
+    `).get(userId) as { c: number } | undefined)?.c ?? 0) === 0;
 
   try {
     // ---------------- preparing ----------------
@@ -364,8 +374,9 @@ export async function runLiteMigration(
     // after=0：Lite 用户本地无任何同步游标，从最开始算。
     const plan = await client.plan(0);
     const profile = previousProfile || findProfileByServer(db, remoteUrl, options.remoteUserId ?? null) || createProfile(db, {
-      name: new URL(remoteUrl).host, serverUrl: remoteUrl, remoteUserId: options.remoteUserId,
+      name: new URL(remoteUrl).host, serverUrl: remoteUrl, remoteUserId: options.remoteUserId, localUserId: userId,
     });
+    setProfileLocalUser(db, profile.id, userId);
     writeState(db, { profileId: profile.id });
     // sequence 必须落库：重试时若重新取 plan 会拿到更大的 sequence，
     // 从而漏掉两次之间产生的远端变更。
@@ -418,6 +429,12 @@ export async function runLiteMigration(
             if (!batch || batch.length === 0) continue;
             const comparison = reconcile(readLocalState(db, userId, entityType), batch);
             for (const { local, remote } of comparison.conflicts) {
+              const alreadyOpen = db.prepare(`
+                SELECT 1 FROM sync_conflicts
+                WHERE profileId = ? AND scopeKey = ? AND entityType = ? AND entityId = ? AND status = 'unresolved'
+                LIMIT 1
+              `).get(profile.id, SYNC_PERSONAL_SCOPE_KEY, entityType, remote.entityId);
+              if (alreadyOpen) continue;
               recordConflict(db, { profileId: profile.id, entityType, entityId: remote.entityId,
                 localPayload: local.payload ?? null, remotePayload: remote.payload ?? null, basePayload: null,
                 localVersion: Number(local.payload?.version) || null, remoteVersion: Number(remote.payload?.version) || null });
@@ -574,6 +591,18 @@ export async function runLiteMigration(
       }
       writeState(db, { stage: "complete", profileId: profile.id, lastError: null });
     })();
+    if (localTreeEmptyBeforeImport) {
+      await adoptKnowledgeTreeOnCleanDownload({
+        db,
+        profileId: profile.id,
+        deviceId: device.id,
+        userId,
+        scopeKey: SYNC_PERSONAL_SCOPE_KEY,
+        workspaceId: null,
+        client,
+        pageSize,
+      });
+    }
     logSyncInfo("lite-migration.complete", {
       profileId: profile.id,
       deviceId: device.id,
@@ -631,7 +660,7 @@ async function verifyMigration(
   const missingSample: string[] = [];
   let cursor: string | null = null;
   do {
-    const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, 200);
+    const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, SYNC_SNAPSHOT_REBUILD_PAGE_SIZE);
     validateBootstrapPage(page.items);
     for (const item of page.items) {
       remoteIds.add(`${item.entityType}:${item.entityId}`);

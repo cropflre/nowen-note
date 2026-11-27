@@ -131,8 +131,12 @@ export function EditingLockBanner({
     : `${uniqueNames.slice(0, 2).join("、")} 等 ${uniqueNames.length} 人正在编辑此笔记`;
 
   return (
-    <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 px-3 py-2 rounded-lg shadow-md bg-amber-50/95 dark:bg-amber-900/90 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-300 backdrop-blur-sm max-w-xs">
-      <Pencil size={12} className="shrink-0" />
+    <div
+      role="status"
+      aria-live="polite"
+      className="absolute bottom-4 right-4 z-20 flex items-center gap-2 px-3 py-2 rounded-lg shadow-md bg-amber-50/95 dark:bg-amber-900/90 border border-amber-200 dark:border-amber-800/50 text-xs text-amber-700 dark:text-amber-300 backdrop-blur-sm max-w-xs"
+    >
+      <Pencil size={12} className="shrink-0" aria-hidden="true" />
       <span className="truncate">{label}</span>
     </div>
   );

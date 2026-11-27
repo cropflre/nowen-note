@@ -36,8 +36,16 @@ describe("planning what to upload", () => {
     expect(planImport([entry("Notes.enex"), entry("book.epub")], "Imported")).toMatchObject({ ok: false, reason: "unsupported", unsupported: ["Notes.enex", "book.epub"] });
     // Unknown files next to notes are counted, not silently dropped.
     expect(planImport([entry("a.md"), entry("b.md"), entry("c.enex")], "Imported")).toMatchObject({ ok: true, unsupported: ["c.enex"] });
-    const huge = { file: Object.defineProperty(new File(["x"], "big.zip"), "size", { value: 513 * 1024 * 1024 }), path: "big.zip" };
-    expect(planImport([huge], "Imported")).toMatchObject({ ok: false, reason: "too-large" });
+    // 1GB pre-compressed ZIP is allowed (up to 2GB); >2GB ZIP is too-large; >512MB loose folder is folder-too-large.
+    const oneGbZip = { file: Object.defineProperty(new File(["x"], "vault.zip"), "size", { value: 1024 * 1024 * 1024 }), path: "vault.zip" };
+    expect(planImport([oneGbZip], "Imported")).toMatchObject({ ok: true, name: "vault" });
+    const hugeZip = { file: Object.defineProperty(new File(["x"], "big.zip"), "size", { value: 2049 * 1024 * 1024 }), path: "big.zip" };
+    expect(planImport([hugeZip], "Imported")).toMatchObject({ ok: false, reason: "too-large" });
+    const hugeFolder = [
+      entry("Vault/note.md", "# Hi"),
+      { file: Object.defineProperty(new File(["x"], "img.png"), "size", { value: 513 * 1024 * 1024 }), path: "Vault/assets/img.png" },
+    ];
+    expect(planImport(hugeFolder, "Imported")).toMatchObject({ ok: false, reason: "folder-too-large" });
   });
 
   it("ignores app settings, trash and OS files", () => {

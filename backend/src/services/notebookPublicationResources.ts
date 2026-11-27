@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
 
-export type PublicKnowledgeResourceType = "notebook" | "note" | "mindmap" | "sheet";
+export type PublicKnowledgeResourceType = "notebook" | "note" | "mindmap" | "sheet" | "excel";
 
 export interface PublicKnowledgeResourceSummary {
   nodeId: string;
@@ -105,6 +105,7 @@ function classify(row: ResourceRow): PublicKnowledgeResourceType {
   if (row.rawResourceType === "notebook") return "notebook";
   if (row.rawResourceType === "mindmap") return "mindmap";
   if (row.rawResourceType === "note" && row.noteType === "sheet") return "sheet";
+  if (row.rawResourceType === "note" && row.noteType === "excel") return "excel";
   return "note";
 }
 
@@ -211,7 +212,9 @@ export function listPublishedKnowledgeResources(
         ? "mindmap"
         : resourceType === "sheet"
           ? "sheet"
-          : row.noteContentFormat,
+          : resourceType === "excel"
+            ? "excel"
+            : row.noteContentFormat,
       updatedAt: updatedAtOf(row),
       sortOrder: row.sortOrder,
       depth: row.depth,
@@ -234,6 +237,10 @@ export function getPublishedKnowledgeResource(
   }
   if (summary.resourceType === "sheet") {
     const row = db.prepare("SELECT data FROM sheets WHERE noteId = ?").get(summary.resourceId) as { data: string } | undefined;
+    return row ? { ...summary, data: row.data } : null;
+  }
+  if (summary.resourceType === "excel") {
+    const row = db.prepare("SELECT data FROM excel_documents WHERE noteId = ?").get(summary.resourceId) as { data: string } | undefined;
     return row ? { ...summary, data: row.data } : null;
   }
 

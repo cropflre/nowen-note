@@ -4,8 +4,9 @@ import type { Migration } from "./migrations.impl.js";
 export const KNOWLEDGE_TREE_SCOPE_TRIGGER_REPAIR_SCHEMA_VERSION = 85;
 
 /**
- * 运行期写入可能先落库笔记，再补 workspaceId。树触发器必须只在父节点与当前
- * scope 一致时建立 parentId，不能让临时 scope 组合被结构守卫误判为跨域父子关系。
+ * 运行期写入可能先落库笔记，再补 workspaceId，或父目录树投影已被隐藏/删除。
+ * 树触发器必须直接校验 knowledge_tree_nodes 中存在同 scope 且未删除的父节点，
+ * 避免与 knowledge_tree_parent_scope_guard_* 产生不一致导致 DATA_STRUCTURE。
  */
 export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): void {
   db.exec(`
@@ -24,10 +25,9 @@ export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): vo
         CASE
           WHEN NEW.parentId IS NULL THEN NULL
           WHEN EXISTS (
-            SELECT 1 FROM notebooks parent
-            WHERE parent.id = NEW.parentId
-              AND COALESCE(parent.workspaceId, '') = COALESCE(NEW.workspaceId, '')
-              AND (NEW.workspaceId IS NOT NULL OR parent.userId = NEW.userId)
+            SELECT 1 FROM knowledge_tree_nodes parent
+            WHERE parent.id = 'notebook:' || NEW.parentId
+              AND parent.scopeKey = CASE WHEN NEW.workspaceId IS NULL THEN 'personal:' || NEW.userId ELSE 'workspace:' || NEW.workspaceId END
               AND parent.isDeleted = 0
           ) THEN 'notebook:' || NEW.parentId
           ELSE NULL
@@ -51,10 +51,9 @@ export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): vo
           parentId = CASE
             WHEN NEW.parentId IS NULL THEN NULL
             WHEN EXISTS (
-              SELECT 1 FROM notebooks parent
-              WHERE parent.id = NEW.parentId
-                AND COALESCE(parent.workspaceId, '') = COALESCE(NEW.workspaceId, '')
-                AND (NEW.workspaceId IS NOT NULL OR parent.userId = NEW.userId)
+              SELECT 1 FROM knowledge_tree_nodes parent
+              WHERE parent.id = 'notebook:' || NEW.parentId
+                AND parent.scopeKey = CASE WHEN NEW.workspaceId IS NULL THEN 'personal:' || NEW.userId ELSE 'workspace:' || NEW.workspaceId END
                 AND parent.isDeleted = 0
             ) THEN 'notebook:' || NEW.parentId
             ELSE NULL
@@ -78,10 +77,9 @@ export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): vo
         CASE
           WHEN NEW.notebookId IS NULL THEN NULL
           WHEN EXISTS (
-            SELECT 1 FROM notebooks parent
-            WHERE parent.id = NEW.notebookId
-              AND COALESCE(parent.workspaceId, '') = COALESCE(NEW.workspaceId, '')
-              AND (NEW.workspaceId IS NOT NULL OR parent.userId = NEW.userId)
+            SELECT 1 FROM knowledge_tree_nodes parent
+            WHERE parent.id = 'notebook:' || NEW.notebookId
+              AND parent.scopeKey = CASE WHEN NEW.workspaceId IS NULL THEN 'personal:' || NEW.userId ELSE 'workspace:' || NEW.workspaceId END
               AND parent.isDeleted = 0
           ) THEN 'notebook:' || NEW.notebookId
           ELSE NULL
@@ -109,10 +107,9 @@ export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): vo
               CASE
                 WHEN NEW.notebookId IS NULL THEN NULL
                 WHEN EXISTS (
-                  SELECT 1 FROM notebooks parent
-                  WHERE parent.id = NEW.notebookId
-                    AND COALESCE(parent.workspaceId, '') = COALESCE(NEW.workspaceId, '')
-                    AND (NEW.workspaceId IS NOT NULL OR parent.userId = NEW.userId)
+                  SELECT 1 FROM knowledge_tree_nodes parent
+                  WHERE parent.id = 'notebook:' || NEW.notebookId
+                    AND parent.scopeKey = CASE WHEN NEW.workspaceId IS NULL THEN 'personal:' || NEW.userId ELSE 'workspace:' || NEW.workspaceId END
                     AND parent.isDeleted = 0
                 ) THEN 'notebook:' || NEW.notebookId
                 ELSE NULL

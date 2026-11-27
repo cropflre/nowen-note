@@ -26,5 +26,12 @@ export function visibleNotifications(userId: string, unlockedFolderNodeIds = new
     if (!access.has(noteId)) access.set(noteId, resolveEffectiveNoteCapabilities(noteId, userId).read && canViewNoteThroughFolderPasswords(db, noteId, unlockedFolderNodeIds));
     return access.get(noteId);
   });
-  return [...issues, ...readable].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  const taskNotifications = db.prepare(`SELECT n.*,
+    (SELECT COALESCE(NULLIF(u.displayName, ''), u.username) FROM users u WHERE u.id = n.actorUserId) AS actorName,
+    (SELECT w.name FROM workspaces w WHERE w.id = n.workspaceId) AS workspaceName
+    FROM notifications n
+    JOIN workspace_members m ON m.workspaceId = n.workspaceId AND m.userId = n.userId
+    JOIN tasks t ON t.id = n.resourceId AND t.workspaceId = n.workspaceId AND t.archivedAt IS NULL
+    WHERE n.userId = ? AND n.resourceType = 'workspace_task'`).all(userId) as NotificationRow[];
+  return [...issues, ...readable, ...taskNotifications].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
 }
