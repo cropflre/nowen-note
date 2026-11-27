@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmbeddedMcpStatus } from "@/lib/api";
+import { setAppTimeZone } from "@/lib/dateTime";
 import i18n from "@/i18n";
 
 const mocks = vi.hoisted(() => ({ scope: "user-a", current: vi.fn(), notebooks: vi.fn(), list: vi.fn(), enable: vi.fn(), create: vi.fn(), revoke: vi.fn(), probe: vi.fn(), copy: vi.fn(), changed: vi.fn() }));
@@ -49,7 +50,7 @@ beforeEach(async () => {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: mocks.copy } });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); setAppTimeZone("auto"); });
 
 describe("simple AI connection flow", () => {
   it("activates the expiry input only from its label or the input, not surrounding whitespace or help text", async () => {
@@ -79,9 +80,10 @@ describe("simple AI connection flow", () => {
     expect(host.textContent).toContain("永久有效");
   });
   it("accepts custom days and displays the expiry returned by the server", async () => {
+    setAppTimeZone("Asia/Shanghai");
     await render(); await setExpiry("30"); await click("连接");
     expect(mocks.create.mock.calls[0][0].expiresInDays).toBe(30);
-    expect(host.textContent).toContain(`有效期至 ${new Date("2030-01-31T00:00:00Z").toLocaleDateString()}`);
+    expect(host.textContent).toContain("有效期至 2030/1/31");
     expect(host.textContent).not.toContain("永久有效");
   });
   it("blocks invalid days and permits clearing them back to permanent", async () => {
