@@ -121,14 +121,16 @@ for (const { width, platform } of [
       const source = editor.locator(".cm-content");
       await expect(source).toContainText("hidden target");
       const before = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
-      const fold = editor.locator('.cm-foldGutter span[title="折叠章节或内容块"]').nth(1);
+      const gutter = editor.locator(".cm-foldGutter");
+      const fold = gutter.getByText("⌄", { exact: true }).filter({ visible: true }).nth(1);
+      await expect(fold).toBeVisible();
       expect((await fold.boundingBox())!.width).toBeGreaterThanOrEqual(24);
       if (width < 640) await fold.tap(); else await fold.click();
       await expect(source).not.toContainText("hidden target");
       await expect(source).toContainText("## First");
       await expect(source).toContainText("## Second");
       await expect(source).toContainText("# Next");
-      const unfold = editor.locator('.cm-foldGutter span[title="展开章节或内容块"]').filter({ visible: true });
+      const unfold = gutter.getByText("›", { exact: true }).filter({ visible: true });
       if (width < 640) await unfold.tap(); else await unfold.click();
       await expect(source).toContainText("hidden target");
       if (width < 640) await fold.tap(); else await fold.click();

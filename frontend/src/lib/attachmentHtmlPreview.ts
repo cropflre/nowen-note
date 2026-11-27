@@ -22,6 +22,7 @@ const CSP_META_CONTENT = "script-src 'none'; object-src 'none'; base-uri 'none';
 
 function isDangerousUrl(raw: string): boolean {
   // 去除 ASCII 空白与控制字符，防止 `java\nscript:` 等绕过。
+  // eslint-disable-next-line no-control-regex -- URL 预览协议检查必须过滤这些字符。
   const normalized = raw.replace(/[\u0000-\u0020]+/g, "").toLowerCase();
   return (
     normalized.startsWith("javascript:") ||

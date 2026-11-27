@@ -363,8 +363,8 @@ function OrdinaryEditorPane({
         return null;
       }
       return node;
-    } catch (error: any) {
-      toast.error(error?.message || t("noteList.createFailed"));
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
       return null;
     }
   }, [t]);
@@ -411,9 +411,9 @@ function OrdinaryEditorPane({
         title: t("common.untitledNote"),
       });
       await openCreatedChildNote(created.resourceId, node.id, created.id);
-    } catch (error: any) {
+    } catch (error) {
       cancelNewNoteTitleFocus(focusRequestId);
-      toast.error(error?.message || t("noteList.createFailed"));
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
     } finally {
       setChildCreateBusy(false);
     }
@@ -441,8 +441,8 @@ function OrdinaryEditorPane({
       emitKnowledgeTreeRefresh("editor-child-folder-created");
       actions.refreshNotebooks();
       toast.success(t("mobileLite.editorChildCreate.folderCreated"));
-    } catch (error: any) {
-      toast.error(error?.message || t("noteList.createFailed"));
+    } catch (error) {
+      toast.error((error instanceof Error && error.message) || t("noteList.createFailed"));
     } finally {
       setChildCreateBusy(false);
     }

@@ -56,6 +56,7 @@ vi.mock("@/lib/toast", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+    getCurrentWorkspace: () => "personal",
     api: {
         getTasks: apiMocks.getTasks,
         getTaskStats: apiMocks.getTaskStats,

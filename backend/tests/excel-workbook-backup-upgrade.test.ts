@@ -15,7 +15,7 @@ process.env.BACKUP_DIR = path.join(directory, "source-backups");
 test("旧库升级只新增 excel_documents，不改动已有笔记和轻量表格", async () => {
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
   const { getDb } = await import("../src/db/schema.js");
-  const { runMigrations, CURRENT_SCHEMA_VERSION } = await import("../src/db/migrations.js");
+  const { runMigrations } = await import("../src/db/migrations.js");
   const { createKnowledgeChild } = await import("../src/services/knowledgeTree.js");
   const db = getDb();
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES ('legacy-owner', 'legacy-owner', 'hash')").run();
@@ -24,7 +24,7 @@ test("旧库升级只新增 excel_documents，不改动已有笔记和轻量表�
   db.prepare("UPDATE sheets SET data = ? WHERE noteId = ?")
     .run(JSON.stringify({ version: 1, rows: [{ id: "r1", height: 32 }], columns: [{ id: "c1", width: 120, title: "A", type: "text", align: "left" }], cells: { "r1:c1": "保留" } }), sheet.resourceId);
 
-  // 回到 1.6.2 基线的形态：没有 v148/v149 台账，也没有 excel_documents 表。
+  // 模拟尚未安装工作簿的旧库状态，保留与工作簿无关的迁移台账。
   db.exec("DROP TABLE excel_documents");
   db.prepare("DELETE FROM schema_migrations WHERE version IN (148, 149)").run();
   const before = {
@@ -33,7 +33,10 @@ test("旧库升级只新增 excel_documents，不改动已有笔记和轻量表�
   };
 
   assert.equal(runMigrations(db), 2);
-  assert.equal(CURRENT_SCHEMA_VERSION, 149);
+  assert.deepEqual(
+    db.prepare("SELECT version FROM schema_migrations WHERE version IN (148, 149) ORDER BY version").all(),
+    [{ version: 148 }, { version: 149 }],
+  );
   const columns = (db.prepare("PRAGMA table_info(excel_documents)").all() as Array<{ name: string }>).map((column) => column.name);
   assert.deepEqual(columns, ["noteId", "userId", "workspaceId", "data", "revision", "createdAt", "updatedAt"]);
   assert.deepEqual({

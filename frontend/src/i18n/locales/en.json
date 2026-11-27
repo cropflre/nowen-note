@@ -3239,6 +3239,7 @@
       "convertToMarkdown": "Convert to Markdown",
       "richText": "Rich text note",
       "richTextShort": "RT",
+      "sheet": "Spreadsheet",
       "html": "HTML note"
     },
     "nowenPackage": "Export Nowen Package",

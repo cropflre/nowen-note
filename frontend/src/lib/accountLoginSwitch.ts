@@ -73,7 +73,7 @@ async function commitSwitch(
 ): Promise<AccountLoginSwitchResult> {
   setServerUrl(account.serverUrl);
   if (isAndroidNativeRuntime()) completeMobileAccountLogin();
-  if ((window as any).nowenDesktop?.isDesktop) {
+  if ((window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop) {
     // 桌面端切换到远端账号时保留 prefer-cloud，避免重载后被已完成的本地迁移强行切回 @desktop；
     // 切回本机 loopback 地址时清除该标记，恢复本地工作区启动。
     if (isLoopbackServerUrl(account.serverUrl)) {

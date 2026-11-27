@@ -3239,6 +3239,7 @@
       "convertToMarkdown": "点击转换为 Markdown",
       "richText": "富文本笔记",
       "richTextShort": "RT",
+      "sheet": "表格",
       "html": "HTML 笔记"
     },
     "nowenPackage": "导出 Nowen 数据包",

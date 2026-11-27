@@ -822,8 +822,8 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
       updateDeck(() => parsed, `已导入 ${parsed.slides.length} 页幻灯片`);
       setActiveIndex(0);
       toast.success(`已导入 ${parsed.slides.length} 页幻灯片`);
-    } catch (err: any) {
-      toast.error(err?.message || "导入 PPTX 失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "导入 PPTX 失败");
     } finally {
       setBusyAction(null);
     }
@@ -835,8 +835,8 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     try {
       await exportPptDeckToFile(deckRef.current, titleRef.current || "演示文稿");
       toast.success("已导出 .pptx 文件");
-    } catch (err: any) {
-      toast.error(err?.message || "导出 PPTX 失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "导出 PPTX 失败");
     } finally {
       setBusyAction(null);
     }
@@ -866,8 +866,8 @@ const PptDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
         imageAlt: file.name.replace(/\.[^.]+$/, ""),
       });
       toast.success("已插入配图");
-    } catch (err: any) {
-      toast.error(err?.message || "插入图片失败");
+    } catch (err) {
+      toast.error((err instanceof Error && err.message) || "插入图片失败");
     } finally {
       setBusyAction(null);
     }

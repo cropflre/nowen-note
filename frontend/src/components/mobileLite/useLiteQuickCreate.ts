@@ -90,7 +90,7 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
           contentFormat: "markdown",
           content: "",
           contentText: "",
-        } as any)
+        })
         : kind === "plaintext"
           ? await api.createNote({
             notebookId,
@@ -106,7 +106,7 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
 
       if (state.viewMode === "favorites" && !note.isFavorite) {
         try {
-          note = await api.updateNote(note.id, { isFavorite: 1 } as any);
+          note = await api.updateNote(note.id, { isFavorite: 1 });
         } catch {
           // 收藏标记失败不阻断新建编辑流程
         }
@@ -122,10 +122,10 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
       actions.setMobileSidebar(false);
       emitKnowledgeTreeRefresh("mobile-lite-quick-create");
       actions.refreshNotebooks();
-    } catch (err: any) {
+    } catch (err) {
       cancelNewNoteTitleFocus(focusRequestId);
       console.error("[MobileLite] quick create note failed:", err);
-      toast.error(err?.message || t("noteList.createFailed"));
+      toast.error((err instanceof Error && err.message) || t("noteList.createFailed"));
     } finally {
       creatingRef.current = false;
     }
@@ -155,9 +155,9 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
         actions.refreshNotebooks();
       }
       toast.success(t("mobileLite.directory.folderCreated"));
-    } catch (err: any) {
+    } catch (err) {
       console.error("[MobileLite] create folder failed:", err);
-      toast.error(err?.message || t("noteList.createFailed"));
+      toast.error((err instanceof Error && err.message) || t("noteList.createFailed"));
     }
   }, [actions, resolveCurrentParentId, t]);
 
@@ -173,9 +173,9 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
       emitKnowledgeTreeRefresh("mobile-lite-mindmap-created");
       pushMindMapAppPath(node.resourceId);
       actions.setViewMode("mindmaps");
-    } catch (err: any) {
+    } catch (err) {
       console.error("[MobileLite] create mindmap failed:", err);
-      toast.error(err?.message || t("noteList.createFailed"));
+      toast.error((err instanceof Error && err.message) || t("noteList.createFailed"));
     }
   }, [actions, resolveCurrentParentId, t]);
 
@@ -192,9 +192,9 @@ export function useLiteQuickCreate({ onOpenDirectory }: { onOpenDirectory?: () =
       actions.refreshNotes();
       actions.refreshNotebooks();
       pushExcelAppPath(node.resourceId);
-    } catch (err: any) {
+    } catch (err) {
       console.error("[MobileLite] create excel failed:", err);
-      toast.error(err?.message || t("noteList.createFailed"));
+      toast.error((err instanceof Error && err.message) || t("noteList.createFailed"));
     }
   }, [actions, resolveCurrentParentId, t]);
 

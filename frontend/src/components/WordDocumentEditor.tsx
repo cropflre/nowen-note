@@ -8,6 +8,8 @@ import React, {
   useState,
 } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import type { JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
@@ -292,11 +294,11 @@ const WordDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(functio
   );
 
   const emitHeadings = useCallback(
-    (doc: Parameters<NonNullable<typeof onHeadingsChange>>[0] extends never ? never : any) => {
+    (doc: ProseMirrorNode) => {
       if (!onHeadingsChange || !doc) return;
       const headings: NoteEditorHeading[] = [];
       let idx = 0;
-      doc.descendants((node: any, pos: number) => {
+      doc.descendants((node, pos) => {
         if (node.type?.name === "heading") {
           const text = String(node.textContent || "").trim();
           if (text) {
@@ -523,22 +525,18 @@ const WordDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(functio
       isReady: () => Boolean(editor && !editor.isDestroyed),
       insertMarkdownAtCursor: (markdown: string) => {
         if (!editor || editor.isDestroyed || !editable) return false;
-        const parsed = markdownToTiptapJSON(markdown);
-        const nodes = Array.isArray((parsed as { content?: unknown[] })?.content)
-          ? (parsed as { content: unknown[] }).content
-          : [];
+        const parsed: JSONContent = markdownToTiptapJSON(markdown);
+        const nodes = Array.isArray(parsed?.content) ? parsed.content : [];
         if (nodes.length === 0) return false;
-        return editor.chain().focus().insertContent(nodes as any).run();
+        return editor.chain().focus().insertContent(nodes).run();
       },
       appendMarkdown: (markdown: string) => {
         if (!editor || editor.isDestroyed || !editable) return false;
-        const parsed = markdownToTiptapJSON(markdown);
-        const nodes = Array.isArray((parsed as { content?: unknown[] })?.content)
-          ? (parsed as { content: unknown[] }).content
-          : [];
+        const parsed: JSONContent = markdownToTiptapJSON(markdown);
+        const nodes = Array.isArray(parsed?.content) ? parsed.content : [];
         if (nodes.length === 0) return false;
         const endPos = editor.state.doc.content.size;
-        return editor.chain().focus().insertContentAt(endPos, nodes as any).run();
+        return editor.chain().focus().insertContentAt(endPos, nodes).run();
       },
     }),
     [buildSnapshot, editable, editor, flushSaveNow],
@@ -634,7 +632,7 @@ const WordDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(functio
       }
 
       const repaired = repairTiptapJson(doc);
-      editor.commands.setContent(repaired as any, { emitUpdate: true });
+      editor.commands.setContent(repaired as JSONContent, { emitUpdate: true });
       const derivedTitle = file.name.replace(/\.docx$/i, "").trim();
       if (derivedTitle && (!titleRef.current.trim() || titleRef.current.includes("未命名") || titleRef.current.includes("无标题"))) {
         setTitle(derivedTitle);
@@ -665,7 +663,7 @@ const WordDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(functio
         import("@/lib/wordNoteService"),
       ]);
       const docTitle = titleRef.current.trim() || "未命名 Word 文档";
-      const ir = await tiptapToIr(editor.getJSON() as any, { title: docTitle });
+      const ir = await tiptapToIr(editor.getJSON() as Parameters<typeof tiptapToIr>[0], { title: docTitle });
       const blob = await createDocx(ir, { title: docTitle });
       await downloadDocxBlob(blob, `${docTitle}.docx`);
       toast.success("Word 文档已导出");
@@ -969,8 +967,8 @@ const WordDocumentEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(functio
               onChange={(e) => {
                 if (!editor) return;
                 const val = e.target.value;
-                if (!val) (editor.chain().focus() as any).unsetFontFamily?.().run();
-                else (editor.chain().focus() as any).setFontFamily?.(val).run();
+                if (!val) editor.chain().focus().unsetFontFamily?.().run();
+                else editor.chain().focus().setFontFamily?.(val).run();
               }}
             >
               {FONT_FAMILIES.map((f) => (

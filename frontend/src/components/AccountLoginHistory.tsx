@@ -91,7 +91,7 @@ export function AccountLoginHistoryList({
   const supported = isAccountLoginHistorySupported();
   const currentServer = getServerUrl().replace(/\/+$/, "").toLowerCase();
   const hasActiveToken = !!localStorage.getItem("nowen-token");
-  const isDesktopLocalWorkspace = !!(window as any).nowenDesktop?.isDesktop
+  const isDesktopLocalWorkspace = !!(window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop
     && hasActiveToken
     && !title
     && isLoopbackServerUrl(currentServer);
