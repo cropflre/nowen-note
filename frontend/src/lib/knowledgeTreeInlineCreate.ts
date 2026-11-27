@@ -1,3 +1,4 @@
+
 export type KnowledgeTreeInlineCreateKind = "folder" | "note" | "markdown" | "plaintext" | "word" | "ppt" | "mindmap" | "sheet" | "excel";
 
 export interface KnowledgeTreeInlineDraft {

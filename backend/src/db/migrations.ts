@@ -104,6 +104,8 @@ import { syncV2KnowledgeTreeReadinessMigration } from "./syncV2KnowledgeTreeRead
 import { syncV2KnowledgeTreeConflictMigration } from "./syncV2KnowledgeTreeConflictMigration.js";
 import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTreeScopeReadinessMigration.js";
 import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
+import { excelDocumentsMigration } from "./excelDocumentsMigration.js";
+import { reconcileForkMigrationLedger, ensureForkExcelDocumentSchema } from "./forkMigrationCompat.js";
 import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
 import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
@@ -439,6 +441,7 @@ export const MIGRATIONS: Migration[] = [
   syncV2KnowledgeTreeConflictMigration,
   syncV2KnowledgeTreeScopeReadinessMigration,
   lightweightSheetsMigration,
+  excelDocumentsMigration,
   attachmentMediaVariantsMigration,
   workspaceIssuesMigration,
   noteColorMarkMigration,
@@ -512,6 +515,8 @@ function getAppliedMigrationVersions(db: Database.Database): Set<number> {
 
 export function getPendingMigrations(db: Database.Database): Migration[] {
   validateMigrationRegistry();
+  // 先把 fork 专属迁移的历史 ledger 记录对账到当前版本，避免旧部署的占号记录把官方迁移判成已应用。
+  reconcileForkMigrationLedger(db);
   const applied = getAppliedMigrationVersions(db);
   return MIGRATIONS
     .filter((migration) => !applied.has(migration.version))
@@ -535,7 +540,10 @@ export function runMigrations(db: Database.Database): number {
   // Looking only at MAX(version) permanently skips a migration added later with
   // a lower historical version (the v48 block schema was affected by this).
   const pending = getPendingMigrations(db);
-  if (pending.length === 0) return 0;
+  if (pending.length === 0) {
+    ensureForkExcelDocumentSchema(db);
+    return 0;
+  }
 
   const insert = db.prepare(
     "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
@@ -557,5 +565,7 @@ export function runMigrations(db: Database.Database): number {
       );
     }
   }
+  // 迁移全部跑完后对齐 fork 旧库可能缺失的列（如官方 v148 引入的 excel_documents.revision）。
+  ensureForkExcelDocumentSchema(db);
   return applied;
 }

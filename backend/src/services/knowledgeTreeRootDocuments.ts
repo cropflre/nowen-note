@@ -153,6 +153,7 @@ export function createKnowledgeChild(input: {
   noteId?: string;
   contentFormat?: "plaintext";
   sheetData?: unknown;
+  excelData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   if (input.parentId !== null) {

@@ -8,6 +8,7 @@ import {
   ChevronsUp,
   CircleAlert,
   FileCode,
+  FileSpreadsheet,
   FileText,
   FileType2,
   Presentation,
@@ -27,7 +28,6 @@ import {
   Trash2,
   TreePine,
   Table2,
-  FileSpreadsheet,
   X,
 } from "lucide-react";
 
@@ -179,6 +179,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
       ? <span data-knowledge-tree-icon="" className="w-[15px] shrink-0 text-center text-sm leading-none">{node.icon}</span>
       : <Folder data-knowledge-tree-icon="" size={15} className="shrink-0 text-amber-500" />;
   }
+
   if (node.nodeType === "markdown") return <FileCode data-knowledge-tree-icon="" size={15} className="shrink-0 text-emerald-500" />;
   if (node.nodeType === "mindmap") return <BrainCircuit data-knowledge-tree-icon="" size={15} className="shrink-0 text-accent-primary" />;
   if (node.resourceType === "file") return <Paperclip data-knowledge-tree-icon="" size={15} className="shrink-0 text-amber-500" />;

@@ -112,9 +112,9 @@ import {
   type MindMapAppRoute,
 } from "@/lib/mindMapDeepLink";
 import {
-  getCurrentSheetAppRoute,
-  parseSheetAppPath,
-  type SheetAppRoute,
+getCurrentSheetAppRoute,
+parseSheetAppPath,
+type SheetAppRoute,
 } from "@/lib/sheetDeepLink";
 import {
   getCurrentExcelAppRoute,
