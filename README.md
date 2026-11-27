@@ -33,21 +33,23 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.6.1 更新亮点 · 2026-11-23
+## v1.6.2 更新亮点 · 2026-11-26
 
-- **首次支持热更新。** Windows、macOS、Linux 和 Android 用户先下载安装 v1.6.1，之后的多数更新可在应用内完成。
-- **编辑器与分享。** 编辑器支持 Tab 插入四个空格、快捷键对齐和可拖动的文本框。分享页支持显示高亮块、文本框、分栏和折叠块。
-- **登录与附件。** 简化已配置反向代理时的登录流程，改善旧版 Android WebView 的登录布局，并修复桌面端无法提取 PDF 附件文字的问题。
+- **Word、PPT 和 Excel。** 支持 DOCX、PPTX、XLSX 导入导出，Office 文件可直接拖入目录树。PPT 支持从 Markdown 大纲生成幻灯片，Excel 工作簿支持 Sync V2 和只读分享。
+- **桌面同步、备份和导入。** 改善 NAS 弱网同步与自动续期，修复附件重复排队、备份恢复报错和 Obsidian 相对路径附件导入。桌面端支持直接导入本地文件夹。
+- **文件管理与图床。** 支持跨页多选、批量移动、打标签和移入回收站。清空文件回收站时保护仍被引用的文件。
+- **团队协作与应用时区。** 团队空间新增成员邀请、用户组授权、@提及和任务负责人。应用可跟随系统时区，也可将自定义时区随账号同步。
 
-[v1.6.1 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
+[v1.6.2 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.2) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.2)
 
-本次提供 Windows 安装程序和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB，以及 Android APK 和 AAB。Docker 镜像见 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags)，飞牛 fnOS、绿联 UGOS 和剪藏扩展的下载见 [v1.6.0 发布页](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)。
+发布页提供 Windows 安装版和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB、Android APK 和 AAB、飞牛通用 FPK、绿联双架构 UPK 和剪藏扩展。Docker 镜像支持 AMD64 和 ARM64。[Docker Hub v1.6.2](https://hub.docker.com/r/cropflre/nowen-note/tags?name=v1.6.2)
 
 > [!IMPORTANT]
 > 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** GitHub 发布的 macOS 安装包未做 Apple Developer ID 签名或公证，Windows 直接下载的 EXE 未签名。
 
 ## 近期版本
 
+- **v1.6.1**（2026-11-23）为 Windows、macOS、Linux 和 Android 引入应用内热更新，改善编辑器、分享页和登录流程。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1)
 - **v1.6.0**（2026-11-21）更新扩展中心和设置，改进笔记导入、AI 对话归档与说说附件，并扩展 MCP 团队空间授权和个人任务操作。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
 - **v1.5.5**（2026-11-09）增强 Web、桌面和 Android 双向同步、知识树冲突处理和桌面启动恢复。[更新说明](./docs/releases/v1.5.5.md)
 - **v1.5.4**（2026-11-02）新增 AI 修改审核和 Markdown 章节折叠，增强附件恢复与桌面 NAS 离线体验。[更新说明](./docs/releases/v1.5.4.md)
@@ -207,7 +209,7 @@ docker compose logs -f --tail=200 nowen-note
 
 升级前先在管理后台创建完整备份，并确认数据库与附件目录已经持久化。
 
-如需固定到 v1.6.0，请在 Compose 的 `.env` 文件中设置 `NOWEN_IMAGE_TAG=v1.6.0`，再执行以下命令。镜像标签可在 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) 查看。
+如需固定到 v1.6.2，请在 Compose 的 `.env` 文件中设置 `NOWEN_IMAGE_TAG=v1.6.2`，再执行以下命令。镜像标签可在 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) 查看。
 
 ```bash
 docker compose pull
@@ -224,7 +226,7 @@ docker compose up -d
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.6.0 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.6.2 docker compose --profile updater up -d
 ```
 
 启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级、健康验证和失败回滚。
@@ -240,7 +242,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.6.0
+  cropflre/nowen-note:v1.6.2
 ```
 
 ## 数据、备份与配置

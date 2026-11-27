@@ -33,21 +33,23 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.6.1 highlights · 2026-11-23
+## v1.6.2 highlights · 2026-11-26
 
-- **Hot updates are now supported.** Install v1.6.1 once on Windows, macOS, Linux, or Android. After that, most updates can be applied inside the app.
-- **Editing and sharing.** The editor supports four-space Tab indentation, alignment shortcuts, and draggable text boxes. Shared pages display highlights, text boxes, columns, and collapsible blocks.
-- **Sign-in and attachments.** Sign-in is simpler with an existing reverse proxy, the sign-in page works better on older Android WebViews, and desktop clients can extract text from PDF attachments again.
+- **Word, PowerPoint, and Excel.** Import and export DOCX, PPTX, and XLSX, or drop Office files directly into the notebook tree. Turn a Markdown outline into slides and share Excel workbooks in read-only mode. Workbooks support Sync V2.
+- **Desktop sync, backups, and imports.** NAS sync handles unreliable connections and session renewal better. This release fixes repeated attachment sync, backup restoration errors, and Obsidian imports with relative attachment paths. Desktop users can import local folders directly.
+- **Files and image hosting.** Select across pages to move, tag, or trash files in bulk. Emptying the file trash protects files that are still referenced.
+- **Team workspaces and time zones.** Team workspaces add member invitations, group permissions, mentions, and task assignees. Follow the system time zone or sync your chosen time zone with your account.
 
-[v1.6.1 release notes and downloads](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1) · [Official download center](https://nowen.cn/#/note/download) · [Gitee release and download links](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.1)
+[v1.6.2 release notes and downloads](https://github.com/cropflre/nowen-note/releases/tag/v1.6.2) · [Official download center](https://nowen.cn/#/note/download) · [Gitee release and download links](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.2)
 
-This release includes Windows setup and portable packages, macOS packages for Intel and Apple Silicon, Linux AppImage and DEB packages, and Android APK and AAB files. Find Docker images on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) and Feiniu fnOS, UGREEN UGOS, and browser clipper downloads on the [v1.6.0 release page](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0).
+The release page includes Windows setup and portable packages, macOS packages for Intel and Apple Silicon, Linux AppImage and DEB packages, Android APK and AAB files, the universal fnOS FPK, UGREEN UPKs for both architectures, and browser clipper ZIPs. Docker images support AMD64 and ARM64. [Docker Hub v1.6.2](https://hub.docker.com/r/cropflre/nowen-note/tags?name=v1.6.2)
 
 > [!IMPORTANT]
 > Back up the database, attachments, and deployment configuration before upgrading, and verify that you can restore them. **Rolling back the application or Docker image does not roll back persistent data.** GitHub's macOS packages lack Apple Developer ID signing and notarization. Direct Windows EXE downloads are unsigned.
 
 ## Recent releases
 
+- **v1.6.1** (2026-11-23) introduced in-app hot updates for Windows, macOS, Linux, and Android and improved editing, sharing, and sign-in. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1)
 - **v1.6.0** (2026-11-21) updated the extension center and settings, improved note imports, AI chat archiving, and Moment attachments, and expanded MCP team-space authorization and personal task operations. [Release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
 - **v1.5.5** (2026-11-09) improved two-way sync across web, desktop, and Android, knowledge-tree conflict recovery, and desktop startup. [Release notes](./docs/releases/v1.5.5.md)
 - **v1.5.4** (2026-11-02) introduced reviewable AI edits and Markdown chapter folding and improved attachment recovery and offline use on desktop. [Release notes](./docs/releases/v1.5.4.md)
@@ -199,7 +201,7 @@ docker compose logs -f --tail=200 nowen-note
 
 Create a full backup first and confirm that both the database and attachment directory are persisted.
 
-To pin the image to v1.6.0, set `NOWEN_IMAGE_TAG=v1.6.0` in your Compose `.env` file, then run the following commands. Published tags are listed on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags).
+To pin the image to v1.6.2, set `NOWEN_IMAGE_TAG=v1.6.2` in your Compose `.env` file, then run the following commands. Published tags are listed on [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags).
 
 ```bash
 docker compose pull
@@ -216,7 +218,7 @@ Managed updates only support the official [`docker-compose.yml`](./docker-compos
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.6.0 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.6.2 docker compose --profile updater up -d
 ```
 
 Administrators can then run preflight checks, create a full backup, update, verify health, and roll back the image from Settings → About → Version.
@@ -234,7 +236,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.6.0
+  cropflre/nowen-note:v1.6.2
 ```
 
 ## Data, backups, and configuration
