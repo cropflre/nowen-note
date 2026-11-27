@@ -274,6 +274,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       className="flex h-full w-full min-w-0 flex-col overflow-hidden border-r border-app-border bg-app-sidebar text-tx-primary"
       data-unified-sidebar=""
       data-sidebar-variant={variant}
+      data-rail-mode={variant === "desktop" ? railMode : undefined}
     >
       {variant === "desktop" && (
         <style data-knowledge-tree-scrollbar="">{KNOWLEDGE_TREE_SCROLLBAR_CSS}</style>
@@ -282,7 +283,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       <header
         className={cn("shrink-0 border-b border-app-border", variant === "mobile"
           ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[44px] items-center gap-x-3 gap-y-2 px-3 pb-3 pt-2"
-          : "flex items-center justify-between px-4 py-3")}
+          : "flex min-h-[44px] items-center justify-between px-4 py-2.5")}
         data-mobile-controls-collapsed={variant === "mobile" ? mobileControlsCollapsed : undefined}
         data-mobile-safe-topbar={variant === "mobile" ? "" : undefined}
         style={{ paddingTop: `calc(var(--safe-area-top) + ${variant === "mobile" ? 8 : 12}px)` }}

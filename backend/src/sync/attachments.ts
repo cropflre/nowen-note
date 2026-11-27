@@ -106,9 +106,43 @@ export function markAttachmentDownloaded(
 ): void {
   db.prepare(`
     UPDATE attachment_sync_state
-    SET remoteOnly = 0, status = 'synced', lastError = NULL, updatedAt = datetime('now')
+    SET remoteOnly = 0, status = 'synced', retryCount = 0, lastError = NULL, updatedAt = datetime('now')
     WHERE attachmentId = ?
   `).run(attachmentId);
+}
+
+/**
+ * 远端附件二进制尚未就绪（409 BLOB_NOT_READY）：
+ * 不标为 failed（保持 remoteOnly=1 与原 status，等对端上传），
+ * 但递增 retryCount 并刷新时间把它轮转到下载队尾，避免队头少数未就绪附件永久饿死后续附件。
+ */
+export function markAttachmentDownloadDeferred(
+  db: Database.Database,
+  attachmentId: string,
+): void {
+  db.prepare(`
+    UPDATE attachment_sync_state
+    SET retryCount = retryCount + 1,
+        lastAttemptAt = datetime('now'),
+        updatedAt = datetime('now')
+    WHERE attachmentId = ? AND remoteOnly = 1
+  `).run(attachmentId);
+}
+
+/** 是否仍有从未尝试过（retryCount=0）的待下载附件。 */
+export function hasUntouchedPendingDownloads(
+  db: Database.Database,
+  workspaceId?: string | null,
+): boolean {
+  const row = workspaceId !== undefined
+    ? db.prepare(`SELECT 1 FROM attachment_sync_state s
+        JOIN attachments a ON a.id=s.attachmentId JOIN notes n ON n.id=a.noteId
+        WHERE s.remoteOnly=1 AND s.retryCount=0 AND n.workspaceId IS ?
+        LIMIT 1`).get(workspaceId)
+    : db.prepare(`SELECT 1 FROM attachment_sync_state
+        WHERE remoteOnly=1 AND retryCount=0
+        LIMIT 1`).get();
+  return Boolean(row);
 }
 
 /**

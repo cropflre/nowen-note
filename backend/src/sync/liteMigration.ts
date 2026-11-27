@@ -29,6 +29,7 @@ import { describeSyncFailure, diagnosticLogFields } from "./diagnostics";
 import type { SyncRemoteClient } from "./remote";
 import type { SyncBlobClient } from "./blob";
 import type { RemoteSnapshotPage } from './remote';
+import { hasUntouchedPendingDownloads } from "./attachments";
 import { pullAttachmentBlobs } from "./blob";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
@@ -532,10 +533,8 @@ export async function runLiteMigration(
           batchSize: 8,
           concurrency: 2,
         });
-        // 一轮什么都没动说明剩下的都拿不到（远端缺失或校验失败），
-        // 继续循环只是空转。
-        if (result.downloaded === 0 && result.skipped === 0) break;
-        if (result.downloaded === 0 && result.failed > 0) break;
+        // 一轮什么都没下载且已没有未尝试过的待下载条目，说明剩下的都拿不到，停止空转。
+        if (result.downloaded === 0 && !hasUntouchedPendingDownloads(db)) break;
       }
     }
 

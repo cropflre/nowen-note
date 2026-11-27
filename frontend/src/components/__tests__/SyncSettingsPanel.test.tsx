@@ -6,12 +6,13 @@ import type { SyncSettingsResponse } from "@/lib/syncLocalApi";
 
 const mocks = vi.hoisted(() => ({
   settings: vi.fn(), diagnostics: vi.fn(), login: vi.fn(), bootstrap: vi.fn(),
-  disable: vi.fn(), connect: vi.fn(),
+  disable: vi.fn(), connect: vi.fn(), syncNow: vi.fn(),
 }));
 vi.mock("@/lib/syncLocalApi", () => ({
   fetchSyncSettings: mocks.settings, fetchSyncDiagnostics: mocks.diagnostics,
   loginSyncServer: mocks.login, startSyncBootstrap: mocks.bootstrap,
   disableSync: mocks.disable, connectSyncServer: mocks.connect,
+  triggerSyncNow: mocks.syncNow,
   SyncV2DisabledError: class extends Error {},
 }));
 
@@ -183,5 +184,39 @@ describe("desktop sync settings actions", () => {
     await mount(); await click("恢复同步");
     expect(mocks.connect).toHaveBeenCalledWith({ serverUrl: profile.serverUrl });
     expect(host.textContent).toContain("已开启");
+  });
+
+  it("provides one-click manual sync and keeps active attachment downloads ahead of minor failures", async () => {
+    enable();
+    mocks.diagnostics.mockResolvedValue({
+      profileId: profile.id,
+      serverUrl: profile.serverUrl,
+      deviceId: "dev-1",
+      localCursor: 42,
+      pendingMutations: 0,
+      conflictCount: 0,
+      lastSyncAt: "2026-11-27 08:30:00",
+      lastSeenAt: "2026-11-27 08:30:00",
+      lastError: null,
+      pendingSample: [],
+      offline: {
+        supported: true,
+        scopeKey: "personal",
+        contentState: "ready",
+        verifiedSequence: 42,
+        verifiedAt: "2026-11-27 08:30:00",
+        attachments: { total: 100, available: 25, pendingDownloads: 74, failedDownloads: 1, missingFiles: 0 },
+        fullyAvailable: false,
+        verificationPending: false,
+      },
+    });
+    mocks.syncNow.mockResolvedValueOnce({ engineRunning: true });
+    await mount();
+    expect(host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("25");
+    expect(host.textContent).toContain("另有 1 个附件暂未下载成功");
+    expect(host.querySelector("details")?.open).toBe(false);
+    await click("立即同步");
+    expect(mocks.syncNow).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("已触发一轮同步检查");
   });
 });

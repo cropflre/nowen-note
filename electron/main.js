@@ -1128,12 +1128,12 @@ function createWindow() {
   //   - hiddenInset 把 Traffic Light 嵌入工具栏，不占独立标题栏；
   //   - vibrancy: 'sidebar' 启用系统级毛玻璃（配合前端 macOS 皮肤效果最佳）；
   //   - visualEffectState: 'active' 避免窗口失焦后毛玻璃褪色导致"发灰"。
-  //   - trafficLightPosition: { x: 12, y: 14 } 保持在窗口左上角的标准位置。
+  //   - trafficLightPosition: { x: 14, y: 16 } 让红黄绿三灯垂直居中于 44px 顶栏区域。
   // 注：仅 macOS 生效；Windows/Linux 保持原有无边框策略（默认），避免踩 Mica/Acrylic 的坑。
   const macWindowOpts = isMac
     ? {
         titleBarStyle: "hiddenInset",
-        trafficLightPosition: { x: 12, y: 22 },
+        trafficLightPosition: { x: 14, y: 16 },
         vibrancy: "sidebar",
         visualEffectState: "active",
         transparent: false, // 开启 vibrancy 时 backgroundColor 可设半透明或不设

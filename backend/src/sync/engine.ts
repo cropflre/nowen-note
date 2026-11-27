@@ -17,6 +17,8 @@ import {
   pushAttachmentBlobs,
   type SyncBlobClient,
 } from "./blob";
+import { hasUntouchedPendingDownloads } from "./attachments";
+import { parseSyncScopeKey, type SyncScopeDescriptor } from "./scope";
 import { logSyncError, logSyncInfo, logSyncWarn } from "./log";
 import {
   advanceSyncState,
@@ -56,7 +58,6 @@ import {
   type SyncEngineState,
   type SyncNegotiatedEntityType,
 } from "./types";
-import type { SyncScopeDescriptor } from "./scope";
 import {
   listWorkspaceScopeStates,
   markWorkspaceScopeActive,
@@ -602,8 +603,12 @@ export class SyncEngine {
       await pushAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
       if (this.stopped) return;
       const result = await pullAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
-      // Drain another bounded batch promptly; all-failed batches use normal backoff.
-      if (result.downloaded > 0) this.rerunRequested = true;
+      // Drain another bounded batch promptly when blobs downloaded, or when head-of-line BLOB_NOT_READY/failed items
+      // were rotated past untouched (retryCount=0) pending downloads; all-failed/deferred retries use normal backoff.
+      const workspaceId = parseSyncScopeKey(scope.scopeKey).workspaceId;
+      if (result.downloaded > 0 || ((result.skipped > 0 || result.failed > 0) && hasUntouchedPendingDownloads(this.db, workspaceId))) {
+        this.rerunRequested = true;
+      }
     } catch (error) {
       // 只记日志：附件是次要通道，不能污染整轮同步的状态判定。
       logSyncWarn("engine.blob-cycle-failed", {

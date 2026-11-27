@@ -2634,7 +2634,19 @@ html[data-electron="darwin"]
   [data-unified-sidebar][data-sidebar-variant="desktop"]
   > header {
   -webkit-app-region: drag;
-  padding-left: 24px;
+  padding-left: 38px;
+}
+
+html[data-electron="darwin"]:not([data-fullscreen="1"])
+  [data-unified-sidebar][data-sidebar-variant="desktop"][data-rail-mode="label"]
+  > header {
+  padding-left: 22px;
+}
+
+html[data-electron="darwin"]:not([data-fullscreen="1"])
+  [data-unified-sidebar][data-sidebar-variant="desktop"][data-rail-mode="hidden"]
+  > header {
+  padding-left: 86px;
 }
 
 html[data-electron="darwin"] .vibrancy-sidebar button,
@@ -2652,19 +2664,38 @@ html[data-electron="darwin"]
   -webkit-app-region: no-drag;
 }
 
-/* Keep rail actions below the native window controls. */
-html[data-electron="darwin"] .nav-rail {
-  padding-top: 56px !important;
+/* Keep rail actions below the native window controls and avoid splitting the green traffic light with a vertical border.
+   Preserve ::before for macOS vibrancy backdrop; make the top area draggable via the rail itself while keeping scroll/items interactive. */
+html[data-electron="darwin"]:not([data-fullscreen="1"]) .nav-rail:not([data-mobile-drawer-rail]) {
+  position: relative;
+  border-right-color: transparent;
+  padding-top: 52px !important;
+  -webkit-app-region: drag;
 }
 
-/* Fullscreen hides Traffic Lights, so restore the regular header inset. */
+html[data-electron="darwin"]:not([data-fullscreen="1"]) .nav-rail:not([data-mobile-drawer-rail]) .nav-rail-scroll {
+  -webkit-app-region: no-drag;
+}
+
+html[data-electron="darwin"]:not([data-fullscreen="1"]) .nav-rail:not([data-mobile-drawer-rail])::after {
+  content: "";
+  position: absolute;
+  top: 44px;
+  right: -1px;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-border);
+  pointer-events: none;
+}
+
+/* Fullscreen hides Traffic Lights, so restore the regular header inset and border. */
 html[data-electron="darwin"][data-fullscreen="1"]
   [data-unified-sidebar][data-sidebar-variant="desktop"]
   > header {
   padding-left: 16px;
 }
 
-html[data-electron="darwin"][data-fullscreen="1"] .nav-rail {
+html[data-electron="darwin"][data-fullscreen="1"] .nav-rail:not([data-mobile-drawer-rail]) {
   padding-top: 4px !important;
 }
 

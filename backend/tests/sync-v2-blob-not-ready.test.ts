@@ -169,3 +169,71 @@ test("a storage path that resolves to a directory is reported as a missing file,
   assert.equal(await storage.readAttachmentObject(directory), null);
   assert.equal(await storage.readAttachmentObject(""), null);
 });
+
+test("head-of-line BLOB_NOT_READY items rotate behind untouched downloads instead of starving ready attachments", async () => {
+  const db = schema.getDb();
+  const { registerRemoteAttachment, hasUntouchedPendingDownloads } = await import("../src/sync/attachments");
+  const noteId = crypto.randomUUID();
+  db.prepare("INSERT INTO notes (id, userId, notebookId, title, content) VALUES (?, ?, ?, 'hol', '{}')")
+    .run(noteId, OWNER, NOTEBOOK);
+
+  const notReadyIds = [
+    "../../../.hol_1",
+    "../../../.hol_2",
+    "../../../.hol_3",
+    "../../../.hol_4",
+  ];
+  for (const id of notReadyIds) {
+    db.prepare(`
+      INSERT INTO attachments (id, noteId, userId, filename, path, mimeType, size, hash, workspaceId)
+      VALUES (?, ?, ?, 'x.bin', ?, 'application/octet-stream', 10, NULL, NULL)
+    `).run(id, noteId, OWNER, `pending-sync:${id}`);
+    registerRemoteAttachment(db, id, null);
+  }
+  const readyId = `zz-ready-${crypto.randomUUID()}`;
+  db.prepare(`
+    INSERT INTO attachments (id, noteId, userId, filename, path, mimeType, size, hash, workspaceId)
+    VALUES (?, ?, ?, 'ready.jpg', ?, 'image/jpeg', ?, ?, NULL)
+  `).run(readyId, noteId, OWNER, `pending-sync:${readyId}`, jpeg.length, sha256(jpeg));
+  registerRemoteAttachment(db, readyId, null);
+
+  const client = new blob.SyncBlobClient({
+    serverUrl: "http://sync.test",
+    credential: { serverUrl: "http://sync.test", token: "desktop-token" },
+    fetchImpl: (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes(encodeURIComponent(readyId))) {
+        return new Response(new Uint8Array(jpeg), {
+          status: 200,
+          headers: { "X-Blob-Hash": sha256(jpeg) },
+        });
+      }
+      return new Response(JSON.stringify({ code: "BLOB_NOT_READY" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch,
+  });
+
+  // First batch hits the 4 lexicographically-first BLOB_NOT_READY rows and rotates them to retryCount=1.
+  const round1 = await blob.pullAttachmentBlobs(db, client, { batchSize: 4, concurrency: 2, scopeKey: "personal" });
+  assert.equal(round1.skipped, 4);
+  assert.equal(round1.downloaded, 0);
+  assert.equal(round1.failed, 0);
+  assert.equal(hasUntouchedPendingDownloads(db, null), true, "ready attachment must still be untouched at retryCount=0");
+
+  // Second batch immediately reaches the ready attachment instead of retrying the same 4 BLOB_NOT_READY rows forever.
+  const round2 = await blob.pullAttachmentBlobs(db, client, { batchSize: 4, concurrency: 2, scopeKey: "personal" });
+  assert.equal(round2.downloaded, 1);
+  assert.equal(hasUntouchedPendingDownloads(db, null), false);
+
+  const readyState = db.prepare("SELECT remoteOnly, status, retryCount FROM attachment_sync_state WHERE attachmentId = ?")
+    .get(readyId) as { remoteOnly: number; status: string; retryCount: number };
+  assert.deepEqual(readyState, { remoteOnly: 0, status: "synced", retryCount: 0 });
+  const deferredState = db.prepare("SELECT remoteOnly, status, retryCount, lastError FROM attachment_sync_state WHERE attachmentId = ?")
+    .get(notReadyIds[0]) as { remoteOnly: number; status: string; retryCount: number; lastError: string | null };
+  assert.equal(deferredState.remoteOnly, 1);
+  assert.notEqual(deferredState.status, "failed");
+  assert.ok(deferredState.retryCount >= 1, `deferred retryCount should advance, got ${deferredState.retryCount}`);
+  assert.equal(deferredState.lastError, null);
+});

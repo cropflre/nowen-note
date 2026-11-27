@@ -27,6 +27,7 @@ import type { RemoteCredentials } from "./remote";
 import {
   listPendingDownloads,
   listPendingUploads,
+  markAttachmentDownloadDeferred,
   markAttachmentDownloaded,
   markUploadFailed,
   markUploaded,
@@ -367,8 +368,12 @@ export async function pullAttachmentBlobs(
       let relPath = meta.path;
       if (!relPath || relPath.startsWith('pending-sync:')) {
         const dot = (meta.filename || "").lastIndexOf(".");
-        const ext = dot > 0 ? (meta.filename as string).slice(dot + 1) : "bin";
-        relPath = `${getUploadMonthPath()}/${row.attachmentId}.${ext}`;
+        const rawExt = dot > 0 ? (meta.filename as string).slice(dot + 1) : "bin";
+        const ext = /^[A-Za-z0-9]{1,16}$/.test(rawExt) ? rawExt : "bin";
+        const safeId = /^[A-Za-z0-9_-]{1,128}$/.test(row.attachmentId)
+          ? row.attachmentId
+          : crypto.createHash("sha256").update(row.attachmentId).digest("hex");
+        relPath = `${getUploadMonthPath()}/${safeId}.${ext}`;
       }
 
       ensureAttachmentsDir();
@@ -406,7 +411,8 @@ export async function pullAttachmentBlobs(
     } catch (error) {
       const code = error instanceof SyncError ? error.code : "SERVER_ERROR";
       if (code === "BLOB_NOT_READY") {
-        // 对端还没上传，不算失败，下一轮再试。
+        // 对端还没上传，不算失败；轮转到下载队尾，避免队头少数未就绪附件长期饿死后续已就绪附件。
+        markAttachmentDownloadDeferred(db, row.attachmentId);
         result.skipped += 1;
         return;
       }
