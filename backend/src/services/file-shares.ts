@@ -78,7 +78,7 @@ export function ensureFileSharesTable(): void {
 
 function isExpired(value: string | null | undefined): boolean {
   if (!value) return false;
-  const timestamp = new Date(value).getTime();
+  const timestamp = Date.parse(value.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/, "$1T$2Z"));
   return Number.isFinite(timestamp) && timestamp <= Date.now();
 }
 

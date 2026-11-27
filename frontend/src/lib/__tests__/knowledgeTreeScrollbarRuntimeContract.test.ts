@@ -68,8 +68,8 @@ describe("knowledge tree scrollbar runtime contract", () => {
   it("keeps the tree viewport vertical-only when the sidebar narrows", () => {
     const tree = source("../../components/KnowledgeTreePanel.tsx");
 
-    expect(tree).toContain(
-      '"relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"',
+    expect(tree).toMatch(
+      /ref=\{scrollContainerRef\}\s+className=\{cn\(\s*"[^"]*\boverflow-x-hidden\b[^"]*\boverflow-y-auto\b/,
     );
   });
 

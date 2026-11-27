@@ -21,7 +21,10 @@ vi.mock("@/lib/api", () => ({ getBaseUrl: () => "/api", getServerUrl: () => "", 
 } }));
 vi.mock("@/lib/exportService", () => ({ exportAllNotes: mocks.export }));
 vi.mock("@/lib/backupWebDavApi", () => ({ backupWebDavApi: { config: async () => ({ enabled: false, configured: false }) } }));
-vi.mock("@/lib/desktopBridge", () => ({ isDesktop: () => false }));
+vi.mock("@/lib/desktopBridge", () => ({
+  isDesktop: () => false,
+  getDesktopMigrationBridge: () => null,
+}));
 vi.mock("@/components/MiCloudImport", () => ({ default: () => null }));
 vi.mock("@/components/OppoCloudImport", () => ({ default: () => null }));
 vi.mock("@/components/iCloudImport", () => ({ default: () => null }));

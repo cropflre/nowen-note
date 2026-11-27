@@ -179,6 +179,25 @@ test("expired stable shares return a product-level expiry error instead of INVAL
   assert.match(denied.error, /过期/);
 });
 
+test("legacy SQLite UTC expiry denies stable share access in a negative-offset timezone (DCC-006)", async (t) => {
+  const previousTimezone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  t.after(() => {
+    if (previousTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimezone;
+  });
+
+  const share = await createStableShare();
+  const updateExpiry = db().prepare("UPDATE file_shares SET expiresAt = ? WHERE id = ?");
+  updateExpiry.run(new Date(Date.now() + 60_000).toISOString().slice(0, 19).replace("T", " "), share.id);
+  assert.equal((await app.request(publicRoute(share.url))).status, 200);
+
+  updateExpiry.run(new Date(Date.now() - 60_000).toISOString().slice(0, 19).replace("T", " "), share.id);
+  const response = await app.request(publicRoute(share.url));
+  assert.equal(response.status, 410);
+  assert.equal((await responseJson<{ code: string }>(response)).code, "FILE_SHARE_EXPIRED");
+});
+
 test("deleting the attachment invalidates its stable share", async () => {
   // Previous test expired the active share. A new creation rotates to a fresh token.
   const share = await createStableShare();

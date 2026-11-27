@@ -22,11 +22,20 @@ describe("shared note read-only permissions", () => {
   it("gates every main editor mode with the active note permission", () => {
     expect(editorPaneSource).toContain('import { canWriteNote } from "@/lib/notePermissions";');
     expect(editorPaneSource).toContain("const canEditActiveNote = canWriteNote(activeNote);");
-    const gates = editorPaneSource.match(
-      /editable=\{canEditActiveNote && !effectiveLocked && !modeSwitching\}/g,
-    ) || [];
-    // Plain text, both Markdown entry points and Tiptap all honor the same gate.
-    expect(gates).toHaveLength(4);
+    const editors = Array.from(editorPaneSource.matchAll(
+      /<(PlainTextEditor|MarkdownEditor|PptDocumentEditor|WordDocumentEditor|TiptapEditor)\b[\s\S]*?\/>/g,
+    ));
+    expect(editors.map(([, name]) => name)).toEqual([
+      "PlainTextEditor",
+      "MarkdownEditor",
+      "PptDocumentEditor",
+      "WordDocumentEditor",
+      "MarkdownEditor",
+      "TiptapEditor",
+    ]);
+    for (const [props, name] of editors) {
+      expect(props, name).toContain("editable={canEditActiveNote && !effectiveLocked && !modeSwitching}");
+    }
   });
 
   it("keeps the split editor read-only and ignores stale update callbacks", () => {

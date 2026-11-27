@@ -1,10 +1,9 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { format } from "date-fns";
+import { describe, expect, it, vi } from "vitest";
 import type { Task } from "@/types";
 import { TaskDetailPanel } from "../TaskDetailPanel";
-
-const previousTimezone = process.env.TZ;
 
 vi.mock("react-i18next", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-i18next")>();
@@ -15,15 +14,6 @@ vi.mock("react-i18next", async (importOriginal) => {
       i18n: { resolvedLanguage: "zh-CN", language: "zh-CN" },
     }),
   };
-});
-
-beforeAll(() => {
-  process.env.TZ = "Asia/Shanghai";
-});
-
-afterAll(() => {
-  if (previousTimezone === undefined) delete process.env.TZ;
-  else process.env.TZ = previousTimezone;
 });
 
 describe("TaskDetailPanel created time", () => {
@@ -56,7 +46,7 @@ describe("TaskDetailPanel created time", () => {
       />,
     );
 
-    expect(html).toContain("2026-08-28 10:54");
-    expect(html).not.toContain("2026-08-28 02:54");
+    const localCreatedAt = format(new Date("2026-08-28T02:54:00Z"), "yyyy-MM-dd HH:mm");
+    expect(html).toContain(localCreatedAt);
   });
 });

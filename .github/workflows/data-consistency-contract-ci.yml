@@ -2,7 +2,7 @@ name: Data Consistency Contract CI
 
 on:
   push:
-    branches: [main, "release/v1.5.2", "release/v1.5.5"]
+    branches: [main, "release/v1.5.2", "release/v1.5.5", "release/v1.6.2"]
     paths:
       - "docs/architecture/data-consistency-contract*"
       - "scripts/data-consistency-contract.mjs"
@@ -14,6 +14,8 @@ on:
       - "backend/src/routes/diary.ts"
       - "backend/src/lib/diary-file-attachments.ts"
       - "backend/tests/diary-file-attachments.test.ts"
+      - "backend/src/services/file-shares.ts"
+      - "backend/tests/attachment-file-share.test.ts"
       - "backend/tests/api-token-resource-scope.test.ts"
       - "backend/src/routes/tasks.ts"
       - "backend/src/lib/taskRecurrenceDeletion.ts"
@@ -67,6 +69,8 @@ on:
       - "backend/src/routes/diary.ts"
       - "backend/src/lib/diary-file-attachments.ts"
       - "backend/tests/diary-file-attachments.test.ts"
+      - "backend/src/services/file-shares.ts"
+      - "backend/tests/attachment-file-share.test.ts"
       - "backend/tests/api-token-resource-scope.test.ts"
       - "backend/src/routes/tasks.ts"
       - "backend/src/lib/taskRecurrenceDeletion.ts"

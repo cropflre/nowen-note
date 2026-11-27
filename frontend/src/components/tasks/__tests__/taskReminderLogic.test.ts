@@ -114,7 +114,7 @@ describe("scanDueReminders logic", () => {
   });
 
   it("uses dueDate + 23:59:59 when no dueAt", () => {
-    const now = new Date("2026-06-15T23:00:00Z").getTime();
+    const now = new Date(2026, 5, 15, 23).getTime();
     const rows: ReminderRow[] = [{
       reminderId: "r1", taskId: "t1", taskTitle: "Test",
       dueAt: null, dueDate: "2026-06-15",

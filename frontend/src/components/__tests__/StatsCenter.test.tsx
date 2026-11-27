@@ -130,9 +130,9 @@ describe("StatsCenter", () => {
   it("renders task records, weekly trends, and heatmap from completedAt", async () => {
     await renderStats(root, {
       tasks: [
-        makeTask({ id: "task-a", title: "Task Alpha", createdAt: "2026-07-08T08:00:00", completedAt: "2026-07-08T09:00:00", isCompleted: 1, status: "done" }),
-        makeTask({ id: "task-b", title: "Task Beta", createdAt: "2026-06-23T11:00:00", completedAt: "2026-06-25T12:30:00", isCompleted: 1, status: "done" }),
-        makeTask({ id: "task-c", title: "Task Gamma", createdAt: "2026-01-03T07:00:00", completedAt: "2026-01-03T07:30:00", isCompleted: 1, status: "done" }),
+        makeTask({ id: "task-a", title: "Task Alpha", createdAt: new Date(2026, 6, 8, 8).toISOString(), completedAt: new Date(2026, 6, 8, 9).toISOString(), isCompleted: 1, status: "done" }),
+        makeTask({ id: "task-b", title: "Task Beta", createdAt: new Date(2026, 5, 23, 11).toISOString(), completedAt: new Date(2026, 5, 25, 12, 30).toISOString(), isCompleted: 1, status: "done" }),
+        makeTask({ id: "task-c", title: "Task Gamma", createdAt: new Date(2026, 0, 3, 7).toISOString(), completedAt: new Date(2026, 0, 3, 7, 30).toISOString(), isCompleted: 1, status: "done" }),
       ],
       taskStats: { total: 3, completed: 3, pending: 0, today: 0, overdue: 0, week: 1 },
     });
