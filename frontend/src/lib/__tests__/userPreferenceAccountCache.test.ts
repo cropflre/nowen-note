@@ -232,4 +232,25 @@ describe("user preference account cache", () => {
     }
   });
 
+  it("defaults timeZone to auto, preserves valid IANA zones per account, and falls back invalid values", () => {
+    expect(DEFAULT_USER_PREFERENCES.timeZone).toBe("auto");
+    expect(normalizeUserPreferences({}).timeZone).toBe("auto");
+    expect(normalizeUserPreferences({ timeZone: "Asia/Tokyo" }).timeZone).toBe("Asia/Tokyo");
+    expect(normalizeUserPreferences({ timeZone: "Invalid/Zone" }).timeZone).toBe("auto");
+    expect(normalizeUserPreferences({ timeZone: "  UTC  " }).timeZone).toBe("auto");
+    expect(sanitizeUserPreferencePatch({ timeZone: "America/New_York" })).toEqual({ timeZone: "America/New_York" });
+
+    const storage = new MemoryStorage();
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "tz-user",
+      prefs: { ...DEFAULT_USER_PREFERENCES, timeZone: "Europe/London" },
+      revision: 2,
+      pending: { timeZone: "Europe/London" },
+    });
+    expect(readAccountPreferenceCache(storage, "tz-user")?.prefs.timeZone).toBe("Europe/London");
+    expect(mergePendingPreferences(DEFAULT_USER_PREFERENCES, readAccountPreferenceCache(storage, "tz-user")?.pending ?? {}).timeZone).toBe("Europe/London");
+    expect(readAccountPreferenceCache(storage, "other-user")).toBeNull();
+  });
+
 });

@@ -312,6 +312,7 @@
         { "file": "frontend/src/lib/__tests__/registrationError.test.ts", "case": "DCC-006: a rejected registration preserves the server error and existing account tokens" },
         { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: template management visibility persists per account and rejects invalid or unauthenticated writes" },
         { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: code block word wrap persists per account without changing another user's preference" },
+        { "file": "backend/tests/user-preferences-sync.test.ts", "case": "DCC-006: user time zone preference persists per account and rejects invalid or unauthenticated writes" },
         { "file": "frontend/src/components/__tests__/ExtensionPackageInstall.test.tsx", "case": "DCC-006: refuses to upload a package if the active account or server changes during confirmation" },
         { "file": "frontend/src/lib/__tests__/mcpConnections.test.ts", "case": "DCC-006: discards a one-time credential parsed after switching account or server" },
         { "file": "backend/tests/mcp-embedded.test.ts", "case": "DCC-006: embedded MCP isolates concurrent credentials, notebook grants and revocation" },

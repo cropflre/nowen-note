@@ -1,10 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState } from "@/lib/appPathNavigation";
-import { parseServerTime } from "@/lib/dateTime";
+import {
+  formatAppDate,
+  formatDateKeyInTimeZone,
+  localDateTimeInputToUtcIso,
+  parseServerTime,
+} from "@/lib/dateTime";
+import { useAppTimeZone } from "@/hooks/useAppTimeZone";
 import { noteLocalDayKey } from "@/lib/noteListTime";
 import type { BuiltinWidgetKind } from "@/lib/pluginDashboard";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -65,17 +71,17 @@ function sortRecent(notes: NoteListItem[]): NoteListItem[] {
 function NoteListCard({ favorites, refreshKey }: { favorites: boolean; refreshKey: string }) {
   const { t, i18n } = useTranslation();
   const { openNote, openView } = useOpenInApp();
+  useAppTimeZone();
   const [state, retry] = useCardData(
     async () => sortRecent(await api.getNotes(favorites ? { isFavorite: "1", sortBy: "recent", limit: "5" } : { sortBy: "recent", limit: "5" })),
     refreshKey,
   );
-  const format = useMemo(() => new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric" }), [i18n.language]);
   return <CardStatus state={state} retry={retry}>{(notes) => notes.length
     ? <ul className="-mx-1 space-y-0.5">{notes.map((note) => <li key={note.id}>
       <button type="button" onClick={() => openNote(note.id)} className="group/row flex min-h-9 w-full items-center gap-2 rounded-xl px-2 py-1 text-left text-[13px] transition-colors hover:bg-app-hover/80 md:min-h-8">
         <span className="min-w-0 flex-1 truncate font-medium text-tx-primary transition-transform duration-150 motion-safe:group-hover/row:translate-x-0.5">{note.title || t("extensionCenter.workbench.untitled")}</span>
         <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full opacity-60", favorites ? "bg-amber-400" : "bg-sky-400")} />
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-tx-tertiary">{(() => { const updated = parseServerTime(note.updatedAt); return updated ? format.format(updated) : ""; })()}</span>
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-tx-tertiary">{note.updatedAt ? formatAppDate(note.updatedAt, { month: "short", day: "numeric" }, "", i18n.language) : ""}</span>
       </button>
     </li>)}</ul>
     : <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-app-border/80 bg-app-bg/60 px-3 py-2.5 text-xs text-tx-secondary">
@@ -206,21 +212,23 @@ function dateKey(date: Date): string {
 function DiaryCalendarCard({ refreshKey }: { refreshKey: string }) {
   const { t, i18n } = useTranslation();
   const { openView } = useOpenInApp();
+  const configuredTimeZone = useAppTimeZone();
   const [month, setMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1); });
   const first = month, last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
   const [state, retry] = useCardData(async () => {
-    // Local month boundaries as UTC instants, so entries near midnight land on the right day.
-    const end = new Date(last.getFullYear(), last.getMonth(), last.getDate(), 23, 59, 59, 999);
-    const timeline = await api.getDiaryTimeline(undefined, 100, { from: first.toISOString(), to: end.toISOString() });
+    const fromIso = localDateTimeInputToUtcIso(`${dateKey(first)}T00:00:00`) ?? first.toISOString();
+    const endFallback = new Date(last.getFullYear(), last.getMonth(), last.getDate(), 23, 59, 59, 999).toISOString();
+    const toIso = localDateTimeInputToUtcIso(`${dateKey(last)}T23:59:59`) ?? endFallback;
+    const timeline = await api.getDiaryTimeline(undefined, 100, { from: fromIso, to: toIso });
     const counts: Record<string, number> = {};
     for (const item of timeline.items) { const key = noteLocalDayKey(item.createdAt); if (key) counts[key] = (counts[key] || 0) + 1; }
     return counts;
-  }, `${refreshKey}:${dateKey(first)}`);
+  }, `${refreshKey}:${dateKey(first)}:${configuredTimeZone}`);
   const locale = i18n.language;
   const monthLabel = new Intl.DateTimeFormat(locale, { year: "numeric", month: "long" }).format(month);
   const weekdays = Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(locale, { weekday: "narrow" }).format(new Date(2024, 0, 1 + index)));
   const leading = (first.getDay() + 6) % 7;
-  const today = dateKey(new Date());
+  const today = formatDateKeyInTimeZone(new Date());
   const cells = [...Array.from({ length: leading }, () => null), ...Array.from({ length: last.getDate() }, (_, index) => new Date(month.getFullYear(), month.getMonth(), index + 1))];
   const shift = (delta: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
   return <div className="space-y-2">

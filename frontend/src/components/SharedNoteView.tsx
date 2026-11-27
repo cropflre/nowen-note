@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2, ListTree, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
+import { formatAppDate } from "@/lib/dateTime";
 import VoiceMemoAudio from "@/components/VoiceMemoAudio";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import ExcelWorkbookPreview from "@/components/ExcelWorkbookPreview";
@@ -1098,7 +1099,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 <p className="text-[11px] text-zinc-400">
                   由 <span className="text-zinc-500 dark:text-zinc-400">{shareInfo.ownerName}</span> 分享
                   {content.updatedAt && (
-                    <> · 更新于 {new Date(content.updatedAt).toLocaleDateString("zh-CN")}</>
+                    <> · 更新于 {formatAppDate(content.updatedAt, undefined, undefined, "zh-CN")}</>
                   )}
                 </p>
               )}
@@ -1494,7 +1495,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       </div>
                       <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">{comment.username || "匿名"}</span>
                       <span className="text-[10px] text-zinc-400">
-                        {new Date(comment.createdAt).toLocaleDateString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        {formatAppDate(comment.createdAt, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }, undefined, "zh-CN")}
                       </span>
                     </div>
                     <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">{comment.content}</p>

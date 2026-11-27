@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
+import { formatAppDate } from "@/lib/dateTime";
 import { ExternalLink, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { overlayMotion, MOTION_SPRING } from "@/lib/motion";
@@ -176,7 +177,7 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
             <InfoRow label={t("extensionCenter.detail.sources")}>{listing.sources.length ? listing.sources.map((source) => source.sourceName).join(", ") : t("extensionCenter.badge.package")}</InfoRow>
             <InfoRow label={t("extensionCenter.detail.uiPlatforms")}>{listing.uiPlatforms?.length ? listing.uiPlatforms.join(", ") : t("extensionCenter.detail.unknown")}</InfoRow>
             {listing.license && <InfoRow label={t("extensionCenter.detail.license")}>{listing.license}</InfoRow>}
-            {listing.publishedAt && <InfoRow label={t("extensionCenter.detail.published")}>{new Date(listing.publishedAt).toLocaleDateString()}</InfoRow>}
+            {listing.publishedAt && <InfoRow label={t("extensionCenter.detail.published")}>{formatAppDate(listing.publishedAt)}</InfoRow>}
             {listing.repository && /^https:\/\//.test(listing.repository) && <InfoRow label={t("extensionCenter.detail.repository")}>
               <a href={listing.repository} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-primary hover:underline">{listing.repository.replace(/^https:\/\//, "")}<ExternalLink size={12} /></a>
             </InfoRow>}

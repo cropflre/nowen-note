@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatAppDateTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   ArrowRight,
@@ -39,7 +40,7 @@ function formatDate(value?: string): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  try { return date.toLocaleString(); } catch { return value; }
+  return formatAppDateTime(date, undefined, value);
 }
 
 function count(value: unknown): number {

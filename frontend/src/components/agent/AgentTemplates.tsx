@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { getEffectiveTimeZone } from "@/lib/dateTime";
 import { getTaskComposerContext, isTaskComposerContextCurrent } from "@/lib/taskComposerApi";
 import type { AgentTemplate, AgentTemplateConfig, AgentExtension, AgentConnection, AgentAutomation } from "@/lib/agentTemplates";
 import type { Notebook } from "@/types";
@@ -13,7 +14,7 @@ export default function AgentTemplates({ workspaceId, books, onUse }: { workspac
   const [templates, setTemplates] = useState<AgentTemplate[]>([]), [tools, setTools] = useState<AgentExtension[]>([]), [connections, setConnections] = useState<AgentConnection[]>([]);
   const [automations, setAutomations] = useState<AgentAutomation[]>([]), [prompts, setPrompts] = useState<Array<{ id: string; name: string }>>([]);
   const [selected, setSelected] = useState<AgentTemplate | null>(null);
-  const empty = (): AgentTemplateConfig => ({ name: "", input: { notebookId: books[0]?.id || "", instruction: "", includeChildren: true, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en" }, allowNote: false, allowTasks: false, toolIds: [] });
+  const empty = (): AgentTemplateConfig => ({ name: "", input: { notebookId: books[0]?.id || "", instruction: "", includeChildren: true, timezone: getEffectiveTimeZone(), lang: i18n.language.startsWith("zh") ? "zh-CN" : "en" }, allowNote: false, allowTasks: false, toolIds: [] });
   const [draft, setDraft] = useState(empty), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [connectionName, setConnectionName] = useState(""), [url, setUrl] = useState(""), [token, setToken] = useState(""), [names, setNames] = useState("");
   const [trigger, setTrigger] = useState("daily"), [time, setTime] = useState("09:00"), [weekday, setWeekday] = useState("1"), [event, setEvent] = useState("note.created");

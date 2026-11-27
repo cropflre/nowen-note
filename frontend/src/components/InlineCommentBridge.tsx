@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { EditorView } from "@codemirror/view";
+import { formatAppDateTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -395,7 +396,7 @@ function formatCommentTime(value: string): string {
   if (seconds < 60) return "刚刚";
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)} 小时前`;
-  return date.toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatAppDateTime(date, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }, undefined, "zh-CN");
 }
 
 function CommentThread({

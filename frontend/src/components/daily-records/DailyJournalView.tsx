@@ -34,7 +34,12 @@ import {
   shiftLocalDateKey,
   shiftLocalMonthKey,
 } from "@/lib/dailyRecords";
-import { localDateRangeToUtcSqlBounds, parseServerTime } from "@/lib/dateTime";
+import {
+  formatAppDateTime,
+  localDateRangeToUtcSqlBounds,
+  parseServerTime,
+} from "@/lib/dateTime";
+import { useAppTimeZone } from "@/hooks/useAppTimeZone";
 import {
   checkJournalForScope,
   getOrCreateJournalForScope,
@@ -162,6 +167,7 @@ export default function DailyJournalView({
   const [subtitleSaving, setSubtitleSaving] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
+  const configuredTimeZone = useAppTimeZone();
   const today = relativeLocalDateKey(0);
   const isToday = selectedDate === today;
   const selectedDateObject = useMemo(() => parseLocalDateKey(selectedDate), [selectedDate]);
@@ -228,7 +234,7 @@ export default function DailyJournalView({
     } finally {
       setLoading(false);
     }
-  }, [journalScope, selectedDate]);
+  }, [journalScope, selectedDate, configuredTimeZone]);
 
   useEffect(() => {
     void loadDay();
@@ -661,7 +667,7 @@ export default function DailyJournalView({
                   )}
                   <div className="flex items-center gap-2 border-t border-app-border/70 px-5 py-3 text-[11px] text-tx-tertiary">
                     <Clock3 size={12} />
-                    <span>{journal.updatedAt ? `更新于 ${new Date(journal.updatedAt).toLocaleString()}` : ""}</span>
+                    <span>{journal.updatedAt ? `更新于 ${formatAppDateTime(journal.updatedAt)}` : ""}</span>
                   </div>
                 </div>
               ) : (

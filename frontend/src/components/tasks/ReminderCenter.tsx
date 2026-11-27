@@ -4,6 +4,7 @@ import { X, Bell, BellOff, Clock, AlertTriangle, Loader2, RefreshCw, Monitor, Mo
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import type { ReminderOverview, ReminderOverviewItem } from "@/types";
 import { emitTaskReminderScheduleChanged } from "@/lib/taskNotificationSchedule";
 import {
@@ -311,19 +312,19 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
                                   {item.snoozedUntil ? (
                                     <span>
                                       {t("tasks.reminderCenter.snoozedUntil")}:{" "}
-                                      {new Date(item.snoozedUntil).toLocaleString()}
+                                      {formatAppDateTime(item.snoozedUntil)}
                                     </span>
                                   ) : item.reminderAt ? (
                                     <span>
                                       {t("tasks.reminderCenter.reminderAt")}:{" "}
-                                      {new Date(item.reminderAt).toLocaleString()}
+                                      {formatAppDateTime(item.reminderAt)}
                                     </span>
                                   ) : null}
                                   {(item.dueAt || item.dueDate) && (
                                     <span>
                                       {t("tasks.reminderCenter.dueAt")}:{" "}
                                       {item.dueAt
-                                        ? new Date(item.dueAt).toLocaleString()
+                                        ? formatAppDateTime(item.dueAt)
                                         : item.dueDate}
                                     </span>
                                   )}

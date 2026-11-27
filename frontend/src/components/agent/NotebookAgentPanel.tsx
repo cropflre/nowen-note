@@ -6,6 +6,7 @@ import type { AgentTemplate } from "@/lib/agentTemplates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { formatAppDateTime, getEffectiveTimeZone } from "@/lib/dateTime";
 import { workflowActive, type AgentWorkflow, type AgentTaskDraft } from "@/lib/agentWorkflow";
 import { getTaskComposerContext, isTaskComposerContextCurrent, refreshAgentTaskResults } from "@/lib/taskComposerApi";
 import { queueTaskNavigation } from "@/lib/taskNotifications";
@@ -79,7 +80,7 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     try {
       const created = await api.agentWorkflows.create(workspaceId, {
         ...(template ? { templateId: template.id, templateRevision: template.revision } : {}), notebookId: bookId, includeChildren, instruction, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en",
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezone: getEffectiveTimeZone(),
         ...(linkCurrent && state.activeNote ? { linkNoteId: state.activeNote.id } : {}),
       });
       pendingId.current = created.id;
@@ -190,7 +191,7 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote, onOp
     </div>
     <details className="text-xs leading-5 text-tx-secondary"><summary className="cursor-pointer py-1">{t("agent.privacySummary")}</summary><p className="mt-2">{t("agent.workflow.privacy")}</p></details>
     {(!enabled || !books.length) && <p className="text-sm text-tx-secondary">{t("agent.workflow.unavailable")}</p>}
-    {history.length > 0 && <details className="text-xs text-tx-secondary"><summary className="cursor-pointer py-1">{t("agent.workflow.history")}</summary><select aria-label={t("agent.workflow.history")} value={run?.id || ""} disabled={busy || workflowActive(run)} className="mt-2 block w-full rounded-lg border border-app-border bg-app-surface p-2 text-sm" onChange={e => { if (e.target.value) void openHistory(e.target.value); }}><option value="">{t("agent.workflow.choose")}</option>{history.map(item => <option value={item.id} key={item.id}>{new Date(item.createdAt).toLocaleString()} · {t(`agent.states.${item.status}`)}</option>)}</select></details>}
+    {history.length > 0 && <details className="text-xs text-tx-secondary"><summary className="cursor-pointer py-1">{t("agent.workflow.history")}</summary><select aria-label={t("agent.workflow.history")} value={run?.id || ""} disabled={busy || workflowActive(run)} className="mt-2 block w-full rounded-lg border border-app-border bg-app-surface p-2 text-sm" onChange={e => { if (e.target.value) void openHistory(e.target.value); }}><option value="">{t("agent.workflow.choose")}</option>{history.map(item => <option value={item.id} key={item.id}>{formatAppDateTime(item.createdAt)} · {t(`agent.states.${item.status}`)}</option>)}</select></details>}
     {run && <p role="status" className="text-sm">{t(`agent.states.${run.status}`)}</p>}
     {run?.steps.map(step => <div key={step.sequence} className="rounded border border-app-border px-3 py-2 text-xs">{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status}`)}</div>)}
     {(error || run?.errorCode) && <p role="alert" className="text-sm text-red-500">{error || errorText({ code: run?.errorCode })}</p>}

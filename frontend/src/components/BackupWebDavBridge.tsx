@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -93,7 +94,7 @@ function formatBytes(bytes: number): string {
 
 function formatTime(value: string | null, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel;
-  try { return new Date(value).toLocaleString(locale); } catch { return value; }
+  return formatAppDateTime(value, undefined, value, locale);
 }
 
 function findBackupHost(): HTMLElement | null {

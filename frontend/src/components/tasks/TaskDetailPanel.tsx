@@ -13,7 +13,7 @@ import { zhCN, enUS } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { parseServerTime } from "@/lib/dateTime";
+import { getAppTimeZoneParts, parseServerTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { getTaskNotificationSurface, showTestTaskNotification } from "@/lib/taskNotifications";
 import type { Task, TaskPriority, TaskReminder, TaskDependency, WorkspaceMember } from "@/types";
@@ -799,7 +799,11 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
         {/* Created At */}
         <div className="text-xs text-tx-tertiary">
-          {t("tasks.createdAt")}: {createdAtDate ? format(createdAtDate, "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}
+          {t("tasks.createdAt")}: {createdAtDate ? (() => {
+            const p = getAppTimeZoneParts(createdAtDate);
+            const pad = (n: number) => String(n).padStart(2, "0");
+            return `${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`;
+          })() : "-"}
         </div>
 
         {/* Progress Section */}

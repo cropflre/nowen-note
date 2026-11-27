@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, Clock3, RotateCcw, Send, Settings, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { pluginApi } from "@/lib/pluginApi";
+import { formatAppDateTime } from "@/lib/dateTime";
 import type { StudioApp, StudioSpec, StudioVersion } from "@/lib/personalApps";
 
 const copy = {
@@ -176,7 +177,7 @@ export function PersonalStudioVersionHistory({ app, onRestored }: { app: StudioA
       <ol className="mt-3 space-y-2">{versions.map(v=><li key={v.revision} className="flex items-center justify-between gap-2 rounded-lg border border-app-border p-2">
         <div className="min-w-0">
           <p className="text-sm font-medium">v{v.revision} · {v.name}</p>
-          <p className="text-xs text-tx-secondary">{v.fieldCount} {t.field} · {v.itemCount} {t.record} · {new Date(v.createdAt).toLocaleString()}</p>
+          <p className="text-xs text-tx-secondary">{v.fieldCount} {t.field} · {v.itemCount} {t.record} · {formatAppDateTime(v.createdAt)}</p>
         </div>
         {v.revision===app.revision ? <span className="shrink-0 text-xs text-tx-secondary">{t.latest}</span> :
           <button type="button" disabled={busy} className={action+" inline-flex shrink-0 items-center gap-1"} onClick={()=>void restore(v.revision)}><RotateCcw size={13}/>{t.restore}</button>}

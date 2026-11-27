@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatAppDateTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -34,7 +35,7 @@ function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  try { return date.toLocaleString(); } catch { return value; }
+  return formatAppDateTime(date, undefined, value);
 }
 
 function modeLabel(mode: string): string {

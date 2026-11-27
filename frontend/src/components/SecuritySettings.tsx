@@ -23,6 +23,7 @@ import QRCode from "@/components/ui/QRCode";
 import FolderAutoLockSettings from "@/components/FolderAutoLockSettings";
 import JournalPrivacySettingsCard from "@/components/settings/JournalPrivacySettingsCard";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { api, broadcastAuthChanged, withSudo } from "@/lib/api";
 import { getAppInfo } from "@/lib/desktopBridge";
 import {
@@ -617,7 +618,7 @@ function TwoFactorSection() {
             <div className="text-sm">
               <div className="font-medium text-zinc-900 dark:text-zinc-100">
                 {status?.enabled
-                  ? t("securitySettings.twoFactor.enabledAt", { date: status.enabledAt ? new Date(status.enabledAt).toLocaleString() : "-" })
+                  ? t("securitySettings.twoFactor.enabledAt", { date: status.enabledAt ? formatAppDateTime(status.enabledAt, undefined, "-") : "-" })
                   : t("securitySettings.twoFactor.descriptionDisabled")}
               </div>
               {status?.enabled && (
@@ -986,7 +987,7 @@ function SessionsSection() {
                     {t("securitySettings.sessions.from", { ip: s.ip || t("securitySettings.sessions.unknownIp", { defaultValue: "来源未知" }) })}
                     {" · "}
                     {t("securitySettings.sessions.lastSeen", {
-                      time: new Date(s.lastSeenAt).toLocaleString(),
+                      time: formatAppDateTime(s.lastSeenAt),
                     })}
                   </div>
                 </div>

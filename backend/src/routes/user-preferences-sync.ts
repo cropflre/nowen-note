@@ -45,6 +45,7 @@ export interface SyncedUserPreferences {
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
   showTemplateManagement: boolean;
+  timeZone: string;
 }
 
 type PreferenceKey = keyof SyncedUserPreferences;
@@ -94,6 +95,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   journalLockOnEntry: false,
   showNoteListDividers: false,
   showTemplateManagement: true,
+  timeZone: "auto",
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
@@ -122,6 +124,19 @@ function normalizeNavigationModuleOrder(value: unknown, fallback: NavigationModu
   )));
   const seen = new Set(saved);
   return [...saved, ...NAVIGATION_MODULE_ORDER.filter((id) => !seen.has(id))];
+}
+
+function normalizeTimeZonePreference(value: unknown, fallback = "auto"): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed !== value || trimmed.length > 100 || /\s/.test(trimmed)) return fallback;
+  if (trimmed === "auto") return "auto";
+  if (trimmed !== "UTC" && !trimmed.includes("/")) return fallback;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: trimmed }).resolvedOptions().timeZone || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function normalizePreferenceValue<K extends PreferenceKey>(
@@ -208,6 +223,8 @@ function normalizePreferenceValue<K extends PreferenceKey>(
           ? value
           : fallback
       ) as SyncedUserPreferences[K];
+    case "timeZone":
+      return normalizeTimeZonePreference(value, fallback as string) as SyncedUserPreferences[K];
   }
 }
 

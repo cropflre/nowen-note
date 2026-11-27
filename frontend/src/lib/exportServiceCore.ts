@@ -161,7 +161,7 @@ interface ExportNote {
   contentFormat?: string;
 }
 
-import { parseServerTime } from "@/lib/dateTime";
+import { formatAppDateTime } from "@/lib/dateTime";
 
 // 清理文件名中的非法字符
 function sanitizeFilename(name: string): string {
@@ -1547,8 +1547,8 @@ export async function buildPrintableHtml(note: {
 
   const safeTitle = (note.title || i18n.t('common.untitledNote'))
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const created = parseServerTime(note.createdAt)?.toLocaleString() || note.createdAt;
-  const updated = parseServerTime(note.updatedAt)?.toLocaleString() || note.updatedAt;
+  const created = formatAppDateTime(note.createdAt, undefined, note.createdAt);
+  const updated = formatAppDateTime(note.updatedAt, undefined, note.updatedAt);
 
   // 内嵌一份基础排版样式：保证打印/截图独立于 app 主题
   const css = `

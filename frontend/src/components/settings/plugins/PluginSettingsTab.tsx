@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import JSZip from "jszip";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Code2, KeyRound, Loader2, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { pluginApi, type InstalledPlugin, type PluginAction, type PluginConnection, type PluginExecution, type PluginUpdate, type RegistrySource } from "@/lib/pluginApi";
@@ -97,7 +98,7 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
       </> : <span>{plugin.apiVersion === 3 ? t("pluginApps.executionLabel") : runtimePresentation.executionLabel}</span>}
     </div>
     {runtimePresentation.declarative && <div className="rounded-md border border-emerald-200/70 bg-emerald-50 p-2.5 text-xs leading-relaxed text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300"><div className="flex gap-2"><ShieldCheck className="mt-0.5 shrink-0" size={14} /><span>此扩展只注册声明式资源：不会启动 Worker / Node / QuickJS，不可执行 Action，也不能申请笔记、附件、网络或密钥数据权限。</span></div></div>}
-    {plugin.nodeRuntimeConfirmedAt && <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">Node Runtime 已由 {plugin.nodeRuntimeConfirmedBy || "管理员"} 于 {new Date(plugin.nodeRuntimeConfirmedAt).toLocaleString()} 确认。</div>}
+    {plugin.nodeRuntimeConfirmedAt && <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">Node Runtime 已由 {plugin.nodeRuntimeConfirmedBy || "管理员"} 于 {formatAppDateTime(plugin.nodeRuntimeConfirmedAt)} 确认。</div>}
     {plugin.compatibility?.allowed === false && <div className="rounded-md bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/20 dark:text-red-300">兼容性拒绝：{plugin.compatibility.reason}（{plugin.compatibility.code}）</div>}
     {!!plugin.probationRemaining && <div className="rounded-md bg-sky-50 p-2 text-xs text-sky-700 dark:bg-sky-950/20 dark:text-sky-300">新版本安全试运行中：剩余 {plugin.probationRemaining} 次；崩溃将自动回滚。</div>}
     {!!plugin.permissionDiff?.added.length && <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">此更新新增权限：{plugin.permissionDiff.added.join("、")}，必须重新确认。</div>}

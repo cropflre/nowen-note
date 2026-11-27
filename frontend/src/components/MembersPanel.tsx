@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { formatAppDate, formatAppDateTime } from "@/lib/dateTime";
 import {
   Workspace,
   WorkspaceMember,
@@ -460,7 +461,7 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
 
               <div className="space-y-1 flex-1 min-h-0 overflow-auto">
                 {members.map((m) => {
-                  const joinedDate = new Date(m.joinedAt).toLocaleDateString(locale);
+                  const joinedDate = formatAppDate(m.joinedAt, undefined, undefined, locale);
                   const isSelf = m.userId === currentUserId;
                   const canEditTarget =
                     isManager &&
@@ -764,7 +765,7 @@ export default function MembersPanel({ workspaceId, onClose }: Props) {
                           )}
                         </div>
                         <time className="shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
-                          {new Date(item.createdAt).toLocaleString(locale)}
+                          {formatAppDateTime(item.createdAt, undefined, undefined, locale)}
                         </time>
                       </div>
                     );
@@ -1038,7 +1039,7 @@ function InviteItem({
         </div>
         <div>
           {invite.expiresAt
-            ? t("workspaceMembers.validUntil", { date: new Date(invite.expiresAt).toLocaleString(locale) })
+            ? t("workspaceMembers.validUntil", { date: formatAppDateTime(invite.expiresAt, undefined, undefined, locale) })
             : t("workspaceMembers.permanent")}
           {expired && <span className="text-destructive ml-2">{t("workspaceMembers.expired")}</span>}
           {exhausted && <span className="text-destructive ml-2">{t("workspaceMembers.exhausted")}</span>}

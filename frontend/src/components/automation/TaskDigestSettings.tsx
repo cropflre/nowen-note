@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BellRing, Check, Clock3, Eye, Pencil, Send, Trash2, X } from "lucide-react";
+import { getEffectiveTimeZone } from "@/lib/dateTime";
 import { taskDigestApi, type TaskDigestConfig, type TaskDigestPreview, type TaskDigestWebhook } from "@/lib/taskDigestApi";
 
 const DIGEST_EVENTS = new Set(["task.digest.morning", "task.digest.evening", "task.due"]);
@@ -36,7 +37,7 @@ function validateDestination(rawUrl: string): string | null {
 const defaultConfig: TaskDigestConfig = {
   userId: "", morningEnabled: 0, eveningEnabled: 0, dueEnabled: 0,
   morningTime: "09:00", eveningTime: "21:00",
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+  timezone: getEffectiveTimeZone() || "Asia/Shanghai",
 };
 export default function TaskDigestSettings() {
   const [config, setConfig] = useState<TaskDigestConfig>(defaultConfig);

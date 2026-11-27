@@ -23,6 +23,7 @@ import {
   isElectronFullLocalRuntime,
   UploadRequestError,
 } from "./uploadRequest";
+import { getEffectiveTimezoneOffsetMinutes } from "./dateTime";
 import type { Note, SearchResult, Task } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 import { newLocalId } from "./localRepository";
@@ -432,7 +433,7 @@ installTaskOfflineApi(api, {
 
 api.createTaskReminder = (async (taskId: string, offsetMinutes: number) => {
   let lastError: unknown;
-  const timezoneOffsetMinutes = new Date().getTimezoneOffset();
+  const timezoneOffsetMinutes = getEffectiveTimezoneOffsetMinutes();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const reminder = await authenticatedJson<Awaited<ReturnType<typeof baseApi.createTaskReminder>>>(

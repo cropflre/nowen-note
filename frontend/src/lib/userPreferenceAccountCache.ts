@@ -12,6 +12,10 @@ import {
   type NavigationModuleId,
   type TaskCenterOptionalModuleId,
 } from "@/lib/navigationVisibility";
+import {
+  DEFAULT_TIME_ZONE_PREFERENCE,
+  normalizeTimeZonePreference,
+} from "@/lib/timeZones";
 
 export type ReadingDensity = "cozy" | "compact";
 export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
@@ -52,6 +56,7 @@ export interface UserPreferences {
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
   showTemplateManagement: boolean;
+  timeZone: string;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -94,6 +99,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   journalLockOnEntry: false,
   showNoteListDividers: false,
   showTemplateManagement: true,
+  timeZone: DEFAULT_TIME_ZONE_PREFERENCE,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -213,6 +219,7 @@ export function normalizeUserPreferences(
     showNoteListDividers: typeof raw.showNoteListDividers === "boolean"
       ? raw.showNoteListDividers
       : fallback.showNoteListDividers,
+    timeZone: normalizeTimeZonePreference(raw.timeZone, fallback.timeZone),
   };
 }
 

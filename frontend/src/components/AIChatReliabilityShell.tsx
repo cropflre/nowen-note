@@ -1,6 +1,7 @@
 import AIChatMobileSettings from "./AIChatMobileSettings";
 import NotebookAgentPanel from "./agent/NotebookAgentPanel";
 import { getCurrentWorkspace } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -55,7 +56,7 @@ function formatTime(value: string | null | undefined): string {
   if (!value) return "尚未建立";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return formatAppDateTime(date, undefined, value);
 }
 
 function StatusPill({ status }: { status: ReliableStatus | null }) {

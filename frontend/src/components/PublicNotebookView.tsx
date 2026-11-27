@@ -18,6 +18,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { Input } from "@/components/ui/input";
 import PublicKnowledgeResourceRenderer from "@/components/PublicKnowledgeResourceRenderer";
 import { cn } from "@/lib/utils";
@@ -453,7 +454,7 @@ function PublicNotebookReader({ token }: { token: string }) {
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-tx-tertiary">
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-300"><ShieldCheck size={11} />已发布</span>
                     <span>{resourceLabel(activeResource.resourceType)}</span>
-                    <span>更新于 {new Date(activeResource.updatedAt).toLocaleString("zh-CN")}</span>
+                    <span>更新于 {formatAppDateTime(activeResource.updatedAt, undefined, undefined, "zh-CN")}</span>
                     {!activeResource.allowDownload && activeResource.resourceType === "note" && <span>· 未开放附件下载</span>}
                   </div>
                   <h1 className="text-3xl font-bold leading-tight">{activeResource.title || "无标题内容"}</h1>
@@ -468,7 +469,7 @@ function PublicNotebookReader({ token }: { token: string }) {
                     <div className="mt-4 space-y-3">
                       {comments.map((comment) => (
                         <div key={comment.id} className="rounded-xl border border-app-border bg-app-surface p-3">
-                          <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium">{comment.nickname}</span><span className="text-tx-tertiary">{new Date(comment.createdAt).toLocaleString("zh-CN")}</span></div>
+                          <div className="flex items-center justify-between gap-3 text-xs"><span className="font-medium">{comment.nickname}</span><span className="text-tx-tertiary">{formatAppDateTime(comment.createdAt, undefined, undefined, "zh-CN")}</span></div>
                           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-tx-secondary">{comment.content}</p>
                         </div>
                       ))}

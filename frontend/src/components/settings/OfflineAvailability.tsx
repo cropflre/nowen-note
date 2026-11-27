@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { formatAppDateTime } from '@/lib/dateTime';
 import type { OfflineReadiness } from '@/lib/syncLocalApi';
 
 export function OfflineAvailability({ offline }: { offline?: OfflineReadiness }) {
@@ -15,7 +16,7 @@ export function OfflineAvailability({ offline }: { offline?: OfflineReadiness })
       available: offline.attachments.available ?? '—', total: offline.attachments.total ?? '—',
       pending: offline.attachments.pendingDownloads ?? '—', failed: (offline.attachments.failedDownloads ?? 0) + (offline.attachments.missingFiles ?? 0),
     })}</p>}
-    {offline?.verifiedAt && <p className="text-muted-foreground">{t('offlineAvailability.verifiedAt', { time: new Date(offline.verifiedAt).toLocaleString(i18n.language) })}</p>}
+    {offline?.verifiedAt && <p className="text-muted-foreground">{t('offlineAvailability.verifiedAt', { time: formatAppDateTime(offline.verifiedAt, undefined, undefined, i18n.language) })}</p>}
     <p className="text-muted-foreground">{t('offlineAvailability.hint')}</p>
   </section>;
 }

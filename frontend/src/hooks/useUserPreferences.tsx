@@ -31,6 +31,8 @@ import {
 import { isAndroidNativeRuntime, isMobileLocalMode, MOBILE_LOCAL_USER_ID, MOBILE_LOCAL_MODE_CHANGED_EVENT } from "@/lib/mobileLocalMode";
 import { isMobileSyncEnabled, MOBILE_SYNC_SETTINGS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
 import { setCodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
+import { setAppTimeZone } from "@/lib/dateTime";
+import { normalizeTimeZonePreference } from "@/lib/timeZones";
 
 export type {
   CodeBlockThemeId,
@@ -112,8 +114,12 @@ function applyLegacyPreferenceBridges(prefs: UserPreferences, notify = true): vo
 
 function initialPreferences(): UserPreferences {
   const identity = currentIdentity();
-  if (!identity) return DEFAULT_USER_PREFERENCES;
+  if (!identity) {
+    setAppTimeZone(DEFAULT_USER_PREFERENCES.timeZone);
+    return DEFAULT_USER_PREFERENCES;
+  }
   const prefs = readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
+  setAppTimeZone(prefs.timeZone);
   applyLegacyPreferenceBridges(prefs, false);
   return prefs;
 }
@@ -163,6 +169,10 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     document.documentElement.setAttribute("data-code-block-word-wrap", String(prefs.codeBlockWordWrap));
   }, [prefs.codeBlockWordWrap]);
 
+  useEffect(() => {
+    setAppTimeZone(prefs.timeZone);
+  }, [prefs.timeZone]);
+
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。
   useEffect(() => installKnowledgeTreeAutoLock({
@@ -181,6 +191,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     revisionRef.current = cache.revision;
     pendingRef.current = cache.pending;
     prefsRef.current = cache.prefs;
+    setAppTimeZone(cache.prefs.timeZone);
     setPrefs(cache.prefs);
     writeAccountPreferenceCache(localStorage, cache);
   }, []);
@@ -192,6 +203,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
 
     if (!userId) {
       prefsRef.current = DEFAULT_USER_PREFERENCES;
+      setAppTimeZone(DEFAULT_USER_PREFERENCES.timeZone);
       setPrefs(DEFAULT_USER_PREFERENCES);
       applyLegacyPreferenceBridges(DEFAULT_USER_PREFERENCES);
       return null;
@@ -360,9 +372,17 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   }, [syncFromServer]);
 
   const setPref = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+    const normalizedValue = (
+      key === "timeZone"
+        ? normalizeTimeZonePreference(value, prefsRef.current.timeZone)
+        : value
+    ) as UserPreferences[K];
+    if (key === "timeZone") {
+      setAppTimeZone(String(normalizedValue));
+    }
     setPrefs((previous) => {
-      if (previous[key] === value) return previous;
-      const next = { ...previous, [key]: value };
+      if (previous[key] === normalizedValue) return previous;
+      const next = { ...previous, [key]: normalizedValue };
       prefsRef.current = next;
 
       const identity = currentIdentity();
@@ -372,7 +392,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       const localOnly = isMobileLocalMode();
       const pending: UserPreferencePatch = localOnly ? {} : {
         ...(existing?.pending || pendingRef.current),
-        [key]: value,
+        [key]: normalizedValue,
       };
       const cache: UserPreferenceCache = {
         version: 2,
@@ -385,7 +405,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       activeUserIdRef.current = identity.userId;
       revisionRef.current = cache.revision;
       pendingRef.current = pending;
-      if (!localOnly) void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
+      if (!localOnly) void persistPatch(identity.userId, { [key]: normalizedValue } as UserPreferencePatch);
       return next;
     });
   }, [persistPatch]);

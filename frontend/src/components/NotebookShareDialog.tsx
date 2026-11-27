@@ -24,6 +24,11 @@ import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import UserPickerCombobox from "@/components/UserPickerCombobox";
 import { api } from "@/lib/api";
+import {
+  formatAppDateTime,
+  localDateTimeInputToUtcIso,
+  utcSqlToLocalDateTimeInput,
+} from "@/lib/dateTime";
 import { copyText } from "@/lib/clipboard";
 import { buildPublicWebUrl } from "@/lib/publicWebOrigin";
 import { toast } from "@/lib/toast";
@@ -65,12 +70,7 @@ type PublicationDraft = {
 const bool = (value: number | boolean | undefined) => value === 1 || value === true;
 
 function toLocalDateTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
+  return utcSqlToLocalDateTimeInput(value);
 }
 
 function memberName(member: Pick<NotebookMember, "displayName" | "username" | "userId">): string {
@@ -409,7 +409,7 @@ export default function NotebookShareDialog({ notebook, onClose }: Props) {
       const input = {
         role: inviteRole,
         maxUses,
-        expiresAt: inviteExpiresAt ? new Date(inviteExpiresAt).toISOString() : null,
+        expiresAt: inviteExpiresAt ? localDateTimeInputToUtcIso(inviteExpiresAt) : null,
       };
       const next = invite
         ? await api.updateNotebookShareLink(notebook.id, input)
@@ -462,7 +462,7 @@ export default function NotebookShareDialog({ notebook, onClose }: Props) {
         permission: publicationDraft.permission,
         secret: publicationDraft.secret.trim() || undefined,
         expiresAt: publicationDraft.expiresAt
-          ? new Date(publicationDraft.expiresAt).toISOString()
+          ? localDateTimeInputToUtcIso(publicationDraft.expiresAt)
           : null,
         allowDownload: publicationDraft.allowDownload,
         allowComment: publicationDraft.allowComment,
@@ -797,7 +797,7 @@ export default function NotebookShareDialog({ notebook, onClose }: Props) {
                   <div className="divide-y divide-app-border overflow-hidden rounded-xl border border-app-border">
                     {comments.length === 0 ? <div className="p-6 text-center text-sm text-tx-tertiary">点击刷新加载公开评论</div> : comments.map((comment) => (
                       <div key={comment.id} className={cn("p-3", bool(comment.isHidden) && "opacity-60")}>
-                        <div className="flex items-center justify-between gap-3"><div className="text-xs font-medium">{comment.nickname} · {comment.noteTitle}</div><div className="text-[10px] text-tx-tertiary">{new Date(comment.createdAt).toLocaleString()}</div></div>
+                        <div className="flex items-center justify-between gap-3"><div className="text-xs font-medium">{comment.nickname} · {comment.noteTitle}</div><div className="text-[10px] text-tx-tertiary">{formatAppDateTime(comment.createdAt)}</div></div>
                         <p className="mt-1 whitespace-pre-wrap text-sm">{comment.content}</p>
                         <div className="mt-2 flex gap-2"><Button size="sm" variant="outline" onClick={() => moderateComment(comment, { isResolved: !bool(comment.isResolved) })}>{bool(comment.isResolved) ? "取消解决" : "标记解决"}</Button><Button size="sm" variant="outline" onClick={() => moderateComment(comment, { isHidden: !bool(comment.isHidden) })}>{bool(comment.isHidden) ? "恢复显示" : "隐藏"}</Button><Button size="sm" variant="outline" className="text-red-500" onClick={() => deleteComment(comment)}><Trash2 size={13} /></Button></div>
                       </div>

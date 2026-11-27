@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { MessageCircle, RefreshCw } from "lucide-react";
 import { wechatCaptureApi, type WechatCaptureStatus } from "@/lib/pluginApi";
 import { collectWechatArticles, wechatArticleLinks, WECHAT_CAPTURE_CHANGED_EVENT, WECHAT_CAPTURE_SETTINGS_EVENT } from "@/lib/wechatCapture";
@@ -54,7 +55,7 @@ export function WechatCaptureSettings() {
         <p className="text-xs text-zinc-500">{t("wechatAssistant.recent")}</p>
         {status.items.length === 0 && <p className="py-3 text-sm text-zinc-500">{t("wechatAssistant.empty")}</p>}
         {status.items.map((item) => <div key={item.id} className="flex items-start gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3">
-          <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={item.note?.title || item.url}>{item.note?.title || item.url}</p><p className="text-xs text-zinc-500">{t(`wechatAssistant.status.${item.status}`, { defaultValue: item.status })} · {new Date(item.createdAt).toLocaleString(i18n.language)}</p>{item.error && item.status === "failed" && <p className="mt-1 break-words text-xs text-red-600">{item.error}</p>}</div>
+          <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={item.note?.title || item.url}>{item.note?.title || item.url}</p><p className="text-xs text-zinc-500">{t(`wechatAssistant.status.${item.status}`, { defaultValue: item.status })} · {formatAppDateTime(item.createdAt, undefined, undefined, i18n.language)}</p>{item.error && item.status === "failed" && <p className="mt-1 break-words text-xs text-red-600">{item.error}</p>}</div>
           {item.note && <button className={button} onClick={() => { window.dispatchEvent(new CustomEvent("nowen:open-note", { detail: { noteId: item.note!.id } })); window.dispatchEvent(new Event("nowen:close-settings")); }}>{t("wechatAssistant.open")}</button>}
           {item.status === "failed" && <button className={button} disabled={busy} onClick={() => void act(async () => { await wechatCaptureApi.retry(item.id); })}>{t("wechatAssistant.retry")}</button>}
         </div>)}

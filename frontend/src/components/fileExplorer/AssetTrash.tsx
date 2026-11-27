@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { confirm } from "@/components/ui/confirm";
 import { useFileSelection } from "@/hooks/useFileSelection";
 import { chunkIds, FILE_BATCH_CHUNK_LIMIT, FILE_SELECT_ALL_MATCHES_LIMIT, humanFileSize } from "@/lib/fileExplorerModel";
-import { parseServerTime } from "@/lib/dateTime";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 
 type Entry = Awaited<ReturnType<typeof api.files.trash.list>>["entries"][number];
@@ -144,7 +144,7 @@ export default function AssetTrash({ onBack, isCurrent }: { onBack: () => void; 
         <input type="checkbox" aria-label={entry.filename} disabled={busy} checked={selected.has(entry.id)}
           onClick={(event) => { shiftRef.current = event.shiftKey; }}
           onChange={() => { handleSelectItem(entry, { toggle: true, range: shiftRef.current }); shiftRef.current = false; }} />
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm">{entry.filename}</span><span className="text-xs text-tx-tertiary">{humanFileSize(entry.size)} · {parseServerTime(entry.trashedAt)?.toLocaleString() || entry.trashedAt}</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-sm">{entry.filename}</span><span className="text-xs text-tx-tertiary">{humanFileSize(entry.size)} · {formatAppDateTime(entry.trashedAt, undefined, entry.trashedAt)}</span></span>
       </label>)}
     </div>
     <footer className="flex flex-wrap items-center gap-4 border-t border-app-border p-4 text-xs">

@@ -1,5 +1,6 @@
 import { Loader2, ShieldCheck, Save, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 
 export default function DataProtectionOverview(props: {
   loading: boolean;
@@ -25,7 +26,7 @@ export default function DataProtectionOverview(props: {
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs text-zinc-500 dark:text-zinc-400">
         <dt>{t("dataManager.overview.lastBackup")}</dt>
-        <dd className="text-zinc-800 dark:text-zinc-200">{props.lastBackup ? new Date(props.lastBackup).toLocaleString() : t("dataManager.overview.noBackup")}</dd>
+        <dd className="text-zinc-800 dark:text-zinc-200">{props.lastBackup ? formatAppDateTime(props.lastBackup) : t("dataManager.overview.noBackup")}</dd>
         <dt>{t("dataManager.overview.automatic")}</dt>
         <dd>
           <label className="inline-flex items-center gap-2">

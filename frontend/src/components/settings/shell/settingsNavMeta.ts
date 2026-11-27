@@ -83,7 +83,7 @@ export const SETTINGS_TAB_META: Record<SettingsTabId, SettingsTabMeta> = {
     activeText: "text-indigo-600 dark:text-indigo-300",
     activeBar: "bg-indigo-500",
     heroGlow: "from-indigo-500/12 via-sky-500/6 to-transparent",
-    keywords: ["外观", "主题", "暗黑", "深色", "浅色", "皮肤", "字体", "字号", "语言", "站点", "图标", "横幅", "appearance", "theme", "dark", "light", "font", "skin", "language"],
+    keywords: ["外观", "主题", "暗黑", "深色", "浅色", "皮肤", "字体", "字号", "语言", "时区", "站点", "图标", "横幅", "appearance", "theme", "dark", "light", "font", "skin", "language", "timezone", "time zone"],
   },
   preferences: {
     group: "craft",
@@ -94,7 +94,7 @@ export const SETTINGS_TAB_META: Record<SettingsTabId, SettingsTabMeta> = {
     activeText: "text-sky-600 dark:text-sky-300",
     activeBar: "bg-sky-500",
     heroGlow: "from-sky-500/12 via-cyan-500/6 to-transparent",
-    keywords: ["偏好", "编辑器", "习惯", "导航", "布局", "自动保存", "日历", "任务", "preferences", "editor", "layout"],
+    keywords: ["偏好", "编辑器", "习惯", "导航", "布局", "时区", "自动保存", "日历", "任务", "preferences", "editor", "layout", "timezone", "time zone", "utc"],
   },
   shortcuts: {
     group: "craft",

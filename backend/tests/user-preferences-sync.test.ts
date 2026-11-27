@@ -356,3 +356,36 @@ test("DCC-006: template management visibility persists per account and rejects i
   assert.equal(shown.status, 200);
   assert.equal((await requestJson("GET")).json.showTemplateManagement, true);
 });
+
+test("DCC-006: user time zone preference persists per account and rejects invalid or unauthenticated writes", async () => {
+  assert.equal((await requestJson("GET")).json.timeZone, "auto");
+
+  const tokyo = await requestJson("PUT", { timeZone: "Asia/Tokyo" });
+  assert.equal(tokyo.status, 200);
+  assert.equal(tokyo.json.timeZone, "Asia/Tokyo");
+  assert.equal((await requestJson("GET")).json.timeZone, "Asia/Tokyo");
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.timeZone, "auto");
+
+  const newYork = await requestJson("PUT", { timeZone: "America/New_York" });
+  assert.equal(newYork.status, 200);
+  assert.equal((await requestJson("GET")).json.timeZone, "America/New_York");
+
+  for (const bad of ["Invalid/Zone", "", "  Asia/Shanghai  ", "Shanghai", "+08:00", 123]) {
+    const invalid = await requestJson("PUT", { timeZone: bad });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+  }
+  assert.equal((await requestJson("GET")).json.timeZone, "America/New_York");
+
+  const unauthorized = await app.request("/user-preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ timeZone: "UTC" }),
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal((await requestJson("GET")).json.timeZone, "America/New_York");
+
+  const resetAuto = await requestJson("PUT", { timeZone: "auto" });
+  assert.equal(resetAuto.status, 200);
+  assert.equal((await requestJson("GET")).json.timeZone, "auto");
+});

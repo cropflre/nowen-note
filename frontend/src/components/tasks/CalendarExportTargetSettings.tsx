@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { confirm } from "@/components/ui/confirm";
 
@@ -490,7 +491,7 @@ function TargetCard({
             </span>
             {target.lastExportAt && (
               <span className="text-tx-tertiary ml-2">
-                {new Date(target.lastExportAt).toLocaleString()}
+                {formatAppDateTime(target.lastExportAt)}
               </span>
             )}
             {target.lastError && (

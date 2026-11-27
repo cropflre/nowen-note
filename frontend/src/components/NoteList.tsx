@@ -26,7 +26,8 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { useSidebarTextStyle, type SidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
-import { parseServerTime } from "@/lib/dateTime";
+import { formatAppDate, parseServerTime } from "@/lib/dateTime";
+import { useAppTimeZone } from "@/hooks/useAppTimeZone";
 import { noteLocalDayKey } from "@/lib/noteListTime";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
@@ -380,7 +381,7 @@ function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
   if (diffHr < 24) return t('common.hoursAgo', { count: diffHr });
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return t('common.daysAgo', { count: diffDay });
-  return d.toLocaleDateString();
+  return formatAppDate(d);
 }
 
 /* ===== 笔记本树形选择 ===== */
@@ -1516,6 +1517,7 @@ export function VirtualNoteList({
 }
 
 export default function NoteList({ directorySearchActive = false }: { directorySearchActive?: boolean } = {}) {
+  useAppTimeZone();
   const { state } = useApp();
   const actions = useAppActions();
   const aiAvailable = useAIConnectionAvailable();

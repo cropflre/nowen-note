@@ -43,7 +43,7 @@ export const zhCNPreferencesTranslations = {
       },
       layout: {
         title: "界面与布局",
-        summary: "侧栏入口、笔记列表和本设备布局",
+        summary: "侧栏入口、笔记列表、时区和本设备布局",
         description: "调整界面元素。「此设备」中的选项只作用于当前设备。",
       },
       advanced: {
@@ -119,6 +119,15 @@ export const zhCNPreferencesTranslations = {
         title: "笔记列表分割线",
         description: "在相邻笔记之间显示细线，长列表更容易区分。",
         keywords: "分割线 分隔线 列表 divider",
+      },
+      timeZone: {
+        title: "应用时区",
+        description: "统一日记、笔记、任务和日程的时间展示与日期范围；「跟随系统」自动同步设备时区。",
+        keywords: "时区 timezone time zone tz utc gmt 时间 日期 本地",
+        autoLabel: "跟随系统",
+        currentPreview: "当前时间：{{time}}（{{zone}} · {{offset}}）",
+        resetToSystem: "恢复跟随系统",
+        appearanceAction: "更改时区",
       },
       mobileRailHidden: {
         title: "隐藏快捷栏",
@@ -210,7 +219,7 @@ export const enPreferencesTranslations = {
       },
       layout: {
         title: "Interface & layout",
-        summary: "Sidebar entries, note list, this device's layout",
+        summary: "Sidebar entries, note list, time zone, and this device's layout",
         description: "Adjust interface elements. Options under “This device” apply to this device only.",
       },
       advanced: {
@@ -286,6 +295,15 @@ export const enPreferencesTranslations = {
         title: "Note-list dividers",
         description: "Draw a thin line between notes so long lists are easier to scan.",
         keywords: "divider separator list lines",
+      },
+      timeZone: {
+        title: "Time zone",
+        description: "Applies globally to timestamps and date boundaries across notes, journals, and tasks. “Follow system” matches your device automatically.",
+        keywords: "timezone time zone tz utc gmt clock date local",
+        autoLabel: "Follow system",
+        currentPreview: "Current time: {{time}} ({{zone}} · {{offset}})",
+        resetToSystem: "Use system time zone",
+        appearanceAction: "Change",
       },
       mobileRailHidden: {
         title: "Hide shortcut bar",

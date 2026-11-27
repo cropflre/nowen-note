@@ -142,6 +142,16 @@ describe("SettingsModal playful & tactile shell", () => {
     )!;
     await act(async () => size18.click());
     expect(mock.setPref).toHaveBeenCalledWith("editorFontSize", 18);
+
+    // Quick-jump from Appearance time zone card opens Preferences -> Layout -> timeZone
+    const tzJumpBtn = document.body.querySelector<HTMLButtonElement>("[data-appearance-timezone-jump]")!;
+    expect(tzJumpBtn).toBeTruthy();
+    await act(async () => tzJumpBtn.click());
+    await vi.waitFor(() => {
+      const tzRow = document.body.querySelector<HTMLElement>('[data-preference-id="timeZone"]');
+      expect(tzRow).toBeTruthy();
+      expect(tzRow?.hasAttribute("data-settings-highlight")).toBe(true);
+    });
   });
 
   it("renders playful About logo boop counter and switches tabs smoothly", async () => {

@@ -11,6 +11,7 @@ import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { Capacitor } from "@capacitor/core";
 import { isEncryptedNoteFormat, sameConversionContent } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { formatAppDateTime, formatAppTime } from "@/lib/dateTime";
 import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors, FilePlus2, FolderPlus, LayoutTemplate } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { confirm, prompt } from "@/components/ui/confirm";
@@ -4045,7 +4046,7 @@ const moveToTrash = useCallback(async () => {
               <div className="text-sm leading-snug">
 {t("editor.draftFound") || "检测到未保存的修改"}
                 <span className="ml-2 opacity-70">
-                  ({new Date(pendingDraft?.savedAt ?? Date.now()).toLocaleString()})
+                  ({formatAppDateTime(pendingDraft?.savedAt ?? Date.now())})
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -4805,7 +4806,7 @@ function SyncIndicator({
       ? "idle"
       : syncStatus;
   const formatFullTime = (ts: string) => {
-    try { return new Date(ts).toLocaleString(i18n.resolvedLanguage); } catch { return ts; }
+    return formatAppDateTime(ts, undefined, ts, i18n.resolvedLanguage);
   };
 
   const getTooltip = () => {
@@ -4882,14 +4883,14 @@ function SyncIndicator({
             {android ? "已保存到本机" : t('editor.savedStatus')}
             {!android && lastSyncedAt && (
               <span className="ml-1 opacity-70">
-                · {new Date(lastSyncedAt).toLocaleTimeString(i18n.resolvedLanguage)}
+                · {formatAppTime(lastSyncedAt, undefined, lastSyncedAt, i18n.resolvedLanguage)}
               </span>
             )}
           </>
         )}
         {displayStatus === "idle" && (
           lastSyncedAt
-            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {new Date(lastSyncedAt).toLocaleTimeString(i18n.resolvedLanguage)}</span></>
+            ? <>{android ? "已保存到本机" : t('editor.synced')}<span className="ml-1 opacity-70">· {formatAppTime(lastSyncedAt, undefined, lastSyncedAt, i18n.resolvedLanguage)}</span></>
             : t('editor.sync')
         )}
       </span>

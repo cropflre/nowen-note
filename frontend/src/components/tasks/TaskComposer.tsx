@@ -8,6 +8,7 @@ import { Button } from "../ui/button";
 import { confirm } from "../ui/confirm";
 import type { TaskProject } from "@/types";
 import { newLocalId } from "@/lib/localRepository";
+import { getEffectiveTimeZone } from "@/lib/dateTime";
 import {
   confirmedCandidates, confirmTaskComposition, DEFAULT_COMPOSER_OPTIONS, getTaskComposerContext,
   isTaskComposerContextCurrent, loadTaskComposerProjects, previewTaskComposition, TaskComposerApiError,
@@ -17,7 +18,7 @@ import {
 const fieldClass = "w-full min-w-0 rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-sm text-tx-primary focus:outline-none focus:ring-1 focus:ring-accent-primary";
 interface ComposerDraft { text: string; options: TaskComposerOptions; candidates: TaskCandidate[]; previewId: string; timezone: string; pending: TaskComposerBatch | null; dirty: boolean }
 function readDraft(key: string, projectId: string | null): ComposerDraft {
-  const empty: ComposerDraft = { text: "", options: { ...DEFAULT_COMPOSER_OPTIONS, projectId }, candidates: [], previewId: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, pending: null, dirty: false };
+  const empty: ComposerDraft = { text: "", options: { ...DEFAULT_COMPOSER_OPTIONS, projectId }, candidates: [], previewId: "", timezone: getEffectiveTimeZone(), pending: null, dirty: false };
   try {
     const value = JSON.parse(sessionStorage.getItem(key) || "null");
     if (value && typeof value.text === "string" && Array.isArray(value.candidates) && value.candidates.length <= 30 && value.candidates.every((task: TaskCandidate) => typeof task.clientId === "string" && typeof task.title === "string" && Array.isArray(task.warnings))) return { ...empty, ...value };
@@ -107,7 +108,7 @@ export default function TaskComposer({ projects, initialProjectId, onClose, onCr
       const abort = new AbortController(); controller.current = abort;
       setGenerating(true); setError("");
       try {
-        const result = await previewTaskComposition(context, { ...options, text, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en" }, abort.signal);
+        const result = await previewTaskComposition(context, { ...options, text, timezone: getEffectiveTimeZone(), lang: i18n.language.startsWith("zh") ? "zh-CN" : "en" }, abort.signal);
         if (abort.signal.aborted || !mounted.current) return;
         setCandidates(result.tasks.map(task => ({ ...task, aiGenerated: true, selected: !task.duplicateOf?.length, allowDuplicate: false })));
         setPreviewId(result.previewId); setTimezone(result.timezone); setWarnings(result.warnings);

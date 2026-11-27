@@ -1,4 +1,5 @@
 import { getQueueLength } from "@/lib/offlineQueue";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -983,7 +984,7 @@ function ResolvedConflictHistory({
   const {t}=useTranslation();
   const formatResolvedAt = (value: string) => {
     const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    return Number.isNaN(parsed.getTime()) ? value : formatAppDateTime(parsed, undefined, value);
   };
 
   return (
