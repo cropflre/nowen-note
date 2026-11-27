@@ -9,26 +9,56 @@
 .share-actions button.share-primary-action,
 .share-actions button.share-more-action {
   display: inline-flex;
-  height: 40px;
-  min-height: 40px;
+  height: 36px;
+  min-height: 36px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 8px;
-  padding: 0 10px;
+  border-radius: 12px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--color-text-secondary);
-  background: transparent;
+  background: color-mix(in srgb, var(--color-hover) 65%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .share-actions button.share-more-action {
-  width: 40px;
+  width: 36px;
   padding: 0;
 }
 
-.share-actions button:hover {
+.share-actions button.share-primary-action:hover,
+.share-actions button.share-more-action:hover {
   background: var(--color-hover);
+  border-color: color-mix(in srgb, var(--color-accent-primary) 35%, var(--color-border));
   color: var(--color-text-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--color-accent-primary) 22%, transparent);
+}
+
+.share-actions button.share-primary-action:active,
+.share-actions button.share-more-action:active {
+  transform: scale(0.95);
+}
+
+.share-actions button.share-primary-action.is-copied {
+  color: #059669;
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  border-color: color-mix(in srgb, #10b981 35%, transparent);
+}
+
+.dark .share-actions button.share-primary-action.is-copied {
+  color: #6ee7b7;
+  background: color-mix(in srgb, #10b981 18%, transparent);
+  border-color: color-mix(in srgb, #34d399 40%, transparent);
 }
 
 .share-actions button:focus-visible,
@@ -39,20 +69,31 @@
 
 .share-filter-chip {
   display: inline-flex;
-  height: 40px;
-  min-height: 40px;
+  height: 34px;
+  min-height: 34px;
   align-items: center;
   gap: 6px;
-  border-radius: 8px;
-  padding: 4px 8px;
+  border-radius: 9999px;
+  padding: 4px 10px 4px 12px;
+  font-weight: 500;
   color: var(--color-accent-primary);
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 22%, transparent);
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.share-filter-chip:hover {
+  background: color-mix(in srgb, var(--color-accent-primary) 16%, transparent);
+  transform: translateY(-1px);
 }
 
 @container nowen-shares (min-width: 840px) {
   .share-filter-chip {
-    height: 32px;
-    min-height: 32px;
+    height: 30px;
+    min-height: 30px;
   }
 
   .share-management-table {
@@ -66,10 +107,11 @@
 
   .share-actions button.share-primary-action,
   .share-actions button.share-more-action {
-    width: 32px;
-    height: 32px;
-    min-height: 32px;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
     padding: 0;
+    border-radius: 10px;
   }
 }
 

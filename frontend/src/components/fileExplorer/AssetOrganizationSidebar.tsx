@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Search, Sparkles, Tag, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { confirm, prompt } from "@/components/ui/confirm";
 import { toast } from "@/lib/toast";
@@ -29,6 +29,7 @@ export default function AssetOrganizationSidebar({
   const [smartPage, setSmartPage] = useState(1);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     if (!search && tagPage === 1 && smartPage === 1) {
       setLoaded(state);
@@ -53,6 +54,7 @@ export default function AssetOrganizationSidebar({
       clearTimeout(timer);
     };
   }, [state, search, tagPage, smartPage, isCurrent]);
+
   const manage = async (
     kind: "tag" | "smart",
     id: string,
@@ -113,131 +115,147 @@ export default function AssetOrganizationSidebar({
       setBusy(false);
     }
   };
+
   if (!state.supported)
     return (
       <p className="mt-4 px-2 text-xs leading-5 text-tx-tertiary">
         {t("assetOrganization.nativeUnavailable")}
       </p>
     );
+
   return (
-    <div className="mt-4 space-y-3 text-xs">
+    <div className="mt-5 space-y-4 text-xs">
       <section aria-label={t("assetOrganization.tags")}>
-        <h3 className="px-2 font-medium text-tx-secondary">
+        <h3 className="flex items-center gap-1.5 px-2 font-semibold text-tx-secondary">
+          <Tag size={12} className="text-sky-500 dark:text-sky-400" />
           {t("assetOrganization.tags")}
         </h3>
-        <input
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setTagPage(1);
-          }}
-          aria-label={t("assetOrganization.searchTags")}
-          placeholder={t("assetOrganization.searchTags")}
-          className="my-2 w-full rounded border border-app-border bg-app-surface px-2 py-1.5"
-        />
-        {loaded.tags
-          .filter((tag) =>
-            tag.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-          )
-          .map((tag) => (
-            <div key={tag.id} className="group flex items-center gap-1">
-              <button
-                aria-pressed={activeTags.includes(tag.id)}
-                onClick={() => onTag(tag.id)}
-                className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left aria-pressed:bg-accent-primary/10"
-              >
-                <span style={{ color: tag.color }}>● </span>
-                {tag.name}
-              </button>
-              {state.canManageTags && (
-                <>
-                  <button
-                    disabled={busy}
-                    aria-label={t("assetOrganization.renameTag", {
-                      name: tag.name,
-                    })}
-                    onClick={() => void manage("tag", tag.id, tag.name, false)}
-                    className="p-1 text-tx-tertiary"
-                  >
-                    <Pencil size={12} />
-                  </button>
-                  <button
-                    disabled={busy}
-                    aria-label={t("assetOrganization.deleteTag", {
-                      name: tag.name,
-                    })}
-                    onClick={() => void manage("tag", tag.id, tag.name, true)}
-                    className="p-1 text-tx-tertiary"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        <div className="mt-1 flex gap-3">
-          {tagPage > 1 && (
-            <button onClick={() => setTagPage((value) => value - 1)}>
-              {t("fileExplorer.previous")}
-            </button>
-          )}
-          {loaded.hasMoreTags && (
-            <button onClick={() => setTagPage((value) => value + 1)}>
-              {t("fileExplorer.next")}
-            </button>
-          )}
+        <div className="relative my-2">
+          <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setTagPage(1);
+            }}
+            aria-label={t("assetOrganization.searchTags")}
+            placeholder={t("assetOrganization.searchTags")}
+            className="w-full rounded-xl border border-app-border/75 bg-app-bg/80 py-1.5 pl-7 pr-2.5 text-xs outline-none transition-colors focus:border-accent-primary/60 focus:bg-app-surface"
+          />
         </div>
+        <div className="space-y-0.5">
+          {loaded.tags
+            .filter((tag) =>
+              tag.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
+            )
+            .map((tag) => (
+              <div key={tag.id} className="group flex items-center gap-1">
+                <button
+                  aria-pressed={activeTags.includes(tag.id)}
+                  onClick={() => onTag(tag.id)}
+                  className="min-w-0 flex-1 truncate rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-app-hover/80 aria-pressed:bg-accent-primary/12 aria-pressed:font-medium aria-pressed:text-accent-primary"
+                >
+                  <span style={{ color: tag.color }}>● </span>
+                  {tag.name}
+                </button>
+                {state.canManageTags && (
+                  <>
+                    <button
+                      disabled={busy}
+                      aria-label={t("assetOrganization.renameTag", {
+                        name: tag.name,
+                      })}
+                      onClick={() => void manage("tag", tag.id, tag.name, false)}
+                      className="rounded-lg p-1 text-tx-tertiary opacity-70 transition-all hover:bg-app-hover hover:text-tx-primary group-hover:opacity-100"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      disabled={busy}
+                      aria-label={t("assetOrganization.deleteTag", {
+                        name: tag.name,
+                      })}
+                      onClick={() => void manage("tag", tag.id, tag.name, true)}
+                      className="rounded-lg p-1 text-tx-tertiary opacity-70 transition-all hover:bg-rose-500/10 hover:text-rose-500 group-hover:opacity-100"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+        </div>
+        {(tagPage > 1 || loaded.hasMoreTags) && (
+          <div className="mt-1.5 flex gap-3 px-2 text-[11px] font-medium text-accent-primary">
+            {tagPage > 1 && (
+              <button onClick={() => setTagPage((value) => value - 1)}>
+                {t("fileExplorer.previous")}
+              </button>
+            )}
+            {loaded.hasMoreTags && (
+              <button onClick={() => setTagPage((value) => value + 1)}>
+                {t("fileExplorer.next")}
+              </button>
+            )}
+          </div>
+        )}
       </section>
+
       <section aria-label={t("assetOrganization.smartFolders")}>
-        <h3 className="mb-2 px-2 font-medium text-tx-secondary">
+        <h3 className="mb-2 flex items-center gap-1.5 px-2 font-semibold text-tx-secondary">
+          <Sparkles size={12} className="text-violet-500 dark:text-violet-400" />
           {t("assetOrganization.smartFolders")}
         </h3>
-        {loaded.smartFolders.map((folder) => (
-          <div key={folder.id} className="flex items-center gap-1">
-            <button
-              aria-pressed={activeSmart === folder.id}
-              onClick={() => onSmart(folder)}
-              className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left aria-pressed:bg-accent-primary/10"
-            >
-              {folder.name}
-            </button>
-            <button
-              disabled={busy}
-              className="p-1 text-tx-tertiary"
-              aria-label={t("assetOrganization.renameSmart", {
-                name: folder.name,
-              })}
-              onClick={() =>
-                void manage("smart", folder.id, folder.name, false)
-              }
-            >
-              <Pencil size={12} />
-            </button>
-            <button
-              disabled={busy}
-              className="p-1 text-tx-tertiary"
-              aria-label={t("assetOrganization.deleteSmart", {
-                name: folder.name,
-              })}
-              onClick={() => void manage("smart", folder.id, folder.name, true)}
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        ))}
-        <div className="mt-1 flex gap-3">
-          {smartPage > 1 && (
-            <button onClick={() => setSmartPage((value) => value - 1)}>
-              {t("fileExplorer.previous")}
-            </button>
-          )}
-          {loaded.hasMoreSmartFolders && (
-            <button onClick={() => setSmartPage((value) => value + 1)}>
-              {t("fileExplorer.next")}
-            </button>
-          )}
+        <div className="space-y-0.5">
+          {loaded.smartFolders.map((folder) => (
+            <div key={folder.id} className="group flex items-center gap-1">
+              <button
+                aria-pressed={activeSmart === folder.id}
+                onClick={() => onSmart(folder)}
+                className="min-w-0 flex-1 truncate rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-app-hover/80 aria-pressed:bg-violet-500/12 aria-pressed:font-medium aria-pressed:text-violet-600 dark:aria-pressed:text-violet-300"
+              >
+                {folder.name}
+              </button>
+              <button
+                disabled={busy}
+                className="rounded-lg p-1 text-tx-tertiary opacity-70 transition-all hover:bg-app-hover hover:text-tx-primary group-hover:opacity-100"
+                aria-label={t("assetOrganization.renameSmart", {
+                  name: folder.name,
+                })}
+                onClick={() =>
+                  void manage("smart", folder.id, folder.name, false)
+                }
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                disabled={busy}
+                className="rounded-lg p-1 text-tx-tertiary opacity-70 transition-all hover:bg-rose-500/10 hover:text-rose-500 group-hover:opacity-100"
+                aria-label={t("assetOrganization.deleteSmart", {
+                  name: folder.name,
+                })}
+                onClick={() => void manage("smart", folder.id, folder.name, true)}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
         </div>
-        <p className="mt-2 px-2 leading-5 text-tx-tertiary">
+        {(smartPage > 1 || loaded.hasMoreSmartFolders) && (
+          <div className="mt-1.5 flex gap-3 px-2 text-[11px] font-medium text-accent-primary">
+            {smartPage > 1 && (
+              <button onClick={() => setSmartPage((value) => value - 1)}>
+                {t("fileExplorer.previous")}
+              </button>
+            )}
+            {loaded.hasMoreSmartFolders && (
+              <button onClick={() => setSmartPage((value) => value + 1)}>
+                {t("fileExplorer.next")}
+              </button>
+            )}
+          </div>
+        )}
+        <p className="mt-2 rounded-xl bg-app-hover/45 px-2.5 py-2 text-[11px] leading-4 text-tx-tertiary">
           {t("assetOrganization.smartHint")}
         </p>
       </section>

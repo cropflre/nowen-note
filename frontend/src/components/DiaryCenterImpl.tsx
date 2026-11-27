@@ -19,7 +19,9 @@ import {
   Search,
   Play,
   Paperclip,
+  Sparkles,
 } from "lucide-react";
+import { MOTION_EASE, MOTION_SPRING } from "@/lib/motion";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { Diary, DiaryAttachmentItem, DiaryMediaItem, DiaryStats } from "@/types";
 import { cn } from "@/lib/utils";
@@ -386,16 +388,16 @@ function MoreMediaMenu({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+          "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
           allDisabled
-            ? "text-tx-tertiary/50 cursor-not-allowed"
+            ? "cursor-not-allowed text-tx-tertiary/50"
             : open
-            ? "bg-app-hover text-tx-secondary"
-            : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            ? "bg-violet-500/12 text-violet-600 dark:text-violet-300"
+            : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
         )}
         title={t("diary.media.more", { defaultValue: "更多" })}
       >
-        <MoreHorizontal size={15} />
+        <MoreHorizontal size={15} className="shrink-0" />
         <span className="hidden sm:inline">{t("diary.media.more", { defaultValue: "更多" })}</span>
       </button>
 
@@ -407,7 +409,7 @@ function MoreMediaMenu({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 4 }}
             transition={{ duration: 0.12 }}
-            className="absolute bottom-full left-0 mb-2 w-36 p-1.5 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50 origin-bottom-left"
+            className="absolute bottom-full left-0 z-50 mb-2 w-40 origin-bottom-left rounded-2xl border border-app-border/80 bg-app-elevated/95 p-1.5 shadow-xl backdrop-blur-xl"
           >
             {items.map((item) => (
               <button
@@ -420,9 +422,9 @@ function MoreMediaMenu({
                   item.action();
                 }}
                 className={cn(
-                  "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors",
+                  "flex w-full items-center gap-2 whitespace-nowrap rounded-xl px-2.5 py-2 text-xs font-medium transition-colors",
                   item.disabled
-                    ? "text-tx-tertiary/50 cursor-not-allowed"
+                    ? "cursor-not-allowed text-tx-tertiary/50"
                     : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
                 )}
               >
@@ -869,8 +871,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     <div
       data-nowen-media-owner="diary"
       className={cn(
-        "relative z-0 bg-app-surface/60 backdrop-blur-sm rounded-2xl border border-app-border shadow-sm transition-all",
-        isDragging && "ring-2 ring-accent-primary/50 border-accent-primary/40",
+        "relative z-0 rounded-3xl border bg-gradient-to-br from-violet-500/[0.05] via-app-elevated/92 to-pink-500/[0.05] shadow-sm backdrop-blur-md transition-all focus-within:border-violet-400/50 focus-within:shadow-md focus-within:ring-2 focus-within:ring-violet-500/15",
+        isDragging
+          ? "border-violet-400/70 ring-2 ring-violet-400/35"
+          : "border-violet-500/20 hover:border-violet-400/35",
       )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -881,17 +885,17 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       <div className="p-4 pb-2">
         {/* 草稿恢复提示 */}
         {draftRestored && (
-          <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-lg bg-accent-primary/5 border border-accent-primary/20 text-[11px] text-accent-primary">
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-violet-500/20 bg-violet-500/8 px-3 py-1.5 text-[11px] text-violet-600 dark:text-violet-300">
             <span>{t("diary.draftRestored")}</span>
             <button
               onClick={() => clearDraftAndMedia()}
-              className="ml-auto px-2 py-0.5 rounded text-[10px] hover:bg-accent-primary/10"
+              className="ml-auto rounded-lg px-2 py-0.5 text-[10px] hover:bg-violet-500/12"
             >
               {t("diary.draftClear")}
             </button>
             <button
               onClick={() => setDraftRestored(false)}
-              className="px-2 py-0.5 rounded text-[10px] hover:bg-accent-primary/10"
+              className="rounded-lg px-2 py-0.5 text-[10px] hover:bg-violet-500/12"
             >
               {t("diary.draftDismiss")}
             </button>
@@ -978,23 +982,23 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       </div>
 
       {/* 底部操作栏 */}
-      <div className="flex items-center justify-between px-4 pb-3">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border/50 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-1">
           {/* 心情按钮 */}
           <div ref={moodRef} className="relative">
             <button
               onClick={() => setShowMoods(!showMoods)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
                 mood
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                  ? "bg-amber-500/14 text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-300"
+                  : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
               )}
             >
               {selectedMoodEmoji ? (
                 <span className="text-sm">{selectedMoodEmoji}</span>
               ) : (
-                <Smile size={15} />
+                <Smile size={15} className="shrink-0 text-amber-500 dark:text-amber-400" />
               )}
               <span className="hidden sm:inline">
                 {mood ? t(`diary.mood${mood.charAt(0).toUpperCase() + mood.slice(1)}`) : t("diary.mood")}
@@ -1009,7 +1013,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute top-full left-0 mt-2 p-2.5 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50 w-[220px]"
+                  className="absolute left-0 top-full z-50 mt-2 w-[232px] rounded-2xl border border-app-border/80 bg-app-elevated/95 p-2.5 shadow-2xl backdrop-blur-xl"
                 >
                   <div className="grid grid-cols-6 gap-1.5">
                     {MOODS.map(({ value: v, emoji }) => (
@@ -1020,10 +1024,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                           setShowMoods(false);
                         }}
                         className={cn(
-                          "w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-base transition-all",
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base transition-all",
                           mood === v
-                            ? "bg-accent-primary/15 scale-110 ring-1 ring-accent-primary/30"
-                            : "hover:bg-app-hover hover:scale-110",
+                            ? "scale-110 bg-violet-500/18 ring-1 ring-violet-400/50"
+                            : "hover:scale-125 hover:bg-app-hover",
                         )}
                       >
                         {emoji}
@@ -1040,39 +1044,39 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             <button
               onClick={() => setShowDatePicker(!showDatePicker)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
                 customDate
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                  ? "bg-sky-500/14 text-sky-700 ring-1 ring-sky-500/25 dark:text-sky-300"
+                  : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
               )}
               title={t("diary.customDate", { defaultValue: "自定义发布日期" })}
             >
-              <Calendar size={15} />
+              <Calendar size={15} className="shrink-0 text-sky-500 dark:text-sky-400" />
               <span className="hidden sm:inline">
                 {customDate || t("diary.date", { defaultValue: "日期" })}
               </span>
             </button>
             {showDatePicker && (
-              <div className="absolute top-full left-0 mt-2 p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
-                <div className="text-[11px] text-tx-tertiary mb-2">
+              <div className="absolute left-0 top-full z-50 mt-2 rounded-2xl border border-app-border/80 bg-app-elevated/95 p-3 shadow-2xl backdrop-blur-xl">
+                <div className="mb-2 text-[11px] text-tx-tertiary">
                   {t("diary.customDateHint", { defaultValue: "补录历史说说，留空则使用当前时间" })}
                 </div>
                 <input
                   type="datetime-local"
                   value={customDate}
                   onChange={(e) => setCustomDate(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs bg-app-bg border border-app-border rounded-lg text-tx-primary outline-none focus:border-accent-primary/60"
+                  className="w-full rounded-xl border border-app-border bg-app-bg px-2.5 py-1.5 text-xs text-tx-primary outline-none focus:border-accent-primary/60"
                 />
-                <div className="flex items-center justify-between mt-2">
+                <div className="mt-2 flex items-center justify-between">
                   <button
                     onClick={() => { setCustomDate(""); setShowDatePicker(false); }}
-                    className="px-2 py-1 text-[11px] text-tx-tertiary hover:text-tx-secondary"
+                    className="rounded-lg px-2 py-1 text-[11px] text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
                   >
                     {t("diary.clearDate", { defaultValue: "清除" })}
                   </button>
                   <button
                     onClick={() => setShowDatePicker(false)}
-                    className="px-2 py-1 text-[11px] text-accent-primary"
+                    className="rounded-lg bg-violet-500/12 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-300"
                   >
                     {t("diary.confirmDate", { defaultValue: "确定" })}
                   </button>
@@ -1087,10 +1091,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             onClick={() => chooseMedia("image-library")}
             disabled={remainingImageSlots <= 0}
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
               remainingImageSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                ? "cursor-not-allowed text-tx-tertiary/50"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
             )}
             title={
               remainingImageSlots <= 0
@@ -1101,10 +1105,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                 : t("diary.addImage")
             }
           >
-            <ImagePlus size={15} />
+            <ImagePlus size={15} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
             <span className="hidden sm:inline">{t("diary.media.image")}</span>
             {hasImages && (
-              <span className="text-[10px] text-tx-tertiary tabular-nums">
+              <span className="text-[10px] tabular-nums text-tx-tertiary">
                 {pendingMedia.filter((p) => p.type === "image").length}/{MAX_IMAGES_PER_DIARY}
               </span>
             )}
@@ -1113,14 +1117,14 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           <button
             type="button"
             onClick={chooseAttachments}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium text-tx-secondary transition-all hover:bg-app-hover hover:text-tx-primary active:scale-95"
             title={t("diary.attachment.addTitle")}
             aria-label={t("diary.attachment.addTitle")}
           >
-            <Paperclip size={15} />
+            <Paperclip size={15} className="shrink-0 text-violet-500 dark:text-violet-400" />
             <span className="hidden sm:inline">{t("diary.attachment.add")}</span>
             {pendingAttachments.length > 0 && (
-              <span className="text-[10px] text-tx-tertiary tabular-nums">{pendingAttachments.length}</span>
+              <span className="text-[10px] tabular-nums text-tx-tertiary">{pendingAttachments.length}</span>
             )}
           </button>
           <MoreMediaMenu
@@ -1132,12 +1136,12 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* 字数计数 */}
           <span
             className={cn(
               "text-[11px] tabular-nums transition-colors",
-              text.length > 500 ? "text-red-400" : "text-tx-tertiary",
+              text.length > 500 ? "text-rose-500 font-medium" : "text-tx-tertiary",
             )}
           >
             {text.length > 0 && text.length}
@@ -1148,10 +1152,10 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             onClick={handlePost}
             disabled={!canSubmit}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-all",
               canSubmit
-                ? "bg-accent-primary text-white hover:bg-accent-primary/90 shadow-sm shadow-accent-primary/20 active:scale-95"
-                : "bg-app-hover text-tx-tertiary cursor-not-allowed",
+                ? "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 text-white shadow-sm shadow-violet-500/25 hover:brightness-105 active:scale-95"
+                : "cursor-not-allowed bg-app-hover text-tx-tertiary",
             )}
             title={
               hasPendingUploads
@@ -1166,9 +1170,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
             }
           >
             {posting ? (
-              <Loader2 size={13} className="animate-spin" />
+              <Loader2 size={13} className="shrink-0 animate-spin" />
             ) : (
-              <Send size={13} />
+              <Send size={13} className="shrink-0" />
             )}
             <span>{t("diary.post")}</span>
           </button>
@@ -1433,7 +1437,7 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="group"
       >
-        <div className="bg-app-surface rounded-xl border border-app-border/60 hover:border-accent-primary/20 transition-all duration-200 hover:shadow-sm hover:shadow-accent-primary/5">
+        <div className="rounded-2xl border border-app-border/75 bg-app-elevated/90 shadow-xs backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-400/35 hover:bg-app-surface hover:shadow-md">
           <div className="p-5">
             {/* 内容（纯图说说允许 contentText 为空，此时不渲染） */}
             {item.contentText && (
@@ -1454,17 +1458,21 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
             />
 
             {/* 底部元信息 */}
-            <div className="flex items-center justify-between mt-3 pt-2 border-t border-app-border/40">
-              <div className="flex items-center gap-2 text-[11px] text-tx-tertiary min-w-0">
-                {moodEmoji && <span className="text-sm">{moodEmoji}</span>}
+            <div className="mt-3.5 flex items-center justify-between border-t border-app-border/50 pt-2.5">
+              <div className="flex min-w-0 items-center gap-2 text-[11px] text-tx-tertiary">
+                {moodEmoji && (
+                  <span className="inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-sm">
+                    {moodEmoji}
+                  </span>
+                )}
                 <span className="shrink-0">{timeAgo(item.createdAt, t)}</span>
                 {/* 工作区下追加发布者；与时间用「·」分隔，弱化视觉权重 */}
                 {showCreator && (
                   <>
-                    <span className="text-tx-tertiary/60 shrink-0">·</span>
+                    <span className="shrink-0 text-tx-tertiary/60">·</span>
                     <span
                       className="flex items-center gap-1 truncate"
-                      title={t('common.createdBy', { name: item.creatorName })}
+                      title={t("common.createdBy", { name: item.creatorName })}
                     >
                       <UserIcon size={11} className="shrink-0" />
                       <span className="truncate">{item.creatorName}</span>
@@ -1478,9 +1486,9 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
                 <button
                   onClick={() => setIsEditing(true)}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all",
+                    "flex items-center gap-1 whitespace-nowrap rounded-xl px-2.5 py-1 text-[11px] font-medium transition-all",
                     "opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    "text-tx-tertiary hover:text-accent-primary hover:bg-accent-primary/10",
+                    "text-tx-tertiary hover:bg-violet-500/10 hover:text-violet-600 dark:hover:text-violet-300",
                   )}
                 >
                   <Edit2 size={12} />
@@ -1491,10 +1499,10 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
                 <button
                   onClick={handleDelete}
                   className={cn(
-                    "flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all",
+                    "flex items-center gap-1 whitespace-nowrap rounded-xl px-2.5 py-1 text-[11px] font-medium transition-all",
                     showConfirm
-                      ? "bg-red-500/10 text-red-500"
-                      : "opacity-100 md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-red-400 hover:bg-red-500/5",
+                      ? "bg-rose-500/12 text-rose-500"
+                      : "opacity-100 text-tx-tertiary hover:bg-rose-500/8 hover:text-rose-500 md:opacity-0 md:group-hover:opacity-100",
                   )}
                 >
                   <Trash2 size={12} />
@@ -1935,23 +1943,23 @@ function DiaryEditor({
       </div>
 
       {/* 底部操作栏 */}
-      <div className="flex items-center justify-between px-4 pb-3">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border/50 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-1">
           {/* 心情按钮 */}
           <div ref={moodRef} className="relative">
             <button
               onClick={() => setShowMoods(!showMoods)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
                 mood
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                  ? "bg-amber-500/14 text-amber-700 dark:text-amber-300"
+                  : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
               )}
             >
               {selectedMoodEmoji ? (
                 <span className="text-sm">{selectedMoodEmoji}</span>
               ) : (
-                <Smile size={15} />
+                <Smile size={15} className="shrink-0 text-amber-500 dark:text-amber-400" />
               )}
               <span className="hidden sm:inline">
                 {mood ? t(`diary.mood${mood.charAt(0).toUpperCase() + mood.slice(1)}`) : t("diary.mood")}
@@ -1965,7 +1973,7 @@ function DiaryEditor({
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9, y: -4 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute top-full left-0 mt-2 p-2.5 bg-app-elevated rounded-xl border border-app-border shadow-lg z-20 w-[220px]"
+                  className="absolute left-0 top-full z-20 mt-2 w-[232px] rounded-2xl border border-app-border/80 bg-app-elevated/95 p-2.5 shadow-2xl backdrop-blur-xl"
                 >
                   <div className="grid grid-cols-6 gap-1.5">
                     {MOODS.map(({ value: v, emoji }) => (
@@ -1976,10 +1984,10 @@ function DiaryEditor({
                           setShowMoods(false);
                         }}
                         className={cn(
-                          "w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-base transition-all",
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base transition-all",
                           mood === v
-                            ? "bg-accent-primary/15 scale-110 ring-1 ring-accent-primary/30"
-                            : "hover:bg-app-hover hover:scale-110",
+                            ? "scale-110 bg-violet-500/18 ring-1 ring-violet-400/50"
+                            : "hover:scale-125 hover:bg-app-hover",
                         )}
                       >
                         {emoji}
@@ -1996,33 +2004,33 @@ function DiaryEditor({
             <button
               onClick={() => setShowDatePicker(!showDatePicker)}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
                 createdAt
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                  ? "bg-sky-500/14 text-sky-700 dark:text-sky-300"
+                  : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
               )}
               title={t("diary.customDate", { defaultValue: "修改发布日期" })}
             >
-              <Calendar size={15} />
+              <Calendar size={15} className="shrink-0 text-sky-500 dark:text-sky-400" />
               <span className="hidden sm:inline">
                 {createdAt ? createdAt.replace("T", " ") : t("diary.date", { defaultValue: "日期" })}
               </span>
             </button>
             {showDatePicker && (
-              <div className="absolute top-full left-0 mt-2 w-[240px] max-w-[calc(100vw-32px)] p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
-                <div className="text-[11px] text-tx-tertiary mb-2">
+              <div className="absolute left-0 top-full z-50 mt-2 w-[240px] max-w-[calc(100vw-32px)] rounded-2xl border border-app-border/80 bg-app-elevated/95 p-3 shadow-2xl backdrop-blur-xl">
+                <div className="mb-2 text-[11px] text-tx-tertiary">
                   {t("diary.editDateHint", { defaultValue: "修改说说的显示时间" })}
                 </div>
                 <input
                   type="datetime-local"
                   value={createdAt}
                   onChange={(e) => setCreatedAt(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs bg-app-bg border border-app-border rounded-lg text-tx-primary outline-none focus:border-accent-primary/60"
+                  className="w-full rounded-xl border border-app-border bg-app-bg px-2.5 py-1.5 text-xs text-tx-primary outline-none focus:border-accent-primary/60"
                 />
-                <div className="flex items-center justify-end mt-2">
+                <div className="mt-2 flex items-center justify-end">
                   <button
                     onClick={() => setShowDatePicker(false)}
-                    className="px-2 py-1 text-[11px] text-accent-primary"
+                    className="rounded-lg bg-violet-500/12 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-300"
                   >
                     {t("diary.confirmDate", { defaultValue: "确定" })}
                   </button>
@@ -2037,10 +2045,10 @@ function DiaryEditor({
             onClick={() => chooseMedia("image-library")}
             disabled={remainingSlots <= 0}
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95",
               remainingSlots <= 0
-                ? "text-tx-tertiary/50 cursor-not-allowed"
-                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+                ? "cursor-not-allowed text-tx-tertiary/50"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
             )}
             title={
               remainingSlots <= 0
@@ -2048,10 +2056,10 @@ function DiaryEditor({
                 : t("diary.media.image")
             }
           >
-            <ImagePlus size={15} />
+            <ImagePlus size={15} className="shrink-0 text-emerald-500 dark:text-emerald-400" />
             <span className="hidden sm:inline">{t("diary.media.image")}</span>
             {images.length > 0 && (
-              <span className="text-[10px] text-tx-tertiary tabular-nums">
+              <span className="text-[10px] tabular-nums text-tx-tertiary">
                 {images.filter((p) => p.type === "image").length}/{MAX_IMAGES_PER_DIARY}
               </span>
             )}
@@ -2061,14 +2069,14 @@ function DiaryEditor({
           <button
             type="button"
             onClick={chooseAttachments}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1.5 text-xs font-medium text-tx-secondary transition-all hover:bg-app-hover hover:text-tx-primary active:scale-95"
             title={t("diary.attachment.addTitle")}
             aria-label={t("diary.attachment.addTitle")}
           >
-            <Paperclip size={15} />
+            <Paperclip size={15} className="shrink-0 text-violet-500 dark:text-violet-400" />
             <span className="hidden sm:inline">{t("diary.attachment.add")}</span>
             {attachments.length > 0 && (
-              <span className="text-[10px] text-tx-tertiary tabular-nums">{attachments.length}</span>
+              <span className="text-[10px] tabular-nums text-tx-tertiary">{attachments.length}</span>
             )}
           </button>
 
@@ -2081,14 +2089,14 @@ function DiaryEditor({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {/* 取消 */}
           <button
             onClick={onCancel}
             disabled={saving}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium text-tx-secondary bg-app-hover hover:bg-app-hover/80 transition-all disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-app-hover px-3 py-1.5 text-xs font-medium text-tx-secondary transition-all hover:bg-app-hover/80 disabled:opacity-50"
           >
-            <X size={13} />
+            <X size={13} className="shrink-0" />
             <span>{t("diary.cancel")}</span>
           </button>
 
@@ -2097,10 +2105,10 @@ function DiaryEditor({
             onClick={handleSave}
             disabled={!canSave}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-medium transition-all",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition-all",
               canSave
-                ? "bg-accent-primary text-white hover:bg-accent-primary/90 shadow-sm shadow-accent-primary/20 active:scale-95"
-                : "bg-app-hover text-tx-tertiary cursor-not-allowed",
+                ? "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 text-white shadow-sm shadow-violet-500/25 hover:brightness-105 active:scale-95"
+                : "cursor-not-allowed bg-app-hover text-tx-tertiary",
             )}
             title={
               hasPendingUploads
@@ -2115,9 +2123,9 @@ function DiaryEditor({
             }
           >
             {saving ? (
-              <Loader2 size={13} className="animate-spin" />
+              <Loader2 size={13} className="shrink-0 animate-spin" />
             ) : (
-              <Check size={13} />
+              <Check size={13} className="shrink-0" />
             )}
             <span>{t("diary.save")}</span>
           </button>
@@ -2243,31 +2251,41 @@ function FilterBar({
   };
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {presets.map(({ key, label }) => (
-        <button
-          key={key}
-          onClick={() => onChange(key, customRange)}
-          className={cn(
-            "px-2.5 py-1 rounded-full text-[11px] font-medium transition-all",
-            preset === key
-              ? "bg-accent-primary text-white shadow-sm shadow-accent-primary/20"
-              : "bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-          )}
-        >
-          {label}
-        </button>
-      ))}
+    <div className="flex flex-wrap items-center gap-1.5">
+      {presets.map(({ key, label }) => {
+        const active = preset === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key, customRange)}
+            className={cn(
+              "relative whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
+              active
+                ? "text-white"
+                : "bg-app-hover/65 text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+            )}
+          >
+            {active && (
+              <motion.span
+                layoutId="diary-range-pill"
+                transition={MOTION_SPRING.snappy}
+                className="absolute inset-0 rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 shadow-xs shadow-violet-500/25"
+              />
+            )}
+            <span className="relative z-10">{label}</span>
+          </button>
+        );
+      })}
 
       {/* 自定义范围 */}
       <div ref={popoverRef} className="relative">
         <button
           onClick={() => setShowCustom((v) => !v)}
           className={cn(
-            "flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all",
+            "flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-medium transition-all",
             preset === "custom"
-              ? "bg-accent-primary text-white shadow-sm shadow-accent-primary/20"
-              : "bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+              ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-xs shadow-violet-500/25"
+              : "bg-app-hover/65 text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           )}
         >
           <Calendar size={11} />
@@ -2281,7 +2299,7 @@ function FilterBar({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -4 }}
               transition={{ duration: 0.15 }}
-              className="absolute right-0 top-full mt-2 p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50 w-[260px]"
+              className="absolute right-0 top-full z-50 mt-2 w-[260px] rounded-2xl border border-app-border/80 bg-app-elevated/95 p-3 shadow-2xl backdrop-blur-xl"
             >
               <div className="space-y-2">
                 <div>
@@ -2594,28 +2612,38 @@ export default function DiaryCenter() {
           <div className="flex min-h-0 flex-1 justify-center overflow-hidden">
           {/* 左侧：主内容区 */}
           <ScrollArea className="h-full min-h-0 flex-1 max-w-[760px]" ref={scrollRef}>
-            <div className="px-4 lg:px-6 py-6 space-y-5">
+            <div className="px-4 lg:px-6 py-5 space-y-5">
               {/* 顶部标题 + 统计 */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                  <motion.div
+                    whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    transition={{ duration: 0.4 }}
+                    className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-pink-500 shadow-md shadow-violet-500/25"
+                  >
                     <MessageCircle size={20} className="text-white" />
-                  </div>
+                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-300 text-amber-800 shadow-xs">
+                      <Sparkles size={8} />
+                    </span>
+                  </motion.div>
                   <div>
-                    <h1 className="text-xl font-bold text-tx-primary leading-tight">{t("diary.title")}</h1>
-                    {stats && (
-                      <p className="text-xs text-tx-tertiary mt-0.5">
-                        {t("diary.statsLine")
-                          .replace("{{total}}", String(stats.total))
-                          .replace("{{today}}", String(stats.todayCount))}
-                      </p>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="text-xl font-bold tracking-tight text-tx-primary leading-tight">{t("diary.title")}</h1>
+                      {stats && (
+                        <span className="inline-flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium tabular-nums text-violet-700 dark:border-violet-400/25 dark:bg-violet-400/15 dark:text-violet-300">
+                          {t("diary.statsLine")
+                            .replace("{{total}}", String(stats.total))
+                            .replace("{{today}}", String(stats.todayCount))}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {/* 移动端日历入口 */}
                 <button
                   onClick={() => setCalendarOpen(true)}
-                  className="lg:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-app-hover text-tx-secondary hover:bg-app-hover/80 transition-all"
+                  className="lg:hidden flex items-center gap-1.5 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-600 transition-all hover:bg-violet-500/18 dark:text-violet-300"
                 >
                   <Calendar size={14} />
                   <span>{t("diary.calendarTitle") || "日历"}</span>
@@ -2624,16 +2652,16 @@ export default function DiaryCenter() {
 
               {/* 发布框 */}
               <div className={cn("relative", state.mobileSidebarOpen && "hidden md:block")}>
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-violet-500/5 to-pink-500/5 rounded-2xl" />
+                <div className="pointer-events-none absolute -inset-1 rounded-3xl bg-gradient-to-r from-violet-500/10 via-fuchsia-500/8 to-pink-500/10 blur-lg opacity-70" />
                 <div className="relative">
                   <ComposeBox key={getCurrentWorkspace() || "personal"} onPost={handlePost} />
                 </div>
               </div>
 
-              {/* 筛选区 - 统一 pill tabs */}
-              <div className="space-y-3">
+              {/* 筛选区 - 磨砂控制台 */}
+              <div className="space-y-2.5 rounded-2xl border border-app-border/75 bg-app-elevated/70 p-2.5 shadow-xs backdrop-blur-sm">
                 {/* 时间筛选 */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2">
                   <FilterBar
                     preset={preset}
                     customRange={customRange}
@@ -2642,51 +2670,61 @@ export default function DiaryCenter() {
                 </div>
 
                 {/* 内容筛选 + 搜索 */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2.5">
                   {/* 媒体类型 */}
-                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-app-hover/50">
-                    {(["all", "text", "image", "video"] as const).map((mt) => (
-                      <button
-                        key={mt}
-                        onClick={() => setMediaFilter(mt)}
-                        className={cn(
-                          "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
-                          mediaFilter === mt
-                            ? "bg-accent-primary text-white shadow-sm shadow-accent-primary/20"
-                            : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-                        )}
-                      >
-                        {t(`diary.filterMedia${mt.charAt(0).toUpperCase() + mt.slice(1)}`)}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-1 rounded-full bg-app-bg/70 p-0.5 ring-1 ring-app-border/60">
+                    {(["all", "text", "image", "video"] as const).map((mt) => {
+                      const active = mediaFilter === mt;
+                      return (
+                        <button
+                          key={mt}
+                          onClick={() => setMediaFilter(mt)}
+                          className={cn(
+                            "relative whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            active
+                              ? "text-white"
+                              : "text-tx-secondary hover:text-tx-primary",
+                          )}
+                        >
+                          {active && (
+                            <motion.span
+                              layoutId="diary-media-pill"
+                              transition={MOTION_SPRING.snappy}
+                              className="absolute inset-0 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 shadow-xs"
+                            />
+                          )}
+                          <span className="relative z-10">{t(`diary.filterMedia${mt.charAt(0).toUpperCase() + mt.slice(1)}`)}</span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   {/* 视频流入口 */}
                   <button
                     onClick={openVideoFeed}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+                    className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-pink-400/30 bg-pink-500/10 px-2.5 py-1 text-[11px] font-medium text-pink-600 transition-all hover:bg-pink-500/18 active:scale-95 dark:text-pink-300"
                     title={t("diary.videoFeed")}
                   >
-                    <Play size={12} />
+                    <Play size={11} />
                     <span className="hidden sm:inline">{t("diary.enterVideoFeed")}</span>
                   </button>
 
                   {/* 搜索框 */}
-                  <div className="relative flex-1 min-w-[120px] max-w-[200px]">
-                    <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+                  <div className="relative ml-auto min-w-[140px] flex-1 max-w-[220px]">
+                    <Search size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
                     <input
                       type="text"
                       value={searchText}
                       onChange={(e) => setSearchText(e.target.value)}
                       placeholder={t("diary.searchPlaceholder")}
-                      className="w-full pl-7 pr-7 py-1 rounded-md text-[11px] bg-app-hover/50 text-tx-secondary placeholder:text-tx-tertiary outline-none focus:ring-1 focus:ring-accent-primary/30"
+                      className="w-full rounded-full border border-app-border/75 bg-app-surface/90 py-1 pl-7 pr-7 text-[11px] text-tx-primary placeholder:text-tx-tertiary outline-none transition-all focus:border-violet-400/60 focus:ring-2 focus:ring-violet-500/15"
                     />
                     {searchText && (
                       <button
                         onClick={() => setSearchText("")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full text-tx-tertiary hover:text-tx-primary"
                       >
-                        <X size={12} />
+                        <X size={11} />
                       </button>
                     )}
                   </div>
@@ -2695,39 +2733,37 @@ export default function DiaryCenter() {
 
               {/* 时间线 */}
               {loading ? (
-                <div className="flex justify-center py-16">
-                  <Loader2 size={24} className="animate-spin text-accent-primary" />
+                <div className="space-y-3 py-2">
+                  {[0, 1, 2].map((index) => (
+                    <div key={index} className="animate-pulse rounded-2xl border border-app-border/70 bg-app-elevated/75 p-5 space-y-3">
+                      <div className="h-3.5 w-3/4 rounded-md bg-app-hover/90" />
+                      <div className="h-3.5 w-1/2 rounded-md bg-app-hover/70" />
+                      <div className="flex items-center gap-2 pt-2">
+                        <div className="h-4 w-16 rounded-full bg-app-hover/70" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : items.length === 0 ? (
-                <div className="flex flex-col items-center py-20 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-app-hover/60 flex items-center justify-center mb-4">
-                    <MessageCircle size={28} className="text-tx-tertiary" />
-                  </div>
-                  <p className="text-sm text-tx-secondary font-medium">
-                    {isFiltering ? t("diary.emptyFiltered") : t("diary.empty")}
-                  </p>
-                  <p className="text-xs text-tx-tertiary mt-1">
-                    {isFiltering ? t("diary.emptyFilteredHint") : t("diary.emptyHint")}
-                  </p>
-                </div>
+                <PlayfulMomentEmptyState isFiltering={isFiltering} t={t} />
               ) : (
                 <div className="space-y-6">
                   {groupedItems.map(({ label, items: dayItems }) => (
                     <div key={label}>
                       {/* 日期分割 - 时间线样式 */}
-                      <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-app-bg/80 backdrop-blur-sm py-2 -mx-4 lg:-mx-6 px-4 lg:px-6">
-                        <div className="w-2 h-2 rounded-full bg-accent-primary/60" />
-                        <span className="text-xs font-semibold text-tx-secondary">
+                      <div className="sticky top-0 z-10 -mx-4 mb-4 flex items-center gap-2.5 bg-app-bg/85 px-4 py-2 backdrop-blur-md lg:-mx-6 lg:px-6">
+                        <div className="h-2.5 w-2.5 rounded-full bg-gradient-to-tr from-violet-500 to-pink-500 shadow-xs" />
+                        <span className="text-xs font-bold text-tx-primary">
                           {label}
                         </span>
-                        <span className="text-[10px] text-tx-tertiary">
+                        <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium tabular-nums text-violet-600 dark:text-violet-300">
                           {dayItems.length} {t("diary.itemsCount", { defaultValue: "条" })}
                         </span>
-                        <div className="flex-1 h-px bg-app-border/40" />
+                        <div className="h-px flex-1 bg-gradient-to-r from-violet-400/25 via-app-border/50 to-transparent" />
                       </div>
 
                       {/* 当天动态 */}
-                      <div className="space-y-3 pl-4 lg:pl-5 border-l-2 border-app-border/30 ml-0.5">
+                      <div className="ml-1 space-y-3 border-l-2 border-violet-400/25 pl-4 lg:pl-5">
                         <AnimatePresence mode="popLayout">
                           {dayItems.map((item) => (
                             <DiaryCard
@@ -2748,7 +2784,7 @@ export default function DiaryCenter() {
                       <button
                         onClick={() => loadTimeline(false)}
                         disabled={loadingMore}
-                        className="flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-medium text-tx-secondary bg-app-hover/60 hover:bg-app-hover transition-colors"
+                        className="flex items-center gap-1.5 rounded-full border border-app-border/80 bg-app-elevated/85 px-5 py-2 text-xs font-medium text-tx-secondary shadow-xs transition-all hover:border-violet-400/40 hover:bg-app-surface hover:text-tx-primary active:scale-95"
                       >
                         {loadingMore ? (
                           <Loader2 size={13} className="animate-spin" />
@@ -2765,7 +2801,7 @@ export default function DiaryCenter() {
           </ScrollArea>
 
           {/* 右侧面板（桌面端） */}
-          <div className="hidden lg:block w-[300px] xl:w-[320px] shrink-0 border-l border-app-border bg-app-surface/30 overflow-auto">
+          <div className="hidden lg:block w-[300px] xl:w-[320px] shrink-0 border-l border-app-border/75 bg-app-surface/40 overflow-auto">
             <div className="p-4 sticky top-0">
               <DiarySidebar
                 stats={stats}
@@ -2793,6 +2829,104 @@ export default function DiaryCenter() {
         onLoadMore={loadMoreVideoFeed}
       />
     </div>
+  );
+}
+
+const MOMENT_BOOP_LINES = [
+  "把此刻冒出来的小念头装进气泡里吧 🫧",
+  "支持直接粘贴截图、拖入视频和 Markdown 哦 ✨",
+  "给今天挑个心情小贴纸，写下第一条瞬间吧 😊",
+];
+
+/** 俏皮拟人化「气泡心情精灵」空状态：悬停微晃，点击开心弹跳。 */
+function PlayfulMomentEmptyState({
+  isFiltering,
+  t,
+}: {
+  isFiltering: boolean;
+  t: (key: string) => string;
+}) {
+  const [boops, setBoops] = useState(0);
+  const [boopIndex, setBoopIndex] = useState<number | null>(null);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: MOTION_EASE.enter }}
+      className="flex flex-col items-center rounded-3xl border border-dashed border-app-border/80 bg-app-elevated/60 px-6 py-14 text-center backdrop-blur-sm"
+    >
+      <motion.button
+        type="button"
+        tabIndex={-1}
+        aria-hidden="true"
+        onClick={() => {
+          setBoops((count) => count + 1);
+          setBoopIndex((prev) => (prev === null ? 0 : (prev + 1) % MOMENT_BOOP_LINES.length));
+        }}
+        className="group relative mx-auto mb-4 flex h-32 w-32 cursor-pointer items-center justify-center rounded-full focus:outline-none"
+        whileHover={{ scale: 1.07 }}
+        whileTap={{ scale: 0.93 }}
+        animate={boops > 0 ? { y: [0, -12, 0], rotate: [0, -7, 7, 0] } : { y: [0, -4, 0] }}
+        transition={boops > 0
+          ? { duration: 0.45, ease: MOTION_EASE.enter }
+          : { duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <span className="pointer-events-none absolute inset-1.5 rounded-full bg-gradient-to-tr from-violet-400/24 via-fuchsia-400/20 to-pink-400/24 blur-xl" />
+
+        <motion.span
+          className="pointer-events-none absolute right-2 top-3 text-amber-400 dark:text-amber-300"
+          animate={{ y: [0, -5, 0], rotate: [0, 16, 0], opacity: [0.65, 1, 0.65] }}
+          transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <Sparkles size={16} />
+        </motion.span>
+        <motion.span
+          className="pointer-events-none absolute left-2 top-7 h-2.5 w-2.5 rounded-full bg-violet-400/60"
+          animate={{ scale: [1, 1.35, 1], opacity: [0.5, 0.95, 0.5] }}
+          transition={{ duration: 2.3, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.span
+          className="pointer-events-none absolute bottom-4 right-3 h-2 w-2 rounded-full bg-pink-400/60"
+          animate={{ y: [0, 4, 0], opacity: [0.45, 0.9, 0.45] }}
+          transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut", delay: 0.35 }}
+        />
+
+        <svg viewBox="0 0 112 112" className="relative h-24 w-24 drop-shadow-sm" fill="none">
+          {/* 胖嘟嘟聊天气泡 */}
+          <path
+            d="M22 52C22 34.3 37.2 22 56 22C74.8 22 90 34.3 90 52C90 69.7 74.8 82 56 82C51.2 82 46.6 81.2 42.5 79.7L27 87L31.4 72.8C25.5 67.4 22 60.1 22 52Z"
+            className="fill-app-elevated stroke-violet-500/65 dark:stroke-violet-300/65"
+            strokeWidth="2.5"
+            strokeLinejoin="round"
+          />
+          {/* 气泡内柔光微晕 */}
+          <ellipse cx="56" cy="48" rx="22" ry="15" className="fill-fuchsia-500/8 dark:fill-fuchsia-400/12" />
+          {/* 笑眯眯小脸 */}
+          <circle cx="46" cy="50" r="2.8" className="fill-tx-primary/75" />
+          <circle cx="66" cy="50" r="2.8" className="fill-tx-primary/75" />
+          <path
+            d="M50.5 56.5C53 59.8 59 59.8 61.5 56.5"
+            className="stroke-tx-primary/75"
+            strokeWidth="2.3"
+            strokeLinecap="round"
+          />
+          <circle cx="40" cy="54.5" r="3.2" className="fill-pink-400/45" />
+          <circle cx="72" cy="54.5" r="3.2" className="fill-pink-400/45" />
+        </svg>
+      </motion.button>
+
+      <p className="text-sm font-semibold text-tx-primary">
+        {isFiltering ? t("diary.emptyFiltered") : t("diary.empty")}
+      </p>
+      <p className="mt-1.5 max-w-xs text-xs leading-5 text-tx-secondary">
+        {boopIndex !== null
+          ? MOMENT_BOOP_LINES[boopIndex]
+          : isFiltering
+            ? t("diary.emptyFilteredHint")
+            : t("diary.emptyHint")}
+      </p>
+    </motion.div>
   );
 }
 

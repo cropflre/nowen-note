@@ -20,13 +20,14 @@ export default function AssetFilterPanel({
   const { t } = useTranslation();
   const change = (patch: Partial<AssetFilters>) =>
     onChange({ ...filters, ...patch });
+
   return (
     <div
       aria-label={t("assetOrganization.filters")}
-      className="space-y-3 rounded-lg border border-app-border bg-app-surface p-3 text-xs"
+      className="space-y-3 rounded-2xl border border-app-border/80 bg-app-elevated/85 p-3.5 text-xs shadow-xs backdrop-blur-md"
     >
-      <div className="grid grid-cols-2 gap-2 [&>label]:min-w-0 md:gap-3 lg:grid-cols-3">
-        <label>
+      <div className="grid grid-cols-2 gap-2.5 [&>label]:min-w-0 md:gap-3 lg:grid-cols-3">
+        <label className="font-medium text-tx-secondary">
           {t("assetOrganization.mime")}
           <select
             aria-label={t("assetOrganization.mime")}
@@ -34,7 +35,7 @@ export default function AssetFilterPanel({
             onChange={(event) =>
               change({ mime: event.target.value || undefined })
             }
-            className="mt-1 block min-w-0 max-w-full w-full rounded border border-app-border bg-app-bg p-2"
+            className="mt-1 block w-full min-w-0 max-w-full cursor-pointer rounded-xl border border-app-border/80 bg-app-surface px-2.5 py-2 font-normal text-tx-primary outline-none focus:border-accent-primary"
           >
             <option value="">{t("assetOrganization.any")}</option>
             {[
@@ -53,7 +54,7 @@ export default function AssetFilterPanel({
           </select>
         </label>
         {(["minSize", "maxSize"] as const).map((field) => (
-          <label key={field}>
+          <label key={field} className="font-medium text-tx-secondary">
             {t(`assetOrganization.${field}`)}
             <input
               aria-label={t(`assetOrganization.${field}`)}
@@ -71,12 +72,12 @@ export default function AssetFilterPanel({
                       : Math.round(Number(event.target.value) * 1048576),
                 })
               }
-              className="mt-1 block min-w-0 max-w-full w-full rounded border border-app-border bg-app-bg p-2"
+              className="mt-1 block w-full min-w-0 max-w-full rounded-xl border border-app-border/80 bg-app-surface px-2.5 py-2 font-normal text-tx-primary outline-none focus:border-accent-primary"
             />
           </label>
         ))}
         {(["createdAfter", "createdBefore"] as const).map((field) => (
-          <label key={field}>
+          <label key={field} className="font-medium text-tx-secondary">
             {t(`assetOrganization.${field}`)}
             <input
               aria-label={t(`assetOrganization.${field}`)}
@@ -90,11 +91,11 @@ export default function AssetFilterPanel({
                   ),
                 })
               }
-              className="mt-1 block min-w-0 max-w-full w-full rounded border border-app-border bg-app-bg p-2"
+              className="mt-1 block w-full min-w-0 max-w-full rounded-xl border border-app-border/80 bg-app-surface px-2.5 py-2 font-normal text-tx-primary outline-none focus:border-accent-primary"
             />
           </label>
         ))}
-        <label>
+        <label className="font-medium text-tx-secondary">
           {t("assetOrganization.references")}
           <select
             aria-label={t("assetOrganization.references")}
@@ -105,7 +106,7 @@ export default function AssetFilterPanel({
                   undefined) as AssetFilters["referenceState"],
               })
             }
-            className="mt-1 block min-w-0 max-w-full w-full rounded border border-app-border bg-app-bg p-2"
+            className="mt-1 block w-full min-w-0 max-w-full cursor-pointer rounded-xl border border-app-border/80 bg-app-surface px-2.5 py-2 font-normal text-tx-primary outline-none focus:border-accent-primary"
           >
             <option value="">{t("assetOrganization.any")}</option>
             {(["referenced", "unreferenced", "multiple"] as const).map(
@@ -120,14 +121,18 @@ export default function AssetFilterPanel({
       </div>
       {!!tags.length && (
         <fieldset>
-          <legend className="mb-2 text-tx-secondary">
+          <legend className="mb-2 font-medium text-tx-secondary">
             {t("assetOrganization.allTags")}
           </legend>
-          <div className="flex max-h-24 flex-wrap gap-3 overflow-auto">
+          <div className="flex max-h-24 flex-wrap gap-2 overflow-auto">
             {tags.map((tag) => (
-              <label key={tag.id} className="flex items-center gap-1">
+              <label
+                key={tag.id}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-app-border/75 bg-app-surface px-2.5 py-1 transition-colors hover:border-accent-primary/40"
+              >
                 <input
                   type="checkbox"
+                  className="accent-accent-primary"
                   checked={filters.tagIds?.includes(tag.id) || false}
                   onChange={(event) =>
                     change({
@@ -143,28 +148,40 @@ export default function AssetFilterPanel({
           </div>
         </fieldset>
       )}
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={filters.duplicateOnly || false}
-          onChange={(event) =>
-            change({ duplicateOnly: event.target.checked || undefined })
-          }
-        />
-        {t("assetOrganization.duplicateOnly")}
-      </label>
-      <div className="flex flex-wrap gap-4">
-        <button className="text-accent-primary" onClick={onSave}>
-          {t("assetOrganization.saveSmart")}
-        </button>
-        {onUpdate && (
-          <button className="text-accent-primary" onClick={onUpdate}>
-            {t("assetOrganization.updateSmart")}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/65 pt-2.5">
+        <label className="inline-flex cursor-pointer items-center gap-2 text-tx-secondary">
+          <input
+            type="checkbox"
+            className="accent-accent-primary"
+            checked={filters.duplicateOnly || false}
+            onChange={(event) =>
+              change({ duplicateOnly: event.target.checked || undefined })
+            }
+          />
+          {t("assetOrganization.duplicateOnly")}
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="rounded-xl bg-accent-primary/10 px-3 py-1.5 font-medium text-accent-primary transition-colors hover:bg-accent-primary/18"
+            onClick={onSave}
+          >
+            {t("assetOrganization.saveSmart")}
           </button>
-        )}
-        <button className="text-tx-secondary" onClick={onClear}>
-          {t("assetOrganization.clearFilters")}
-        </button>
+          {onUpdate && (
+            <button
+              className="rounded-xl bg-violet-500/10 px-3 py-1.5 font-medium text-violet-600 transition-colors hover:bg-violet-500/18 dark:text-violet-300"
+              onClick={onUpdate}
+            >
+              {t("assetOrganization.updateSmart")}
+            </button>
+          )}
+          <button
+            className="rounded-xl px-2.5 py-1.5 text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            onClick={onClear}
+          >
+            {t("assetOrganization.clearFilters")}
+          </button>
+        </div>
       </div>
     </div>
   );
