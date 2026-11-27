@@ -335,6 +335,7 @@ const BACKEND_KEEP_PACKAGES = [
   "sqlite-vec-linux-arm64",
   // bonjour-service + 运行时传递依赖
   "bonjour-service",
+  "fast-deep-equal",
   "multicast-dns",
   "dns-packet",
   "@leichtgewicht",        // 整个 scope (含 ip-codec)

@@ -293,3 +293,101 @@ test("重启已绑定的 SyncEngine 不应重复拉取全量 Snapshot，大体�
   assert.equal(serverCount, 4);
   engine2.stop();
 });
+
+test("SyncRemoteClient 保留安全底层网络错误码（如 ECONNRESET），且不泄露敏感 URL 或错误原文", async () => {
+  const { SyncRemoteClient } = await import("../src/sync/remote");
+
+  const makeClient = (err: unknown) => new SyncRemoteClient(
+    { serverUrl: "http://100.111.97.52:34597", token: "secret-token" },
+    { fetchImpl: async () => { throw err; } },
+  );
+
+  const resetErr = Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET 100.111.97.52"), { code: "ECONNRESET" }),
+  });
+  await assert.rejects(
+    () => makeClient(resetErr).snapshot(null, 0),
+    (err: any) => err?.code === "NETWORK_UNAVAILABLE"
+      && err?.diagnostic?.step === "http.get/snapshot"
+      && err?.diagnostic?.reason === "ECONNRESET",
+  );
+
+  const unsafeCodeErr = Object.assign(new Error("boom http://100.111.97.52"), {
+    code: "http://100.111.97.52/secret",
+  });
+  await assert.rejects(
+    () => makeClient(unsafeCodeErr).listScopes(),
+    (err: any) => err?.code === "NETWORK_UNAVAILABLE" && err?.diagnostic?.reason === "NETWORK_ERROR",
+  );
+});
+
+test("Snapshot 连续网络断流时客户端可逐次缩页到 limit=1 并最终完成重建", async () => {
+  const { SyncEngine } = await import("../src/sync/engine");
+  const { SyncRemoteClient } = await import("../src/sync/remote");
+  const { createProfile, switchActiveProfile } = await import("../src/sync/profile");
+  const { ensureDevice } = await import("../src/sync/device");
+
+  const localDbPath = path.join(temp, "snapshot-shrink.db");
+  fs.copyFileSync(path.join(temp, "desktop.db"), localDbPath);
+  const local = new Database(localDbPath);
+  openDbs.push(local);
+  local.pragma("foreign_keys=ON");
+  (await import("../src/lib/searchIndex")).ensureNormalizedSearchFts(local);
+
+  const profile = createProfile(local, { name: "Shrink NAS", serverUrl: "http://shrink-nas.test" });
+  switchActiveProfile(local, profile.id);
+  local.prepare("UPDATE sync_profiles SET remoteUserId=?, localUserId=?, bootstrapStatus='ready' WHERE id=?")
+    .run(USER, USER, profile.id);
+  const device = ensureDevice(local, { profileId: profile.id });
+
+  const seenLimits: number[] = [];
+  let acked = false;
+  const client = new SyncRemoteClient({ serverUrl: "http://shrink-nas.test", token: "fixture" }, {
+    fetchImpl: async (url) => {
+      if (url.includes("/scopes")) {
+        return new Response(JSON.stringify({
+          items: [{ scopeKey: "personal", workspaceId: null, accessFingerprint: "fp-shrink", assetOrganization: "personal-v1" }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } }) as any;
+      }
+      if (url.includes("/plan?")) {
+        return new Response(JSON.stringify({
+          scopeKey: "personal", accessFingerprint: "fp-shrink", assetOrganization: "personal-v1",
+          entityTypes: ["notebook", "tag", "note", "note_tag", "favorite", "attachment", "task", "task_reminder", "diary", "mindmap", "attachment_organization", "knowledge_tree_node"],
+          serverSequence: 1, minAvailableSequence: 0, resetRequired: !acked, notebookCount: 0, noteCount: 0, tagCount: 0,
+        }), { status: 200, headers: { "Content-Type": "application/json" } }) as any;
+      }
+      if (url.includes("/snapshot?")) {
+        const limit = Number(new URL(url).searchParams.get("limit") || "0");
+        seenLimits.push(limit);
+        if (limit > 1) {
+          throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+        }
+        return new Response(JSON.stringify({
+          scopeKey: "personal", accessFingerprint: "fp-shrink", snapshotSequence: 1, hasMore: false, nextCursor: null, items: [],
+        }), { status: 200, headers: { "Content-Type": "application/json" } }) as any;
+      }
+      if (url.includes("/changes?")) {
+        return new Response(JSON.stringify({
+          scopeKey: "personal", accessFingerprint: "fp-shrink", serverSequence: 1, nextSequence: 1, hasMore: false, resetRequired: false, items: [],
+        }), { status: 200, headers: { "Content-Type": "application/json" } }) as any;
+      }
+      if (url.includes("/ack?")) {
+        acked = true;
+        return new Response(JSON.stringify({ lastSequence: 1, accessFingerprint: "fp-shrink" }), { status: 200, headers: { "Content-Type": "application/json" } }) as any;
+      }
+      return new Response("not found", { status: 404 }) as any;
+    },
+  });
+
+  const engine = new SyncEngine({
+    db: local, profileId: profile.id, deviceId: device.id, userId: USER,
+    client, intervalMs: 0, scheduler: { setTimeout: () => 0, clearTimeout: () => {} },
+  });
+  let status = await engine.syncOnce();
+  for (let i = 0; i < 16 && status.lastError; i++) {
+    status = await engine.syncOnce();
+  }
+  assert.equal(status.lastError, null, JSON.stringify(status));
+  assert.ok(seenLimits.includes(1), `应允许一直缩页到 1，实际序列: ${JSON.stringify(seenLimits)}`);
+  engine.stop();
+});

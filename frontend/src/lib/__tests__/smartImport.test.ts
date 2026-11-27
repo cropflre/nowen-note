@@ -32,6 +32,7 @@ describe("planning what to upload", () => {
 
   it("explains selections it cannot import instead of uploading them", () => {
     expect(planImport([], "Imported")).toMatchObject({ ok: false, reason: "empty" });
+    expect(planImport([entry("nowen-package-2026-11-27.nowen.zip")], "Imported")).toMatchObject({ ok: false, reason: "nowen-package" });
     expect(planImport([entry("photo.png"), entry("report.pdf")], "Imported")).toMatchObject({ ok: false, reason: "no-notes" });
     expect(planImport([entry("Notes.enex"), entry("book.epub")], "Imported")).toMatchObject({ ok: false, reason: "unsupported", unsupported: ["Notes.enex", "book.epub"] });
     // Unknown files next to notes are counted, not silently dropped.
@@ -93,6 +94,7 @@ describe("reading results", () => {
   });
 
   it("turns error codes into a kind of problem with a way forward", () => {
+    expect(importErrorKind("MIGRATION_NOWEN_PACKAGE_USE_DIRECT_IMPORT")).toBe("nowen-package");
     expect(importErrorKind("MIGRATION_INVALID_ZIP")).toBe("format");
     expect(importErrorKind(Object.assign(new Error("附件校验失败"), { code: "MIGRATION_UPLOAD_TOO_LARGE", status: 413 }))).toBe("size");
     expect(importErrorKind("MIGRATION_INVALID_UTF8")).toBe("encoding");

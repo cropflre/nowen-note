@@ -231,3 +231,17 @@ test("safe ZIP ingestion dispatches native Siyuan documents and local assets thr
     assert.match(notes[0].attachments[0].path, /^sources\/upload-1\/extracted\//);
   });
 });
+
+test("Nowen lossless package (.nowen.zip) uploaded to migration hub reports dedicated guidance code instead of generic invalid manifest", async () => {
+  const zip = new JSZip().file("manifest.json", JSON.stringify({
+    format: "nowen-package",
+    version: "1.0",
+    exportedAt: "2026-11-27T07:00:00.000Z",
+    notebooks: [],
+    notes: [],
+  }));
+  await withArchive(zip, async (input, notes) => {
+    await assert.rejects(stageMigrationFile(input), /MIGRATION_NOWEN_PACKAGE_USE_DIRECT_IMPORT/);
+    assert.equal(notes.length, 0);
+  });
+});

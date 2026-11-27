@@ -1184,6 +1184,10 @@ export default function DataManager() {
         localOnly={isMobileLocalMode()}
         canConfigureLimits={isAdmin}
         onLegacyImport={() => setActiveSubTab("import")}
+        onNowenPackageImport={() => {
+          setActiveImportMethod("nowen");
+          setActiveSubTab("import");
+        }}
         onImported={(job) => {
           if ((job.workspaceId || "personal") === (getCurrentWorkspace() || "personal")) {
             void api.getNotebooks().then(actions.setNotebooks).catch(console.error);

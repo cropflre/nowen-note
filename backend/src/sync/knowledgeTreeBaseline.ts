@@ -131,7 +131,7 @@ async function readRemoteTreeSnapshot(
     }
     cursor = page.nextCursor;
     pages += 1;
-    if (pages > 2000) {
+    if (pages > 10_000) {
       throw new SyncError("SERVER_ERROR", "知识树基线 Snapshot 分页超过安全上限");
     }
   } while (cursor);

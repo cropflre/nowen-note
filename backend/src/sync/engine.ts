@@ -160,7 +160,7 @@ export class SyncEngine {
   private rerunRequested = false;
   /** 老服务器不支持 negotiated entityTypes 时，本次进程不重复探测。 */
   private readonly unsupportedTreeScopes = new Set<string>();
-  /** 弱网超时后逐次减半快照页大小，最低 10 条，完整重建后恢复默认值。 */
+  /** 弱网超时或断流后逐次减半快照页大小，最低降到 1 条，完整重建后恢复默认值。 */
   private snapshotPageLimit = SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
   /** 请求超限或超时后缩小各批次，待当前积压发完再恢复默认预算。 */
   private pushMaxPayloadBytes = SYNC_PUSH_MAX_PAYLOAD_BYTES;
@@ -378,6 +378,7 @@ export class SyncEngine {
       this.lastError = null;
       this.lastErrorDiagnostic = null;
       this.retryCount = 0;
+      this.snapshotPageLimit = SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
       logSyncInfo("engine.cycle-done", {
         profileId: this.profileId,
         deviceId: this.deviceId,
@@ -483,15 +484,24 @@ export class SyncEngine {
       return;
     }
 
-    const result = await runKnowledgeTreeBaseline({
-      db: this.db,
-      profileId: this.profileId,
-      deviceId: this.deviceId,
-      userId: this.userId,
-      scopeKey: scope.scopeKey,
-      workspaceId: scope.workspaceId,
-      client: this.client,
-    });
+    let result;
+    try {
+      result = await runKnowledgeTreeBaseline({
+        db: this.db,
+        profileId: this.profileId,
+        deviceId: this.deviceId,
+        userId: this.userId,
+        scopeKey: scope.scopeKey,
+        workspaceId: scope.workspaceId,
+        client: this.client,
+        pageSize: this.snapshotPageLimit,
+      });
+    } catch (error) {
+      if (!this.stopped && error instanceof SyncError && error.code === "NETWORK_UNAVAILABLE") {
+        this.snapshotPageLimit = Math.max(1, Math.floor(this.snapshotPageLimit / 2));
+      }
+      throw error;
+    }
     if (result.status === "unsupported") {
       this.unsupportedTreeScopes.add(scope.scopeKey);
       logSyncInfo("engine.tree-protocol-unsupported", {
@@ -1101,7 +1111,7 @@ export class SyncEngine {
           );
       } catch (error) {
         if (!this.stopped && error instanceof SyncError && error.code === "NETWORK_UNAVAILABLE") {
-          this.snapshotPageLimit = Math.max(10, Math.floor(this.snapshotPageLimit / 2));
+          this.snapshotPageLimit = Math.max(1, Math.floor(this.snapshotPageLimit / 2));
         }
         throw error;
       }
@@ -1195,7 +1205,6 @@ export class SyncEngine {
 
     if (this.assetSubscribed && scope.workspaceId === null) this.db.prepare(`INSERT INTO asset_sync_bindings(profileId,userId,ready) VALUES (?,?,1)
       ON CONFLICT(profileId) DO UPDATE SET ready=1`).run(this.profileId,this.userId);
-    this.snapshotPageLimit = SYNC_SNAPSHOT_REBUILD_PAGE_SIZE;
 
     logSyncInfo("engine.snapshot-rebuilt", {
       profileId: this.profileId,

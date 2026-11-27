@@ -388,7 +388,21 @@ function getFreePort() {
 }
 
 // ---------- 健康探测（轮询 /api/health） ----------
-function waitForBackendReady(port, timeoutMs = 30000) {
+// 大库（如 >=100MB / >=500MB）冷启动、WAL 恢复或 Windows Defender 扫描可能超过 30s，
+// 按数据库体积弹性放宽启动超时；若后端进程异常退出，stoppedBeforeReady 会立即失败而不会白等。
+function resolveBackendStartupTimeoutMs(dbPath) {
+  const baseMs = 90000;
+  try {
+    if (dbPath && fs.existsSync(dbPath)) {
+      const sizeBytes = fs.statSync(dbPath).size;
+      if (sizeBytes >= 500 * 1024 * 1024) return 180000;
+      if (sizeBytes >= 100 * 1024 * 1024) return 120000;
+    }
+  } catch { /* ignore */ }
+  return baseMs;
+}
+
+function waitForBackendReady(port, timeoutMs = 90000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
@@ -723,7 +737,7 @@ async function launchBackend() {
     child.once("error", () => reject(new Error("后端进程未能启动")));
   });
   try {
-    await Promise.race([waitForBackendReady(backendPort, 30000), stoppedBeforeReady]);
+    await Promise.race([waitForBackendReady(backendPort, resolveBackendStartupTimeoutMs(dbPath)), stoppedBeforeReady]);
   } catch (e) {
     // 附带 spawn 错误信息一起抛给 UI 弹窗
     if (spawnErr) {

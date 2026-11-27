@@ -287,6 +287,9 @@ async function normalizeStagedFiles(input: {
   const normalizeManifest = async (ctx: MigrationSourceAdapterContext) => {
     let raw: unknown;
     try { raw = JSON.parse(ctx.readText("manifest.json", MIGRATION_LIMITS.manifestBytes)); } catch { return fail("MIGRATION_INVALID_MANIFEST"); }
+    if (raw && typeof raw === "object" && (raw as { format?: unknown }).format === "nowen-package") {
+      return fail("MIGRATION_NOWEN_PACKAGE_USE_DIRECT_IMPORT");
+    }
     const result = nmfManifestSchema.safeParse(raw);
     if (!result.success) return fail("MIGRATION_INVALID_MANIFEST");
     const manifest = result.data;

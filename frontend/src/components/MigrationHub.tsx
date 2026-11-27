@@ -29,6 +29,7 @@ interface Props {
   localOnly?: boolean;
   canConfigureLimits?: boolean;
   onLegacyImport: () => void;
+  onNowenPackageImport?: () => void;
   onImported: (job: MigrationJob) => void;
   onView: (job: MigrationJob) => Promise<void>;
 }
@@ -47,7 +48,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Everything else (where to put it, per-note choices, the AI assistant path, history) stays out of the way
  * until it is needed. The server-side migration jobs underneath are unchanged.
  */
-export default function MigrationHub({ workspaceId, disabled, localOnly = false, canConfigureLimits = false, onLegacyImport, onImported, onView }: Props) {
+export default function MigrationHub({ workspaceId, disabled, localOnly = false, canConfigureLimits = false, onLegacyImport, onNowenPackageImport, onImported, onView }: Props) {
   const { t } = useTranslation();
   const [view, setView] = useState<"files" | "assistant">("files");
   const [target, setTarget] = useState("");
@@ -165,9 +166,10 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
     const plan = planImport(files, t("migration.defaultName"), { maxUploadBytes });
     if (!plan.ok) {
       setProblem(
-        plan.reason === "folder-too-large" ? "folder-too-large"
-          : plan.reason === "too-large" || plan.reason === "too-many" ? "size"
-            : plan.reason === "unsupported" ? "unsupported-files" : "no-notes",
+        plan.reason === "nowen-package" ? "nowen-package"
+          : plan.reason === "folder-too-large" ? "folder-too-large"
+            : plan.reason === "too-large" || plan.reason === "too-many" ? "size"
+              : plan.reason === "unsupported" ? "unsupported-files" : "no-notes",
       );
       return;
     }
@@ -316,7 +318,8 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
     <div className="flex flex-wrap gap-2">
       {job?.status === "CREATED" && ["network", "changed", "unknown"].includes(problem) && <Button type="button" size="sm" disabled={busy || !available} onClick={() => resumeInput.current?.click()}>{t("migration.smart.resume")}</Button>}
       {job?.status === "PREVIEW_READY" && problem === "changed" && <Button type="button" size="sm" disabled={busy || !available} onClick={() => void run(() => migrationApi.preview(job.id))}>{t("migration.smart.recheck")}</Button>}
-      {["no-notes", "unsupported-files", "folder-too-large", "format", "encoding", "size"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>}
+      {problem === "nowen-package" && <Button type="button" size="sm" onClick={onNowenPackageImport ?? onLegacyImport}>{t("migration.smart.useNowenPackageImport")}</Button>}
+      {["no-notes", "unsupported-files", "folder-too-large", "nowen-package", "format", "encoding", "size"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>}
       {aiAvailable && ["unsupported-files", "format"].includes(problem) && <Button type="button" size="sm" variant="outline" onClick={openAssistant}>{t("migration.smart.useAssistant")}</Button>}
     </div>
   </div>;
@@ -482,6 +485,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       <div className="flex flex-wrap gap-2">
         {phase === "failed" && job.counts.failed > 0 && <Button type="button" disabled={busy || !available} onClick={() => void run(() => migrationApi.retry(job.id))}>{t("migration.smart.retryFailed")}</Button>}
         {job.rootNotebookId && job.counts.imported > 0 && phase !== "undone" && <Button type="button" variant="outline" onClick={() => openNotes(job)}>{t("migration.smart.viewNotes")}</Button>}
+        {phase === "failed" && job.error && importErrorKind(job.error) === "nowen-package" && <Button type="button" onClick={onNowenPackageImport ?? onLegacyImport}>{t("migration.smart.useNowenPackageImport")}</Button>}
         <Button type="button" variant="outline" onClick={reset}>{t("migration.smart.startOver")}</Button>
         {phase === "failed" && job.error && importErrorKind(job.error) === "format" && <Button type="button" variant="outline" onClick={openAssistant}>{t("migration.smart.useAssistant")}</Button>}
         {job.undo?.available && <Button type="button" variant="ghost" disabled={busy} onClick={() => undo(job)}>{t("migration.undo")}</Button>}

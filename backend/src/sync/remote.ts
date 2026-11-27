@@ -149,6 +149,22 @@ export type FetchLike = (
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const HEAVY_REQUEST_TIMEOUT_MS = 60_000;
+const SAFE_NETWORK_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,48}$/;
+
+/** 仅提取标准系统/undici 错误码（如 ECONNRESET / UND_ERR_SOCKET），绝不把 URL、主机名或原文写入诊断。 */
+function classifyNetworkErrorReason(error: unknown): string {
+  const err = error as { code?: unknown; cause?: { code?: unknown } } | null | undefined;
+  const candidate = typeof err?.cause?.code === "string"
+    ? err.cause.code
+    : typeof err?.code === "string"
+      ? err.code
+      : "";
+  const normalized = candidate.trim().toUpperCase();
+  if (normalized && SAFE_NETWORK_ERROR_CODE.test(normalized)) {
+    return normalized;
+  }
+  return "NETWORK_ERROR";
+}
 
 function joinUrl(serverUrl: string, route: string, query = ""): string {
   const base = serverUrl.replace(/\/+$/, "");
@@ -244,12 +260,12 @@ export class SyncRemoteClient {
         invalidJson = true;
       }
       controller.signal.throwIfAborted();
-    } catch {
+    } catch (error) {
       const reason = extSignal?.aborted
         ? "ENGINE_STOPPED"
         : timedOut
           ? "REQUEST_TIMEOUT"
-          : "NETWORK_ERROR";
+          : classifyNetworkErrorReason(error);
       throw new SyncError("NETWORK_UNAVAILABLE", "同步网络请求中断", {
         step: `http.${init.method.toLowerCase()}${route}`,
         reason,

@@ -582,7 +582,12 @@ function authorizedSnapshotPage(
   const rows:Array<{id:string;payload:Record<string,unknown>}> = [];
   let scannedThrough = afterId;
   let bytesUsed = 0;
-  const scanSize = Math.max(50,Math.min(200,limit * 2));
+  // note 实体可能包含大正文/内嵌表格，按小批次扫描，避免大库在客户端缩页后服务端仍一次性读 50 篇大文造成内存峰值或连接重置。
+  const scanSize = type === "note"
+    ? Math.max(1, Math.min(limit, 10))
+    : workspaceId === null
+      ? Math.max(1, Math.min(200, limit))
+      : Math.max(limit, Math.min(200, limit * 2));
   while (rows.length < limit) {
     const batch = snapshotPage(db,userId,workspaceId,type,scannedThrough,scanSize);
     if (batch.length === 0) return {rows,scannedThrough,exhausted:true,bytesUsed,byteLimitHit:false};

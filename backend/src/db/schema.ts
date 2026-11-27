@@ -157,26 +157,45 @@ export function getDb(): Database.Database {
     //   reclaimSpace() 的 incremental_vacuum 都是廉价的文件尾截断。
     // 失败不致命：失败时退回到历史"占用只增不减"的行为，不影响数据正确性。
     enableIncrementalAutoVacuum(db);
-    // 完整性快速自检：5~50ms 量级，能发现绝大多数 page-level 损坏。
-    // 损坏时直接抛错让进程拒绝启动——比"看似能跑、读到一半才报错"安全得多。
+    // 完整性快速自检：
+    // - 常规数据库（< 128MB）同步执行 PRAGMA quick_check（5~50ms 量级），发现 page-level 损坏立即拒启；
+    // - 超大库（>= 128MB，例如 GB 级知识库）全量扫描所有 B-Tree 页可能耗时数十秒并拖垮桌面冷启动，
+    //   默认改做 O(1) 的 sqlite_master 可读性检查（仍能拦住文件头/schema 损坏），需要强制全扫时设置 NOWEN_DB_FORCE_QUICK_CHECK=1。
+    const QUICK_CHECK_MAX_BYTES = 128 * 1024 * 1024;
+    let dbFileBytes = 0;
     try {
-      const r = db.prepare("PRAGMA quick_check").get() as { quick_check: string } | undefined;
-      const result = r?.quick_check;
-      if (result && result !== "ok") {
-        throw new Error(
-          `[db] SQLite quick_check failed: ${result}\n` +
-          `数据库文件可能已损坏：${DB_PATH}\n` +
-          `修复指引：\n` +
-          `  1) 立即停止服务，避免进一步写入；\n` +
-          `  2) 备份当前文件（含 -wal/-shm）到只读介质；\n` +
-          `  3) 优先使用 nowen-note 的备份恢复功能（POST /api/backups/<file>/restore?dryRun=1 预览）；\n` +
-          `  4) 若无可用备份，可尝试：\n` +
-          `       sqlite3 ${path.basename(DB_PATH)} ".recover" | sqlite3 recovered.db\n` +
-          `     再用 recovered.db 替换原文件。`
+      if (DB_PATH !== ":memory:" && fs.existsSync(DB_PATH)) {
+        dbFileBytes = fs.statSync(DB_PATH).size;
+      }
+    } catch { /* ignore */ }
+    const shouldRunFullQuickCheck =
+      process.env.NOWEN_DB_FORCE_QUICK_CHECK === "1" || dbFileBytes < QUICK_CHECK_MAX_BYTES;
+    try {
+      if (shouldRunFullQuickCheck) {
+        const r = db.prepare("PRAGMA quick_check").get() as { quick_check: string } | undefined;
+        const result = r?.quick_check;
+        if (result && result !== "ok") {
+          throw new Error(
+            `[db] SQLite quick_check failed: ${result}\n` +
+            `数据库文件可能已损坏：${DB_PATH}\n` +
+            `修复指引：\n` +
+            `  1) 立即停止服务，避免进一步写入；\n` +
+            `  2) 备份当前文件（含 -wal/-shm）到只读介质；\n` +
+            `  3) 优先使用 nowen-note 的备份恢复功能（POST /api/backups/<file>/restore?dryRun=1 预览）；\n` +
+            `  4) 若无可用备份，可尝试：\n` +
+            `       sqlite3 ${path.basename(DB_PATH)} ".recover" | sqlite3 recovered.db\n` +
+            `     再用 recovered.db 替换原文件。`
+          );
+        }
+      } else {
+        db.prepare("SELECT COUNT(*) AS c FROM sqlite_master").get();
+        console.log(
+          `[db] Skip full PRAGMA quick_check on large DB (${Math.round(dbFileBytes / 1024 / 1024)}MB); ` +
+          `set NOWEN_DB_FORCE_QUICK_CHECK=1 to enforce`
         );
       }
     } catch (e) {
-      // quick_check 自身抛错（极端损坏）也让启动失败。
+      // quick_check / schema 探活抛错（极端损坏）也让启动失败。
       if (e instanceof Error && e.message.startsWith("[db]")) throw e;
       throw new Error(
         `[db] SQLite quick_check 执行异常: ${e instanceof Error ? e.message : String(e)}\n` +

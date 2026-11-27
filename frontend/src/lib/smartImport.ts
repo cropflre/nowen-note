@@ -29,6 +29,7 @@ export const IMPORT_ACCEPT = [".zip", ...NOTE_EXTENSIONS, ...ASSET_EXTENSIONS].j
 
 const extension = (name: string) => { const dot = name.lastIndexOf("."); return dot > 0 ? name.slice(dot).toLowerCase() : ""; };
 const baseName = (name: string) => name.replace(/\.[^./]+$/, "");
+export const isNowenPackageFile = (name: string) => /\.nowen\.zip$/i.test(name);
 export const isZipFile = (name: string) => extension(name) === ".zip";
 export const isNoteFile = (name: string) => NOTE_EXTENSIONS.includes(extension(name));
 export const isAssetFile = (name: string) => ASSET_EXTENSIONS.includes(extension(name));
@@ -46,7 +47,7 @@ export type PlannedUpload =
 
 export type ImportPlan =
   | { ok: true; name: string; uploads: PlannedUpload[]; unsupported: string[] }
-  | { ok: false; reason: "empty" | "no-notes" | "unsupported" | "too-large" | "folder-too-large" | "too-many"; unsupported: string[] };
+  | { ok: false; reason: "empty" | "no-notes" | "unsupported" | "too-large" | "folder-too-large" | "too-many" | "nowen-package"; unsupported: string[] };
 
 /**
  * ZIP files go up as they are. Loose notes are packaged together with the files beside them, so links and images
@@ -56,6 +57,9 @@ export function planImport(files: ImportFile[], fallbackName: string, options?: 
   const maxUploadBytes = options?.maxUploadBytes && options.maxUploadBytes > 0 ? options.maxUploadBytes : IMPORT_LIMITS.uploadBytes;
   const visible = files.filter((entry) => !isIgnoredImportPath(entry.path));
   const zips = visible.filter((entry) => isZipFile(entry.file.name));
+  if (zips.some((entry) => isNowenPackageFile(entry.file.name))) {
+    return { ok: false, reason: "nowen-package", unsupported: [] };
+  }
   const notes = visible.filter((entry) => isNoteFile(entry.file.name));
   const assets = visible.filter((entry) => isAssetFile(entry.file.name));
   const unsupported = visible.filter((entry) => !zips.includes(entry) && !notes.includes(entry) && !assets.includes(entry)).map((entry) => entry.path);
@@ -141,9 +145,10 @@ export function importPhase(job: MigrationJob | null, preparing: boolean): Impor
   }
 }
 
-export type ImportErrorKind = "format" | "encoding" | "size" | "storage" | "busy" | "changed" | "permission" | "network" | "account" | "unknown";
+export type ImportErrorKind = "format" | "nowen-package" | "encoding" | "size" | "storage" | "busy" | "changed" | "permission" | "network" | "account" | "unknown";
 
 const ERROR_KINDS: Array<[ImportErrorKind, RegExp]> = [
+  ["nowen-package", /^MIGRATION_NOWEN_PACKAGE_USE_DIRECT_IMPORT$/],
   ["encoding", /^MIGRATION_INVALID_UTF8$/],
   ["size", /^MIGRATION_(?:UPLOAD_TOO_LARGE|ARCHIVE_LIMIT|CONTENT_TOO_LARGE|NOTE_COUNT_LIMIT|REQUEST_TOO_LARGE|STAGING_QUOTA|ITEM_LIMIT|BATCH_LIMIT|CHUNK_TOO_LARGE|SIYUAN_\w*(?:LIMIT|TOO_LARGE))$/],
   ["storage", /^MIGRATION_STORAGE_(?:FULL|CAPACITY|UNAVAILABLE)$/],
