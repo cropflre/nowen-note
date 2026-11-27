@@ -4,7 +4,7 @@ import { BrainCircuit, FileText, Folder, Grid2X2, Lock, RotateCcw, Search, Trash
 import { useApp, useAppActions } from "@/store/AppContext";
 import { getCurrentWorkspace } from "@/lib/api";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
-import { parseServerTime } from "@/lib/dateTime";
+import { formatAppDateTime, parseServerTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { confirm } from "@/components/ui/confirm";
 import { useTrash } from "./useTrash";
@@ -93,7 +93,7 @@ function TrashCenter({ workspaceId, refreshToken }: { workspaceId: string; refre
             <Icon size={20} className="shrink-0 text-tx-secondary" />
             <div className="min-w-0 flex-1 basis-40"><p className="flex min-w-0 items-center gap-1.5"><span className="truncate font-medium" title={item.title}>{item.title}</span>{item.isLocked && <Lock size={13} className="shrink-0" aria-label={t("trashCenter.locked")} />}</p>
               <p className="truncate text-xs leading-6 text-tx-secondary" title={item.originalPath.join(" / ")}>{item.resourceType === "note" && item.contentFormat === "markdown" ? "Markdown" : t(`trashCenter.${item.resourceType}`)} · {t("trashCenter.originalPath")}：{item.originalPathHidden ? t("trashCenter.hiddenPath") : item.originalPath.join(" / ") || t("trashCenter.root")}</p>
-              <p className="text-xs text-tx-tertiary">{t("trashCenter.deletedAt", { date: date ? date.toLocaleString(i18n.language) : t("trashCenter.unknownDate") })}</p>
+              <p className="text-xs text-tx-tertiary">{t("trashCenter.deletedAt", { date: date ? formatAppDateTime(date, undefined, undefined, i18n.language) : t("trashCenter.unknownDate") })}</p>
               {failure && <p role="alert" className="mt-1 text-xs text-accent-danger">{failure.error}</p>}
             </div>
             <div className="ml-auto flex flex-wrap gap-2">

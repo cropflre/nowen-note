@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, Loader2, AlertCircle, AlertTriangle, HardDrive, RefreshCw, Save, ShieldAlert, Lock, Eye, EyeOff, X, Mail, Send, Settings as SettingsIcon, ChevronDown, ChevronRight, BookOpen, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, withSudo, getServerUrl } from "@/lib/api";
+import { formatAppDateTime, getEffectiveTimeZone } from "@/lib/dateTime";
 import { isDesktop } from "@/lib/desktopBridge";
 import { isElectronFullLocalRuntime } from "@/lib/uploadRequest";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
@@ -78,7 +79,7 @@ export default function BackupCenter({ migration, advanced }: { migration: React
   // 调度模式：interval=按间隔小时；daily=每天 HH:mm。默认 interval（兼容旧行为）。
   const [autoMode, setAutoMode] = useState<"interval" | "daily">("interval");
   const [autoDailyAt, setAutoDailyAt] = useState("03:00");
-  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const browserTimeZone = getEffectiveTimeZone();
   const [autoTimeZone, setAutoTimeZone] = useState(browserTimeZone);
   // 自动备份保留数量，默认 15，范围 1~100。
   const [autoKeepCount, setAutoKeepCount] = useState(15);
@@ -1013,7 +1014,7 @@ function BackupRestoreDialog(props: {
             {t("dataManager.backup.restoreTitle")}
           </h3>
           <span className="ml-auto text-[11px] font-mono text-zinc-500 truncate max-w-[260px]" title={target.filename}>
-            {new Date(target.createdAt).toLocaleString()}
+            {formatAppDateTime(target.createdAt)}
           </span>
         </div>
 
@@ -1588,7 +1589,7 @@ function BackupSendEmailDialog(props: {
             <div className="text-xs text-zinc-600 dark:text-zinc-400 p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 space-y-0.5">
               <div className="font-mono truncate" title={target.filename}>{target.filename}</div>
               <div className="opacity-70">
-                {target.type} · {fmtBytes(target.size)} · {new Date(target.createdAt).toLocaleString()}
+                {target.type} · {fmtBytes(target.size)} · {formatAppDateTime(target.createdAt)}
               </div>
             </div>
 
@@ -2052,7 +2053,7 @@ function SmtpConfigSection(props: {
           )}
           {updatedAt && (
             <span className="text-[11px] text-zinc-400">
-              {new Date(updatedAt).toLocaleString()}
+              {formatAppDateTime(updatedAt)}
             </span>
           )}
         </span>

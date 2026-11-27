@@ -1,5 +1,6 @@
 import AiGeneratedNotice from "@/components/aiCollaboration/AiGeneratedNotice";
 import { aiClipboardText } from "@/lib/aiContentProvenance";
+import { formatAppDate, formatAppDateTime, formatAppTime, formatDateKeyInTimeZone } from "@/lib/dateTime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -94,14 +95,17 @@ const deriveTitleFromQuestion = (question: string) => question.trim().replace(/\
 
 function formatMessageTime(value?: string): string {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatAppDateTime(
+    value,
+    {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+    "",
+    [],
+  );
 }
 
 function formatConversationTime(value?: string): string {
@@ -109,10 +113,10 @@ function formatConversationTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (formatDateKeyInTimeZone(date) === formatDateKeyInTimeZone(now)) {
+    return formatAppTime(date, { hour: "2-digit", minute: "2-digit" }, "", []);
   }
-  return date.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
+  return formatAppDate(date, { month: "2-digit", day: "2-digit" }, "", []);
 }
 
 function mapHistoryMessage(message: {

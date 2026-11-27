@@ -5,6 +5,7 @@ import {
   KeyRound, FileText, Trash2, ExternalLink, RefreshCw, XCircle, RotateCcw
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatAppDate } from "@/lib/dateTime";
 import {
   type MiCloudImportJob,
   type MiCloudImportResult,
@@ -232,11 +233,16 @@ export default function MiCloudImport() {
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return "";
-    return new Date(timestamp).toLocaleDateString(i18n.resolvedLanguage || i18n.language, {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    return formatAppDate(
+      timestamp,
+      {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      },
+      "",
+      i18n.resolvedLanguage || i18n.language,
+    );
   };
 
   const progressCard = importJob ? (

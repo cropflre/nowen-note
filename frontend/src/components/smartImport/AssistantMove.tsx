@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import McpConnectionPanel from "@/components/settings/McpConnectionPanel";
 import { api } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { MIGRATION_CLIENTS, type MigrationClientId } from "@/lib/migrationClientSetup";
 import type { MigrationJob } from "@/lib/migrations";
 import { assistantConnection } from "@/lib/smartImport";
@@ -43,7 +44,7 @@ export default function AssistantMove({ jobs, notebooks, disabled, onOpenJob, on
       <Bot size={20} className="mt-0.5 shrink-0 text-tx-secondary" aria-hidden="true" />
       <div className="min-w-0 space-y-1">
         <h5 className="text-sm font-semibold text-tx-primary">{t(connection ? "migration.smart.assistant.connected" : "migration.smart.assistant.title")}</h5>
-        {connection && <p className="text-xs text-tx-secondary">{t("migration.smart.assistant.lastUsed", { time: new Date(connection.lastUsedAt).toLocaleString() })}</p>}
+        {connection && <p className="text-xs text-tx-secondary">{t("migration.smart.assistant.lastUsed", { time: formatAppDateTime(connection.lastUsedAt) })}</p>}
         <p className="text-sm leading-6 text-tx-secondary">{t("migration.smart.assistant.intro")}</p>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { api, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
@@ -127,7 +128,7 @@ export default function CommentManagementCenter({ onOpenComment }: { onOpenComme
         {!loading && !error && !data.items.length && <p className="py-8 text-center text-sm text-tx-tertiary">{t("commentCenter.empty")}</p>}
         {data.items.map((item) => <article key={item.id} className="space-y-2 rounded-xl border border-app-border p-3">
           <h3 className="break-words text-sm font-medium">{item.noteTitle}</h3>
-          <p className="text-xs text-tx-tertiary">{item.displayName || item.username || t("issues.unknown")} · {new Date(item.createdAt).toLocaleString()}{item.isGuest ? ` · ${t("commentCenter.guest")}` : ""}{item.parentId ? ` · ${t("issues.reply")}` : ""}</p>
+          <p className="text-xs text-tx-tertiary">{item.displayName || item.username || t("issues.unknown")} · {formatAppDateTime(item.createdAt)}{item.isGuest ? ` · ${t("commentCenter.guest")}` : ""}{item.parentId ? ` · ${t("issues.reply")}` : ""}</p>
           <p className="whitespace-pre-wrap break-words text-sm">{item.content}</p>
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-auto text-xs text-tx-secondary">{t(item.isResolved ? "commentCenter.resolved" : "commentCenter.unresolved")}</span>

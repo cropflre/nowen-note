@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { getEffectiveTimeZone } from "@/lib/dateTime";
+import { useAppTimeZone } from "@/hooks/useAppTimeZone";
 import { toast } from "@/lib/toast";
 import type { Task } from "@/types";
 import {
@@ -205,9 +207,10 @@ export function TaskTimePlanner({ onTaskMutated, initiallyExpanded = false, stan
   );
   const occupied = useMemo(() => occupiedMinutes(blocks), [blocks]);
   const capacityPercent = Math.min(100, Math.round((totalMinutes / DAY_CAPACITY_MINUTES) * 100));
+  const configuredTimeZone = useAppTimeZone();
   const timeZone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    [],
+    () => getEffectiveTimeZone(),
+    [configuredTimeZone],
   );
 
   const chooseTask = (taskId: string) => {

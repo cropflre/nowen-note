@@ -3,6 +3,7 @@ import { Calendar, Copy, RefreshCw, Trash2, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api, getBaseUrl } from "@/lib/api";
+import { formatAppDate } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 
 interface CalendarFeed {
@@ -250,7 +251,7 @@ export function TaskCalendarFeedSettings() {
               </span>
               {feed.lastAccessedAt && (
                 <span className="text-tx-tertiary ml-auto">
-                  {t("tasks.calendarFeed.lastAccess")}: {new Date(feed.lastAccessedAt).toLocaleDateString()}
+                  {t("tasks.calendarFeed.lastAccess")}: {formatAppDate(feed.lastAccessedAt)}
                 </span>
               )}
             </div>

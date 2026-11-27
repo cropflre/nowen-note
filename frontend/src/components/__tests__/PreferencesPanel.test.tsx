@@ -329,7 +329,7 @@ describe("界面与布局", () => {
     useMobileLayout(false);
     render();
     openCategory("layout");
-    for (const id of ["showTemplateManagement", "noteTitleAsAppTitle", "showNoteListDividers", "desktopKnowledgeTreeMode"]) expect(row(id), id).not.toBeNull();
+    for (const id of ["showTemplateManagement", "noteTitleAsAppTitle", "showNoteListDividers", "timeZone", "desktopKnowledgeTreeMode"]) expect(row(id), id).not.toBeNull();
     for (const id of ["mobileRailHidden", "mobileKnowledgeTreeMode", "mobileKnowledgeTreeCompact", "desktopHideMenuBar"]) expect(row(id), id).toBeNull();
     expect(host.textContent).toContain("此设备 · 桌面布局");
     expect(query('[data-preference-scope="device"]')?.textContent).toBe("仅本设备");
@@ -338,6 +338,21 @@ describe("界面与布局", () => {
     expect(localStorage.getItem("nowen.desktopKnowledgeTree.viewMode.v1")).toBe("quick");
     click(switchOf("showNoteListDividers"));
     expect(store.setPref).toHaveBeenLastCalledWith("showNoteListDividers", true);
+
+    const timeZoneSelect = query<HTMLSelectElement>('[data-preference-id="timeZone"] select')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(timeZoneSelect, "Asia/Tokyo");
+      timeZoneSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(store.setPref).toHaveBeenLastCalledWith("timeZone", "Asia/Tokyo");
+
+    click(query("[data-preferences-back]"));
+    search("时区");
+    expect(resultTitles()).toEqual(["应用时区"]);
+    key(query<HTMLInputElement>("[data-preferences-search]"), "Enter");
+    expect(page()).toBe("layout");
+    expect(row("timeZone")?.hasAttribute("data-settings-highlight")).toBe(true);
+    expect(document.activeElement).toBe(query('[data-preference-id="timeZone"] select'));
 
     click(query("[data-preferences-back]"));
     search("快捷栏");

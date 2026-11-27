@@ -1,3 +1,4 @@
+import { getEffectiveTimeZone, getEffectiveTzOffsetForApi } from "./dateTime";
 import { readAiProvenance } from "./aiContentProvenance";
 import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
 import { getOfflineQueueStorageKey } from "./offlineScope";
@@ -1952,7 +1953,7 @@ export const api = {
   getTasks: (filter?: TaskFilter, noteId?: string, projectId?: string, assigneeId?: string) => {
     const params = new URLSearchParams();
     if (filter && filter !== "all") params.set("filter", filter);
-    params.set("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+    params.set("timezone", getEffectiveTimeZone());
     if (noteId) params.set("noteId", noteId);
     if (projectId) params.set("projectId", projectId);
     if (assigneeId) params.set("assigneeId", assigneeId);
@@ -2097,7 +2098,7 @@ export const api = {
   getTaskStats: () => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
-    const timezone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const timezone = encodeURIComponent(getEffectiveTimeZone());
     return request<TaskStats>(`/tasks/stats/summary${qs}${qs ? "&" : "?"}timezone=${timezone}`);
   },
 
@@ -3372,7 +3373,7 @@ export const api = {
       if (typeof options.offset === "number") params.set("offset", String(options.offset));
       if (typeof options.limit === "number") params.set("limit", String(options.limit));
       params.set("tzOffsetMinutes", String(
-        options.tzOffsetMinutes ?? (typeof Date !== "undefined" ? -new Date().getTimezoneOffset() : 0),
+        options.tzOffsetMinutes ?? getEffectiveTzOffsetForApi(),
       ));
       const qs = params.toString();
       return request<{

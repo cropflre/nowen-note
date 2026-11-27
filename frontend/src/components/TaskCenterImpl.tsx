@@ -17,6 +17,7 @@ import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
 import { cn } from "@/lib/utils";
 import { isTaskBlockedByDependency } from "./tasks/taskDependencyUtils";
+import { formatAppTime } from "@/lib/dateTime";
 import {
   TASK_CENTER_MAIN_CLASS,
   TASK_CENTER_ROOT_CLASS,
@@ -1694,7 +1695,7 @@ export default function TaskCenter() {
                               : <Square size={16} className="text-tx-tertiary" />}
                           </button>
                         )}
-                        {filter === "completed-today" && <div className="px-3 pt-2 text-xs text-tx-tertiary">{task.parentTitle ? `${task.parentTitle} · ` : ""}{task.completedAt ? new Date(task.completedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : ""}</div>}
+                        {filter === "completed-today" && <div className="px-3 pt-2 text-xs text-tx-tertiary">{task.parentTitle ? `${task.parentTitle} · ` : ""}{task.completedAt ? formatAppTime(task.completedAt, {hour:"2-digit",minute:"2-digit"}, "", []) : ""}</div>}
                         <FlatTaskRow
                           task={task}
                           onToggle={handleToggle}

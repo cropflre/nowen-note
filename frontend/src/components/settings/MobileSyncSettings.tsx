@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { connectSyncServer, disableSync, fetchSyncDiagnostics, fetchSyncSettings, triggerSyncNow, type SyncDiagnostics, type SyncSettingsResponse } from "@/lib/syncLocalApi";
 import { getServerUrl } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 import { OfflineAvailability } from "./OfflineAvailability";
 
@@ -77,7 +78,7 @@ export default function MobileSyncSettings() {
       <p className="text-sm text-tx-secondary">{diagnostics?.lastError ? t("mobileSync.waitingRecovery") : diagnostics ? t("mobileSync.enabled") : t("mobileSync.loadingStatus")}</p>
         <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingChanges", { pending: diagnostics?.pendingMutations ?? "—" })}</p>
         <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingAttachments", { pending: diagnostics?.pendingAttachments ?? "—" })}</p>
-        <p className="text-xs text-tx-tertiary">{t("mobileSync.lastSync", { time: diagnostics?.lastSyncAt ? new Date(diagnostics.lastSyncAt).toLocaleString(i18n.language) : t("mobileSync.neverSynced") })}</p>
+        <p className="text-xs text-tx-tertiary">{t("mobileSync.lastSync", { time: diagnostics?.lastSyncAt ? formatAppDateTime(diagnostics.lastSyncAt, undefined, undefined, i18n.language) : t("mobileSync.neverSynced") })}</p>
         <button type="button" disabled={busy} className="rounded-md border border-app-border px-3 py-2 text-sm disabled:opacity-50" onClick={async () => {
           setBusy(true);
           try { await triggerSyncNow(); await reload(); }

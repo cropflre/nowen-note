@@ -1,4 +1,5 @@
 import { AI_CONTENT_LABEL, readNoteAiProvenance, type AiProvenance } from "@/lib/aiContentProvenance";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { addAiImageMetadata, aiXmpMetadata, readHtmlAiProvenance } from "@/lib/aiExportMetadata";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -512,8 +513,8 @@ async function prepareHost(
     const meta = document.createElement("div");
     meta.className = "nowen-note-image-export-meta";
     const parts: string[] = [];
-    if (note.createdAt) parts.push(`创建：${new Date(note.createdAt).toLocaleString()}`);
-    if (note.updatedAt) parts.push(`更新：${new Date(note.updatedAt).toLocaleString()}`);
+    if (note.createdAt) parts.push(`创建：${formatAppDateTime(note.createdAt)}`);
+    if (note.updatedAt) parts.push(`更新：${formatAppDateTime(note.updatedAt)}`);
     meta.textContent = parts.join("  ·  ");
     article.appendChild(meta);
   }

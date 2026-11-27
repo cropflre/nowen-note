@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AppWindow, Bot, Globe, PanelLeft, PenLine, Search, Settings2, ShieldCheck, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -7,6 +7,7 @@ import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode
 import { isMobileSyncEnabled } from "@/lib/mobileSyncStatus";
 import { useAIConnectionAvailable } from "@/lib/aiConnection";
 import { NAVIGATION_MODULE_IDS, TASK_CENTER_OPTIONAL_MODULE_IDS } from "@/lib/navigationVisibility";
+import { formatTimeZonePreview, getTimeZoneSelectOptions } from "@/lib/timeZones";
 import { NavigationModulesGroup, TaskCenterModulesGroup } from "./NavigationModuleSettings";
 import {
   navigationModuleAnchor,
@@ -35,11 +36,18 @@ import {
 import { revealSettingsTarget } from "./revealSettingsTarget";
 import { useDesktopMenuBarPreference, useDeviceLayoutPreferences, useLayoutSurface } from "./useDeviceLayoutPreferences";
 
+export interface PreferencesPanelNavigationRequest {
+  page: PreferencesPage;
+  reveal?: string;
+  nonce: number;
+}
+
 export interface PreferencesPanelProps {
   isAdmin: boolean;
   /** Labels of the settings tabs that now hold options moved out of this page. */
   relatedTabLabels: Record<RelatedSettingsTab, string>;
   onOpenRelatedSetting: (tab: RelatedSettingsTab, section: string) => void;
+  initialRequest?: PreferencesPanelNavigationRequest | null;
 }
 
 function useItemCopy() {
@@ -96,6 +104,11 @@ function useItemCopy() {
       t("preferences.items.showNoteListDividers.description"),
       t("preferences.items.showNoteListDividers.keywords"),
     ),
+    timeZone: item(
+      t("preferences.items.timeZone.title"),
+      t("preferences.items.timeZone.description"),
+      t("preferences.items.timeZone.keywords"),
+    ),
     mobileLiteMode: item(
       t("preferences.items.mobileLiteMode.title"),
       t("preferences.items.mobileLiteMode.description"),
@@ -146,8 +159,9 @@ function useItemCopy() {
 
 type Transition = { reveal?: string; focus?: string };
 
-export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRelatedSetting }: PreferencesPanelProps) {
-  const { t } = useTranslation();
+export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRelatedSetting, initialRequest }: PreferencesPanelProps) {
+  const { t, i18n } = useTranslation();
+  const activeLocale = i18n?.resolvedLanguage || i18n?.language || "zh-CN";
   const { prefs, setPref } = useUserPreferences();
   const copy = useItemCopy();
   const surface = useLayoutSurface();
@@ -168,14 +182,19 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
   const showWebUi = isAdmin;
   const showAdvanced = showJournalPrivacy || showAIMemory || showWebUi;
 
-  const [page, setPage] = useState<PreferencesPage>("home");
+  const [page, setPage] = useState<PreferencesPage>(() => initialRequest?.page ?? "home");
+  const pageRef = useRef<PreferencesPage>(page);
+  pageRef.current = page;
+  const handledInitialNonce = useRef<number | null>(initialRequest?.nonce ?? null);
   const [query, setQuery] = useState("");
   const [editingMoreOpen, setEditingMoreOpen] = useState(false);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const transition = useRef<Transition | null>(null);
+  const transition = useRef<Transition | null>(
+    initialRequest?.reveal ? { reveal: initialRequest.reveal } : null,
+  );
   const returnFocus = useRef<string | null>(null);
   const resultsId = useId();
 
@@ -204,6 +223,16 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
     { value: "long", label: t("settings.codeBlockCollapseMode_long") },
     { value: "collapsed", label: t("settings.codeBlockCollapseMode_collapsed") },
   ];
+  const timeZoneOptions = useMemo(
+    () =>
+      getTimeZoneSelectOptions({
+        language: activeLocale,
+        currentValue: prefs.timeZone,
+        autoLabelPrefix: t("preferences.items.timeZone.autoLabel"),
+      }),
+    [activeLocale, prefs.timeZone, t],
+  );
+  const timeZonePreview = formatTimeZonePreview(prefs.timeZone, activeLocale);
 
   const navigate = (next: PreferencesPage, options: { reveal?: string; disclosure?: PreferenceDisclosure; from?: string } = {}) => {
     if (options.disclosure === "editingMore") setEditingMoreOpen(true);
@@ -212,6 +241,19 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
     transition.current = { reveal: options.reveal };
     setPage(next);
   };
+
+  useEffect(() => {
+    if (!initialRequest || handledInitialNonce.current === initialRequest.nonce) return;
+    handledInitialNonce.current = initialRequest.nonce;
+    setQuery("");
+    if (initialRequest.page === pageRef.current) {
+      if (initialRequest.reveal && rootRef.current) {
+        return revealSettingsTarget(rootRef.current, `[data-preference-id="${initialRequest.reveal}"]`, { focus: true });
+      }
+      return;
+    }
+    navigate(initialRequest.page, { reveal: initialRequest.reveal });
+  }, [initialRequest]);
 
   const goHome = () => {
     transition.current = { focus: returnFocus.current ?? undefined };
@@ -295,6 +337,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
       { id: "showTemplateManagement", ...copy.showTemplateManagement, path: generalPath, scope: accountScope, target: onPage("layout") },
       { id: "noteTitleAsAppTitle", ...copy.noteTitleAsAppTitle, path: generalPath, scope: accountScope, target: onPage("layout") },
       { id: "showNoteListDividers", ...copy.showNoteListDividers, path: generalPath, scope: accountScope, target: onPage("layout") },
+      { id: "timeZone", ...copy.timeZone, path: generalPath, scope: accountScope, target: onPage("layout") },
       ...deviceEntries,
       ...(menuBar.supported
         ? [{ id: "desktopHideMenuBar", ...copy.desktopHideMenuBar, path: devicePath, scope: "device" as const, target: onPage("layout") }]
@@ -602,6 +645,18 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
           description={copy.showNoteListDividers.description}
           checked={prefs.showNoteListDividers}
           onChange={(checked) => setPref("showNoteListDividers", checked)}
+        />
+        <SelectRow
+          anchorId="timeZone"
+          title={copy.timeZone.title}
+          description={`${copy.timeZone.description} ${t("preferences.items.timeZone.currentPreview", {
+            time: timeZonePreview.formattedTime,
+            zone: timeZonePreview.effectiveTimeZone,
+            offset: timeZonePreview.offsetLabel,
+          })}`}
+          value={prefs.timeZone}
+          options={timeZoneOptions}
+          onChange={(value) => setPref("timeZone", value)}
         />
       </PreferenceGroup>
       <PreferenceGroup title={deviceSectionTitle} scope="device">

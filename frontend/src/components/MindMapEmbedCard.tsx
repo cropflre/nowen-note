@@ -11,6 +11,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import type { MindMap } from "@/types";
 import {
   buildMindMapSnapshot,
@@ -307,7 +308,7 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
             {cacheState.source === "cache" && (
               <span
                 className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600"
-                title={cacheState.cachedAt ? `缓存于 ${new Date(cacheState.cachedAt).toLocaleString()}` : "离线缓存"}
+                title={cacheState.cachedAt ? `缓存于 ${formatAppDateTime(cacheState.cachedAt)}` : "离线缓存"}
               >
                 离线快照
               </span>

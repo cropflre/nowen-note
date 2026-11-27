@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { BrainCircuit, Folder, Loader2, Plus, Search, Star, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatAppDate } from "@/lib/dateTime";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import { buildMindMapOverviewItems, getMindMapCreationLocations, type MindMapOverviewFilter } from "@/lib/mindMapOverview";
 import { loadMobileKnowledgeTreeRecentEntries } from "@/lib/mobileKnowledgeTree";
@@ -90,7 +91,7 @@ export default function MindMapOverview({
                     <span className="block truncate text-sm font-medium">{map.title}</span>
                     <span className="mt-1 flex items-center gap-1 truncate text-xs text-tx-tertiary"><Folder size={12} className="shrink-0" />{path}</span>
                   </span>
-                  <span className="hidden shrink-0 text-xs text-tx-tertiary sm:inline">{new Date(map.updatedAt).toLocaleDateString()}</span>
+                  <span className="hidden shrink-0 text-xs text-tx-tertiary sm:inline">{formatAppDate(map.updatedAt)}</span>
                 </button>
                 <button type="button" onClick={() => onToggleStar(map.id)} aria-label={map.starred ? (isZh ? "取消收藏" : "Remove favorite") : (isZh ? "收藏" : "Favorite")} className="rounded-md p-2 text-tx-tertiary hover:bg-app-hover hover:text-amber-500"><Star size={16} className={map.starred ? "fill-amber-400 text-amber-400" : ""} /></button>
                 <button type="button" onClick={() => { if (window.confirm(isZh ? `将“${map.title}”移入回收站？` : `Move “${map.title}” to Trash?`)) onDelete(map.id); }} aria-label={isZh ? "删除脑图" : "Delete mind map"} className="rounded-md p-2 text-tx-tertiary hover:bg-app-hover hover:text-accent-danger"><Trash2 size={16} /></button>

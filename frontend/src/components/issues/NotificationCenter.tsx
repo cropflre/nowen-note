@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { openCommentCenter } from "@/lib/noteCommentNavigation";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
@@ -155,7 +156,7 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
         {visibleItems.length === 0 && !error && <p className="py-8 text-center text-sm text-tx-tertiary">{t("notificationCenter.empty")}</p>}
         {visibleItems.map((notification) => <button key={notification.id} className={`w-full rounded-lg border border-app-border p-3 text-left hover:bg-app-hover ${notification.readAt ? "text-tx-secondary" : "bg-accent-primary/5"}`} disabled={loading} onClick={() => openNotification(notification)}>
           <p className="flex items-center gap-1.5 text-xs text-tx-tertiary">
-            <span>{notification.workspaceName || t("commentCenter.personal")} · {new Date(notification.createdAt).toLocaleString()}</span>
+            <span>{notification.workspaceName || t("commentCenter.personal")} · {formatAppDateTime(notification.createdAt)}</span>
             {(notification.type === "issue_mentioned" || notification.type === "note_comment_mentioned") && (
               <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">@提及你</span>
             )}

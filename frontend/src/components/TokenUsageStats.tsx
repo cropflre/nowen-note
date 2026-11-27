@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { formatAppDate } from "@/lib/dateTime";
 
 // 与后端 GET /api/tokens/usage 返回结构一致
 interface UsageData {
@@ -47,8 +48,7 @@ type RangeDays = (typeof RANGE_OPTIONS)[number];
  * 采用 toLocaleDateString 自动适配 i18n 语言。
  */
 function formatDayShort(iso: string): string {
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  return formatAppDate(`${iso}T12:00:00Z`, { month: "numeric", day: "numeric", timeZone: "UTC" }, iso);
 }
 
 /** 数字千分位 + 极大值简写：1234 → 1,234；12345 → 12.3k */

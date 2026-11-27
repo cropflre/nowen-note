@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { getHotUpdateController, useHotUpdateSnapshot } from "@/lib/hotUpdate";
 import { SwitchRow } from "./preferences/PreferenceControls";
 
@@ -15,7 +16,7 @@ export default function HotUpdateStatusCard() {
 
   const busy = checking || snapshot.phase === "checking" || snapshot.phase === "downloading";
   const runningLabel = snapshot.currentBundleId ? "热更新" : "安装包自带";
-  const lastCheck = snapshot.lastCheckAt ? new Date(snapshot.lastCheckAt).toLocaleString() : "尚未检查";
+  const lastCheck = snapshot.lastCheckAt ? formatAppDateTime(snapshot.lastCheckAt) : "尚未检查";
 
   const check = () => {
     setChecking(true);

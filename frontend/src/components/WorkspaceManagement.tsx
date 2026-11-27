@@ -14,6 +14,7 @@
  *   - 后端 requireWorkspaceRole 已对系统管理员旁路，故 PUT/DELETE 直接调用现有接口。
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2,
@@ -242,7 +243,7 @@ export default function WorkspaceManagement() {
                         </span>
                         <span className="truncate">
                           {t("workspaceManagement.colCreatedAt")}: {" "}
-                          {w.createdAt ? new Date(w.createdAt).toLocaleString() : "—"}
+                          {w.createdAt ? formatAppDateTime(w.createdAt) : "—"}
                         </span>
                       </div>
                     </div>

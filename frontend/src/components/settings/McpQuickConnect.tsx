@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatAppDate } from "@/lib/dateTime";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Copy, Eye, Loader2, PlugZap } from "lucide-react";
 import type { EmbeddedMcpStatus } from "@/lib/api";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
@@ -248,7 +249,7 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
           {!verified && <button type="button" disabled={Boolean(busy)} onClick={() => void run(signal => checkConnection(connection, signal))} className={control}>{t("mcpConnect.retry")}</button>}
           <button type="button" disabled={Boolean(busy)} onClick={() => void disconnect(connection.id)} className={control}>{t("mcpConnect.disconnect")}</button>
         </div>
-        <p className="text-xs text-[var(--color-text-secondary)]">{t("mcpConnect.secretNotice")}{connection.expiresAt ? t("mcpConnect.expiresOn", { date: new Date(connection.expiresAt).toLocaleDateString() }) : t("mcpConnect.permanent")}</p>
+        <p className="text-xs text-[var(--color-text-secondary)]">{t("mcpConnect.secretNotice")}{connection.expiresAt ? t("mcpConnect.expiresOn", { date: formatAppDate(connection.expiresAt) }) : t("mcpConnect.permanent")}</p>
       </div>}
       {error && <p role="alert" className="mt-3 text-sm text-[var(--color-accent-danger)]">{error}</p>}
       {saved.some(value => value.id !== connection?.id) && <div className="mt-5 border-t border-[var(--color-border)] pt-3">

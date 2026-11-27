@@ -41,11 +41,13 @@ import DiaryAttachmentList, { type DiaryAttachmentViewItem } from "@/components/
 import { loadAttachmentUploadPolicy, validateAttachmentSize } from "@/lib/attachmentUploadPolicy";
 import { useApp } from "@/store/AppContext";
 import {
+  formatDateKeyInTimeZone,
   localDateRangeToUtcSqlBounds,
   localDateTimeInputToUtcIso,
   parseServerTime,
   utcSqlToLocalDateTimeInput,
 } from "@/lib/dateTime";
+import { relativeLocalDateKey } from "@/lib/dailyRecords";
 
 // 心情选项
 const MOODS = [
@@ -2143,34 +2145,22 @@ interface DateRange {
   to?: string;
 }
 
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
-}
-function ymd(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
 /** 把 preset 转成实际 from/to。custom 由调用方自己提供 customRange */
 function presetToRange(
   preset: RangePreset,
   customRange?: DateRange,
 ): DateRange | null {
-  const now = new Date();
   switch (preset) {
     case "all":
       return null;
     case "today":
-      return localDateRangeToUtcSqlBounds({ from: ymd(now) });
-    case "week": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 6); // 含今天共 7 天
-      return localDateRangeToUtcSqlBounds({ from: ymd(d) });
-    }
-    case "month": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 29); // 含今天共 30 天
-      return localDateRangeToUtcSqlBounds({ from: ymd(d) });
-    }
+      return localDateRangeToUtcSqlBounds({ from: formatDateKeyInTimeZone(new Date()) });
+    case "week":
+      // 含今天共 7 天
+      return localDateRangeToUtcSqlBounds({ from: relativeLocalDateKey(-6) });
+    case "month":
+      // 含今天共 30 天
+      return localDateRangeToUtcSqlBounds({ from: relativeLocalDateKey(-29) });
     case "custom":
       // 没填或都为空时退化为"全部"，避免空查询条件让用户困惑
       if (!customRange?.from && !customRange?.to) return null;

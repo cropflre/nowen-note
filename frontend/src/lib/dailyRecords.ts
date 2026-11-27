@@ -1,3 +1,5 @@
+import { formatDateKeyInTimeZone, getAppTimeZoneParts } from "./dateTime";
+
 export type DailyRecordsView = "moments" | "calendar" | "journal";
 
 export function padDatePart(value: number): string {
@@ -5,7 +7,7 @@ export function padDatePart(value: number): string {
 }
 
 export function formatLocalDateKey(date: Date): string {
-  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+  return formatDateKeyInTimeZone(date);
 }
 
 export function parseLocalDateKey(dateKey: string): Date {
@@ -39,24 +41,30 @@ export function shiftLocalMonthKey(dateKey: string, months: number): string {
 }
 
 export function relativeLocalDateKey(offsetDays: number, now = new Date()): string {
-  const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
-  date.setDate(date.getDate() + offsetDays);
-  return formatLocalDateKey(date);
+  const parts = getAppTimeZoneParts(now);
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + offsetDays, 12, 0, 0, 0));
+  return `${date.getUTCFullYear()}-${padDatePart(date.getUTCMonth() + 1)}-${padDatePart(date.getUTCDate())}`;
 }
 
 export function formatJournalHeading(dateKey: string, locale = "zh-CN"): string {
-  const date = parseLocalDateKey(dateKey);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) {
+    throw new Error(`Invalid local date key: ${dateKey}`);
+  }
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0));
   const dateLabel = new Intl.DateTimeFormat(locale, {
+    timeZone: "UTC",
     year: "numeric",
     month: "long",
     day: "numeric",
   }).format(date);
-  const weekday = new Intl.DateTimeFormat(locale, { weekday: "long" }).format(date);
+  const weekday = new Intl.DateTimeFormat(locale, { timeZone: "UTC", weekday: "long" }).format(date);
   return `${dateLabel} ${weekday}`;
 }
 
 export function formatCurrentTimestamp(now = new Date()): string {
-  return `${formatLocalDateKey(now)} ${padDatePart(now.getHours())}:${padDatePart(now.getMinutes())}`;
+  const parts = getAppTimeZoneParts(now);
+  return `${parts.year}-${padDatePart(parts.month)}-${padDatePart(parts.day)} ${padDatePart(parts.hour)}:${padDatePart(parts.minute)}`;
 }
 
 function collectTiptapText(node: unknown, chunks: string[]): void {

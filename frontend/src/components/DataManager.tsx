@@ -13,6 +13,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { toast } from "@/lib/toast";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { storeAuthTokens } from "@/lib/authSession";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
 import {
@@ -3202,7 +3203,7 @@ export function DataFileSection() {
                   </span>
                 </div>
                 <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  {new Date(healthReport.checkedAt).toLocaleString()}
+                  {formatAppDateTime(healthReport.checkedAt)}
                 </span>
               </div>
 

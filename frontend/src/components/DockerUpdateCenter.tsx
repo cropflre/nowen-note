@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatAppTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -554,7 +555,7 @@ export default function DockerUpdateCenter() {
                     <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg bg-zinc-950 p-2 font-mono text-[10px] leading-relaxed text-zinc-300">
                       {job.logs.slice(-18).map((entry, index) => (
                         <div key={`${entry.at}-${index}`} className={entry.level === "error" ? "text-red-300" : entry.level === "warn" ? "text-amber-300" : ""}>
-                          <span className="text-zinc-600">{new Date(entry.at).toLocaleTimeString()}</span> {entry.message}
+                          <span className="text-zinc-600">{formatAppTime(entry.at)}</span> {entry.message}
                         </div>
                       ))}
                     </div>

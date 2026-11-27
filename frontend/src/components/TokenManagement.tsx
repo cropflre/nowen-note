@@ -15,6 +15,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { api, getBaseUrl } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { confirm } from "@/components/ui/confirm";
 import { toast } from "@/lib/toast";
 import TokenUsageStats from "@/components/TokenUsageStats";
@@ -87,7 +88,7 @@ async function tokenJson<T>(path: string, init?: RequestInit): Promise<T> {
 function formatDate(value: string | null): string {
   if (!value) return "永不过期";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : formatAppDateTime(date, undefined, "—");
 }
 
 function scopeLabel(scope: string): string {

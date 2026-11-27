@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { normalizeToMarkdown } from "@/lib/contentFormat";
+import { formatAppDate } from "@/lib/dateTime";
 
 interface VersionHistoryPanelProps {
   noteId: string;
@@ -176,7 +177,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
     if (diffMin < 60) return t("versions.minutesAgo", { n: diffMin });
     if (diffHour < 24) return t("versions.hoursAgo", { n: diffHour });
     if (diffDay < 7) return t("versions.daysAgo", { n: diffDay });
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return formatAppDate(d, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   };
 
   const changeTypeLabels: Record<string, { labelKey: string; color: string }> = {

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Palette, Shield, Database, X, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText, Rocket } from "lucide-react";
+import { Palette, Shield, Database, X, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, SlidersHorizontal, Download, FolderSync, Mail, Workflow, Blocks, Star, Share2, Copy, Server, WifiOff, Layers, Compass, ArrowUpRight, FileText, Rocket, Clock } from "lucide-react";
 import PluginManagementPanel from "@/components/PluginManagementPanel";
 import { useTranslation } from "react-i18next";
 import { Browser } from "@capacitor/browser";
@@ -30,9 +30,10 @@ import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
 import AppGalleryDownloadLink from "@/components/settings/AppGalleryDownloadLink";
-import PreferencesPanel from "@/components/settings/preferences/PreferencesPanel";
+import PreferencesPanel, { type PreferencesPanelNavigationRequest } from "@/components/settings/preferences/PreferencesPanel";
 import { revealSettingsTarget } from "@/components/settings/preferences/revealSettingsTarget";
 import type { RelatedSettingsTab } from "@/components/settings/preferences/preferenceSearch";
+import { formatTimeZonePreview } from "@/lib/timeZones";
 import AIMemoryArchiveSetting from "@/components/settings/AIMemoryArchiveSetting";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -1103,7 +1104,7 @@ function AboutPanel({ onOpenEcosystem }: { onOpenEcosystem?: () => void }) {
   );
 }
 
-function AppearancePanel() {
+function AppearancePanel({ onOpenTimeZone }: { onOpenTimeZone?: () => void }) {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont, isLoaded } = useSiteSettings();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
@@ -1302,6 +1303,52 @@ function AppearancePanel() {
           />
         </SettingsBentoCard>
       </div>
+
+      {/* 应用时区状态预览与快速跳转 */}
+      {(() => {
+        const activeLocale = i18n.resolvedLanguage || i18n.language || "zh-CN";
+        const tzPreview = formatTimeZonePreview(userPrefs.timeZone, activeLocale);
+        const modeLabel = tzPreview.isAuto
+          ? t("preferences.items.timeZone.autoLabel", { defaultValue: "跟随系统" })
+          : tzPreview.effectiveTimeZone;
+        return (
+          <SettingsBentoCard interactive className="flex flex-wrap items-center justify-between gap-3 p-3.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span aria-hidden className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-cyan-500/12 text-cyan-600 ring-1 ring-inset ring-cyan-500/20 dark:text-cyan-300">
+                <Clock size={14} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                    {t("preferences.items.timeZone.title", { defaultValue: "应用时区" })}
+                  </span>
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    {modeLabel} · {tzPreview.offsetLabel}
+                  </span>
+                </div>
+                <div className="mt-0.5 truncate text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
+                  {t("preferences.items.timeZone.currentPreview", {
+                    defaultValue: `当前时间：${tzPreview.formattedTime}（${tzPreview.effectiveTimeZone} · ${tzPreview.offsetLabel}）`,
+                    time: tzPreview.formattedTime,
+                    zone: tzPreview.effectiveTimeZone,
+                    offset: tzPreview.offsetLabel,
+                  })}
+                </div>
+              </div>
+            </div>
+            {onOpenTimeZone && (
+              <button
+                type="button"
+                data-appearance-timezone-jump
+                onClick={onOpenTimeZone}
+                className="nowen-tactile-btn inline-flex shrink-0 items-center gap-1 rounded-xl border border-zinc-200/80 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700/80 dark:bg-zinc-900/70 dark:text-zinc-200"
+              >
+                {t("preferences.items.timeZone.appearanceAction", { defaultValue: "更改时区" })}
+              </button>
+            )}
+          </SettingsBentoCard>
+        );
+      })()}
 
       {/* 2. 外观风格（Skin）：视觉主题选择 */}
       <SettingsBentoCard className="p-4 space-y-3">
@@ -1807,9 +1854,19 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   // switch to their tab, then bring the section into view once that panel has rendered.
   const contentRef = useRef<HTMLDivElement>(null);
   const [revealRequest, setRevealRequest] = useState<{ section: string } | null>(null);
+  const [preferencesJumpRequest, setPreferencesJumpRequest] = useState<PreferencesPanelNavigationRequest | null>(null);
   const openRelatedSetting = useCallback((tab: RelatedSettingsTab, section: string) => {
     setActiveTab(tab);
     setRevealRequest({ section });
+  }, []);
+  const openTimeZonePreference = useCallback(() => {
+    setRevealRequest(null);
+    setActiveTab("preferences");
+    setPreferencesJumpRequest((previous) => ({
+      page: "layout",
+      reveal: "timeZone",
+      nonce: (previous?.nonce ?? 0) + 1,
+    }));
   }, []);
   useEffect(() => {
     if (!revealRequest || !contentRef.current) return;
@@ -1848,6 +1905,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   const handleSelectTab = useCallback((tabId: TabId) => {
     setActiveTab(tabId);
     setRevealRequest(null);
+    setPreferencesJumpRequest(null);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   }, []);
 
@@ -2020,12 +2078,13 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                     </div>
                   }
                 >
-            {activeTab === "appearance" && <AppearancePanel />}
+            {activeTab === "appearance" && <AppearancePanel onOpenTimeZone={openTimeZonePreference} />}
             {activeTab === "preferences" && (
               <PreferencesPanel
                 isAdmin={isAdmin}
                 relatedTabLabels={{ security: securityTabLabel, ai: t('settings.ai'), users: t('settings.users') }}
                 onOpenRelatedSetting={openRelatedSetting}
+                initialRequest={preferencesJumpRequest}
               />
             )}
             {activeTab === "shortcuts" && shortcutSurface !== "android" && <ShortcutSettingsPanel />}

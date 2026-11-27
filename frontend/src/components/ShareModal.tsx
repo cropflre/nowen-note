@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
+import {
+  formatAppDateTime,
+  localDateTimeInputToUtcIso,
+  utcSqlToLocalDateTimeInput,
+} from "@/lib/dateTime";
 import { copyText } from "@/lib/clipboard";
 import { ShareCopySession, formatShareWithPassword } from "@/lib/shareCopySession";
 import {
@@ -32,10 +37,7 @@ interface ShareModalProps {
 const ACTION_BUTTON = "max-sm:h-9 max-sm:w-9 max-sm:px-0";
 
 function toLocalDateTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return utcSqlToLocalDateTimeInput(value);
 }
 
 export default function ShareModal({ noteId, noteTitle, initialShareId, onClose }: ShareModalProps) {
@@ -170,7 +172,7 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
     try {
       const common = {
         permission,
-        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+        expiresAt: expiresAt ? localDateTimeInputToUtcIso(expiresAt) : null,
         maxViews: parsedMax,
       };
       if (editingId) {
@@ -363,7 +365,7 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
                 const toggleLabel = active ? t("shareUi.disable") : t("shareUi.enable");
                 const copyPasswordLabel = copySessionRef.current.get(share) ? t("shareUi.copyWithPassword") : t("shareUi.resetPasswordToCopy");
                 return <article key={share.id} className={cn("rounded-xl border border-app-border p-3 max-sm:p-2.5", !active && "opacity-60")}>
-                  <div className="flex items-start justify-between gap-3 max-sm:gap-2"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? t("shareUi.active") : t("shareUi.inactive")}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">{t("shareUi.password")}</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary max-sm:mt-0.5">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary max-sm:mt-0.5">{t("shareUi.viewSessions", { total: share.viewCount || 0 })}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? t("shareUi.expiresOn", { date: new Date(share.expiresAt).toLocaleString(i18n.language) }) : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary max-sm:hidden" /></div>
+                  <div className="flex items-start justify-between gap-3 max-sm:gap-2"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? t("shareUi.active") : t("shareUi.inactive")}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">{t("shareUi.password")}</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary max-sm:mt-0.5">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary max-sm:mt-0.5">{t("shareUi.viewSessions", { total: share.viewCount || 0 })}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? t("shareUi.expiresOn", { date: formatAppDateTime(share.expiresAt, undefined, undefined, i18n.language) }) : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary max-sm:hidden" /></div>
                   <div className="mt-3 flex flex-wrap gap-1.5 max-sm:mt-2 max-sm:gap-1">
                     <Button size="sm" variant="outline" className={ACTION_BUTTON} aria-label={t("shareUi.copy")} title={t("shareUi.copy")} onClick={() => copy(url, share.id)}>
                       {copied === share.id ? <Check size={13} /> : <Copy size={13} />}

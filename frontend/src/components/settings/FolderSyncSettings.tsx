@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatAppDateTime, formatAppTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -234,8 +235,8 @@ function ConfigCard({
 
         {(config.lastScanAt || config.lastSyncedAt) && (
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-tx-tertiary">
-            {config.lastScanAt && <span><Clock size={10} className="mr-1 inline" />扫描：{new Date(config.lastScanAt).toLocaleString()}</span>}
-            {config.lastSyncedAt && <span><CheckCircle2 size={10} className="mr-1 inline" />同步：{new Date(config.lastSyncedAt).toLocaleString()}</span>}
+            {config.lastScanAt && <span><Clock size={10} className="mr-1 inline" />扫描：{formatAppDateTime(config.lastScanAt)}</span>}
+            {config.lastSyncedAt && <span><CheckCircle2 size={10} className="mr-1 inline" />同步：{formatAppDateTime(config.lastSyncedAt)}</span>}
           </div>
         )}
 
@@ -383,7 +384,7 @@ function ConfigCard({
                 <div className="max-h-40 overflow-y-auto rounded-xl bg-app-bg p-2 font-mono text-[10px]">
                   {logs.length === 0 ? <p className="p-2 text-tx-tertiary">暂无日志</p> : logs.slice().reverse().slice(0, 30).map((log) => (
                     <div key={log.id} className="flex gap-2 py-1">
-                      <span className="shrink-0 text-tx-tertiary">{new Date(log.createdAt).toLocaleTimeString()}</span>
+                      <span className="shrink-0 text-tx-tertiary">{formatAppTime(log.createdAt)}</span>
                       <span className={cn("shrink-0", log.type.includes("failed") || log.type === "error" ? "text-red-500" : log.type.includes("warn") ? "text-amber-500" : "text-accent-primary")}>[{log.type}]</span>
                       <span className="break-all text-tx-secondary">{log.message}</span>
                     </div>

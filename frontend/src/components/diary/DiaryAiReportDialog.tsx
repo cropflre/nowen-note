@@ -6,7 +6,12 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { extractFinalAnswer } from "@/lib/aiOutput";
 import { copyText } from "@/lib/clipboard";
-import { localDateRangeToUtcSqlBounds, parseServerTime } from "@/lib/dateTime";
+import {
+  getAppTimeZoneParts,
+  localDateRangeToUtcSqlBounds,
+  parseServerTime,
+} from "@/lib/dateTime";
+import { relativeLocalDateKey } from "@/lib/dailyRecords";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { Diary } from "@/types";
@@ -18,11 +23,8 @@ export interface DiaryReportRange {
   to: string;
 }
 
-function dateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 export function resolveDiaryReportRange(
@@ -35,14 +37,14 @@ export function resolveDiaryReportRange(
     return { from: custom.from, to: custom.to };
   }
 
-  const from = new Date(now);
+  const todayParts = getAppTimeZoneParts(now);
+  const to = `${todayParts.year}-${pad2(todayParts.month)}-${pad2(todayParts.day)}`;
   if (preset === "week") {
-    const mondayOffset = (from.getDay() + 6) % 7;
-    from.setDate(from.getDate() - mondayOffset);
-  } else {
-    from.setDate(1);
+    const weekday = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day, 12, 0, 0)).getUTCDay();
+    const mondayOffset = (weekday + 6) % 7;
+    return { from: relativeLocalDateKey(-mondayOffset, now), to };
   }
-  return { from: dateKey(from), to: dateKey(now) };
+  return { from: `${todayParts.year}-${pad2(todayParts.month)}-01`, to };
 }
 
 export function buildDiaryReportPrompt(
@@ -63,8 +65,9 @@ export function buildDiaryReportPrompt(
 
 function formatSourceItem(item: Diary): string {
   const date = parseServerTime(item.createdAt);
-  const stamp = date
-    ? `${dateKey(date)} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+  const parts = date ? getAppTimeZoneParts(date) : null;
+  const stamp = parts
+    ? `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)} ${pad2(parts.hour)}:${pad2(parts.minute)}`
     : item.createdAt;
   return `### ${stamp}${item.mood ? ` · mood=${item.mood}` : ""}\n${item.contentText || "（仅媒体，无文字）"}`;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, FolderOpen, History, Info, Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, getBaseUrl } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { getAccessToken } from "@/lib/authSession";
 import { getDesktopMigrationBridge } from "@/lib/desktopBridge";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
@@ -511,7 +512,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
           <button type="button" aria-label={t("migration.selectJob", { name: item.name })} disabled={busy} onClick={() => void run(() => migrationApi.get(item.id))}
             className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border p-3 text-left text-xs hover:bg-app-hover disabled:opacity-50">
             <span className="min-w-0"><span className="block break-words font-medium text-tx-primary">{item.name}</span>
-              <span className="mt-0.5 block text-tx-secondary">{new Date(item.createdAt).toLocaleString()}{item.preparedBy === "assistant" ? ` · ${t("migration.smart.assistantBadge")}` : ""}</span></span>
+              <span className="mt-0.5 block text-tx-secondary">{formatAppDateTime(item.createdAt)}{item.preparedBy === "assistant" ? ` · ${t("migration.smart.assistantBadge")}` : ""}</span></span>
             <span className="shrink-0 text-tx-secondary">{statusLabel(item.status)}</span>
           </button>
         </li>)}</ul>

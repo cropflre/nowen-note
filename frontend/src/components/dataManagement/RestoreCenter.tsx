@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "@/lib/dateTime";
 import type { api } from "@/lib/api";
 import type { RemoteBackup } from "@/lib/backupWebDavApi";
 
@@ -45,7 +46,7 @@ export default function RestoreCenter(props: {
       <div className="max-h-80 overflow-y-auto space-y-2">
         {rows.map(({ backup, remote }) => <div key={`${remote}:${backup.filename}`} className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-700">
           <div className="min-w-0 flex-1">
-            <div className="text-sm text-zinc-800 dark:text-zinc-200">{new Date(backup.createdAt).toLocaleString()}</div>
+            <div className="text-sm text-zinc-800 dark:text-zinc-200">{formatAppDateTime(backup.createdAt)}</div>
             <div className="mt-1 text-xs text-zinc-500">{t(backup.type === "full" ? "dataManager.overview.full" : "dataManager.overview.databaseOnly")} · {size(backup.size)} · {remote ? "WebDAV" : props.locationLabel}</div>
           </div>
           <button type="button" disabled={props.busy} onClick={() => remote ? props.onRemoteRestore(backup.filename) : props.onRestore(backup)} className="text-xs text-indigo-600 disabled:opacity-50">{t("dataManager.overview.restore")}</button>

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { openWorkspaceIssue, NOTIFICATIONS_CHANGED_EVENT } from "@/lib/workspaceIssueNavigation";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { useVisibleViewport } from "@/hooks/useVisibleViewport";
@@ -170,14 +171,14 @@ export default function WorkspaceIssues({ issueId }: { issueId: string | null })
             {list?.items.length === 0 && <p className="py-8 text-center text-tx-tertiary">{t("issues.empty")}</p>}
             {list?.items.map((issue) => <button key={issue.id} className="flex w-full gap-3 rounded-xl border border-app-border p-4 text-left hover:bg-app-hover" onClick={() => openWorkspaceIssue(issue.id)}>
               {issue.status === "open" ? <CircleDot size={19} className="mt-1 shrink-0 text-accent-primary" /> : <CheckCircle2 size={19} className="mt-1 shrink-0 text-tx-tertiary" />}
-              <div className="min-w-0"><h2 className="break-words font-medium">{issue.title}</h2><p className="mt-1 text-xs text-tx-tertiary">#{issue.number} · {issue.authorName || t("issues.unknown")} · {t("issues.comments", { count: issue.commentCount })} · {new Date(issue.updatedAt).toLocaleString()}</p></div>
+              <div className="min-w-0"><h2 className="break-words font-medium">{issue.title}</h2><p className="mt-1 text-xs text-tx-tertiary">#{issue.number} · {issue.authorName || t("issues.unknown")} · {t("issues.comments", { count: issue.commentCount })} · {formatAppDateTime(issue.updatedAt)}</p></div>
             </button>)}
             {list && list.items.length < list.total && <button className={buttonClass} disabled={busy} onClick={() => void more()}>{t("issues.more")}</button>}
           </>}
           {issueId && detail?.id === issueId && <>
             <article className="space-y-4 rounded-xl border border-app-border p-4">
               <h2 className="break-words text-xl font-semibold">{detail.title} <span className="font-normal text-tx-tertiary">#{detail.number}</span></h2>
-              <p className="text-sm text-tx-secondary">{t(`issues.${detail.status}`)} · {detail.authorName || t("issues.unknown")} · {new Date(detail.createdAt).toLocaleString()}</p>
+              <p className="text-sm text-tx-secondary">{t(`issues.${detail.status}`)} · {detail.authorName || t("issues.unknown")} · {formatAppDateTime(detail.createdAt)}</p>
               <Content text={detail.content} />
               {detail.relatedNote && <button className={buttonClass} disabled={busy} onClick={() => void run(async (isCurrent) => {
                 const note = await api.getNote(detail.relatedNote!.id);
@@ -193,8 +194,8 @@ export default function WorkspaceIssues({ issueId }: { issueId: string | null })
               </div>
             </article>
             <h3 className="text-sm font-medium">{t("issues.comments", { count: detail.commentCount })}</h3>
-            {activity.items.map((item) => item.type !== "comment" ? <p key={item.id} className="border-l-2 border-app-border pl-3 text-sm text-tx-tertiary">{item.authorName || t("issues.unknown")} {t(item.type === "closed" ? "issues.closedEvent" : "issues.reopenedEvent")} · {new Date(item.createdAt).toLocaleString()}</p> : <article key={item.id} className="space-y-3 rounded-xl border border-app-border p-4">
-              <p className="text-xs text-tx-tertiary">{item.authorName || t("issues.unknown")} · {new Date(item.createdAt).toLocaleString()} {item.updatedAt !== item.createdAt && `· ${t("issues.edited")}`}</p>
+            {activity.items.map((item) => item.type !== "comment" ? <p key={item.id} className="border-l-2 border-app-border pl-3 text-sm text-tx-tertiary">{item.authorName || t("issues.unknown")} {t(item.type === "closed" ? "issues.closedEvent" : "issues.reopenedEvent")} · {formatAppDateTime(item.createdAt)}</p> : <article key={item.id} className="space-y-3 rounded-xl border border-app-border p-4">
+              <p className="text-xs text-tx-tertiary">{item.authorName || t("issues.unknown")} · {formatAppDateTime(item.createdAt)} {item.updatedAt !== item.createdAt && `· ${t("issues.edited")}`}</p>
               {editingComment === item.id ? <form onSubmit={(event) => { event.preventDefault(); void run(() => api.issues.editComment(issueId, item.id, commentDraft), () => setEditingComment(null)); }}>
                 <textarea className={fieldClass} rows={3} maxLength={20000} value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} aria-label={t("issues.reply")} />
                 <button className={buttonClass} disabled={busy || !commentDraft.trim()}>{t("issues.save")}</button> <button className={buttonClass} type="button" disabled={busy} onClick={() => setEditingComment(null)}>{t("issues.cancel")}</button>

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Mic, Minus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
+import { formatAppDateTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { VoiceRecorderSession, recordedVoiceFile, formatVoiceDuration, type RecordedVoice, type VoiceRecorderState } from "@/lib/voiceRecorder";
 import { voiceRecordingExtension } from "@/lib/voiceRecordingMime";
@@ -164,7 +165,7 @@ export default function VoiceRecorderSheet() {
         {active && <button type="button" className={button} onClick={() => { if (window.confirm(t("voice.cancelConfirm"))) void sessionRef.current?.cancel().then(close); }}>{t("voice.cancel")}</button>}
         {!active && state !== "processing" && state !== "uploading" && <button type="button" className={button} onClick={() => { if (current && state === "saved") void voiceMemoDraftStore.remove(current.id).then(close); else close(); }}><X className="mr-1 inline" size={14} />{t("voice.close")}</button>}
       </div>
-      {!active && state !== "uploading" && drafts.filter((draft) => draft.id !== current?.id).map((draft) => <div key={draft.id} className="mt-4 rounded-lg border border-app-border p-3 text-sm"><p>{new Date(draft.createdAt).toLocaleString()} · {formatVoiceDuration(draft.durationMs)}</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" className={button} onClick={() => void upload(draft)}>{t("voice.retry")}</button><button type="button" className={button} onClick={() => download(draft)}>{t("voice.download")}</button><button type="button" className={button} onClick={() => { if (window.confirm(t("voice.discardConfirm"))) void voiceMemoDraftStore.remove(draft.id).then(refreshDrafts); }}>{t("voice.discard")}</button></div></div>)}
+      {!active && state !== "uploading" && drafts.filter((draft) => draft.id !== current?.id).map((draft) => <div key={draft.id} className="mt-4 rounded-lg border border-app-border p-3 text-sm"><p>{formatAppDateTime(draft.createdAt)} · {formatVoiceDuration(draft.durationMs)}</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" className={button} onClick={() => void upload(draft)}>{t("voice.retry")}</button><button type="button" className={button} onClick={() => download(draft)}>{t("voice.download")}</button><button type="button" className={button} onClick={() => { if (window.confirm(t("voice.discardConfirm"))) void voiceMemoDraftStore.remove(draft.id).then(refreshDrafts); }}>{t("voice.discard")}</button></div></div>)}
     </section>
   </div>, document.body);
 }
