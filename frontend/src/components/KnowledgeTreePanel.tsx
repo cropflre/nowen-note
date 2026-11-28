@@ -297,7 +297,7 @@ function MovePanel({
   };
 
   return (
-    <div data-knowledge-tree-move-panel="" className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
+    <div data-knowledge-tree-move-panel="" className="absolute inset-0 z-30 flex flex-col bg-app-sidebar">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-app-border px-3">
         <Folder size={16} className="shrink-0 text-amber-500" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>

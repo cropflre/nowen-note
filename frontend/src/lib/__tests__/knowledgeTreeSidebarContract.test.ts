@@ -142,4 +142,18 @@ describe("knowledge tree sidebar contract", () => {
     expect(panel).toContain('aria-label={t("auditI18n.favorited")}');
     expect(zhAudit.more).toBe("更多");
   });
+
+  it("keeps WorkspaceSwitcher dropdown above embedded tree move panels without trapping ContextMenu", () => {
+    const sidebar = source("../../components/Sidebar.tsx");
+    const switcher = source("../../components/WorkspaceSwitcher.tsx");
+    const desktopTree = source("../../components/KnowledgeTreePanel.tsx");
+    const mobileTree = source("../../components/MobileKnowledgeTreePanel.tsx");
+    const batchActions = source("../../components/KnowledgeTreeBatchActions.tsx");
+
+    expect(sidebar).not.toContain("z-0 isolate");
+    expect(switcher).toContain("z-50");
+    expect(desktopTree).toContain('data-knowledge-tree-move-panel="" className="absolute inset-0 z-30');
+    expect(mobileTree).toContain('className="absolute inset-0 z-30 flex flex-col bg-app-sidebar"');
+    expect(batchActions).toContain('data-knowledge-tree-batch-move-panel="" className="absolute inset-0 z-30');
+  });
 });
