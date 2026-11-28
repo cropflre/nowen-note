@@ -429,15 +429,20 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
 
   const renderHome = () => (
     <>
-      <header>
-        <h3 ref={headingRef} tabIndex={-1} className="text-lg font-bold text-zinc-900 outline-none dark:text-zinc-100">
-          {t("preferences.title")}
-        </h3>
-        <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">{t("preferences.description")}</p>
+      <header className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500/20 via-cyan-400/18 to-indigo-500/20 text-sky-600 ring-1 ring-sky-500/20 dark:text-sky-300">
+          <Settings2 size={18} aria-hidden="true" />
+        </span>
+        <div>
+          <h3 ref={headingRef} tabIndex={-1} className="text-base font-bold tracking-tight text-tx-primary outline-none">
+            {t("preferences.title")}
+          </h3>
+          <p className="mt-0.5 text-xs leading-5 text-tx-secondary">{t("preferences.description")}</p>
+        </div>
       </header>
 
       <div className="relative">
-        <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+        <Search size={15} aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
         <input
           ref={searchRef}
           type="search"
@@ -451,7 +456,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
           spellCheck={false}
           enterKeyHint="search"
           data-preferences-search=""
-          className="h-10 w-full rounded-xl border border-zinc-200 bg-white pl-9 pr-9 text-base text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 hover:border-zinc-300 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-700 sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+          className="h-10 w-full rounded-2xl border border-app-border/80 bg-app-elevated/90 pl-10 pr-10 text-base text-tx-primary shadow-xs outline-none transition-all placeholder:text-tx-tertiary hover:border-accent-primary/35 focus:border-accent-primary focus:bg-app-surface focus:ring-2 focus:ring-accent-primary/15 sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
         />
         {query && (
           <button
@@ -461,7 +466,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
               searchRef.current?.focus();
             }}
             aria-label={t("preferences.clearSearch")}
-            className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50"
           >
             <X size={14} aria-hidden="true" />
           </button>
@@ -472,7 +477,7 @@ export default function PreferencesPanel({ isAdmin, relatedTabLabels, onOpenRela
       </p>
 
       {(localMode || syncOff) && (
-        <p role="note" className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-800 dark:text-amber-200">
+        <p role="note" className="rounded-2xl border border-amber-400/35 bg-amber-500/[0.08] px-3.5 py-2.5 text-xs leading-5 text-amber-800 dark:text-amber-200">
           {localMode ? t("preferences.localModeHint") : t("preferences.syncOffHint")}
         </p>
       )}

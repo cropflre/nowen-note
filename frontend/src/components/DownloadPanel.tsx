@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { motion } from "framer-motion";
 import {
   Download,
   Monitor,
@@ -383,49 +384,51 @@ export default function DownloadPanel() {
     cn(
       "inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40",
       active
-        ? "bg-accent-primary text-white shadow-xs"
-        : "bg-white/90 text-zinc-600 ring-1 ring-zinc-200/90 hover:bg-zinc-100 hover:text-zinc-900 dark:bg-zinc-800/80 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-700/70",
+        ? "bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 text-white shadow-xs"
+        : "bg-app-surface/90 text-tx-secondary ring-1 ring-app-border/80 hover:bg-app-hover hover:text-tx-primary",
     );
 
   return (
     <div className="space-y-5 pb-2">
       {/* 1. 极光下载中心 Hero（整合标题 + 最新版本 + 加速下载源切换） */}
-      <section className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.09] via-white to-indigo-500/[0.07] p-4 shadow-sm dark:border-sky-400/20 dark:from-sky-500/[0.12] dark:via-zinc-900/80 dark:to-indigo-500/[0.08]">
+      <section className="relative overflow-hidden rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.09] via-app-elevated/90 to-indigo-500/[0.08] p-5 shadow-xs backdrop-blur-sm">
         <div
           aria-hidden
           className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-sky-400/20 to-indigo-400/15 blur-2xl"
         />
 
-        <div className="relative flex items-start gap-3">
-          <span
+        <div className="relative flex items-start gap-3.5">
+          <motion.span
+            whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+            transition={{ duration: 0.45 }}
             aria-hidden
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 text-sky-600 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500/20 via-blue-400/18 to-indigo-500/20 text-sky-600 shadow-xs ring-1 ring-inset ring-sky-500/25 dark:text-sky-300"
           >
-            <Download size={19} />
-          </span>
+            <Download size={20} />
+          </motion.span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2 min-w-0">
-                <h3 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h3 className="text-base font-bold tracking-tight text-tx-primary">
                   {t("download.title", { defaultValue: "下载客户端" })}
                 </h3>
-                <span className="inline-flex items-center rounded-full bg-accent-primary/12 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-accent-primary tabular-nums">
+                <span className="inline-flex items-center rounded-full bg-sky-500/12 px-2.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-sky-700 dark:text-sky-300">
                   {loading ? "…" : version ? `v${version}` : "—"}
                 </span>
                 {r2Status === "ready" && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                     <Zap size={10} aria-hidden />
                     {t("download.r2ReadyBadge", { defaultValue: "R2 加速就绪" })}
                   </span>
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <a
                   href={releaseUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-zinc-200/90 bg-white/90 px-2.5 text-xs font-medium text-zinc-700 shadow-2xs transition-colors hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200"
+                  className="inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs font-semibold text-tx-primary shadow-2xs transition-all hover:-translate-y-0.5 hover:border-sky-400/50 hover:text-sky-600 dark:hover:text-sky-300"
                   title={t("download.viewOnGithub", { defaultValue: "在 GitHub 查看完整 release" })}
                 >
                   <ExternalLink size={12} aria-hidden />
@@ -435,7 +438,7 @@ export default function DownloadPanel() {
                   type="button"
                   onClick={() => setReloadTick((v) => v + 1)}
                   disabled={loading}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-zinc-200/90 bg-white/90 px-2.5 text-xs font-medium text-zinc-700 shadow-2xs transition-colors hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-200"
+                  className="inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs font-semibold text-tx-primary shadow-2xs transition-all hover:-translate-y-0.5 hover:border-sky-400/50 hover:text-sky-600 disabled:translate-y-0 disabled:opacity-50 dark:hover:text-sky-300"
                   title={t("download.refresh", { defaultValue: "刷新" })}
                 >
                   <RefreshCw size={12} className={loading ? "animate-spin" : ""} aria-hidden />
@@ -443,7 +446,7 @@ export default function DownloadPanel() {
                 </button>
               </div>
             </div>
-            <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+            <p className="mt-1 text-xs leading-relaxed text-tx-secondary">
               {t("download.subtitle", {
                 defaultValue: "官方 R2 下载源优先，未镜像的安装包自动使用 GitHub 原站。",
               })}
@@ -452,10 +455,10 @@ export default function DownloadPanel() {
         </div>
 
         {/* 加速下载源切换条（内嵌在 Hero 底部，消除孤立信息框） */}
-        <div className="relative mt-3.5 space-y-2 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/70">
+        <div className="relative mt-4 space-y-2 border-t border-app-border/70 pt-3.5">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-              <Info size={12} className="text-accent-primary" aria-hidden />
+            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-semibold text-tx-secondary">
+              <Info size={12} className="text-sky-500" aria-hidden />
               {t("download.mirrorLabel", { defaultValue: "下载源" })}
             </span>
             <button
@@ -484,7 +487,7 @@ export default function DownloadPanel() {
               </button>
             ))}
           </div>
-          <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="text-[11px] leading-relaxed text-tx-tertiary">
             {t("download.proxyTip", {
               defaultValue:
                 "R2 安装包已与 GitHub 正式版校验；未镜像的 UPK、便携版等继续走 GitHub。也可自行切换下载源。",
@@ -494,29 +497,29 @@ export default function DownloadPanel() {
       </section>
 
       {/* 2. 官方应用商店双列直达（Windows 微软商店 + HarmonyOS 华为应用市场） */}
-      <section className="space-y-2">
+      <section className="space-y-2.5">
         <div className="flex items-center gap-1.5">
-          <Store size={14} className="text-accent-primary" aria-hidden />
-          <h4 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+          <Store size={14} className="text-sky-500" aria-hidden />
+          <h4 className="text-xs font-bold text-tx-secondary">
             {t("download.storeSectionTitle", { defaultValue: "官方应用商店" })}
           </h4>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* 微软商店 */}
-          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-500/[0.06] via-white to-blue-500/[0.03] p-3.5 shadow-xs transition-all duration-200 hover:border-sky-400/45 hover:shadow-sm motion-safe:hover:-translate-y-0.5 dark:from-sky-500/[0.08] dark:via-zinc-900/70 dark:to-blue-500/[0.04]">
+          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/[0.07] via-app-elevated/90 to-blue-500/[0.04] p-4 shadow-xs backdrop-blur-sm transition-all duration-200 hover:border-sky-400/50 hover:shadow-sm motion-safe:hover:-translate-y-0.5">
             <div className="space-y-2">
               <div className="flex items-center gap-2.5">
                 <span
                   aria-hidden
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/20 to-blue-500/15 text-sky-700 ring-1 ring-inset ring-sky-500/20 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-sky-300"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400/20 to-blue-500/15 text-sky-700 ring-1 ring-inset ring-sky-500/25 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-sky-300"
                 >
-                  <Monitor size={15} />
+                  <Monitor size={16} />
                 </span>
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                <div className="text-sm font-bold text-tx-primary">
                   {t("download.microsoftStoreTitle", { defaultValue: "Microsoft Store" })}
                 </div>
               </div>
-              <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+              <p className="text-xs leading-relaxed text-tx-secondary">
                 {t("download.microsoftStoreDesc", { defaultValue: "适用于 Windows 10 / 11，支持商店一键安装与自动更新。" })}
               </p>
             </div>
@@ -524,7 +527,7 @@ export default function DownloadPanel() {
               href={MICROSOFT_STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-medium text-white shadow-2xs transition-opacity hover:opacity-90"
+              className="inline-flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 px-3 text-xs font-semibold text-white shadow-xs transition-all hover:shadow-sm"
             >
               {t("download.microsoftStoreLink", { defaultValue: "微软商店下载" })}
               <ExternalLink size={12} aria-hidden />
@@ -532,22 +535,22 @@ export default function DownloadPanel() {
           </div>
 
           {/* HarmonyOS 华为应用市场 */}
-          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-rose-500/20 bg-gradient-to-br from-rose-500/[0.06] via-white to-amber-500/[0.03] p-3.5 shadow-xs transition-all duration-200 hover:border-rose-400/45 hover:shadow-sm motion-safe:hover:-translate-y-0.5 dark:from-rose-500/[0.08] dark:via-zinc-900/70 dark:to-amber-500/[0.04]">
+          <div className="group/store flex flex-col justify-between gap-3 rounded-2xl border border-rose-500/25 bg-gradient-to-br from-rose-500/[0.07] via-app-elevated/90 to-amber-500/[0.04] p-4 shadow-xs backdrop-blur-sm transition-all duration-200 hover:border-rose-400/50 hover:shadow-sm motion-safe:hover:-translate-y-0.5">
             <div className="space-y-2">
               <div className="flex items-center gap-2.5">
                 <span
                   aria-hidden
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-400/20 to-amber-500/15 text-rose-700 ring-1 ring-inset ring-rose-500/20 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-rose-300"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-400/20 to-amber-500/15 text-rose-700 ring-1 ring-inset ring-rose-500/25 transition-transform duration-200 motion-safe:group-hover/store:scale-110 motion-safe:group-hover/store:-rotate-6 dark:text-rose-300"
                 >
-                  <Smartphone size={15} />
+                  <Smartphone size={16} />
                 </span>
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">HarmonyOS</div>
+                <div className="text-sm font-bold text-tx-primary">HarmonyOS</div>
               </div>
-              <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+              <p className="text-xs leading-relaxed text-tx-secondary">
                 {t("download.harmonyRequirement")}
               </p>
             </div>
-            <AppGalleryDownloadLink className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-medium text-white shadow-2xs transition-opacity hover:opacity-90" />
+            <AppGalleryDownloadLink className="inline-flex h-8.5 w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-orange-500 px-3 text-xs font-semibold text-white shadow-xs transition-all hover:shadow-sm" />
           </div>
         </div>
       </section>
@@ -736,7 +739,7 @@ export default function DownloadPanel() {
                               href={url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-xs font-semibold text-white shadow-2xs transition-all hover:opacity-90"
+                              className="inline-flex h-8 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 px-3.5 text-xs font-semibold text-white shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-sm"
                               download
                             >
                               <Download size={12} aria-hidden />

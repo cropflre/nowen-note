@@ -268,21 +268,21 @@ export default function RemoteImageLocalizationPanel() {
   return (
     <>
       <div
-        className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center sm:justify-between"
+        className="flex flex-col gap-3 rounded-2xl border border-app-border/80 bg-app-elevated/80 p-4.5 shadow-xs backdrop-blur-sm transition-all hover:border-sky-400/40 sm:flex-row sm:items-center sm:justify-between"
         data-settings-tool="remote-image-localization"
       >
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
-            <Image size={17} />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500/20 via-blue-400/18 to-indigo-500/20 text-sky-600 shadow-xs ring-1 ring-sky-500/20 dark:text-sky-300">
+            <Image size={18} />
           </span>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 text-sm font-bold text-tx-primary">
               {tr("remoteImageLocalization.trigger", "网络图片转存", "Save remote images")}
               {job && isRemoteImageLocalizationJobActive(job) && (
-                <Loader2 size={13} className="animate-spin text-accent-primary" aria-label={tr("remoteImageLocalization.running", "任务进行中", "Job in progress")} />
+                <Loader2 size={13} className="animate-spin text-sky-500" aria-label={tr("remoteImageLocalization.running", "任务进行中", "Job in progress")} />
               )}
             </div>
-            <p className="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+            <p className="mt-0.5 text-xs leading-relaxed text-tx-secondary">
               {tr(
                 "remoteImageLocalization.settingsDesc",
                 "一键保存笔记中的外链图片到 Nowen 附件库，防止源站关闭导致图片失效",
@@ -291,7 +291,7 @@ export default function RemoteImageLocalizationPanel() {
             </p>
           </div>
         </div>
-        <Button variant="outline" onClick={() => setOpen(true)} className="shrink-0 self-end sm:self-auto">
+        <Button variant="outline" onClick={() => setOpen(true)} className="shrink-0 self-end rounded-xl sm:self-auto">
           {job && isRemoteImageLocalizationJobActive(job)
             ? tr("remoteImageLocalization.viewProgress", "查看进度", "View progress")
             : tr("remoteImageLocalization.openTool", "打开工具", "Open tool")}

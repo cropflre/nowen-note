@@ -1000,30 +1000,43 @@ export default function DataManager() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t('dataManager.title')}</h3>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
-          {t('dataManager.description')}
-        </p>
-
+    <div className="space-y-5">
+      <div className="relative overflow-hidden rounded-2xl border border-app-border/80 bg-gradient-to-br from-emerald-500/[0.07] via-app-elevated/85 to-teal-500/[0.07] p-5 shadow-xs backdrop-blur-sm">
+        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-teal-400/15 blur-2xl" />
+        <div className="relative flex items-start gap-3.5">
+          <motion.span
+            whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+            transition={{ duration: 0.45 }}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/20 via-teal-400/18 to-sky-500/20 text-emerald-600 shadow-xs ring-1 ring-emerald-500/25 dark:text-emerald-300"
+          >
+            <HardDrive size={20} />
+          </motion.span>
+          <div className="min-w-0">
+            <h3 className="text-base font-bold tracking-tight text-tx-primary">{t('dataManager.title')}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-tx-secondary">
+              {t('dataManager.description')}
+            </p>
+          </div>
+        </div>
       </div>
       {activeSubTab === null && !isMobileLocalMode() && <RemoteImageLocalizationPanel />}
       {activeSubTab === null ? (isAdmin && !isMobileLocalMode() ? (
         <BackupCenter
           migration={<DataTransferCenter onImport={() => setActiveSubTab("migration")} onExport={() => setActiveSubTab("export")} />}
-          advanced={<><DesktopDataSafetyCard currentUser={currentUser} /><DataFileSection />        <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={18} className="text-red-500" />
-            <h4 className="text-base font-bold text-red-600 dark:text-red-500">{t('dataManager.dangerZone')}</h4>
+          advanced={<><DesktopDataSafetyCard currentUser={currentUser} /><DataFileSection />        <section className="mt-6 rounded-2xl border border-dashed border-rose-400/45 bg-rose-500/[0.05] p-5">
+          <div className="mb-2 flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-rose-500/15 text-rose-500">
+              <AlertTriangle size={16} />
+            </span>
+            <h4 className="text-sm font-bold text-rose-600 dark:text-rose-400">{t('dataManager.dangerZone')}</h4>
           </div>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+          <p className="mb-4 text-xs leading-relaxed text-tx-secondary">
             {t('dataManager.dangerDescription')}
           </p>
 
           <button
             onClick={() => { setShowResetModal(true); setConfirmText(""); setResetError(""); setSudoPwd(""); }}
-            className="px-4 py-2 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg transition-colors text-sm"
+            className="rounded-xl border border-rose-400/45 bg-app-elevated px-4 py-2 text-xs font-semibold text-rose-600 transition-all hover:bg-rose-500/10 dark:text-rose-400"
           >
             {t('dataManager.factoryReset')}
           </button>
@@ -1139,27 +1152,29 @@ export default function DataManager() {
         </section></>}
         />
       ) : <DataTransferCenter onImport={() => setActiveSubTab("migration")} onExport={() => setActiveSubTab("export")} />) : (
-        <div className="space-y-3">
-          <button type="button" onClick={() => setActiveSubTab(null)} disabled={isExporting || isExportingNowen || isImporting} className="text-xs text-indigo-600 dark:text-indigo-400">{t("dataManager.overview.back")}</button>
-          {(activeSubTab === "export" || activeSubTab === "migration" || ["siyuan", "generic", "nowen", "yuque"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-            {t("dataManager.overview.scope")}
-            <select aria-label={t("dataManager.overview.scope")} value={scope} onChange={(e) => setScope(e.target.value as Scope)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
-              <option value="personal">{t("dataManager.scope.personal")}</option>
-              {isAdmin && <option value="workspace">{t("dataManager.scope.workspace")}</option>}
-            </select>
-            {scope === "workspace" && <select aria-label={t("dataManager.scope.currentWorkspaceLabel")} value={selectedWorkspaceId} onChange={(e) => setSelectedWorkspaceId(e.target.value)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
-              <option value="">{t("dataManager.scope.workspaceNeedSwitch")}</option>
-              {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>}
-          </label>}
-                  {activeSubTab !== "migration" && <section className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center">
+        <div className="space-y-3.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => setActiveSubTab(null)} disabled={isExporting || isExportingNowen || isImporting} className="inline-flex items-center gap-1 rounded-xl border border-app-border/80 bg-app-surface px-3 py-1.5 text-xs font-semibold text-emerald-600 transition-all hover:border-emerald-400/50 hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-300">{t("dataManager.overview.back")}</button>
+            {(activeSubTab === "export" || activeSubTab === "migration" || ["siyuan", "generic", "nowen", "yuque"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs font-medium text-tx-secondary">
+              {t("dataManager.overview.scope")}
+              <select aria-label={t("dataManager.overview.scope")} value={scope} onChange={(e) => setScope(e.target.value as Scope)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-xl border border-app-border/80 bg-app-elevated px-3 py-1.5 text-xs text-tx-primary outline-none focus:border-emerald-400">
+                <option value="personal">{t("dataManager.scope.personal")}</option>
+                {isAdmin && <option value="workspace">{t("dataManager.scope.workspace")}</option>}
+              </select>
+              {scope === "workspace" && <select aria-label={t("dataManager.scope.currentWorkspaceLabel")} value={selectedWorkspaceId} onChange={(e) => setSelectedWorkspaceId(e.target.value)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-xl border border-app-border/80 bg-app-elevated px-3 py-1.5 text-xs text-tx-primary outline-none focus:border-emerald-400">
+                <option value="">{t("dataManager.scope.workspaceNeedSwitch")}</option>
+                {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>}
+            </label>}
+          </div>
+                  {activeSubTab !== "migration" && <section className="mb-4 flex flex-col gap-3 rounded-2xl border border-app-border/80 bg-app-elevated/80 p-4 shadow-xs backdrop-blur-sm sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-              <ListTodo size={19} />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-500/20 text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300">
+              <ListTodo size={18} />
             </div>
             <div className="min-w-0">
-              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("dataManager.overview.tasks")}</h4>
-              <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+              <h4 className="text-sm font-bold text-tx-primary">{t("dataManager.overview.tasks")}</h4>
+              <p className="mt-0.5 text-xs leading-5 text-tx-secondary">
                 {t("dataManager.overview.taskHint")}
               </p>
             </div>
@@ -1167,7 +1182,7 @@ export default function DataManager() {
           <button
             type="button"
             onClick={openTaskDataTransfer}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700 dark:hover:text-indigo-400"
+            className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface px-3.5 py-2 text-xs font-semibold text-tx-primary shadow-2xs transition-all hover:-translate-y-0.5 hover:border-indigo-400/50 hover:text-indigo-600 dark:hover:text-indigo-300"
           >
             {t("dataManager.overview.taskAction")}
             <ChevronRight size={14} />
@@ -1230,29 +1245,29 @@ export default function DataManager() {
             </div>
           )}
 
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 p-4">
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+          <div className="rounded-2xl border border-app-border/80 bg-app-elevated/80 p-5 shadow-xs backdrop-blur-sm">
+            <p className="mb-4 text-xs leading-relaxed text-tx-secondary">
               {t(exportFormat === "markdown" ? "dataManager.exportDescription" : "dataManager.overview.nowenHint")}
             </p>
 
             {exportProgress && (
               <div className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="mb-2 flex items-center gap-2">
                   {exportProgress.phase === "error" ? (
-                    <AlertCircle size={16} className="text-red-500" />
+                    <AlertCircle size={16} className="text-rose-500" />
                   ) : exportProgress.phase === "done" ? (
-                    <CheckCircle size={16} className="text-green-500" />
+                    <CheckCircle size={16} className="text-emerald-500" />
                   ) : (
-                    <Loader2 size={16} className="text-indigo-500 animate-spin" />
+                    <Loader2 size={16} className="animate-spin text-teal-500" />
                   )}
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  <span className="text-xs font-medium text-tx-secondary">
                     {exportProgress.message}
                   </span>
                 </div>
                 {exportProgress.phase === "packing" && (
-                  <div className="w-full bg-zinc-200 dark:bg-zinc-700 rounded-full h-1.5">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-app-hover">
                     <motion.div
-                      className="bg-indigo-500 h-1.5 rounded-full"
+                      className="h-2 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500"
                       initial={{ width: 0 }}
                       animate={{ width: `${exportProgress.current}%` }}
                       transition={{ duration: 0.3 }}
@@ -1262,28 +1277,37 @@ export default function DataManager() {
               </div>
             )}
 
-            <fieldset className="mb-4 space-y-2">
-              <legend className="mb-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">{t("dataManager.overview.exportFormat")}</legend>
-              {(["markdown", "nowen"] as const).map((format) => <label key={format} className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                <input type="radio" name="data-export-format" value={format} checked={exportFormat === format} onChange={() => setExportFormat(format)} disabled={isExporting || isExportingNowen} className="mt-0.5 accent-indigo-600" />
-                <span className="text-sm text-zinc-700 dark:text-zinc-300">{t(`dataManager.overview.${format}`)}<span className="mt-1 block text-xs text-zinc-500">{t(`dataManager.overview.${format}Hint`)}</span></span>
-              </label>)}
+            <fieldset className="mb-4 space-y-2.5">
+              <legend className="mb-2 text-xs font-bold text-tx-secondary">{t("dataManager.overview.exportFormat")}</legend>
+              {(["markdown", "nowen"] as const).map((format) => (
+                <label
+                  key={format}
+                  className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3.5 transition-all ${
+                    exportFormat === format
+                      ? "border-emerald-400/60 bg-emerald-500/[0.07] ring-1 ring-emerald-500/15"
+                      : "border-app-border/80 bg-app-surface/70 hover:border-emerald-400/35"
+                  }`}
+                >
+                  <input type="radio" name="data-export-format" value={format} checked={exportFormat === format} onChange={() => setExportFormat(format)} disabled={isExporting || isExportingNowen} className="mt-0.5 accent-emerald-600" />
+                  <span className="text-sm font-semibold text-tx-primary">{t(`dataManager.overview.${format}`)}<span className="mt-1 block text-xs font-normal text-tx-secondary">{t(`dataManager.overview.${format}Hint`)}</span></span>
+                </label>
+              ))}
             </fieldset>
             {exportFormat === "markdown" && <>
             {/* 导出选项：图片处理策略 */}
-            <label className="flex items-start gap-2 mb-3 cursor-pointer select-none">
+            <label className="mb-4 flex cursor-pointer select-none items-start gap-2.5 rounded-xl border border-app-border/70 bg-app-surface/65 p-3">
               <input
                 type="checkbox"
                 checked={exportInlineImages}
                 onChange={(e) => setExportInlineImages(e.target.checked)}
                 disabled={isExporting}
-                className="mt-0.5 w-4 h-4 accent-indigo-600 cursor-pointer"
+                className="mt-0.5 h-4 w-4 cursor-pointer accent-emerald-600"
               />
-              <span className="text-sm">
-                <span className="text-zinc-700 dark:text-zinc-300">
+              <span className="text-xs">
+                <span className="font-semibold text-tx-primary">
                   {t('dataManager.exportInlineImages')}
                 </span>
-                <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                <span className="mt-0.5 block text-tx-secondary">
                   {t('dataManager.exportInlineImagesHint')}
                 </span>
               </span>
@@ -1292,26 +1316,26 @@ export default function DataManager() {
             <button
               onClick={handleExportAll}
               disabled={isExporting || workspaceScopeNotReady || personalExportLocked}
-              className={`flex items-center justify-center w-full py-2.5 px-4 rounded-lg font-medium text-sm transition-all ${isExporting || workspaceScopeNotReady || personalExportLocked
-                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
+              className={`flex w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${isExporting || workspaceScopeNotReady || personalExportLocked
+                ? "cursor-not-allowed bg-app-hover text-tx-tertiary"
                 : exportProgress?.phase === "done"
-                  ? "bg-green-500 hover:bg-green-600 text-white shadow-md"
-                  : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md hover:shadow-lg"
+                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm"
+                  : "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-sm shadow-emerald-500/20 hover:-translate-y-0.5 hover:shadow-md"
                 }`}
             >
               {isExporting ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   {t('dataManager.exporting')}
                 </>
               ) : exportProgress?.phase === "done" ? (
                 <>
-                  <CheckCircle className="w-4 h-4 mr-2" />
+                  <CheckCircle className="mr-2 h-4 w-4" />
                   {t('dataManager.exportSuccess')}
                 </>
               ) : (
                 <>
-                  <Download className="w-4 h-4 mr-2" />
+                  <Download className="mr-2 h-4 w-4" />
                   {t('dataManager.exportAsZip')}
                 </>
               )}
@@ -1320,32 +1344,32 @@ export default function DataManager() {
             </>}
             {exportFormat === "nowen" && <>
             {/* Nowen 数据包导出 */}
-            <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="mt-4 border-t border-app-border/70 pt-4">
+              <div className="mb-2 flex items-center gap-2">
                 <Package size={16} className="text-violet-500" />
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                <span className="text-sm font-bold text-tx-primary">
                   {t('note.nowenPackage')}
                 </span>
               </div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+              <p className="mb-3 text-xs text-tx-secondary">
                 {t('note.nowenPackageDesc')}
               </p>
               <button
                 onClick={handleExportNowenPackage}
                 disabled={isExportingNowen || workspaceScopeNotReady || personalExportLocked}
-                className={`flex items-center justify-center w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${isExportingNowen || workspaceScopeNotReady || personalExportLocked
-                  ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed"
-                  : "bg-violet-600 hover:bg-violet-700 text-white shadow-md hover:shadow-lg"
+                className={`flex w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${isExportingNowen || workspaceScopeNotReady || personalExportLocked
+                  ? "cursor-not-allowed bg-app-hover text-tx-tertiary"
+                  : "bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 text-white shadow-sm shadow-indigo-500/20 hover:-translate-y-0.5 hover:shadow-md"
                   }`}
               >
                 {isExportingNowen ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {t('note.nowenPackageExporting')}
                   </>
                 ) : (
                   <>
-                    <Package className="w-4 h-4 mr-2" />
+                    <Package className="mr-2 h-4 w-4" />
                     {t('note.nowenPackage')}
                   </>
                 )}

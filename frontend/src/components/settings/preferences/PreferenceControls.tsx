@@ -12,19 +12,19 @@ const SCOPE_COPY: Record<PreferenceScope, { label: string; hint: string; icon: L
     label: "preferences.scope.account",
     hint: "preferences.scope.accountHint",
     icon: Cloud,
-    tone: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
+    tone: "bg-indigo-500/10 text-indigo-600 ring-1 ring-indigo-500/20 dark:bg-indigo-400/14 dark:text-indigo-300",
   },
   device: {
     label: "preferences.scope.device",
     hint: "preferences.scope.deviceHint",
     icon: MonitorSmartphone,
-    tone: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    tone: "bg-sky-500/12 text-sky-700 ring-1 ring-sky-500/20 dark:bg-sky-400/14 dark:text-sky-300",
   },
   admin: {
     label: "preferences.scope.admin",
     hint: "preferences.scope.adminHint",
     icon: ShieldCheck,
-    tone: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    tone: "bg-amber-500/12 text-amber-700 ring-1 ring-amber-500/20 dark:bg-amber-400/14 dark:text-amber-300",
   },
 };
 
@@ -37,7 +37,7 @@ export function ScopeBadge({ scope }: { scope: PreferenceScope }) {
       data-preference-scope={scope}
       title={t(copy.hint)}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium leading-none",
         copy.tone,
       )}
     >
@@ -47,7 +47,7 @@ export function ScopeBadge({ scope }: { scope: PreferenceScope }) {
   );
 }
 
-const rowHover = "transition-colors hover:bg-zinc-100/70 dark:hover:bg-zinc-800/40";
+const rowHover = "transition-colors hover:bg-app-hover/65";
 const rowFocus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/50";
 
 export function PreferenceGroup({
@@ -67,15 +67,15 @@ export function PreferenceGroup({
       {(title || scope) && (
         <div className="flex min-h-5 items-center justify-between gap-3 px-1">
           {title ? (
-            <h4 id={headingId} className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{title}</h4>
+            <h4 id={headingId} className="text-xs font-semibold tracking-tight text-tx-secondary">{title}</h4>
           ) : <span />}
           {scope && <ScopeBadge scope={scope} />}
         </div>
       )}
-      <div className="divide-y divide-zinc-200/70 overflow-hidden rounded-xl border border-zinc-200/80 bg-zinc-50/50 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="divide-y divide-app-border/65 overflow-hidden rounded-2xl border border-app-border/80 bg-app-elevated/80 shadow-xs backdrop-blur-sm">
         {children}
       </div>
-      {footer && <p className="px-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{footer}</p>}
+      {footer && <p className="px-1.5 text-xs leading-5 text-tx-tertiary">{footer}</p>}
     </section>
   );
 }
@@ -98,12 +98,12 @@ function RowText({
   return (
     <span className="block min-w-0 flex-1">
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span id={titleId} className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{title}</span>
+        <span id={titleId} className="text-sm font-medium text-tx-primary">{title}</span>
         {scope && <ScopeBadge scope={scope} />}
-        {busy && <Loader2 size={12} className="animate-spin text-zinc-400" aria-hidden="true" />}
+        {busy && <Loader2 size={12} className="animate-spin text-accent-primary" aria-hidden="true" />}
       </span>
       {description && (
-        <span id={descriptionId} className="mt-0.5 block text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        <span id={descriptionId} className="mt-0.5 block text-xs leading-5 text-tx-secondary">
           {description}
         </span>
       )}
@@ -143,22 +143,26 @@ export function SwitchRow({
     <label
       data-preference-id={anchorId}
       className={cn(
-        "flex min-h-[3.25rem] items-center gap-4 px-4 py-3",
+        "flex min-h-[3.5rem] items-center gap-4 px-4 py-3",
         inactive ? "cursor-not-allowed" : cn("cursor-pointer", rowHover),
         disabled && "opacity-60",
       )}
     >
       <RowText titleId={titleId} descriptionId={descriptionId} title={title} description={description} scope={scope} busy={busy} />
-      <input
-        type="checkbox"
-        role="switch"
-        checked={checked}
-        disabled={inactive}
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        onChange={(event) => onChange(event.target.checked)}
-        className="accent-indigo-600"
-      />
+      <span className="relative inline-flex shrink-0 items-center">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={inactive}
+          aria-labelledby={titleId}
+          aria-describedby={description ? descriptionId : undefined}
+          onChange={(event) => onChange(event.target.checked)}
+          className="peer sr-only"
+        />
+        <span className="h-6 w-11 rounded-full bg-app-border transition-colors peer-checked:bg-gradient-to-r peer-checked:from-sky-500 peer-checked:to-indigo-500 peer-focus-visible:ring-2 peer-focus-visible:ring-accent-primary peer-focus-visible:ring-offset-1" />
+        <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+      </span>
     </label>
   );
 }
@@ -210,7 +214,7 @@ function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
-      className="grid shrink-0 auto-cols-fr grid-flow-col gap-0.5 rounded-lg bg-zinc-200/60 p-0.5 dark:bg-zinc-800 max-sm:w-full"
+      className="grid shrink-0 auto-cols-fr grid-flow-col gap-1 rounded-xl border border-app-border/75 bg-app-bg/75 p-1 max-sm:w-full"
     >
       {options.map((option, index) => {
         const selected = index === selectedIndex;
@@ -225,11 +229,11 @@ function SegmentedControl<T extends string>({
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => handleKeyDown(event, index)}
             className={cn(
-              "min-h-8 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors",
+              "min-h-8 whitespace-nowrap rounded-lg px-3 text-xs font-medium transition-all active:scale-95",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50",
               selected
-                ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
-                : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100",
+                ? "bg-app-surface font-semibold text-accent-primary shadow-xs ring-1 ring-app-border/75"
+                : "text-tx-secondary hover:text-tx-primary",
             )}
           >
             {option.label}
@@ -256,7 +260,7 @@ export function SegmentedRow<T extends string>({
   const titleId = useId();
   const descriptionId = useId();
   return (
-    <div data-preference-id={anchorId} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+    <div data-preference-id={anchorId} className="flex flex-col gap-2.5 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
       <RowText titleId={titleId} descriptionId={descriptionId} title={title} description={description} scope={scope} />
       <SegmentedControl
         value={value}
@@ -286,7 +290,7 @@ export function SelectRow<T extends string>({
   const titleId = useId();
   const descriptionId = useId();
   return (
-    <div data-preference-id={anchorId} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+    <div data-preference-id={anchorId} className="flex flex-col gap-2.5 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
       <RowText titleId={titleId} descriptionId={descriptionId} title={title} description={description} scope={scope} />
       <div className="relative shrink-0 max-sm:w-full">
         <select
@@ -295,16 +299,15 @@ export function SelectRow<T extends string>({
           aria-describedby={description ? descriptionId : undefined}
           onChange={(event) => onChange(event.target.value as T)}
           className={cn(
-            "h-9 w-full cursor-pointer appearance-none rounded-lg border border-zinc-200 bg-white pl-3 pr-8 text-sm text-zinc-800 outline-none transition-colors sm:w-auto sm:min-w-[9.5rem]",
-            "hover:border-zinc-300 focus-visible:border-accent-primary focus-visible:ring-2 focus-visible:ring-accent-primary/25",
-            "dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600",
+            "h-9 w-full cursor-pointer appearance-none rounded-xl border border-app-border/80 bg-app-surface pl-3 pr-8 text-sm text-tx-primary outline-none transition-all sm:w-auto sm:min-w-[9.5rem]",
+            "hover:border-accent-primary/40 focus-visible:border-accent-primary focus-visible:ring-2 focus-visible:ring-accent-primary/20",
           )}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
-        <ChevronDown size={14} aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+        <ChevronDown size={14} aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
       </div>
     </div>
   );
@@ -340,17 +343,21 @@ export function LinkRow({
       onKeyDown={onKeyDown}
       aria-labelledby={titleId}
       aria-describedby={describedBy || undefined}
-      className={cn("group flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3 text-left", rowHover, rowFocus)}
+      className={cn("group flex min-h-[3.5rem] w-full items-center gap-3 px-4 py-3 text-left", rowHover, rowFocus)}
       {...dataAttributes}
     >
       {Icon && (
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-200/60 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/14 via-cyan-400/12 to-indigo-500/14 text-sky-600 ring-1 ring-sky-500/20 transition-transform duration-200 group-hover:-rotate-6 group-hover:scale-105 dark:text-sky-300">
           <Icon size={16} aria-hidden="true" />
         </span>
       )}
       <RowText titleId={titleId} descriptionId={descriptionId} title={title} description={description} scope={scope} />
-      {trailing && <span id={trailingId} className="shrink-0 text-xs font-medium text-accent-primary">{trailing}</span>}
-      <ChevronRight size={16} aria-hidden="true" className="shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5" />
+      {trailing && (
+        <span id={trailingId} className="shrink-0 rounded-full bg-accent-primary/10 px-2.5 py-0.5 text-xs font-medium text-accent-primary">
+          {trailing}
+        </span>
+      )}
+      <ChevronRight size={16} aria-hidden="true" className="shrink-0 text-tx-tertiary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent-primary" />
     </button>
   );
 }
@@ -379,16 +386,16 @@ export function DisclosureRow({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => onOpenChange(!open)}
-        className={cn("flex min-h-[3.25rem] w-full items-center gap-3 px-4 py-3 text-left", rowHover, rowFocus)}
+        className={cn("flex min-h-[3.5rem] w-full items-center gap-3 px-4 py-3 text-left", rowHover, rowFocus)}
       >
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-100">{title}</span>
-          {summary && <span className="mt-0.5 block truncate text-xs text-zinc-500 dark:text-zinc-400">{summary}</span>}
+          <span className="block text-sm font-medium text-tx-primary">{title}</span>
+          {summary && <span className="mt-0.5 block truncate text-xs text-tx-secondary">{summary}</span>}
         </span>
-        <ChevronDown size={16} aria-hidden="true" className={cn("shrink-0 text-zinc-400 transition-transform", open && "rotate-180")} />
+        <ChevronDown size={16} aria-hidden="true" className={cn("shrink-0 text-tx-tertiary transition-transform duration-200", open && "rotate-180 text-accent-primary")} />
       </button>
       {open && (
-        <div id={panelId} className="divide-y divide-zinc-200/70 border-t border-zinc-200/70 bg-white/60 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/30">
+        <div id={panelId} className="divide-y divide-app-border/65 border-t border-app-border/65 bg-app-bg/50">
           {children}
         </div>
       )}
@@ -417,17 +424,17 @@ export function SubpageHeader({
         onClick={onBack}
         aria-label={t("preferences.backLabel")}
         data-preferences-back=""
-        className="-ml-1.5 inline-flex min-h-8 items-center gap-0.5 rounded-md px-1.5 text-sm text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        className="inline-flex min-h-8 items-center gap-1 rounded-full border border-app-border/75 bg-app-elevated/80 px-3 py-1 text-xs font-medium text-tx-secondary shadow-xs transition-all hover:border-accent-primary/35 hover:bg-app-surface hover:text-tx-primary active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50"
       >
-        <ChevronLeft size={16} aria-hidden="true" />
+        <ChevronLeft size={14} aria-hidden="true" />
         {t("preferences.back")}
       </button>
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <h3 ref={headingRef} tabIndex={-1} className="text-lg font-bold text-zinc-900 outline-none dark:text-zinc-100">{title}</h3>
+          <h3 ref={headingRef} tabIndex={-1} className="text-lg font-bold tracking-tight text-tx-primary outline-none">{title}</h3>
           {scope && <ScopeBadge scope={scope} />}
         </div>
-        {description && <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">{description}</p>}
+        {description && <p className="mt-1 text-xs leading-5 text-tx-secondary">{description}</p>}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   CheckCircle2,
@@ -480,30 +481,35 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
   ];
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-5">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
-          <Database size={19} />
-        </div>
+    <section className="rounded-2xl border border-app-border/80 bg-app-elevated/80 p-5 shadow-xs backdrop-blur-sm sm:p-6">
+      <div className="flex flex-wrap items-start gap-3.5">
+        <motion.span
+          whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+          transition={{ duration: 0.45 }}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 via-indigo-400/18 to-blue-500/20 text-violet-600 shadow-xs ring-1 ring-violet-500/25 dark:text-violet-300"
+        >
+          <Database size={20} />
+        </motion.span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{copy.title}</h3>
+            <h3 className="text-sm font-bold text-tx-primary">{copy.title}</h3>
             <span className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
               index?.configured
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+                : "bg-amber-500/12 text-amber-700 dark:text-amber-300",
             )}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", index?.configured ? "bg-emerald-500" : "bg-amber-500")} />
               {index?.configured ? copy.enabled : copy.disabled}
             </span>
           </div>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-zinc-500 dark:text-zinc-400">{copy.description}</p>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-tx-secondary">{copy.description}</p>
         </div>
         {showIndexControls && <button
           type="button"
           onClick={() => void refreshStatus()}
           disabled={statusLoading || busy}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs font-medium text-zinc-600 transition hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+          className="inline-flex h-9 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface px-3 text-xs font-semibold text-tx-secondary transition-all hover:-translate-y-0.5 hover:border-violet-400/50 hover:text-violet-600 disabled:translate-y-0 disabled:opacity-50 dark:hover:text-violet-300"
           title={copy.refresh}
         >
           {statusLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
@@ -512,35 +518,37 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
       </div>
 
       {loading ? (
-        <div className="mt-5 flex min-h-40 items-center justify-center text-zinc-400">
-          <Loader2 size={20} className="animate-spin" />
+        <div className="mt-5 flex min-h-40 items-center justify-center text-tx-tertiary">
+          <Loader2 size={20} className="animate-spin text-violet-500" />
         </div>
       ) : (
         <>
-          <div className="mt-5 space-y-2">
-            <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.sourceLabel}</div>
-            <div className="grid gap-2 lg:grid-cols-3">
+          <div className="mt-5 space-y-2.5">
+            <div className="text-xs font-semibold text-tx-secondary">{copy.sourceLabel}</div>
+            <div className="grid gap-2.5 lg:grid-cols-3">
               {sourceOptions.map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => chooseSource(option.value)}
                   className={cn(
-                    "flex items-start gap-3 rounded-xl border p-3 text-left transition",
+                    "group flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-all",
                     draft.source === option.value
-                      ? "border-accent-primary bg-accent-primary/5 ring-2 ring-accent-primary/10"
-                      : "border-zinc-200 bg-zinc-50/70 hover:border-accent-primary/30 dark:border-zinc-800 dark:bg-zinc-800/40",
+                      ? "border-violet-400/60 bg-gradient-to-br from-violet-500/[0.09] via-app-elevated to-indigo-500/[0.08] shadow-xs ring-2 ring-violet-500/15"
+                      : "border-app-border/75 bg-app-surface/65 hover:-translate-y-0.5 hover:border-violet-400/35 hover:bg-app-elevated",
                   )}
                 >
                   <span className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-zinc-900",
-                    draft.source === option.value ? "text-accent-primary" : "text-zinc-500 dark:text-zinc-300",
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-xs transition-transform group-hover:scale-105",
+                    draft.source === option.value
+                      ? "bg-gradient-to-br from-violet-500/20 to-indigo-500/20 text-violet-600 ring-1 ring-violet-500/25 dark:text-violet-300"
+                      : "bg-app-elevated text-tx-secondary",
                   )}>
                     {option.icon}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-xs font-semibold text-zinc-800 dark:text-zinc-100">{option.title}</span>
-                    <span className="mt-0.5 block text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">{option.description}</span>
+                    <span className="block text-xs font-bold text-tx-primary">{option.title}</span>
+                    <span className="mt-0.5 block text-[11px] leading-4 text-tx-secondary">{option.description}</span>
                   </span>
                 </button>
               ))}
@@ -548,9 +556,9 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
           </div>
 
           {draft.source === "profile" && (
-            <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+            <div className="mt-4 rounded-2xl border border-app-border/80 bg-app-surface/65 p-3.5">
               <label className="block space-y-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileTitle}</span>
+                <span className="text-xs font-semibold text-tx-secondary">{copy.profileTitle}</span>
                 <select
                   value={draft.profileId}
                   onChange={(event) => {
@@ -558,7 +566,7 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                     clearProbeState();
                     setMessage(null);
                   }}
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                  className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 text-sm text-tx-primary outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
                 >
                   <option value="">{profiles.length ? copy.selectProfile : copy.noProfiles}</option>
                   {profileMissing && <option value={draft.profileId}>{copy.missingProfile} · {draft.profileId}</option>}
@@ -568,10 +576,10 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                 </select>
               </label>
               {selectedProfile ? (
-                <div className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] leading-5 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-                  <div className="font-medium text-zinc-700 dark:text-zinc-200">{selectedProfile.name}</div>
+                <div className="mt-2.5 rounded-xl border border-app-border/60 bg-app-elevated/85 px-3.5 py-2.5 text-[11px] leading-5 text-tx-secondary">
+                  <div className="font-semibold text-tx-primary">{selectedProfile.name}</div>
                   <div>{selectedProfile.provider} · {selectedProfile.apiUrl || "—"}</div>
-                  <div>{copy.profileSummary}</div>
+                  <div className="text-tx-tertiary">{copy.profileSummary}</div>
                 </div>
               ) : profileMissing ? (
                 <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -583,10 +591,10 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
           )}
 
           {draft.source === "custom" && (
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="mt-4 grid gap-3.5 lg:grid-cols-2">
               <label className="space-y-1.5">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  <Server size={12} />{copy.embeddingUrl}
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-tx-secondary">
+                  <Server size={12} className="text-violet-500" />{copy.embeddingUrl}
                 </span>
                 <input
                   value={draft.url}
@@ -595,13 +603,13 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                     clearProbeState();
                   }}
                   placeholder={copy.urlPlaceholder}
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                  className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2.5 text-sm text-tx-primary outline-none transition placeholder:text-tx-tertiary focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
                 />
               </label>
 
               <label className="space-y-1.5">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  <KeyRound size={12} />{copy.embeddingKey}
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-tx-secondary">
+                  <KeyRound size={12} className="text-violet-500" />{copy.embeddingKey}
                 </span>
                 <div className="relative">
                   <input
@@ -612,22 +620,22 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                       clearProbeState();
                     }}
                     placeholder={draft.keySet ? copy.savedKey : copy.keyPlaceholder}
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                    className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2.5 pr-10 text-sm text-tx-primary outline-none transition placeholder:text-tx-tertiary focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
                   />
                   <button
                     type="button"
                     onClick={() => setShowKey((value) => !value)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-tx-tertiary transition-colors hover:text-tx-primary"
                   >
-                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
               </label>
             </div>
           )}
 
-          <label className="mt-3 block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.embeddingModel}</span>
+          <label className="mt-4 block space-y-1.5">
+            <span className="text-xs font-semibold text-tx-secondary">{copy.embeddingModel}</span>
             <input
               value={draft.model}
               onChange={(event) => {
@@ -636,12 +644,12 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
               }}
               placeholder={copy.modelPlaceholder}
               list="nowen-embedding-model-suggestions"
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition placeholder:text-zinc-400 focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+              className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2.5 text-sm text-tx-primary outline-none transition placeholder:text-tx-tertiary focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
             />
             <datalist id="nowen-embedding-model-suggestions">
               {modelOptions.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
             </datalist>
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-zinc-400">
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-tx-tertiary">
               <span>{copy.examples}</span>
               {MODEL_SUGGESTIONS.map((model) => (
                 <button
@@ -651,18 +659,18 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                     setDraft((current) => ({ ...current, model }));
                     setTestResult(null);
                   }}
-                  className="rounded-full border border-zinc-200 px-2 py-1 font-mono text-zinc-500 transition hover:border-accent-primary/40 hover:text-accent-primary dark:border-zinc-700 dark:text-zinc-400"
+                  className="rounded-full border border-app-border/80 bg-app-surface/80 px-2.5 py-0.5 font-mono text-[11px] text-tx-secondary transition-all hover:-translate-y-0.5 hover:border-violet-400/50 hover:text-violet-600 dark:hover:text-violet-300"
                 >
                   {model}
                 </button>
               ))}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void refreshModels()}
                 disabled={discovering || testing || busy || profileMissing}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-600 transition hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+                className="inline-flex min-h-9 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface px-3.5 py-2 text-xs font-semibold text-tx-primary transition-all hover:-translate-y-0.5 hover:border-violet-400/50 hover:text-violet-600 disabled:translate-y-0 disabled:opacity-50 dark:hover:text-violet-300"
               >
                 {discovering ? <Loader2 size={13} className="animate-spin" /> : <ListFilter size={13} />}
                 {discovering ? copy.discoveringModels : copy.discoverModels}
@@ -671,7 +679,7 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                 type="button"
                 onClick={() => void runEmbeddingTest()}
                 disabled={discovering || testing || busy || profileMissing || !draft.model.trim()}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-violet-500/30 px-3 py-2 text-xs font-medium text-violet-600 transition hover:bg-violet-500/5 disabled:opacity-50 dark:text-violet-400"
+                className="inline-flex min-h-9 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 px-3.5 py-2 text-xs font-semibold text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-500/15 disabled:translate-y-0 disabled:opacity-50 dark:text-violet-300"
               >
                 {testing ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
                 {testing ? copy.testingModel : copy.testModel}
@@ -684,7 +692,7 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                     setDraft((current) => ({ ...current, model: event.target.value }));
                     setTestResult(null);
                   }}
-                  className="min-h-9 min-w-52 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs outline-none transition focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                  className="min-h-9 min-w-52 flex-1 rounded-xl border border-app-border/80 bg-app-surface px-3 py-2 text-xs text-tx-primary outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
                 >
                   <option value="">{copy.discoveredModels} · {discoveredModels.length}</option>
                   {discoveredModels.map((model) => (
@@ -696,17 +704,17 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
               )}
             </div>
             {testResult && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 size={13} />
                 <span>{testResult.dimension} {copy.dimension} · {testResult.durationMs} ms · {testResult.provider}</span>
               </div>
             )}
           </label>
 
-          <details className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
-            <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-300">{copy.advanced}</summary>
+          <details className="mt-4 rounded-xl border border-app-border/80 bg-app-surface/55 p-3.5">
+            <summary className="cursor-pointer text-xs font-semibold text-tx-secondary hover:text-tx-primary">{copy.advanced}</summary>
             <label className="mt-3 block space-y-1.5">
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.indexTimeout}</span>
+              <span className="text-xs font-semibold text-tx-secondary">{copy.indexTimeout}</span>
               <input
                 type="number"
                 min={30}
@@ -715,38 +723,38 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                 value={draft.timeoutSeconds}
                 disabled={busy}
                 onChange={(event) => setDraft((current) => ({ ...current, timeoutSeconds: event.target.value }))}
-                className="block w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                className="block w-32 rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2 text-sm text-tx-primary outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
               />
-              <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">{copy.indexTimeoutHint}</p>
+              <p className="text-xs leading-5 text-tx-tertiary">{copy.indexTimeoutHint}</p>
             </label>
           </details>
 
-          {showIndexControls && <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
-              <div className="text-[11px] text-zinc-500">{copy.notes}</div>
-              <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {showIndexControls && <div className="mt-5 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-app-border/70 bg-app-surface/75 p-3.5">
+              <div className="text-[11px] font-medium text-tx-tertiary">{copy.notes}</div>
+              <div className="mt-1 text-base font-bold tabular-nums text-tx-primary">
                 {index ? `${index.indexedNotes}/${index.totalNotes}` : "—"}
               </div>
             </div>
-            <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
-              <div className="text-[11px] text-zinc-500">{copy.attachments}</div>
-              <div className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <div className="rounded-xl border border-app-border/70 bg-app-surface/75 p-3.5">
+              <div className="text-[11px] font-medium text-tx-tertiary">{copy.attachments}</div>
+              <div className="mt-1 text-base font-bold tabular-nums text-tx-primary">
                 {index ? `${index.indexedAttachments}/${index.totalAttachments}` : "—"}
               </div>
             </div>
-            <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
-              <div className="text-[11px] text-zinc-500">{copy.queue}</div>
-              <div className="mt-1 text-xs font-medium text-zinc-900 dark:text-zinc-100">
+            <div className="rounded-xl border border-app-border/70 bg-app-surface/75 p-3.5">
+              <div className="text-[11px] font-medium text-tx-tertiary">{copy.queue}</div>
+              <div className="mt-1.5 text-xs font-semibold tabular-nums text-tx-primary">
                 {index
                   ? `${copy.pending} ${index.pending} · ${copy.processing} ${index.processing} · ${copy.failed} ${index.failed}`
                   : copy.statusLoading}
               </div>
             </div>
-            <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
-              <div className="text-[11px] text-zinc-500">{copy.vectorEngine}</div>
+            <div className="rounded-xl border border-app-border/70 bg-app-surface/75 p-3.5">
+              <div className="text-[11px] font-medium text-tx-tertiary">{copy.vectorEngine}</div>
               <div className={cn(
-                "mt-1 text-xs font-semibold",
-                vectorState === "ready" ? "text-emerald-600 dark:text-emerald-400" : vectorState === "unavailable" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400",
+                "mt-1.5 text-xs font-bold",
+                vectorState === "ready" ? "text-emerald-600 dark:text-emerald-400" : vectorState === "unavailable" ? "text-rose-600 dark:text-rose-400" : "text-blue-600 dark:text-blue-400",
               )}>
                 {vectorState === "ready" ? copy.ready : vectorState === "initializing" ? copy.initializing : copy.extensionFailure}
                 {index?.vectorDimension ? ` · ${index.vectorDimension} ${copy.dimension}` : ""}
@@ -755,13 +763,13 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
           </div>}
 
           {(status?.embedding?.error || profileMissing) && (
-            <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              <AlertCircle size={13} className="mt-0.5 shrink-0" />
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-800 dark:text-amber-200">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
               <span>{status?.embedding?.error || copy.profileMissingWarning}</span>
             </div>
           )}
           {showIndexControls && index?.configured && vectorState !== "ready" && (
-             <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+             <p className="mt-2 text-xs leading-5 text-tx-secondary">
                {vectorState === "initializing" ? copy.initializingHint : copy.extensionFailureHint}
              </p>
            )}
@@ -772,14 +780,14 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
                setMessage({ type: "success", text: copy.retried(count) });
              }}
            />}
-           {showIndexControls && <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>}
+           {showIndexControls && <p className="mt-2 text-[11px] leading-4 text-tx-tertiary">{copy.backgroundHint}</p>}
 
-          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          <div className="mt-5 flex flex-wrap items-center gap-2.5 border-t border-app-border/70 pt-4">
             <button
               type="button"
               onClick={() => void saveSettings()}
               disabled={busy || (draft.source === "profile" && !draft.profileId)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition hover:bg-accent-primary/90 disabled:opacity-50"
+              className="inline-flex min-h-9 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               {saving ? copy.saving : copy.save}
@@ -788,7 +796,7 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
               type="button"
               onClick={() => void rebuildIndex()}
               disabled={busy || !index?.configured}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-violet-500/30 px-4 py-2 text-xs font-medium text-violet-600 transition hover:bg-violet-500/5 disabled:opacity-50 dark:text-violet-400"
+              className="inline-flex min-h-9 shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-violet-500/35 bg-violet-500/10 px-4 py-2 text-xs font-semibold text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-500/15 disabled:translate-y-0 disabled:opacity-50 dark:text-violet-300"
             >
               {rebuilding ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
               {rebuilding ? copy.rebuilding : copy.rebuild}
@@ -796,12 +804,12 @@ export default function EmbeddingSettingsPanel({ showIndexControls = true }: { s
 
             {message && (
               <span className={cn(
-                "inline-flex min-w-0 items-center gap-1.5 text-xs sm:ml-auto",
+                "inline-flex min-w-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium sm:ml-auto",
                 message.type === "success"
-                  ? "text-emerald-600 dark:text-emerald-400"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                   : message.type === "warning"
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-red-500",
+                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    : "bg-rose-500/10 text-rose-600 dark:text-rose-300",
               )}>
                 {message.type === "success" ? <CheckCircle2 size={13} className="shrink-0" /> : <AlertCircle size={13} className="shrink-0" />}
                 <span>{message.text}</span>

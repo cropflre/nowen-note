@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   Bot,
@@ -7,11 +8,15 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  Globe,
   Loader2,
   Plus,
   RefreshCw,
   Save,
+  Share2,
+  Sparkles,
   Trash2,
+  Users,
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -561,64 +566,192 @@ export default function AISettingsPanel() {
   };
 
   if (loading) {
-    return <div className="flex min-h-[320px] items-center justify-center text-zinc-400"><Loader2 className="animate-spin" size={22} /></div>;
+    return (
+      <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-app-border/70 bg-app-elevated/60 text-tx-tertiary backdrop-blur-sm">
+        <Loader2 className="animate-spin text-violet-500" size={22} />
+      </div>
+    );
   }
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-sm">
-          <Bot size={18} />
-        </div>
-        <div>
-          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{copy.title}</h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{copy.description}</p>
+      <div className="relative overflow-hidden rounded-2xl border border-app-border/80 bg-gradient-to-br from-fuchsia-500/[0.07] via-app-elevated/85 to-violet-500/[0.07] p-5 shadow-xs backdrop-blur-sm">
+        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-fuchsia-400/15 blur-2xl" />
+        <div className="relative flex flex-wrap items-center gap-3.5">
+          <motion.span
+            whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+            transition={{ duration: 0.45 }}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-fuchsia-500/20 via-violet-400/18 to-indigo-500/20 text-fuchsia-600 shadow-xs ring-1 ring-fuchsia-500/25 dark:text-fuchsia-300"
+          >
+            <Bot size={20} />
+          </motion.span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-bold tracking-tight text-tx-primary">{copy.title}</h3>
+            <p className="mt-0.5 text-xs leading-relaxed text-tx-secondary">{copy.description}</p>
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-3 py-1 text-[11px] font-semibold text-fuchsia-700 dark:text-fuchsia-300">
+            <Sparkles size={12} />
+            <span>{profiles.length}</span>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900/30" aria-label="AI 网络代理状态">
+      <div
+        className="rounded-2xl border border-app-border/80 bg-app-elevated/75 px-4 py-3.5 text-xs shadow-xs backdrop-blur-sm"
+        aria-label="AI 网络代理状态"
+      >
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">AI 网络代理</span>
-          <span className={proxyStatus?.enabled && proxyStatus.valid ? "text-emerald-600 dark:text-emerald-400" : proxyStatus?.enabled && !proxyStatus.valid ? "text-red-600" : "text-zinc-500"}>
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-sky-500/12 text-sky-600 dark:text-sky-300">
+            <Globe size={13} />
+          </span>
+          <span className="font-semibold text-tx-primary">AI 网络代理</span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+              proxyStatus?.enabled && proxyStatus.valid
+                ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+                : proxyStatus?.enabled && !proxyStatus.valid
+                  ? "bg-rose-500/12 text-rose-600 dark:text-rose-300"
+                  : "bg-app-hover/90 text-tx-secondary",
+            )}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                proxyStatus?.enabled && proxyStatus.valid
+                  ? "bg-emerald-500"
+                  : proxyStatus?.enabled && !proxyStatus.valid
+                    ? "bg-rose-500"
+                    : "bg-tx-tertiary",
+              )}
+            />
             {proxyStatus ? proxyStatus.enabled ? proxyStatus.valid ? "服务端已启用" : "配置无效" : "直连" : "状态未知"}
           </span>
         </div>
-        <p className="mt-1 text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2 leading-relaxed text-tx-secondary">
           {proxyStatus?.message || "代理由 Nowen Server 管理员通过 NOWEN_AI_PROXY_URL 环境变量配置，设置后需重启服务端。"}
         </p>
-        <p className="mt-1 text-zinc-400">
+        <p className="mt-1 leading-relaxed text-tx-tertiary">
           代理仅影响服务端 AI 请求（包括模型发现、对话及 Embedding），不改变当前设备的连接或笔记同步；本地模型默认直连。
         </p>
       </div>
 
       {available && (
-        <section aria-label={copy.shared} className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-          <h4 className="text-sm font-semibold">{copy.shared}</h4>
-          <p className="text-xs text-zinc-500">{copy.sharedHint}</p>
-          {available.remoteError && <p role="alert" className="text-xs text-amber-600">{available.remoteError}</p>}
-          {available.unavailable && <p role="alert" className="text-xs text-amber-600">{copy.unavailable}</p>}
-          {!available.sharedSupported && <p className="text-xs text-zinc-500">{copy.unsupported}</p>}
-          {available.sharedSupported && !available.remoteError && !available.sharedProfiles.length && <p className="text-xs text-zinc-500">{copy.noShared}</p>}
-          {available.sharedProfiles.map((profile) => <div key={profile.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/40">
-            <div className="min-w-0 flex-1"><p className="flex min-w-0 items-center gap-2 text-sm font-medium"><span className="truncate">{profile.name}</span><span className="shrink-0 text-[10px] font-normal text-zinc-500">{copy.provided}</span></p><p className="break-all text-xs text-zinc-500">{profile.model} · {profile.provider}</p></div>
-            <button type="button" disabled={activating || (available.active.scope === "shared" && available.active.id === profile.id)} onClick={() => void activateShared(profile.id)} className="rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-600 disabled:opacity-50">{available.active.scope === "shared" && available.active.id === profile.id ? copy.active : copy.activate}</button>
-          </div>)}
+        <section
+          aria-label={copy.shared}
+          className="space-y-3 rounded-2xl border border-app-border/80 bg-app-elevated/80 p-5 shadow-xs backdrop-blur-sm"
+        >
+          <div className="flex items-start gap-3">
+            <motion.span
+              whileHover={{ rotate: [0, -10, 10, 0], scale: 1.06 }}
+              transition={{ duration: 0.4 }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/18 to-indigo-500/18 text-violet-600 ring-1 ring-violet-500/20 dark:text-violet-300"
+            >
+              <Share2 size={16} />
+            </motion.span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold text-tx-primary">{copy.shared}</h4>
+              <p className="mt-0.5 text-xs leading-relaxed text-tx-secondary">{copy.sharedHint}</p>
+            </div>
+          </div>
+          {available.remoteError && (
+            <p role="alert" className="rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+              {available.remoteError}
+            </p>
+          )}
+          {available.unavailable && (
+            <p role="alert" className="rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+              {copy.unavailable}
+            </p>
+          )}
+          {!available.sharedSupported && <p className="text-xs text-tx-tertiary">{copy.unsupported}</p>}
+          {available.sharedSupported && !available.remoteError && !available.sharedProfiles.length && (
+            <p className="rounded-xl border border-dashed border-app-border/80 bg-app-surface/50 px-3.5 py-2.5 text-xs text-tx-tertiary">
+              {copy.noShared}
+            </p>
+          )}
+          {available.sharedProfiles.map((profile) => {
+            const isSharedActive = available.active.scope === "shared" && available.active.id === profile.id;
+            return (
+              <div
+                key={profile.id}
+                className={cn(
+                  "flex flex-wrap items-center justify-between gap-2.5 rounded-xl border px-3.5 py-3 transition-all",
+                  isSharedActive
+                    ? "border-emerald-400/40 bg-emerald-500/[0.06] shadow-xs"
+                    : "border-app-border/70 bg-app-surface/75 hover:border-violet-400/35 hover:shadow-xs",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-tx-primary">
+                    <span className="truncate">{profile.name}</span>
+                    <span className="shrink-0 rounded-full bg-violet-500/12 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                      {copy.provided}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 break-all text-xs text-tx-secondary">{profile.model} · {profile.provider}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={activating || isSharedActive}
+                  onClick={() => void activateShared(profile.id)}
+                  className={cn(
+                    "shrink-0 whitespace-nowrap rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all disabled:opacity-60",
+                    isSharedActive
+                      ? "border border-emerald-500/30 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+                      : "border border-emerald-500/35 bg-app-elevated text-emerald-600 hover:-translate-y-0.5 hover:bg-emerald-500/10 dark:text-emerald-400",
+                  )}
+                >
+                  {isSharedActive ? copy.active : copy.activate}
+                </button>
+              </div>
+            );
+          })}
         </section>
       )}
-      {available?.isAdmin && <div className="flex gap-2" role="group" aria-label={copy.profiles}>
-        <button type="button" aria-pressed={!manageShared} onClick={() => setManageShared(false)} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs aria-pressed:bg-accent-primary/10 dark:border-zinc-700">{copy.personal}</button>
-        <button type="button" aria-pressed={manageShared} onClick={() => setManageShared(true)} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs aria-pressed:bg-accent-primary/10 dark:border-zinc-700">{copy.manageShared}</button>
-      </div>}
-      {manageShared && <p className="text-xs leading-5 text-zinc-500">{copy.managementHint}</p>}
-      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{copy.profiles}</span>
-            <button type="button" onClick={startNew} className="rounded-md p-1.5 text-zinc-500 hover:bg-white hover:text-accent-primary dark:hover:bg-zinc-800" title={copy.newProfile}>
+      {available?.isAdmin && (
+        <div
+          className="inline-flex items-center gap-1 rounded-2xl border border-app-border/80 bg-app-surface/80 p-1 shadow-xs"
+          role="group"
+          aria-label={copy.profiles}
+        >
+          <button
+            type="button"
+            aria-pressed={!manageShared}
+            onClick={() => setManageShared(false)}
+            className="rounded-xl px-3.5 py-1.5 text-xs font-semibold text-tx-secondary transition-all hover:text-tx-primary aria-pressed:bg-app-elevated aria-pressed:text-fuchsia-600 aria-pressed:shadow-xs dark:aria-pressed:text-fuchsia-300"
+          >
+            {copy.personal}
+          </button>
+          <button
+            type="button"
+            aria-pressed={manageShared}
+            onClick={() => setManageShared(true)}
+            className="rounded-xl px-3.5 py-1.5 text-xs font-semibold text-tx-secondary transition-all hover:text-tx-primary aria-pressed:bg-app-elevated aria-pressed:text-fuchsia-600 aria-pressed:shadow-xs dark:aria-pressed:text-fuchsia-300"
+          >
+            {copy.manageShared}
+          </button>
+        </div>
+      )}
+      {manageShared && (
+        <p className="rounded-xl border border-violet-500/20 bg-violet-500/[0.06] px-3.5 py-2 text-xs leading-5 text-tx-secondary">
+          {copy.managementHint}
+        </p>
+      )}
+      <div className="grid gap-4 lg:grid-cols-[232px_minmax(0,1fr)]">
+        <aside className="min-w-0 rounded-2xl border border-app-border/80 bg-app-elevated/75 p-3 shadow-xs backdrop-blur-sm">
+          <div className="mb-2.5 flex items-center justify-between px-1">
+            <span className="text-xs font-bold text-tx-secondary">{copy.profiles}</span>
+            <button
+              type="button"
+              onClick={startNew}
+              className="flex h-7 w-7 items-center justify-center rounded-xl border border-app-border/80 bg-app-surface text-tx-secondary transition-all hover:scale-105 hover:border-fuchsia-400/50 hover:text-fuchsia-600 dark:hover:text-fuchsia-300"
+              title={copy.newProfile}
+            >
               <Plus size={14} />
             </button>
           </div>
-          <div className="max-h-[430px] space-y-1 overflow-auto">
+          <div className="max-h-[450px] space-y-1.5 overflow-auto pr-0.5">
             {profiles.map((profile) => {
               const active = profile.id === activeProfileId;
               const selected = profile.id === selectedId;
@@ -628,129 +761,208 @@ export default function AISettingsPanel() {
                   type="button"
                   onClick={() => selectProfile(profile)}
                   className={cn(
-                    "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    "w-full rounded-xl border px-3 py-2.5 text-left transition-all",
                     selected
-                      ? "border-accent-primary/50 bg-white shadow-sm dark:bg-zinc-900"
-                      : "border-transparent hover:bg-white dark:hover:bg-zinc-800/70",
+                      ? "border-fuchsia-400/55 bg-gradient-to-br from-fuchsia-500/[0.09] via-app-elevated to-violet-500/[0.08] shadow-xs ring-1 ring-fuchsia-500/15"
+                      : "border-transparent bg-app-surface/50 hover:border-app-border/80 hover:bg-app-elevated",
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{profile.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{profile.name}</span>
                     {active && <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />}
                   </div>
-                  <div className="mt-1 truncate text-[10px] text-zinc-400">{profile.model || profile.provider}</div>
+                  <div className="mt-1 truncate text-[11px] text-tx-tertiary">{profile.model || profile.provider}</div>
                 </button>
               );
             })}
             {selectedId === null && (
-              <div className="rounded-lg border border-dashed border-accent-primary/50 bg-accent-primary/5 px-3 py-2.5 text-sm font-medium text-accent-primary">
+              <div className="rounded-xl border border-dashed border-fuchsia-400/60 bg-fuchsia-500/[0.08] px-3 py-2.5 text-sm font-semibold text-fuchsia-600 dark:text-fuchsia-300">
                 {copy.newProfile}
               </div>
             )}
           </div>
         </aside>
 
-        <section className="min-w-0 space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <section className="min-w-0 space-y-4 rounded-2xl border border-app-border/80 bg-app-elevated/85 p-5 shadow-xs backdrop-blur-sm">
+          <div className="grid gap-3.5 sm:grid-cols-2">
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileName}</span>
-              <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900" />
+              <span className="text-xs font-semibold text-tx-secondary">{copy.profileName}</span>
+              <input
+                value={draft.name}
+                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2 text-sm text-tx-primary outline-none transition-all focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-500/15"
+              />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.provider}</span>
+              <span className="text-xs font-semibold text-tx-secondary">{copy.provider}</span>
               <div className="relative">
-                <select value={draft.provider} onChange={(event) => changeProvider(event.target.value)} className="w-full appearance-none rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-8 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900">
+                <select
+                  value={draft.provider}
+                  onChange={(event) => changeProvider(event.target.value)}
+                  className="w-full appearance-none rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2 pr-9 text-sm text-tx-primary outline-none transition-all focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-500/15"
+                >
                   {PROVIDER_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-tx-tertiary" />
               </div>
             </label>
           </div>
 
-          <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/40">
-            <div className={cn("flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br text-white", preset.color)}><Zap size={13} /></div>
+          <div className="flex items-center gap-3 rounded-xl border border-app-border/70 bg-app-surface/75 px-3.5 py-2.5">
+            <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-xs", preset.color)}>
+              <Zap size={14} />
+            </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{preset.name}</div>
-              <div className="truncate text-[10px] text-zinc-400">{preset.desc}</div>
+              <div className="text-xs font-bold text-tx-primary">{preset.name}</div>
+              <div className="truncate text-[11px] text-tx-tertiary">{preset.desc}</div>
             </div>
             {selectedId === activeProfileId && selectedId !== null && (
-              <span className="ml-auto rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">{copy.active}</span>
+              <span className="ml-auto shrink-0 rounded-full bg-emerald-500/12 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                {copy.active}
+              </span>
             )}
           </div>
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.apiUrl}</span>
-            <input value={draft.apiUrl} onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))} placeholder="https://api.example.com/v1" className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900" />
+            <span className="text-xs font-semibold text-tx-secondary">{copy.apiUrl}</span>
+            <input
+              value={draft.apiUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))}
+              placeholder="https://api.example.com/v1"
+              className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2 text-sm text-tx-primary outline-none transition-all focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-500/15"
+            />
           </label>
 
-          <p className="text-xs text-zinc-400">{copy.apiUrlHint}</p>
+          <p className="text-xs leading-relaxed text-tx-tertiary">{copy.apiUrlHint}</p>
 
           {needsKey && (
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.apiKey}</span>
+              <span className="text-xs font-semibold text-tx-secondary">{copy.apiKey}</span>
               <div className="relative">
-                <input type={showKey ? "text" : "password"} value={draft.apiKey} onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))} placeholder={selectedProfile?.apiKeySet ? copy.keyConfigured : "sk-..."} className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-10 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900" />
-                <button type="button" onClick={() => setShowKey((value) => !value)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={draft.apiKey}
+                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                  placeholder={selectedProfile?.apiKeySet ? copy.keyConfigured : "sk-..."}
+                  className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2 pr-10 text-sm text-tx-primary outline-none transition-all focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-500/15"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((value) => !value)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-tx-tertiary transition-colors hover:text-tx-primary"
+                >
+                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </label>
           )}
 
-          <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-            <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.advancedHeaders}</summary>
-            <div className="mt-3 space-y-2">
-              <p className="text-xs text-zinc-400">{copy.headerHint}</p>
+          <details className="rounded-xl border border-app-border/80 bg-app-surface/55 p-3.5">
+            <summary className="cursor-pointer text-xs font-semibold text-tx-secondary hover:text-tx-primary">{copy.advancedHeaders}</summary>
+            <div className="mt-3 space-y-2.5">
+              <p className="text-xs leading-relaxed text-tx-tertiary">{copy.headerHint}</p>
               {Object.entries(draft.customHeaders || {}).map(([name, value], index) => (
                 <div key={index} className="flex flex-wrap items-center gap-2">
-                  <input aria-label={`${copy.headerName} ${index + 1}`} value={name} onChange={(event) => updateHeader(index, event.target.value, value)} placeholder="x-session" className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700" />
-                  <input aria-label={`${copy.headerValue} ${index + 1}`} type="password" autoComplete="new-password" value={value} onChange={(event) => updateHeader(index, name, event.target.value)} placeholder={copy.headerValue} className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700" />
-                  <button type="button" aria-label={`${copy.removeHeader} ${index + 1}`} onClick={() => setDraft((current) => ({ ...current, customHeaders: Object.fromEntries(Object.entries(current.customHeaders || {}).filter((_, i) => i !== index)) }))} className="p-1.5 text-zinc-400 hover:text-red-500"><Trash2 size={14} /></button>
+                  <input
+                    aria-label={`${copy.headerName} ${index + 1}`}
+                    value={name}
+                    onChange={(event) => updateHeader(index, event.target.value, value)}
+                    placeholder="x-session"
+                    className="min-w-0 flex-1 rounded-xl border border-app-border/80 bg-app-elevated px-3 py-1.5 text-xs text-tx-primary outline-none focus:border-fuchsia-400"
+                  />
+                  <input
+                    aria-label={`${copy.headerValue} ${index + 1}`}
+                    type="password"
+                    autoComplete="new-password"
+                    value={value}
+                    onChange={(event) => updateHeader(index, name, event.target.value)}
+                    placeholder={copy.headerValue}
+                    className="min-w-0 flex-1 rounded-xl border border-app-border/80 bg-app-elevated px-3 py-1.5 text-xs text-tx-primary outline-none focus:border-fuchsia-400"
+                  />
+                  <button
+                    type="button"
+                    aria-label={`${copy.removeHeader} ${index + 1}`}
+                    onClick={() => setDraft((current) => ({ ...current, customHeaders: Object.fromEntries(Object.entries(current.customHeaders || {}).filter((_, i) => i !== index)) }))}
+                    className="rounded-lg p-1.5 text-tx-tertiary transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               ))}
-              <button type="button" disabled={Object.hasOwn(draft.customHeaders || {}, "") || Object.keys(draft.customHeaders || {}).length >= 32} onClick={() => setDraft((current) => ({ ...current, customHeaders: { ...current.customHeaders, "": "" } }))} className="inline-flex items-center gap-1 text-xs text-accent-primary disabled:opacity-40"><Plus size={12} />{copy.addHeader}</button>
+              <button
+                type="button"
+                disabled={Object.hasOwn(draft.customHeaders || {}, "") || Object.keys(draft.customHeaders || {}).length >= 32}
+                onClick={() => setDraft((current) => ({ ...current, customHeaders: { ...current.customHeaders, "": "" } }))}
+                className="inline-flex items-center gap-1 rounded-lg bg-fuchsia-500/10 px-2.5 py-1 text-xs font-semibold text-fuchsia-600 transition-colors hover:bg-fuchsia-500/15 disabled:opacity-40 dark:text-fuchsia-300"
+              >
+                <Plus size={12} />{copy.addHeader}
+              </button>
             </div>
           </details>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.model}</span>
-              <button type="button" onClick={() => void discoverModels(false)} disabled={manageShared || loadingModels || !draft.apiUrl} className="inline-flex items-center gap-1 text-[10px] text-accent-primary disabled:opacity-40">
+              <span className="text-xs font-semibold text-tx-secondary">{copy.model}</span>
+              <button
+                type="button"
+                onClick={() => void discoverModels(false)}
+                disabled={manageShared || loadingModels || !draft.apiUrl}
+                className="inline-flex items-center gap-1 rounded-lg bg-fuchsia-500/10 px-2.5 py-1 text-[11px] font-semibold text-fuchsia-600 transition-colors hover:bg-fuchsia-500/15 disabled:opacity-40 dark:text-fuchsia-300"
+              >
                 {loadingModels ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
                 {copy.fetchModels}
               </button>
             </div>
             <div className="relative">
-              <input value={draft.model} onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))} onFocus={() => models.length > 0 && setModelOpen(true)} placeholder={preset.defaultModel || copy.customModel} className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-9 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900" />
-              {models.length > 0 && <button type="button" onClick={() => setModelOpen((value) => !value)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400"><ChevronDown size={14} /></button>}
+              <input
+                value={draft.model}
+                onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+                onFocus={() => models.length > 0 && setModelOpen(true)}
+                placeholder={preset.defaultModel || copy.customModel}
+                className="w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3.5 py-2 pr-9 text-sm text-tx-primary outline-none transition-all focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-500/15"
+              />
+              {models.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setModelOpen((value) => !value)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-primary"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              )}
               {modelOpen && models.length > 0 && (
                 <>
                   <button type="button" aria-label="close" className="fixed inset-0 z-40 cursor-default" onClick={() => setModelOpen(false)} />
-                  <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                  <div className="absolute z-50 mt-1.5 max-h-60 w-full overflow-auto rounded-xl border border-app-border bg-app-elevated py-1.5 shadow-xl">
                     {models.map((model) => (
-                      <button key={model.id} type="button" onClick={() => { setDraft((current) => ({ ...current, model: model.id })); setModelOpen(false); }} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-zinc-700 hover:bg-accent-primary/5 hover:text-accent-primary dark:text-zinc-200">
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => { setDraft((current) => ({ ...current, model: model.id })); setModelOpen(false); }}
+                        className="flex w-full items-center justify-between px-3.5 py-2 text-left text-sm text-tx-primary transition-colors hover:bg-fuchsia-500/10 hover:text-fuchsia-600 dark:hover:text-fuchsia-300"
+                      >
                         <span className="truncate">{model.name}</span>
-                        {draft.model === model.id && <Check size={13} className="shrink-0" />}
+                        {draft.model === model.id && <Check size={13} className="shrink-0 text-fuchsia-500" />}
                       </button>
                     ))}
                   </div>
                 </>
               )}
             </div>
-            <div className="min-h-4 text-[10px]">
-              {loadingModels ? <span className="text-zinc-400">{copy.fetching}</span>
+            <div className="min-h-4 text-[11px]">
+              {loadingModels ? <span className="text-tx-tertiary">{copy.fetching}</span>
                 : modelError ? <span className="text-amber-600 dark:text-amber-400">{modelError}</span>
-                : <span className="text-zinc-400">{manageShared ? copy.customModel : copy.autoModels}</span>}
+                : <span className="text-tx-tertiary">{manageShared ? copy.customModel : copy.autoModels}</span>}
             </div>
           </div>
 
           {nonChatKind && (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-800 dark:text-amber-200">
               <span className="flex-1">{nonChatHint}</span>
               {nonChatKind === "embedding" && (
                 <button
                   type="button"
-                  className="shrink-0 rounded-md border border-amber-400/50 px-2.5 py-1.5 font-medium transition hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                  className="shrink-0 rounded-lg border border-amber-400/50 bg-app-elevated/80 px-2.5 py-1.5 font-semibold transition hover:bg-amber-500/15"
                   onClick={() => document.querySelector(".nowen-embedding-settings")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
                   {copy.goToEmbedding}
@@ -760,41 +972,100 @@ export default function AISettingsPanel() {
           )}
 
           {manageShared && (
-            <fieldset className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-              <legend className="px-1 text-xs font-medium">{copy.members}</legend>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sharedEnabled} onChange={(event) => setSharedEnabled(event.target.checked)} />{copy.enabled}</label>
+            <fieldset className="space-y-3 rounded-xl border border-app-border/80 bg-app-surface/55 p-3.5">
+              <legend className="inline-flex items-center gap-1.5 px-1.5 text-xs font-semibold text-tx-secondary">
+                <Users size={12} className="text-violet-500" />
+                {copy.members}
+              </legend>
+              <label className="flex items-center gap-2 text-sm font-medium text-tx-primary">
+                <input
+                  type="checkbox"
+                  checked={sharedEnabled}
+                  onChange={(event) => setSharedEnabled(event.target.checked)}
+                  className="h-4 w-4 rounded accent-fuchsia-600"
+                />
+                {copy.enabled}
+              </label>
               <div className="grid max-h-48 gap-2 overflow-auto sm:grid-cols-2">
-                {members.map((member) => <label key={member.id} className="flex min-w-0 items-center gap-2 text-xs"><input type="checkbox" checked={memberIds.includes(member.id)} disabled={!!member.isDisabled && !memberIds.includes(member.id)} onChange={(event) => setMemberIds((ids) => event.target.checked ? [...ids, member.id] : ids.filter((id) => id !== member.id))} /><span className="truncate">{member.displayName || member.username}{member.isDisabled ? ` · ${copy.disabledMember}` : ""}</span></label>)}
-                {!members.length && <p className="text-xs text-zinc-500">{copy.noMembers}</p>}
+                {members.map((member) => (
+                  <label
+                    key={member.id}
+                    className="flex min-w-0 items-center gap-2 rounded-lg border border-app-border/60 bg-app-elevated/80 px-2.5 py-2 text-xs text-tx-primary"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={memberIds.includes(member.id)}
+                      disabled={!!member.isDisabled && !memberIds.includes(member.id)}
+                      onChange={(event) => setMemberIds((ids) => event.target.checked ? [...ids, member.id] : ids.filter((id) => id !== member.id))}
+                      className="h-3.5 w-3.5 rounded accent-fuchsia-600"
+                    />
+                    <span className="truncate">{member.displayName || member.username}{member.isDisabled ? ` · ${copy.disabledMember}` : ""}</span>
+                  </label>
+                ))}
+                {!members.length && <p className="text-xs text-tx-tertiary">{copy.noMembers}</p>}
               </div>
             </fieldset>
           )}
-          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-            <button type="button" onClick={() => void saveProfile()} disabled={saving || testing} className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90 disabled:opacity-50">
+          <div className="flex flex-wrap items-center gap-2 border-t border-app-border/70 pt-4">
+            <button
+              type="button"
+              onClick={() => void saveProfile()}
+              disabled={saving || testing}
+              className="inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-violet-500/20 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
+            >
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
               {copy.save}
             </button>
-            <button type="button" onClick={() => void testConnection()} disabled={testing || saving || !draft.apiUrl} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-700 hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">
+            <button
+              type="button"
+              onClick={() => void testConnection()}
+              disabled={testing || saving || !draft.apiUrl}
+              className="inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface px-4 py-2 text-xs font-semibold text-tx-primary transition-all hover:-translate-y-0.5 hover:border-fuchsia-400/50 hover:text-fuchsia-600 disabled:translate-y-0 disabled:opacity-50 dark:hover:text-fuchsia-300"
+            >
               {testing ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
               {manageShared ? copy.sharedTest : copy.test}
             </button>
             {selectedId && selectedId !== activeProfileId && (!manageShared || available?.sharedProfiles.some((item) => item.id === selectedId)) && (
-              <button type="button" onClick={() => void activateProfile()} disabled={activating || testing} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-4 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-500/5 disabled:opacity-50 dark:text-emerald-400">
+              <button
+                type="button"
+                onClick={() => void activateProfile()}
+                disabled={activating || testing}
+                className="inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-700 transition-all hover:-translate-y-0.5 hover:bg-emerald-500/15 disabled:translate-y-0 disabled:opacity-50 dark:text-emerald-300"
+              >
                 {activating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                 {copy.activate}
               </button>
             )}
             {selectedId && !manageShared && available?.isAdmin && (
-              <button type="button" onClick={() => void publishProfile()} disabled={saving || testing} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-accent-primary disabled:opacity-50 dark:border-zinc-700">{copy.publish}</button>
+              <button
+                type="button"
+                onClick={() => void publishProfile()}
+                disabled={saving || testing}
+                className="shrink-0 whitespace-nowrap rounded-xl border border-violet-500/30 bg-violet-500/10 px-3.5 py-2 text-xs font-semibold text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-500/15 disabled:translate-y-0 disabled:opacity-50 dark:text-violet-300"
+              >
+                {copy.publish}
+              </button>
             )}
             {selectedId && (
-              <button type="button" onClick={() => void deleteProfile()} disabled={saving || testing} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/5 disabled:opacity-50">
+              <button
+                type="button"
+                onClick={() => void deleteProfile()}
+                disabled={saving || testing}
+                className="inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-rose-500 transition-colors hover:bg-rose-500/10 disabled:opacity-50"
+              >
                 <Trash2 size={13} />
                 {copy.delete}
               </button>
             )}
             {message && (
-              <span className={cn("ml-auto inline-flex items-center gap-1 text-xs", message.type === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
+              <span
+                className={cn(
+                  "ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
+                  message.type === "success"
+                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "bg-rose-500/10 text-rose-600 dark:text-rose-300",
+                )}
+              >
                 {message.type === "success" ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
                 {message.text}
               </span>

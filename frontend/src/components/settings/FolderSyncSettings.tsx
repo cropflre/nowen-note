@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { formatAppDateTime, formatAppTime } from "@/lib/dateTime";
 import {
   AlertTriangle,
@@ -204,90 +205,141 @@ function ConfigCard({
   };
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
-      <div className="p-4">
+    <article className="overflow-hidden rounded-2xl border border-app-border/80 bg-app-elevated/80 shadow-xs backdrop-blur-sm transition-all hover:border-emerald-400/40 hover:shadow-sm">
+      <div className="p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <FolderOpen size={15} className="shrink-0 text-accent-primary" />
-              <h4 className="truncate text-sm font-semibold text-tx-primary" title={config.folderPath}>{config.folderPath}</h4>
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-lime-500/18 to-emerald-500/18 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+                <FolderOpen size={15} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h4 className="truncate text-sm font-bold text-tx-primary" title={config.folderPath}>{config.folderPath}</h4>
+                <p className="mt-0.5 truncate text-xs text-tx-secondary">目标：{targetLabel}</p>
+              </div>
             </div>
-            <p className="mt-1 truncate text-xs text-tx-tertiary">目标：{targetLabel}</p>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-              <span className={cn("rounded-full px-2 py-0.5", config.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-zinc-500/10 text-zinc-500")}>{config.enabled ? "已启用" : "已停用"}</span>
-              <span className="rounded-full bg-app-bg px-2 py-0.5 text-tx-tertiary">{INTERVALS.find((item) => item.value === (config.intervalMinutes ?? null))?.label || "自定义"}</span>
-              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-600">冲突：{conflictPolicyLabel(preferences.conflictPolicy)}</span>
-              <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-600">删除：{preferences.deletionPolicy === "keep" ? "保留笔记" : preferences.deletionPolicy === "trash" ? "移入回收站" : "停止跟踪"}</span>
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-semibold",
+                config.enabled
+                  ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+                  : "bg-app-hover/90 text-tx-tertiary",
+              )}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", config.enabled ? "bg-emerald-500" : "bg-tx-tertiary")} />
+                {config.enabled ? "已启用" : "已停用"}
+              </span>
+              <span className="rounded-full bg-app-surface px-2.5 py-0.5 font-medium text-tx-secondary ring-1 ring-app-border/60">
+                {INTERVALS.find((item) => item.value === (config.intervalMinutes ?? null))?.label || "自定义"}
+              </span>
+              <span className="rounded-full bg-amber-500/12 px-2.5 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+                冲突：{conflictPolicyLabel(preferences.conflictPolicy)}
+              </span>
+              <span className="rounded-full bg-sky-500/12 px-2.5 py-0.5 font-medium text-sky-700 dark:text-sky-300">
+                删除：{preferences.deletionPolicy === "keep" ? "保留笔记" : preferences.deletionPolicy === "trash" ? "移入回收站" : "停止跟踪"}
+              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <button type="button" onClick={onRun} disabled={busy} className="rounded-lg p-2 text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50" title="立即扫描并同步">
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={busy}
+              className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2 text-emerald-600 transition-all hover:-translate-y-0.5 hover:bg-emerald-500/15 disabled:translate-y-0 disabled:opacity-50 dark:text-emerald-300"
+              title="立即扫描并同步"
+            >
               {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             </button>
-            <button type="button" onClick={() => setEditing((value) => !value)} className="rounded-lg p-2 text-tx-secondary hover:bg-app-hover" title="编辑配置">
+            <button
+              type="button"
+              onClick={() => setEditing((value) => !value)}
+              className="rounded-xl border border-app-border/75 bg-app-surface p-2 text-tx-secondary transition-all hover:border-emerald-400/40 hover:text-tx-primary"
+              title="编辑配置"
+            >
               {editing ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </button>
-            <button type="button" onClick={onRemove} disabled={busy} className="rounded-lg p-2 text-tx-tertiary hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50" title="移除同步目录">
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={busy}
+              className="rounded-xl p-2 text-tx-tertiary transition-colors hover:bg-rose-500/10 hover:text-rose-500 disabled:opacity-50"
+              title="移除同步目录"
+            >
               <Trash2 size={15} />
             </button>
           </div>
         </div>
 
         {(config.lastScanAt || config.lastSyncedAt) && (
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-tx-tertiary">
-            {config.lastScanAt && <span><Clock size={10} className="mr-1 inline" />扫描：{formatAppDateTime(config.lastScanAt)}</span>}
-            {config.lastSyncedAt && <span><CheckCircle2 size={10} className="mr-1 inline" />同步：{formatAppDateTime(config.lastSyncedAt)}</span>}
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-tx-tertiary">
+            {config.lastScanAt && <span><Clock size={11} className="mr-1 inline" />扫描：{formatAppDateTime(config.lastScanAt)}</span>}
+            {config.lastSyncedAt && <span><CheckCircle2 size={11} className="mr-1 inline text-emerald-500" />同步：{formatAppDateTime(config.lastSyncedAt)}</span>}
           </div>
         )}
 
         {stats && (
-          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+          <div className="mt-3.5 grid grid-cols-3 gap-2 sm:grid-cols-6">
             {[
-              ["文件", stats.total || 0],
-              ["新增", stats.added || 0],
-              ["变更", stats.changed || 0],
-              ["删除", stats.deleted || 0],
-              ["跳过", stats.skipped || 0],
-              ["错误", stats.errors || 0],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-lg bg-app-bg px-2 py-1.5 text-center">
-                <div className="text-sm font-semibold text-tx-primary">{value}</div>
-                <div className="text-[10px] text-tx-tertiary">{label}</div>
+              ["文件", stats.total || 0, "text-tx-primary"],
+              ["新增", stats.added || 0, "text-emerald-600 dark:text-emerald-400"],
+              ["变更", stats.changed || 0, "text-amber-600 dark:text-amber-400"],
+              ["删除", stats.deleted || 0, "text-orange-600 dark:text-orange-400"],
+              ["跳过", stats.skipped || 0, "text-tx-secondary"],
+              ["错误", stats.errors || 0, "text-rose-600 dark:text-rose-400"],
+            ].map(([label, value, color]) => (
+              <div key={String(label)} className="rounded-xl border border-app-border/60 bg-app-surface/75 px-2.5 py-2 text-center">
+                <div className={cn("text-sm font-bold tabular-nums", String(color))}>{value}</div>
+                <div className="mt-0.5 text-[10px] font-medium text-tx-tertiary">{label}</div>
               </div>
             ))}
           </div>
         )}
 
-        <button type="button" onClick={toggleDetails} className="mt-3 flex items-center gap-1.5 text-xs text-tx-secondary hover:text-tx-primary">
+        <button
+          type="button"
+          onClick={toggleDetails}
+          className="mt-3.5 inline-flex items-center gap-1.5 rounded-xl bg-app-surface/80 px-3 py-1.5 text-xs font-semibold text-tx-secondary ring-1 ring-app-border/70 transition-all hover:border-emerald-400/40 hover:text-emerald-600 dark:hover:text-emerald-300"
+        >
           <FileText size={13} />{detailsOpen ? "收起扫描报告" : "查看扫描报告与错误"}
         </button>
       </div>
 
       {editing && (
-        <div className="space-y-4 border-t border-app-border bg-app-bg/40 p-4">
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
-            <div className="mb-1 flex items-center gap-2 font-medium"><ShieldAlert size={14} />单向同步与冲突保护</div>
+        <div className="space-y-4 border-t border-app-border/70 bg-app-surface/55 p-5">
+          <div className="rounded-xl border border-amber-400/35 bg-amber-500/10 p-3.5 text-xs leading-5 text-amber-800 dark:text-amber-200">
+            <div className="mb-1 flex items-center gap-2 font-semibold"><ShieldAlert size={14} />单向同步与冲突保护</div>
             本地文件夹是数据源。Nowen 不会反向修改本地文件；检测到同步笔记在 Nowen 内被编辑时，默认停止覆盖并在报告中标记冲突。
           </div>
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-tx-secondary">目标空间 / 笔记本</span>
-            <select value={targetNotebookId} onChange={(event) => setTargetNotebookId(event.target.value)} className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm text-tx-primary outline-none focus:ring-2 focus:ring-accent-primary/30">
+            <span className="text-xs font-semibold text-tx-secondary">目标空间 / 笔记本</span>
+            <select
+              value={targetNotebookId}
+              onChange={(event) => setTargetNotebookId(event.target.value)}
+              className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 text-sm text-tx-primary outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+            >
               <option value="">请选择目标笔记本</option>
               {notebookOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3.5 sm:grid-cols-2">
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-tx-secondary">扫描频率</span>
-              <select value={intervalMinutes ?? ""} onChange={(event) => setIntervalMinutes(event.target.value ? Number(event.target.value) : null)} className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm text-tx-primary">
+              <span className="text-xs font-semibold text-tx-secondary">扫描频率</span>
+              <select
+                value={intervalMinutes ?? ""}
+                onChange={(event) => setIntervalMinutes(event.target.value ? Number(event.target.value) : null)}
+                className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 text-sm text-tx-primary outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+              >
                 {INTERVALS.map((item) => <option key={String(item.value)} value={item.value ?? ""}>{item.label}</option>)}
               </select>
             </label>
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-tx-secondary">Nowen 编辑冲突</span>
-              <select value={preferences.conflictPolicy} onChange={(event) => setPreferences((current) => ({ ...current, conflictPolicy: event.target.value as FolderSyncPreferences["conflictPolicy"] }))} className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm text-tx-primary">
+              <span className="text-xs font-semibold text-tx-secondary">Nowen 编辑冲突</span>
+              <select
+                value={preferences.conflictPolicy}
+                onChange={(event) => setPreferences((current) => ({ ...current, conflictPolicy: event.target.value as FolderSyncPreferences["conflictPolicy"] }))}
+                className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 text-sm text-tx-primary outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+              >
                 <option value="protect">停止覆盖并提示（推荐）</option>
                 <option value="copy">先保留 Nowen 副本，再用源文件更新</option>
                 <option value="overwrite">始终由源文件覆盖</option>
@@ -295,20 +347,24 @@ function ConfigCard({
               </select>
             </label>
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-tx-secondary">源文件删除后</span>
-              <select value={preferences.deletionPolicy} onChange={(event) => setPreferences((current) => ({ ...current, deletionPolicy: event.target.value as FolderSyncPreferences["deletionPolicy"] }))} className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm text-tx-primary">
+              <span className="text-xs font-semibold text-tx-secondary">源文件删除后</span>
+              <select
+                value={preferences.deletionPolicy}
+                onChange={(event) => setPreferences((current) => ({ ...current, deletionPolicy: event.target.value as FolderSyncPreferences["deletionPolicy"] }))}
+                className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 text-sm text-tx-primary outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+              >
                 <option value="keep">保留 Nowen 笔记</option>
                 <option value="trash">移入 Nowen 回收站</option>
                 <option value="detach">保留内容并停止跟踪</option>
               </select>
             </label>
-            <div className="space-y-2 rounded-xl border border-app-border bg-app-surface p-3">
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
-                <input type="checkbox" checked={includeSubfolders} onChange={(event) => setIncludeSubfolders(event.target.checked)} />扫描子文件夹
+            <div className="space-y-2.5 rounded-xl border border-app-border/80 bg-app-elevated/85 p-3.5">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-tx-primary">
+                <input type="checkbox" checked={includeSubfolders} onChange={(event) => setIncludeSubfolders(event.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-600" />扫描子文件夹
               </label>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-tx-primary">
                 <input type="checkbox" checked={preferences.preserveHierarchy} disabled={!includeSubfolders}
-                  onChange={(event) => setPreferences((current) => ({ ...current, preserveHierarchy: event.target.checked }))} />
+                  onChange={(event) => setPreferences((current) => ({ ...current, preserveHierarchy: event.target.checked }))} className="h-3.5 w-3.5 rounded accent-emerald-600" />
                 保留本地子文件夹层级（新建对应的笔记本）
               </label>
               {preferences.preserveHierarchy && (
@@ -316,63 +372,98 @@ function ConfigCard({
                   开启后，下一次同步会把已同步笔记整理到对应子笔记本（不改正文，不删除源文件）；默认关闭以保护旧配置。手动移动或删除的目录不会自动覆盖。
                 </p>
               )}
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
-                <input type="checkbox" checked={preferences.extractAttachmentText} onChange={(event) => setPreferences((current) => ({ ...current, extractAttachmentText: event.target.checked }))} />提取 PDF / DOCX 文本用于搜索
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-tx-primary">
+                <input type="checkbox" checked={preferences.extractAttachmentText} onChange={(event) => setPreferences((current) => ({ ...current, extractAttachmentText: event.target.checked }))} className="h-3.5 w-3.5 rounded accent-emerald-600" />提取 PDF / DOCX 文本用于搜索
               </label>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
-                <input type="checkbox" checked={enabled} disabled={!targetNotebookId} onChange={(event) => setEnabled(event.target.checked)} />启用自动同步
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-tx-primary">
+                <input type="checkbox" checked={enabled} disabled={!targetNotebookId} onChange={(event) => setEnabled(event.target.checked)} className="h-3.5 w-3.5 rounded accent-emerald-600" />启用自动同步
               </label>
             </div>
           </div>
 
           <div>
-            <div className="mb-2 text-xs font-medium text-tx-secondary">文件类型</div>
+            <div className="mb-2 text-xs font-semibold text-tx-secondary">文件类型</div>
             <div className="flex flex-wrap gap-2">
               {FILE_TYPES.map((extension) => (
-                <button key={extension} type="button" onClick={() => setFileTypes((current) => current.includes(extension) ? current.filter((item) => item !== extension) : [...current, extension])} className={cn("rounded-lg border px-2.5 py-1 text-xs", fileTypes.includes(extension) ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary" : "border-app-border text-tx-tertiary hover:text-tx-secondary")}>{extension}</button>
+                <button
+                  key={extension}
+                  type="button"
+                  onClick={() => setFileTypes((current) => current.includes(extension) ? current.filter((item) => item !== extension) : [...current, extension])}
+                  className={cn(
+                    "rounded-full border px-3 py-1 font-mono text-xs font-medium transition-all",
+                    fileTypes.includes(extension)
+                      ? "border-emerald-500/45 bg-emerald-500/12 text-emerald-700 shadow-2xs dark:text-emerald-300"
+                      : "border-app-border/80 bg-app-elevated text-tx-tertiary hover:border-emerald-400/40 hover:text-tx-primary",
+                  )}
+                >
+                  {extension}
+                </button>
               ))}
             </div>
           </div>
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-tx-secondary">排除规则</span>
-            <textarea value={excludeText} onChange={(event) => setExcludeText(event.target.value)} rows={4} placeholder={"每行一条，例如：\n**/draft/**\n*.tmp\nprivate-*"} className="w-full resize-y rounded-xl border border-app-border bg-app-surface px-3 py-2 font-mono text-xs text-tx-primary outline-none focus:ring-2 focus:ring-accent-primary/30" />
-            <span className="text-[10px] text-tx-tertiary">支持 *、**、?；也可在同步根目录创建 .nowenignore。最多 10 条自定义规则。选择“停止跟踪”后，发生冲突的精确路径会自动加入此列表。</span>
+            <span className="text-xs font-semibold text-tx-secondary">排除规则</span>
+            <textarea
+              value={excludeText}
+              onChange={(event) => setExcludeText(event.target.value)}
+              rows={4}
+              placeholder={"每行一条，例如：\n**/draft/**\n*.tmp\nprivate-*"}
+              className="w-full resize-y rounded-xl border border-app-border/80 bg-app-elevated px-3.5 py-2.5 font-mono text-xs text-tx-primary outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/15"
+            />
+            <span className="text-[11px] leading-relaxed text-tx-tertiary">支持 *、**、?；也可在同步根目录创建 .nowenignore。最多 10 条自定义规则。选择“停止跟踪”后，发生冲突的精确路径会自动加入此列表。</span>
           </label>
 
-          <button type="button" onClick={save} disabled={busy || !fileTypes.length} className="flex items-center gap-2 rounded-xl bg-accent-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+          <button
+            type="button"
+            onClick={save}
+            disabled={busy || !fileTypes.length}
+            className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-xl bg-gradient-to-r from-lime-500 via-emerald-500 to-teal-500 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
+          >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}保存同步策略
           </button>
         </div>
       )}
 
       {detailsOpen && (
-        <div className="space-y-4 border-t border-app-border p-4">
+        <div className="space-y-4 border-t border-app-border/70 bg-app-surface/40 p-5">
           {detailsLoading ? (
-            <div className="flex items-center gap-2 py-4 text-sm text-tx-tertiary"><Loader2 size={14} className="animate-spin" />正在加载扫描报告…</div>
+            <div className="flex items-center gap-2 py-4 text-sm text-tx-tertiary"><Loader2 size={14} className="animate-spin text-emerald-500" />正在加载扫描报告…</div>
           ) : (
             <>
               <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h5 className="text-xs font-semibold text-tx-secondary">文件状态（{index.length}）</h5>
+                <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <h5 className="text-xs font-bold text-tx-secondary">文件状态（{index.length}）</h5>
                   <div className="flex flex-wrap gap-1">
                     {(["all", "conflict", "error", "skipped", "deleted"] as IndexFilter[]).map((item) => (
-                      <button key={item} type="button" onClick={() => setFilter(item)} className={cn("rounded-md px-2 py-1 text-[10px]", filter === item ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover")}>{item === "all" ? "全部" : statusLabel(item)} {counts[item] || ""}</button>
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setFilter(item)}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all",
+                          filter === item
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                            : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+                        )}
+                      >
+                        {item === "all" ? "全部" : statusLabel(item)} {counts[item] || ""}
+                      </button>
                     ))}
                   </div>
                 </div>
-                <div className="max-h-64 overflow-y-auto rounded-xl border border-app-border">
+                <div className="max-h-64 overflow-y-auto rounded-xl border border-app-border/80 bg-app-elevated/85">
                   {filteredIndex.length === 0 ? <p className="p-4 text-center text-xs text-tx-tertiary">暂无匹配记录</p> : filteredIndex.map((item) => (
-                    <div key={item.relativePath} className="group flex items-center gap-2 border-b border-app-border/60 px-3 py-2 text-xs last:border-0">
+                    <div key={item.relativePath} className="group flex items-center gap-2 border-b border-app-border/60 px-3.5 py-2.5 text-xs last:border-0 hover:bg-app-hover/40">
                       <StatusIcon status={item.status} />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-tx-secondary" title={item.relativePath}>{item.relativePath}</div>
-                        {item.error && <div className="truncate text-[10px] text-red-500" title={item.error}>{item.error}</div>}
+                        <div className="truncate font-medium text-tx-primary" title={item.relativePath}>{item.relativePath}</div>
+                        {item.error && <div className="truncate text-[10px] text-rose-500" title={item.error}>{item.error}</div>}
                       </div>
-                      <span className="shrink-0 text-[10px] text-tx-tertiary">{statusLabel(item.status)}</span>
-                      <span className="w-14 shrink-0 text-right text-[10px] text-tx-tertiary">{formatBytes(item.size || 0)}</span>
+                      <span className="shrink-0 rounded-full bg-app-surface px-2 py-0.5 text-[10px] font-medium text-tx-secondary">{statusLabel(item.status)}</span>
+                      <span className="w-14 shrink-0 text-right tabular-nums text-[10px] text-tx-tertiary">{formatBytes(item.size || 0)}</span>
                       {item.noteId && (
-                        <button type="button" onClick={() => onOpenNote(item.noteId!)} className="rounded p-1 text-accent-primary opacity-70 hover:bg-accent-primary/10 hover:opacity-100" title="打开对应笔记"><ExternalLink size={11} /></button>
+                        <button type="button" onClick={() => onOpenNote(item.noteId!)} className="rounded-lg p-1.5 text-emerald-600 opacity-75 transition-all hover:bg-emerald-500/12 hover:opacity-100 dark:text-emerald-300" title="打开对应笔记"><ExternalLink size={12} /></button>
                       )}
                     </div>
                   ))}
@@ -380,12 +471,12 @@ function ConfigCard({
               </div>
 
               <div>
-                <h5 className="mb-2 text-xs font-semibold text-tx-secondary">最近日志</h5>
-                <div className="max-h-40 overflow-y-auto rounded-xl bg-app-bg p-2 font-mono text-[10px]">
-                  {logs.length === 0 ? <p className="p-2 text-tx-tertiary">暂无日志</p> : logs.slice().reverse().slice(0, 30).map((log) => (
+                <h5 className="mb-2 text-xs font-bold text-tx-secondary">最近日志</h5>
+                <div className="max-h-40 overflow-y-auto rounded-xl border border-app-border/70 bg-app-elevated/85 p-3 font-mono text-[10px]">
+                  {logs.length === 0 ? <p className="p-1 text-tx-tertiary">暂无日志</p> : logs.slice().reverse().slice(0, 30).map((log) => (
                     <div key={log.id} className="flex gap-2 py-1">
                       <span className="shrink-0 text-tx-tertiary">{formatAppTime(log.createdAt)}</span>
-                      <span className={cn("shrink-0", log.type.includes("failed") || log.type === "error" ? "text-red-500" : log.type.includes("warn") ? "text-amber-500" : "text-accent-primary")}>[{log.type}]</span>
+                      <span className={cn("shrink-0 font-semibold", log.type.includes("failed") || log.type === "error" ? "text-rose-500" : log.type.includes("warn") ? "text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>[{log.type}]</span>
                       <span className="break-all text-tx-secondary">{log.message}</span>
                     </div>
                   ))}
@@ -537,43 +628,69 @@ export default function FolderSyncSettings() {
 
   if (!isDesktop()) {
     return (
-      <div className="flex flex-col items-center justify-center py-14 text-center text-tx-tertiary">
-        <FolderSync size={34} className="mb-3 opacity-40" />
-        <p className="text-sm font-medium text-tx-secondary">文件夹同步仅支持 Electron 桌面端</p>
-        <p className="mt-1 text-xs">Web 与移动端不会获得本机文件系统访问权限。</p>
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-app-border/80 bg-app-elevated/60 px-6 py-14 text-center backdrop-blur-sm">
+        <motion.span
+          whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+          transition={{ duration: 0.45 }}
+          className="mb-3.5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-lime-500/20 via-emerald-400/18 to-teal-500/20 text-emerald-600 shadow-xs ring-1 ring-emerald-500/20 dark:text-emerald-300"
+        >
+          <FolderSync size={26} />
+        </motion.span>
+        <p className="text-sm font-bold text-tx-primary">文件夹同步仅支持 Electron 桌面端</p>
+        <p className="mt-1.5 max-w-sm text-xs leading-relaxed text-tx-secondary">Web 与移动端不会获得本机文件系统访问权限。</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <FolderSync size={18} className="text-accent-primary" />
-            <h3 className="text-lg font-bold text-tx-primary">本地文件夹同步</h3>
+      <div className="relative overflow-hidden rounded-2xl border border-app-border/80 bg-gradient-to-br from-lime-500/[0.08] via-app-elevated/85 to-emerald-500/[0.07] p-5 shadow-xs backdrop-blur-sm">
+        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-400/15 blur-2xl" />
+        <div className="relative flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3.5">
+            <motion.span
+              whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+              transition={{ duration: 0.45 }}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-lime-500/20 via-emerald-400/18 to-teal-500/20 text-emerald-600 shadow-xs ring-1 ring-emerald-500/25 dark:text-emerald-300"
+            >
+              <FolderSync size={20} />
+            </motion.span>
+            <div>
+              <h3 className="text-base font-bold tracking-tight text-tx-primary">本地文件夹同步</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-tx-secondary">
+                把本地或已挂载目录安全地单向投影到个人空间或工作区笔记本。支持增量扫描、重命名识别、排除规则、删除策略和编辑冲突保护。
+              </p>
+            </div>
           </div>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-tx-tertiary">把本地或已挂载目录安全地单向投影到个人空间或工作区笔记本。支持增量扫描、重命名识别、排除规则、删除策略和编辑冲突保护。</p>
+          <button
+            type="button"
+            onClick={selectFolder}
+            disabled={busyKey === "create"}
+            className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-lime-500 via-emerald-500 to-teal-500 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:translate-y-0 disabled:opacity-50"
+          >
+            {busyKey === "create" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}添加文件夹
+          </button>
         </div>
-        <button type="button" onClick={selectFolder} disabled={busyKey === "create"} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
-          {busyKey === "create" ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}添加文件夹
-        </button>
       </div>
 
-      <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 text-xs leading-5 text-sky-700 dark:text-sky-300">
+      <div className="rounded-2xl border border-sky-500/25 bg-sky-500/[0.06] px-4 py-3 text-xs leading-relaxed text-sky-800 dark:text-sky-200">
         安全边界：拒绝系统根目录、用户主目录、符号链接/目录联接和越界路径；单文件最多 50MB，单轮最多 10,000 个文件、累计读取最多 1GB。达到限制时会停止本轮并保留旧索引，不会误判大批文件已删除。
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-tx-tertiary"><Loader2 size={16} className="animate-spin" />正在加载同步配置…</div>
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-app-border/70 bg-app-elevated/60 py-12 text-sm text-tx-tertiary">
+          <Loader2 size={16} className="animate-spin text-emerald-500" />正在加载同步配置…
+        </div>
       ) : configs.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-dashed border-app-border py-12 text-center">
-          <FolderOpen size={30} className="mb-3 text-tx-tertiary opacity-40" />
-          <p className="text-sm font-medium text-tx-secondary">尚未配置同步文件夹</p>
-          <p className="mt-1 text-xs text-tx-tertiary">添加后默认关闭自动同步，确认目标与安全策略后再启用。</p>
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-app-border/80 bg-app-elevated/55 px-6 py-12 text-center">
+          <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-600 dark:text-emerald-300">
+            <FolderOpen size={24} />
+          </span>
+          <p className="text-sm font-bold text-tx-primary">尚未配置同步文件夹</p>
+          <p className="mt-1 text-xs text-tx-secondary">添加后默认关闭自动同步，确认目标与安全策略后再启用。</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3.5">
           {configs.map((config) => (
             <ConfigCard
               key={config.folderId}

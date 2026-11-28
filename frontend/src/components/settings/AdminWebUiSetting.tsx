@@ -46,26 +46,34 @@ export default function AdminWebUiSetting() {
   return (
     <label
       data-settings-section="web-ui-access"
-      className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30 sm:px-4 sm:py-3"
+      className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-app-border/80 bg-app-elevated/80 px-4 py-3.5 shadow-xs backdrop-blur-sm transition-colors hover:border-blue-400/40"
     >
       <span className="min-w-0">
         <span className="flex flex-wrap items-center gap-2">
-          <span id={titleId} className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("settings.disableWebUi")}</span>
+          <span id={titleId} className="text-sm font-semibold text-tx-primary">{t("settings.disableWebUi")}</span>
           <ScopeBadge scope="admin" />
-          {(saving || (webUiEnabled === null && !loadFailed)) && <Loader2 size={12} className="animate-spin text-zinc-400" aria-hidden="true" />}
+          {(saving || (webUiEnabled === null && !loadFailed)) && <Loader2 size={12} className="animate-spin text-blue-500" aria-hidden="true" />}
         </span>
-        <span id={descriptionId} className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">{t("settings.disableWebUiDesc")}</span>
+        <span id={descriptionId} className="mt-0.5 block text-xs leading-relaxed text-tx-secondary">{t("settings.disableWebUiDesc")}</span>
       </span>
-      <input
-        type="checkbox"
-        role="switch"
-        checked={webUiEnabled === false}
-        disabled={saving || webUiEnabled === null}
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        onChange={(event) => void handleChange(event.target.checked)}
-        className="accent-indigo-600"
-      />
+      <span className="relative inline-flex shrink-0 items-center">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={webUiEnabled === false}
+          disabled={saving || webUiEnabled === null}
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          onChange={(event) => void handleChange(event.target.checked)}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className="h-6 w-11 rounded-full bg-app-border/90 p-0.5 transition-all peer-checked:bg-gradient-to-r peer-checked:from-blue-500 peer-checked:to-indigo-500 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500/40 peer-disabled:opacity-50"
+        >
+          <span className="block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 peer-checked:translate-x-5" />
+        </span>
+      </span>
     </label>
   );
 }

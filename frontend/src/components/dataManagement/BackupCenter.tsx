@@ -388,9 +388,9 @@ export default function BackupCenter({ migration, advanced }: { migration: React
         onBackup={() => void handleCreate("full")} onRestore={() => setRestoreOpen((open) => !open)}
         onAutomaticChange={(enabled) => void handleSaveAuto(enabled)}
       />
-      {error && <p role="alert" className="mt-2 text-xs text-red-500">{error}</p>}
-      {createMsg && <p role="status" className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">{createMsg.text}</p>}
-      {autoMsg && <p role="status" className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">{autoMsg.text}</p>}
+      {error && <p role="alert" className="mt-2 rounded-xl border border-rose-400/35 bg-rose-500/10 px-3.5 py-2 text-xs font-medium text-rose-600 dark:text-rose-300">{error}</p>}
+      {createMsg && <p role="status" className="mt-2 rounded-xl border border-app-border/75 bg-app-surface/80 px-3.5 py-2 text-xs font-medium text-tx-secondary">{createMsg.text}</p>}
+      {autoMsg && <p role="status" className="mt-2 rounded-xl border border-app-border/75 bg-app-surface/80 px-3.5 py-2 text-xs font-medium text-tx-secondary">{autoMsg.text}</p>}
       {migration}
       <AdvancedDataManagement open={advancedOpen} onToggle={() => setAdvancedOpen((open) => !open)}>
         {/* ===== 健康告警区（按严重度从高到低） ===== */}

@@ -24,17 +24,56 @@ export function PluginInboundSettings({ plugin }: { plugin: InstalledPlugin }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
-  return <div className="space-y-2 text-xs">
-    <h4 className="font-semibold">{t("plugins.inbound.title")}</h4>
-    <p className="text-zinc-500">{t("plugins.inbound.description")}</p>
-    {error && <p role="alert" className="text-red-600">{error}</p>}
-    {plugin.contributes?.inboundWebhooks?.map((hook) => <div key={hook.id} className="space-y-2 rounded-lg border p-2 dark:border-zinc-800">
-      <div>{hook.id} · {configured.includes(hook.id) ? t("plugins.inbound.configured") : t("plugins.inbound.unconfigured")}</div>
-      <div className="flex gap-2">
-        <button disabled={busy || plugin.status !== "enabled"} className="rounded border px-2 py-1 disabled:opacity-40" onClick={() => void change(hook.id, false)}>{t(configured.includes(hook.id) ? "plugins.inbound.rotate" : "plugins.inbound.create")}</button>
-        {configured.includes(hook.id) && <button disabled={busy} className="rounded border px-2 py-1 text-red-600" onClick={() => void change(hook.id, true)}>{t("plugins.inbound.revoke")}</button>}
+  return (
+    <div className="space-y-2.5 text-xs">
+      <div>
+        <h4 className="font-bold text-tx-primary">{t("plugins.inbound.title")}</h4>
+        <p className="mt-0.5 text-tx-secondary">{t("plugins.inbound.description")}</p>
       </div>
-      {urls[hook.id] && <div><p>{t("plugins.inbound.showOnce")}</p><input aria-label={t("plugins.inbound.url")} readOnly value={urls[hook.id]} onFocus={(event) => event.target.select()} className="mt-1 w-full rounded border bg-transparent p-1.5 font-mono dark:border-zinc-700" /></div>}
-    </div>)}
-  </div>;
+      {error && <p role="alert" className="rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-1.5 font-medium text-rose-600 dark:text-rose-300">{error}</p>}
+      {plugin.contributes?.inboundWebhooks?.map((hook) => {
+        const isConfigured = configured.includes(hook.id);
+        return (
+          <div key={hook.id} className="space-y-2.5 rounded-xl border border-app-border/80 bg-app-surface/75 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono font-semibold text-tx-primary">{hook.id}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isConfigured ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-app-hover text-tx-tertiary"}`}>
+                {isConfigured ? t("plugins.inbound.configured") : t("plugins.inbound.unconfigured")}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                disabled={busy || plugin.status !== "enabled"}
+                className="rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 font-semibold text-purple-700 transition-colors hover:bg-purple-500/15 disabled:opacity-40 dark:text-purple-300"
+                onClick={() => void change(hook.id, false)}
+              >
+                {t(isConfigured ? "plugins.inbound.rotate" : "plugins.inbound.create")}
+              </button>
+              {isConfigured && (
+                <button
+                  disabled={busy}
+                  className="rounded-xl border border-rose-400/35 bg-rose-500/10 px-3 py-1.5 font-semibold text-rose-600 transition-colors hover:bg-rose-500/15 disabled:opacity-40 dark:text-rose-300"
+                  onClick={() => void change(hook.id, true)}
+                >
+                  {t("plugins.inbound.revoke")}
+                </button>
+              )}
+            </div>
+            {urls[hook.id] && (
+              <div className="space-y-1">
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">{t("plugins.inbound.showOnce")}</p>
+                <input
+                  aria-label={t("plugins.inbound.url")}
+                  readOnly
+                  value={urls[hook.id]}
+                  onFocus={(event) => event.target.select()}
+                  className="w-full rounded-xl border border-app-border/80 bg-app-elevated px-3 py-1.5 font-mono text-xs text-tx-primary outline-none focus:border-purple-400"
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }

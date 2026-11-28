@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { motion } from "framer-motion";
+import { Brain } from "lucide-react";
 
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { PreferenceGroup, ScopeBadge, SwitchRow } from "@/components/settings/preferences/PreferenceControls";
@@ -33,8 +35,15 @@ export default function AIMemoryArchiveSetting() {
 
   return (
     <section data-settings-section="ai-memory-archive" className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("aiMemory.title")}</h4>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <motion.span
+          whileHover={{ rotate: [0, -10, 10, 0], scale: 1.08 }}
+          transition={{ duration: 0.45 }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500/18 to-violet-500/18 text-fuchsia-600 ring-1 ring-fuchsia-500/20 dark:text-fuchsia-300"
+        >
+          <Brain size={15} />
+        </motion.span>
+        <h4 className="text-sm font-bold text-tx-primary">{t("aiMemory.title")}</h4>
         <ScopeBadge scope="admin" />
       </div>
       <PreferenceGroup>
