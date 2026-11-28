@@ -1,19 +1,18 @@
 <div align="center">
   <img src="./docs/assets/nowen-note-icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note（弄文笔记）</h1>
-  <p><strong>开源、自托管的知识库、每日记录与任务协作平台</strong></p>
+  <p><strong>开源、自托管、离线优先的 Notion &amp; Obsidian 替代方案</strong></p>
   <p>
-    统一知识树 · 富文本 / Markdown 双编辑器 · 离线工作区 · AI RAG 问答 · 每日记录 · 任务中心 · 多端协作
+    把笔记（富文本 / Markdown）、每日记录、任务中心、实时协作与 AI 知识库装进你自己的 Docker 或 NAS
   </p>
   <p>
     <a href="./README.en.md">English</a> ·
     <a href="https://nowen.cn/">官方网站</a> ·
-    <a href="https://nowen.cn/#/note/download">下载中心</a> ·
-    <a href="https://nowen.cn/#/note/tutorials">帮助中心</a> ·
     <a href="http://note.nowen.cn/">在线体验</a> ·
-    <a href="https://github.com/cropflre/nowen-note/releases/latest">下载客户端</a> ·
+    <a href="https://nowen.cn/#/note/download">下载中心</a> ·
+    <a href="https://github.com/cropflre/nowen-note/releases/latest">客户端 / NAS 包</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
-    <a href="./docs/tutorials/mcp.md">MCP 安装</a> ·
+    <a href="./docs/tutorials/mcp.md">MCP 接入</a> ·
     <a href="./.agents/skills/nowen-note-development/SKILL.md">AI 开发 Skill</a> ·
     <a href="./CHANGELOG.md">更新日志</a>
   </p>
@@ -21,6 +20,7 @@
 
 <div align="center">
 
+[![GitHub Stars](https://img.shields.io/github/stars/cropflre/nowen-note?style=flat&logo=github)](https://github.com/cropflre/nowen-note/stargazers)
 [![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
@@ -29,104 +29,46 @@
 
 </div>
 
-> Nowen Note 不只是一个编辑器。它希望成为一套由你掌控数据、可长期运行在 NAS / 服务器上，并能通过 Web、桌面端和移动端随时访问的个人与团队知识基础设施。
+> **一句话定位**：Nowen Note 不只是编辑器，而是一套**数据真正属于你**的个人与团队知识基础设施——支持 Docker 与 **飞牛 NAS（fnOS）/ 绿联 NAS（UGOS / UGOS Pro）** 私有部署，Web、桌面端（Win / macOS / Linux）与 Android 离线可用，并原生打通 **AI RAG 问答** 与 **MCP Server**（Claude Code / Cursor / VS Code）。
 
-> **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
+<p align="center">
+  <img src="./docs/screenshots/desktop-overview.png" alt="Nowen Note 工作区总览" width="92%" />
+</p>
 
-## v1.6.2 更新亮点 · 2026-11-26
+<div align="center">
+  <p>
+    <strong>30 秒体验</strong>：访问 <a href="http://note.nowen.cn/">在线演示站</a>（账号 <code>demo</code> / 密码 <code>demo123456</code>）或执行 <code>git clone https://github.com/cropflre/nowen-note.git &amp;&amp; cd nowen-note &amp;&amp; docker compose up -d</code>
+  </p>
+</div>
 
-- **Word、PPT 和 Excel。** 支持 DOCX、PPTX、XLSX 导入导出，Office 文件可直接拖入目录树。PPT 支持从 Markdown 大纲生成幻灯片，Excel 工作簿支持 Sync V2 和只读分享。
-- **桌面同步、备份和导入。** 改善 NAS 弱网同步与自动续期，修复附件重复排队、备份恢复报错和 Obsidian 相对路径附件导入。桌面端支持直接导入本地文件夹。
-- **文件管理与图床。** 支持跨页多选、批量移动、打标签和移入回收站。清空文件回收站时保护仍被引用的文件。
-- **团队协作与应用时区。** 团队空间新增成员邀请、用户组授权、@提及和任务负责人。应用可跟随系统时区，也可将自定义时区随账号同步。
-
-[v1.6.2 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.2) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.2)
-
-发布页提供 Windows 安装版和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB、Android APK 和 AAB、飞牛通用 FPK、绿联双架构 UPK 和剪藏扩展。Docker 镜像支持 AMD64 和 ARM64。[Docker Hub v1.6.2](https://hub.docker.com/r/cropflre/nowen-note/tags?name=v1.6.2)
-
-> [!IMPORTANT]
-> 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** GitHub 发布的 macOS 安装包未做 Apple Developer ID 签名或公证，Windows 直接下载的 EXE 未签名。
-
-## 近期版本
-
-- **v1.6.1**（2026-11-23）为 Windows、macOS、Linux 和 Android 引入应用内热更新，改善编辑器、分享页和登录流程。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1)
-- **v1.6.0**（2026-11-21）更新扩展中心和设置，改进笔记导入、AI 对话归档与说说附件，并扩展 MCP 团队空间授权和个人任务操作。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
-- **v1.5.5**（2026-11-09）增强 Web、桌面和 Android 双向同步、知识树冲突处理和桌面启动恢复。[更新说明](./docs/releases/v1.5.5.md)
-- **v1.5.4**（2026-11-02）新增 AI 修改审核和 Markdown 章节折叠，增强附件恢复与桌面 NAS 离线体验。[更新说明](./docs/releases/v1.5.4.md)
-- **v1.5.3**（2026-10-23）改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)
+---
 
 ## 为什么选择 Nowen Note
 
-| | |
+| 你痛恨的现状 | Nowen Note 的解法 |
 | --- | --- |
-| **数据真正属于你** | 支持 Docker / NAS 自托管，可部署到绿联 UGOS、飞牛 fnOS 等 NAS 平台；数据库、附件、索引和备份均由你管理，附件可接入 S3、Cloudflare R2 与 MinIO，备份可同步到邮件或 WebDAV。 |
-| **一棵树管理全部内容** | 文件夹、富文本和 Markdown 文档统一组织，根目录也能直接创建文档，支持拖拽、排序、导入、权限继承、密码保护和共享展示。 |
-| **在线与离线都能工作** | 可缓存完整工作区、正文和附件，断网继续阅读与编辑，联网后自动恢复增量同步。 |
-| **写作、知识与行动统一** | 笔记、每日记录、任务、AI、思维导图和协作权限在同一套产品中完成，无需在多套工具间反复切换。 |
+| **云笔记订阅贵、停服或审查焦虑** | **数据完全归你**：Docker / NAS 一键自托管（原生适配绿联 UGOS、飞牛 fnOS），数据库、附件与索引全部留在你手里；附件支持本地磁盘及 S3 / Cloudflare R2 / MinIO，备份支持自动归档、邮件与 WebDAV。 |
+| **Markdown 与富文本被迫二选一** | **一棵树 + 双编辑器自由切换**：文件夹、富文本（Tiptap 3）与 Markdown（CodeMirror 6）统一组织，根目录也能直建文档，单篇笔记可随时互转格式、拖拽排序、设置密码与目录级权限。 |
+| **断网就只读、多端同步丢内容** | **真·离线优先与可靠保存**：完整缓存工作区、正文与附件，断网照常阅读和编辑；内置 Yjs 持久化确认、同步回执与草稿恢复，联网后自动增量同步。 |
+| **笔记、日记、任务、AI 割裂在四五个 App** | **写作、记录、行动与 AI 闭环**：知识树、每日记录（瞬间 / 日历 / 日记）、多视图任务中心（列表 / 看板 / 甘特图）、思维导图、实时协作、RAG 问答与 MCP Server 全部原生一体。 |
 
-## 核心能力
-
-| 模块 | 当前能力 |
-| --- | --- |
-| **统一知识树** | 文件夹、富文本与 Markdown 文档混合组织；支持根目录文档、无限层级、拖拽排序与层级调整、统一创建菜单、全部展开 / 收起、筛选搜索、数量统计、回收站和共享目录；三栏布局可展示子文件夹与层级范围。 |
-| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、富文本 / Markdown 双编辑器与格式互转、纯文本笔记、实时预览与分屏、大纲、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、中文排版、阅读位置恢复、批注与版本历史。 |
-| **可靠保存与离线工作区** | Yjs 持久化确认、按笔记作用域的同步回执、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和离线工作区，包含个人目录结构同步、回收站恢复及误冲突防护；离线附件支持损坏 Blob 校验与恢复。 |
-| **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
-| **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
-| **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答，并支持查询今日任务、查看完成进度以及确认后创建或完成个人任务。 |
-| **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、说说文件附件、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
-| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖、重复规则、提醒、模板、My Day、Inbox、离线任务 / 习惯和 Android 原生提醒；支持 AI 生成任务后确认创建、今日完成汇总、任务树归档、任务详情另存为笔记（保留原任务）、任务报表及子树导出 Excel / Markdown，并提供到期排序和 Webhook 早晚摘要。 |
-| **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
-| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、Logseq、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
-| **附件与存储** | 文件中心提供资源管理器式文件夹导航、瀑布流、标签、智能文件夹、批量上传进度、移动 / 重命名、文件回收站及恢复、个人附件目录同步和已有附件插入；支持远程图片安全转存与逐图进度。AI 文件整理采用元数据建议、人工确认和权限校验，语义检索基于文件名 / 标签 / 描述，不读取文件字节，且受 [平台与作用域限制](./docs/user/file-ai-organization.md)。附件可存储于本地磁盘、S3、R2、MinIO；参见[文件整理](./docs/user/file-asset-organization.md)、[回收站](./docs/user/file-recycle-bin.md)与[目录同步](./docs/user/file-folder-sync.md)。 |
-| **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
-| **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
-| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树（含选定的团队笔记本）、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
-
-## AI 问答与隐私
-
-Nowen Note 的知识库问答采用 RAG 检索增强方式，**不会在每次提问时把全部笔记内容都发送给大模型**。
-
-- **知识库模式**：先在本地索引中检索相关笔记和附件，再发送匹配到的片段。
-- **当前笔记模式**：只使用当前打开的笔记。
-- **选中文本模式**：只使用当前选择或粘贴的文本。
-- **本地模型**：使用 Ollama 等本地服务时，可让问答内容留在自己的设备或服务器中。
-
-使用在线 Embedding 或在线大模型时，建立索引或回答问题所需的相关文本会发送给你自行配置的服务商。身份证、密码、API Key、助记词等高度敏感信息仍不建议以明文保存。
-
-## 让 AI 客户端连接 Nowen Note
-
-Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端。在 **Personal API Token 授权范围**内使用笔记、知识树、个人任务 / 项目、文件管理及个人自动化能力；已授权的团队笔记本仍受团队角色与目录权限限制。部分写入工具要求先预览、明确确认，并通过并发版本校验。高风险功能默认不开放，不能绕过笔记本范围与用户权限。
-
-- [MCP Server 中文安装与团队空间授权教程](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.md)
-- [MCP Server English guide](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.en.md)
-- [nowen-mcp 包说明](./packages/nowen-mcp/README.md)
-
-目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 24.22.1+（24.x LTS））；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
-
-## 更早版本
-
-v1.5.1 的任务提醒、AI 任务操作与 Android 同步修复见 [v1.5.1 发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)；历史内容见 [更新日志](./CHANGELOG.md)。
-
-## 截图
+## 界面预览
 
 以下截图取自在本地真实运行的 Nowen Note（演示账号，浅色主题，2× 分辨率）。
 
 ### 桌面端
 
-| 工作区总览 | 知识树与文档管理 |
+| 知识树与文档管理 | 富文本编辑器 |
 | :---: | :---: |
-| ![工作区总览](./docs/screenshots/desktop-overview.png) | ![知识树与文档管理](./docs/screenshots/desktop-knowledge-tree.png) |
+| ![知识树与文档管理](./docs/screenshots/desktop-knowledge-tree.png) | ![富文本编辑器](./docs/screenshots/desktop-editor.png) |
 
-| 富文本编辑器 | Markdown 分屏预览 |
+| Markdown 分屏预览 | AI 写作助手 |
 | :---: | :---: |
-| ![富文本编辑器](./docs/screenshots/desktop-editor.png) | ![Markdown 分屏预览](./docs/screenshots/desktop-markdown.png) |
+| ![Markdown 分屏预览](./docs/screenshots/desktop-markdown.png) | ![AI 写作助手](./docs/screenshots/desktop-ai-writing.png) |
 
-| AI 写作助手 | 任务中心 |
+| 任务中心 | AI 服务商配置 |
 | :---: | :---: |
-| ![AI 写作助手](./docs/screenshots/desktop-ai-writing.png) | ![任务中心](./docs/screenshots/desktop-tasks.png) |
-
-![AI 服务商配置](./docs/screenshots/settings-ai.png)
+| ![任务中心](./docs/screenshots/desktop-tasks.png) | ![AI 服务商配置](./docs/screenshots/settings-ai.png) |
 
 ### 移动端
 
@@ -143,8 +85,7 @@ v1.5.1 的任务提醒、AI 任务操作与 Android 同步修复见 [v1.5.1 发�
 - 多平台下载中心：<https://nowen.cn/#/note/download>
 - 使用教程与帮助中心：<https://nowen.cn/#/note/tutorials>
 - 在线体验：<http://note.nowen.cn/>
-- 账号：`demo`
-- 密码：`demo123456`
+- 账号：`demo` / 密码：`demo123456`
 
 > 演示账号仅用于体验，数据可能被定期重置。请勿存放敏感或重要内容。
 
@@ -171,21 +112,6 @@ docker compose up -d
 
 > 首次登录后请立即修改默认密码。公网部署还应配置 HTTPS、备份、正确的公开访问地址，并按需收紧 CORS。
 
-### HTTPS 部署（可选）
-
-已有 Nginx、Lucky 或 NAS 反代的用户可继续复用现有入口。新部署可使用配套的 Caddy 模板自动申请和续期证书，需要 Docker Compose **2.24.4+**、正确解析的公网域名及可达的 80/443 端口。
-
-在 `.env` 中设置 `NOWEN_DOMAIN=note.example.com`，然后执行：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
-```
-
-访问 `https://note.example.com`。此模板取消主应用的 3001 宿主机映射，自动设置公开分享地址，并持久化 Caddy 证书。后续管理命令也需同时指定这两个文件。
-
-已有实例请保持原 Compose 项目名和数据挂载，先备份再切换；HTTPS 就绪后，客户端改用域名地址。详见 [HTTPS 部署与验收](./docs/https-deployment.md)。
-
 ### 绿联 NAS / 飞牛 NAS 远程连接登录
 
 Nowen Note 支持部署在 **绿联 NAS（UGOS / UGOS Pro）** 与 **飞牛 NAS（fnOS）** 上。可使用 Releases 中对应的 `.upk` / `.fpk` 安装包，也可以直接通过 Docker Compose 部署。
@@ -204,6 +130,21 @@ Nowen Note 支持部署在 **绿联 NAS（UGOS / UGOS Pro）** 与 **飞牛 NAS�
 docker compose ps
 docker compose logs -f --tail=200 nowen-note
 ```
+
+### HTTPS 部署（可选）
+
+已有 Nginx、Lucky 或 NAS 反代的用户可继续复用现有入口。新部署可使用配套的 Caddy 模板自动申请和续期证书，需要 Docker Compose **2.24.4+**、正确解析的公网域名及可达的 80/443 端口。
+
+在 `.env` 中设置 `NOWEN_DOMAIN=note.example.com`，然后执行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+访问 `https://note.example.com`。此模板取消主应用的 3001 宿主机映射，自动设置公开分享地址，并持久化 Caddy 证书。后续管理命令也需同时指定这两个文件。
+
+已有实例请保持原 Compose 项目名和数据挂载，先备份再切换；HTTPS 就绪后，客户端改用域名地址。详见 [HTTPS 部署与验收](./docs/https-deployment.md)。
 
 ### 从旧版本升级
 
@@ -244,6 +185,74 @@ docker run -d \
   -v /opt/nowen-note/data:/app/data \
   cropflre/nowen-note:v1.6.2
 ```
+
+## 核心能力全景
+
+| 模块 | 当前能力 |
+| --- | --- |
+| **统一知识树** | 文件夹、富文本与 Markdown 文档混合组织；支持根目录文档、无限层级、拖拽排序与层级调整、统一创建菜单、全部展开 / 收起、筛选搜索、数量统计、回收站和共享目录；三栏布局可展示子文件夹与层级范围。 |
+| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、富文本 / Markdown 双编辑器与格式互转、纯文本笔记、实时预览与分屏、大纲、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、中文排版、阅读位置恢复、批注与版本历史。 |
+| **可靠保存与离线工作区** | Yjs 持久化确认、按笔记作用域的同步回执、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和离线工作区，包含个人目录结构同步、回收站恢复及误冲突防护；离线附件支持损坏 Blob 校验与恢复。 |
+| **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
+| **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
+| **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答，并支持查询今日任务、查看完成进度以及确认后创建或完成个人任务。 |
+| **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、说说文件附件、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
+| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖、重复规则、提醒、模板、My Day、Inbox、离线任务 / 习惯和 Android 原生提醒；支持 AI 生成任务后确认创建、今日完成汇总、任务树归档、任务详情另存为笔记（保留原任务）、任务报表及子树导出 Excel / Markdown，并提供到期排序和 Webhook 早晚摘要。 |
+| **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
+| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、Logseq、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
+| **附件与存储** | 文件中心提供资源管理器式文件夹导航、瀑布流、标签、智能文件夹、批量上传进度、移动 / 重命名、文件回收站及恢复、个人附件目录同步和已有附件插入；支持远程图片安全转存与逐图进度。AI 文件整理采用元数据建议、人工确认和权限校验，语义检索基于文件名 / 标签 / 描述，不读取文件字节，且受 [平台与作用域限制](./docs/user/file-ai-organization.md)。附件可存储于本地磁盘、S3、R2、MinIO；参见[文件整理](./docs/user/file-asset-organization.md)、[回收站](./docs/user/file-recycle-bin.md)与[目录同步](./docs/user/file-folder-sync.md)。 |
+| **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
+| **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
+| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树（含选定的团队笔记本）、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
+
+## AI 问答隐私与 MCP 接入
+
+### 1. RAG 隐私边界：不把全部笔记发送给大模型
+
+Nowen Note 的知识库问答采用 RAG 检索增强方式，**不会在每次提问时把全部笔记内容都发送给大模型**：
+
+- **知识库模式**：先在本地索引中检索相关笔记和附件，再发送匹配到的片段。
+- **当前笔记模式**：只使用当前打开的笔记。
+- **选中文本模式**：只使用当前选择或粘贴的文本。
+- **本地模型**：使用 Ollama 等本地服务时，可让问答内容留在自己的设备或服务器中。
+
+> 使用在线 Embedding 或在线大模型时，建立索引或回答问题所需的相关文本会发送给你自行配置的服务商。身份证、密码、API Key、助记词等高度敏感信息仍不建议以明文保存。
+
+### 2. 让 Claude Code / Cursor / VS Code 连接 Nowen Note（MCP Server）
+
+Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端。在 **Personal API Token 授权范围**内使用笔记、知识树、个人任务 / 项目、文件管理及个人自动化能力；已授权的团队笔记本仍受团队角色与目录权限限制。部分写入工具要求先预览、明确确认，并通过并发版本校验。高风险功能默认不开放，不能绕过笔记本范围与用户权限。
+
+- [MCP Server 中文安装与团队空间授权教程](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.md)
+- [MCP Server English guide](https://github.com/cropflre/nowen-note/blob/v1.6.0/docs/tutorials/mcp.en.md)
+- [nowen-mcp 包说明](./packages/nowen-mcp/README.md)
+
+目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 24.22.1+（24.x LTS））；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
+
+## 近期版本亮点
+
+### v1.6.2 · 2026-11-26
+
+- **Word、PPT 和 Excel。** 支持 DOCX、PPTX、XLSX 导入导出，Office 文件可直接拖入目录树。PPT 支持从 Markdown 大纲生成幻灯片，Excel 工作簿支持 Sync V2 和只读分享。
+- **桌面同步、备份和导入。** 改善 NAS 弱网同步与自动续期，修复附件重复排队、备份恢复报错和 Obsidian 相对路径附件导入。桌面端支持直接导入本地文件夹。
+- **文件管理与图床。** 支持跨页多选、批量移动、打标签和移入回收站。清空文件回收站时保护仍被引用的文件。
+- **团队协作与应用时区。** 团队空间新增成员邀请、用户组授权、@提及和任务负责人。应用可跟随系统时区，也可将自定义时区随账号同步。
+
+[v1.6.2 发布说明与安装包](https://github.com/cropflre/nowen-note/releases/tag/v1.6.2) · [官网下载中心](https://nowen.cn/#/note/download) · [Gitee 发布页与下载链接](https://gitee.com/cropflre/nowen-note/releases/tag/v1.6.2)
+
+发布页提供 Windows 安装版和便携版、macOS Intel 和 Apple Silicon 安装包、Linux AppImage 与 DEB、Android APK 和 AAB、飞牛通用 FPK、绿联双架构 UPK 和剪藏扩展。Docker 镜像支持 AMD64 和 ARM64。[Docker Hub v1.6.2](https://hub.docker.com/r/cropflre/nowen-note/tags?name=v1.6.2)
+
+> [!IMPORTANT]
+> 升级前备份数据库、附件和部署配置，并确认可以恢复。**回滚程序或 Docker 镜像不会回滚持久化数据库。** GitHub 发布的 macOS 安装包未做 Apple Developer ID 签名或公证，Windows 直接下载的 EXE 未签名。
+
+### 近期历史版本
+
+- **v1.6.1**（2026-11-23）为 Windows、macOS、Linux 和 Android 引入应用内热更新，改善编辑器、分享页和登录流程。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.1)
+
+- **v1.6.0**（2026-11-21）更新扩展中心和设置，改进笔记导入、AI 对话归档与说说附件，并扩展 MCP 团队空间授权和个人任务操作。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.6.0)
+- **v1.5.5**（2026-11-09）增强 Web、桌面和 Android 双向同步、知识树冲突处理和桌面启动恢复。[更新说明](./docs/releases/v1.5.5.md)
+- **v1.5.4**（2026-11-02）新增 AI 修改审核和 Markdown 章节折叠，增强附件恢复与桌面 NAS 离线体验。[更新说明](./docs/releases/v1.5.4.md)
+- **v1.5.3**（2026-10-23）改进笔记编辑、图片管理、加密操作、日历提醒和多平台稳定性。[发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3)
+- 更早版本：v1.5.1 见 [v1.5.1 发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)；完整历史见 [更新日志](./CHANGELOG.md)。
 
 ## 数据、备份与配置
 
@@ -318,6 +327,7 @@ npm install
 npm run install:all
 npm run dev
 ```
+
 也可以分别启动：
 
 ```bash
