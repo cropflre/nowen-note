@@ -2095,6 +2095,9 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "security" && <div className="space-y-6">
               {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
               {!isMobileLocalMode() && <SecuritySettings />}
+            </div>}
+            {activeTab === "tokens" && <div className="space-y-6">
+              <McpConnectionPanel />
               {!isMobileLocalMode() && <SettingsBentoCard as="div" spotlight={false} className="!overflow-visible">
                 <details>
                   <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-[var(--color-text-secondary)]">开发者访问令牌</summary>
@@ -2102,7 +2105,6 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                 </details>
               </SettingsBentoCard>}
             </div>}
-            {activeTab === "tokens" && <McpConnectionPanel />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
                   {activeTab === "extensions" && isAdmin && <PluginManagementPanel />}

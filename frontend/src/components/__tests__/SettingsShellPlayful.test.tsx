@@ -47,6 +47,9 @@ vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: {}, actions: {} }
 vi.mock("@/components/SkinSwitcher", () => ({ default: () => <div data-testid="skin-switcher" /> }));
 vi.mock("@/components/ThemeToggle", () => ({ default: () => <div data-testid="theme-toggle" /> }));
 vi.mock("@/components/DownloadPanel", () => ({ default: () => <div data-testid="download-panel" /> }));
+vi.mock("@/components/SecuritySettings", () => ({ default: () => <div data-testid="security-settings" /> }));
+vi.mock("@/components/TokenManagement", () => ({ default: () => <div data-testid="token-management" /> }));
+vi.mock("@/components/settings/McpConnectionPanel", () => ({ default: () => <div data-testid="mcp-connection-panel" /> }));
 import { zhCNEcosystemTranslations } from "@/i18n/ecosystemTranslations";
 
 function lookupEcosystemKey(key: string): unknown {
@@ -190,5 +193,22 @@ describe("SettingsModal playful & tactile shell", () => {
     )!;
     await act(async () => copyMiniBtn.click());
     expect(document.body.textContent).toContain("已复制，去微信搜一搜粘贴");
+  });
+
+  it("places developer access tokens under the Connect AI Agents (tokens) tab instead of security", async () => {
+    await act(async () => root.render(<SettingsModal defaultTab="security" onClose={vi.fn()} />));
+    expect(document.body.querySelector('[data-testid="security-settings"]')).toBeTruthy();
+    expect(document.body.textContent || "").not.toContain("开发者访问令牌");
+    expect(document.body.querySelector('[data-testid="token-management"]')).toBeNull();
+
+    const tokensTabBtn = Array.from(document.body.querySelectorAll("nav button")).find(
+      (btn) => btn.textContent?.includes("访问令牌") || btn.textContent?.includes("settings.tokens"),
+    )!;
+    expect(tokensTabBtn).toBeTruthy();
+    await act(async () => tokensTabBtn.click());
+
+    expect(document.body.querySelector('[data-testid="mcp-connection-panel"]')).toBeTruthy();
+    expect(document.body.textContent || "").toContain("开发者访问令牌");
+    expect(document.body.querySelector('[data-testid="token-management"]')).toBeTruthy();
   });
 });

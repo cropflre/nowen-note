@@ -325,7 +325,7 @@ When a team notebook is selected, the panel warns: “The AI assistant will be a
 - Each notebook shows **Can edit** or **Read-only**, based on your current team role and the folder's permissions.
 - Team owners, admins and editors can grant read-write access. Commenters and viewers can only grant read-only access; the server rejects write grants from read-only members.
 - If every selected notebook is read-only, the panel shows **Read-only connection**. The token does not request write scope and the AI can only read.
-- For advanced settings, such as read-only access to an editable notebook, automatically including child notebooks or folder-structure writes (`notebooks:write`), create or edit a token under **Settings → Security → Developer access tokens** (开发者访问令牌). Quick connect never grants folder-structure writes.
+- For advanced settings, such as read-only access to an editable notebook, automatically including child notebooks or folder-structure writes (`notebooks:write`), create or edit a token under **Settings → Connect AI Agents → Developer access tokens** (开发者访问令牌). Quick connect never grants folder-structure writes.
 
 ### How permissions are evaluated
 
