@@ -105,7 +105,9 @@
           "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
           "case": "native deletion and stop roll back tasks and lifecycle markers when Outbox insertion fails"
         },
-        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-002: an edit during bootstrap ACK remains queued after initialization" }
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-002: an edit during bootstrap ACK remains queued after initialization" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-002: a desktop save reaches the server within seconds instead of waiting for the 60-second sync interval" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-002: Markdown typed after a push confirmation keeps saving and syncing through the desktop Yjs room" }
       ]
     },
     {
@@ -184,7 +186,8 @@
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: knowledge tree note/notebook triggers never fail with KNOWLEDGE_TREE_PARENT_SCOPE_MISMATCH when parent tree projection is hidden or deleted" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: remote permanent deletion of trashed attachment and its parent note succeeds without ATTACHMENT_TRASH_RETAINED while local guard remains active" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003: DATA_STRUCTURE failure in SyncEngine persists sanitized lastErrorDiagnostic without leaking content" },
-        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" }
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-003 / DCC-006: multi-user local DB binds SyncEngine to actual owner and upgrades broken v1.6.1 DB without NOTEBOOK_ID_COLLISION or replan flip" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-003: early pushes keep the offline backoff and do not loop on outbox rows the engine cannot send yet" }
       ]
     },
     {
@@ -242,7 +245,11 @@
         { "file": "backend/tests/excel-workbook-route.test.ts", "case": "DCC-004: 过期 revision 返回 409，服务器版本不被覆盖；缺少 expectedRevision 拒绝盲写" },
         { "file": "frontend/src/lib/__tests__/excelSaveController.test.ts", "case": "DCC-004: 两窗口冲突时保留本机内容、停止自动覆盖，用户确认后才覆盖服务器" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
-        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004: reconcile ignores wire capability / default column drift from older servers but preserves genuine content conflicts" }
+        { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004: reconcile ignores wire capability / default column drift from older servers but preserves genuine content conflicts" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-004: a coalesced push ACK keeps the open editor's version usable while a stale editor still gets 409" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-004: pulling another device's edit flushes unsaved desktop Yjs typing first and keeps both versions" },
+        { "file": "backend/tests/sync-v2-desktop-phone-convergence.test.ts", "case": "DCC-004: another device's edit replaces the open desktop Markdown room so typing continues without conflicts" },
+        { "file": "frontend/src/lib/__tests__/editorSyncGuards.test.ts", "case": "DCC-004: adopts a desktop push-confirmation version rebase only for the exact pre-rebase version" }
       ]
     },
     {
@@ -294,7 +301,13 @@
         { "file": "backend/tests/sync-v2-nas-first-download-acceptance.test.ts", "case": "DCC-005: local-only deleted folders uploaded during the first sync leave the second device and the knowledge tree consistent" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-004 / DCC-005 / DCC-007: Windows PC clean first download with different userId converges with 0 conflicts, valid cursor/timestamps, tree structure and asset sync" },
         { "file": "backend/tests/sync-v2-desktop-convergence-regression.test.ts", "case": "DCC-005 / DCC-007: multi-page runSnapshotRebuild handles cross-page notebooks, deleted tree subtrees, and cross-userId asset organization without DATA_STRUCTURE" },
-        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-005: 桌面端本地文件夹零拷贝直导支持 Obsidian 独立附件库与相对路径，忽略符号链接且不改动源目录" }
+        { "file": "backend/tests/migration-local-directory.test.ts", "case": "DCC-005: 桌面端本地文件夹零拷贝直导支持 Obsidian 独立附件库与相对路径，忽略符号链接且不改动源目录" },
+        { "file": "backend/tests/sync-v2-snapshot-seek.test.ts", "case": "DCC-005: a desktop pull fetches one changed note from a 300-note library with a single snapshot request" },
+        { "file": "backend/tests/sync-v2-snapshot-seek.test.ts", "case": "DCC-005: seeking finds composite ids and tree nodes, and a deleted entity stays missing so the cursor is not advanced" },
+        { "file": "backend/tests/sync-v2-snapshot-seek.test.ts", "case": "DCC-005: a phone pull of one desktop edit downloads only that note from a large library" },
+        { "file": "frontend/src/lib/__tests__/mobileSnapshotSeek.test.ts", "case": "DCC-005: fetches one changed note with a single one-item request instead of scanning the library" },
+        { "file": "frontend/src/lib/__tests__/mobileSnapshotSeek.test.ts", "case": "DCC-005: scans only the entity's own section for tree nodes and asset folders, in server order" },
+        { "file": "frontend/src/lib/__tests__/mobileSnapshotSeek.test.ts", "case": "DCC-005: leaves a deleted entity missing after one pass over its section, never a second full scan" }
       ]
     },
     {
