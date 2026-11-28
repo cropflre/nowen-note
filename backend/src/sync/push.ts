@@ -99,7 +99,21 @@ export function markLocalMutationApplied(
   `).run(mutationId, deviceId);
 }
 
-/** Called in the acknowledgement transaction, after the sent rows leave Outbox. */
+/** 推送确认把本机笔记版本号改成了服务端版本号（正文不变）。 */
+export interface NoteVersionRebase {
+  noteId: string;
+  fromVersion: number;
+  toVersion: number;
+}
+
+/**
+ * Called in the acknowledgement transaction, after the sent rows leave Outbox.
+ *
+ * 合并推送时本机连续保存了 N 次（本机版本 +N），服务端只 +1，确认后本机版本号会
+ * 改成服务端版本号；Markdown 由 Yjs 落盘、5 分钟内不涨版本，确认后版本号反而会变大。
+ * 返回这次改号，调用方在事务提交后通知本机编辑器与 Yjs 房间沿用新版本号，
+ * 否则它们手里的旧版本号会让下一次保存被判为冲突或被丢弃。
+ */
 export function acknowledgeNotePush(
   db: Database.Database,
   mutation: CoalescedMutation,
@@ -108,9 +122,9 @@ export function acknowledgeNotePush(
   scopeKey: string,
   userId: string,
   workspaceId: string | null,
-): void {
+): NoteVersionRebase | null {
   if (mutation.entityType !== "note" || mutation.operation !== "upsert"
-    || typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) return;
+    || typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) return null;
 
   // Later batches and edits made while awaiting Push are descendants of this
   // confirmed write. Their next Push must use the server's version as its base.
@@ -119,7 +133,12 @@ export function acknowledgeNotePush(
     WHERE profileId = ? AND scopeKey = ? AND entityType = 'note' AND entityId = ?
       AND status IN ('pending', 'failed')
   `).run(version, profileId, scopeKey, mutation.entityId);
-  if (remaining.changes > 0) return; // Keep the editor's version while local edits remain.
+  if (remaining.changes > 0) return null; // Keep the editor's version while local edits remain.
+
+  const current = db.prepare(`SELECT version FROM notes
+    WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)`)
+    .get(mutation.entityId, workspaceId, workspaceId, userId) as { version: number } | undefined;
+  if (!current || current.version === version) return null;
 
   // Version acknowledgement is remote state, not a new user edit.
   runWithOutboxSuppressed(() => runChangeFeedSuppressed(db, () => {
@@ -127,6 +146,7 @@ export function acknowledgeNotePush(
       WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)`)
       .run(version, mutation.entityId, workspaceId, workspaceId, userId);
   }));
+  return { noteId: mutation.entityId, fromVersion: current.version, toVersion: version };
 }
 
 export function isLocalMutationApplied(

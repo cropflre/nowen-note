@@ -618,6 +618,17 @@ export function yAdvanceRoomBaseVersion(
   room.baseVersion = nextVersion;
 }
 
+/**
+ * 桌面端同步推送确认后，本机笔记的版本号被改成服务端版本号（正文不变，可能变大也可能变小）。
+ * 房间若仍以改号前的版本为乐观锁基线，之后的落盘都会因 stale-yjs-room 被拒绝，
+ * Markdown 修改从此不再写入 notes、也不再同步。只在基线正是改号前版本时跟随。
+ */
+export function yRebaseRoomVersion(noteId: string, fromVersion: number, toVersion: number): void {
+  const room = rooms.get(noteId);
+  if (!room || room.baseVersion !== fromVersion) return;
+  room.baseVersion = toVersion;
+}
+
 /** 进程退出时调用：把所有房间 flush 到磁盘。返回 Promise，便于 caller await。 */
 export function yFlushAll(): Promise<void> {
   const ids = Array.from(rooms.keys());

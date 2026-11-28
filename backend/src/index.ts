@@ -99,6 +99,7 @@ import { getBackupManager } from "./services/backup";
 import { attachRealtimeServer, broadcastToUser, getRealtimeStats, shutdownRealtime } from "./services/realtime";
 import { isLocalFirstSyncV2Enabled } from "./sync/flag";
 import { setSyncBroadcaster } from "./sync/notify";
+import { installLocalNoteSyncHooks } from "./services/localNoteSyncHooks";
 import { startSyncChangeNoticeFlusher, syncChangeNoticeMiddleware } from "./sync/feedNotifier";
 import { resetChangeFeedSuppression } from "./sync/suppression";
 import { recoverInflightMutations } from "./sync/outbox";
@@ -1041,6 +1042,9 @@ if (isLocalFirstSyncV2Enabled()) {
   setSyncBroadcaster((userId, message) => {
     broadcastToUser(userId, message as never);
   });
+
+  // 桌面端同步引擎改动本机笔记后，让本机打开它的编辑器与 Yjs 房间跟上（见 sync/localNoteBridge.ts）。
+  installLocalNoteSyncHooks();
 
   // Yjs 落盘、导入任务等非 HTTP 写入同样进入 Change Feed；后台冲刷兜住它们的唤醒。
   try { startSyncChangeNoticeFlusher(getDb()); }

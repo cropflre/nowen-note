@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isMatchingTiptapSaveAck,
+  isNoteVersionRebase,
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
   shouldSkipUnchangedTitleOnlyUpdate,
@@ -134,5 +135,20 @@ describe("editor sync guards", () => {
     expect(isRemoteVersionNewer(current, { id: "note-1", version: 3 })).toBe(true);
     expect(isRemoteVersionNewer(current, { noteId: "note-1", version: 2 })).toBe(false);
     expect(isRemoteVersionNewer(current, { noteId: "note-2", version: 4 })).toBe(false);
+  });
+
+  it("DCC-004: adopts a desktop push-confirmation version rebase only for the exact pre-rebase version", () => {
+    const editor = { id: "note-1", version: 6 };
+    // 合并推送后本机 6 → 服务端 3：编辑器改用 3，下一次保存与后续远端更新都按 3 比较。
+    expect(isNoteVersionRebase(editor, { noteId: "note-1", version: 3, rebasedFromVersion: 6 })).toBe(true);
+    // Markdown 5 分钟内不涨版本，确认后版本号会变大。
+    expect(isNoteVersionRebase({ id: "note-1", version: 2 }, { noteId: "note-1", version: 3, rebasedFromVersion: 2 })).toBe(true);
+    // 编辑器之后又保存过（不再是改号前的版本），或是别的笔记、普通远端更新：都不能当作改号。
+    expect(isNoteVersionRebase({ id: "note-1", version: 7 }, { noteId: "note-1", version: 3, rebasedFromVersion: 6 })).toBe(false);
+    expect(isNoteVersionRebase(editor, { noteId: "note-2", version: 3, rebasedFromVersion: 6 })).toBe(false);
+    expect(isNoteVersionRebase(editor, { noteId: "note-1", version: 3 })).toBe(false);
+    expect(isNoteVersionRebase(editor, { noteId: "note-1", version: 6, rebasedFromVersion: 6 })).toBe(false);
+    expect(isNoteVersionRebase(editor, { noteId: "note-1", version: 0, rebasedFromVersion: 6 })).toBe(false);
+    expect(isNoteVersionRebase(null, { noteId: "note-1", version: 3, rebasedFromVersion: 6 })).toBe(false);
   });
 });

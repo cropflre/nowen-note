@@ -115,6 +115,7 @@ import {
   captureEditorCleanBaseline,
   hasUnsavedEditorChanges,
   isFetchedRemoteNoteNewer,
+  isNoteVersionRebase,
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
   shouldSkipUnchangedTitleOnlyUpdate,
@@ -1462,8 +1463,17 @@ function OrdinaryEditorPane({
     title?: string;
     contentText?: string;
     actorUserId?: string;
+    rebasedFromVersion?: number;
   }, prefetched?: Note) {
     const cur = activeNoteRef.current;
+    // Desktop sync confirmed our own push and only renumbered the version; keep the body.
+    if (!prefetched && cur && isNoteVersionRebase(cur, msg)) {
+      const rebased = { ...cur, version: msg.version };
+      activeNoteRef.current = rebased;
+      actions.setActiveNote(rebased);
+      actions.updateNoteInList({ id: msg.noteId, version: msg.version });
+      return;
+    }
     // A prefetched persisted note may carry a same-version body (live Yjs persistence).
     if (!prefetched && !isRemoteVersionNewer(cur, msg)) return;
 

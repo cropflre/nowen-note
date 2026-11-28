@@ -66,6 +66,8 @@ import {
 } from "./workspaceScopes";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
+import { announceAppliedLocalNotes, flushLocalNote, recordNoteVersionRebase } from "./localNoteBridge";
+import { fetchSnapshotEntities } from "./snapshotSeek";
 
 /**
  * Desktop Sync Engine。
@@ -117,6 +119,12 @@ export interface SyncEngineOptions {
   blobClient?: SyncBlobClient | null;
   /** 周期同步间隔；0 表示只在被显式触发时同步。 */
   intervalMs?: number;
+  /**
+   * 检查本机新写入（Outbox 新条目）的间隔；检测到后约 localChangeDelayMs 推送。
+   * 默认：有周期同步时 1000ms，intervalMs 为 0 时关闭。
+   */
+  localChangePollMs?: number;
+  localChangeDelayMs?: number;
   /** 允许测试注入定时器控制。 */
   scheduler?: {
     setTimeout: (fn: () => void, ms: number) => unknown;
@@ -125,6 +133,9 @@ export interface SyncEngineOptions {
 }
 
 const DEFAULT_INTERVAL_MS = 60_000;
+const DEFAULT_LOCAL_CHANGE_POLL_MS = 1_000;
+/** 连续输入时编辑器约每 0.5 秒保存一次；稍等片刻再推，一次带上这段时间的全部修改。 */
+const DEFAULT_LOCAL_CHANGE_DELAY_MS = 1_500;
 
 type TreeRemotePayload = {
   entityType: "knowledge_tree_node";
@@ -149,6 +160,14 @@ export class SyncEngine {
    */
   private stopped = false;
   private timer: unknown = null;
+  /** timer 预定触发的时刻，用于"不推迟已排得更早的一轮"。 */
+  private timerDueAt = 0;
+  private localChangeTimer: unknown = null;
+  /**
+   * 最近一轮开始时的 Outbox 检查点：since 为当时的 SQLite 时间（秒级），known 为那一秒内
+   * 已在队列里的条目。此后入队、且不在 known 里的条目才算"新写入"。
+   */
+  private outboxCheckpoint: { since: string; known: Set<string> } | null = null;
   private abortController: AbortController | null = null;
   private inflightPushIds: string[] = [];
   private retryCount = 0;
@@ -173,6 +192,8 @@ export class SyncEngine {
   private readonly client: SyncRemoteClient;
   private readonly blobClient: SyncBlobClient | null;
   private readonly intervalMs: number;
+  private readonly localChangePollMs: number;
+  private readonly localChangeDelayMs: number;
   private readonly scheduler: NonNullable<SyncEngineOptions["scheduler"]>;
 
   constructor(options: SyncEngineOptions) {
@@ -183,6 +204,9 @@ export class SyncEngine {
     this.client = options.client;
     this.blobClient = options.blobClient ?? null;
     this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
+    this.localChangePollMs = options.localChangePollMs
+      ?? (this.intervalMs > 0 ? DEFAULT_LOCAL_CHANGE_POLL_MS : 0);
+    this.localChangeDelayMs = options.localChangeDelayMs ?? DEFAULT_LOCAL_CHANGE_DELAY_MS;
     this.scheduler = options.scheduler ?? {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
       clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
@@ -221,6 +245,7 @@ export class SyncEngine {
     this.state = "idle";
     this.ensureAbortSignal();
     this.scheduleNext(0);
+    this.scheduleLocalChangeCheck();
   }
 
   /**
@@ -233,6 +258,10 @@ export class SyncEngine {
     if (this.timer !== null) {
       this.scheduler.clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (this.localChangeTimer !== null) {
+      this.scheduler.clearTimeout(this.localChangeTimer);
+      this.localChangeTimer = null;
     }
     this.stopped = true;
     this.state = "disabled";
@@ -262,10 +291,62 @@ export class SyncEngine {
     }
     // 已停止就不再排程，否则 stop() 之后仍会被残留定时器唤醒。
     if (this.stopped) return;
+    this.timerDueAt = Date.now() + delayMs;
     this.timer = this.scheduler.setTimeout(() => {
       this.timer = null;
       void this.syncOnce();
     }, delayMs);
+  }
+
+  /** 安排一轮同步，但不推迟已经排得更早的那一轮。 */
+  private scheduleSoon(delayMs: number): void {
+    if (this.timer !== null && this.timerDueAt <= Date.now() + delayMs) return;
+    this.scheduleNext(delayMs);
+  }
+
+  private scheduleLocalChangeCheck(): void {
+    if (this.stopped || this.localChangePollMs <= 0 || this.localChangeTimer !== null) return;
+    this.localChangeTimer = this.scheduler.setTimeout(() => {
+      this.localChangeTimer = null;
+      this.checkLocalChanges();
+      this.scheduleLocalChangeCheck();
+    }, this.localChangePollMs);
+  }
+
+  /**
+   * 本机有新入队的修改就尽快推送。
+   *
+   * Outbox 由数据库触发器写入（REST、Yjs 落盘、导入都经过它），引擎原先只在周期到点
+   * （60 秒）、收到远端通知或用户点"立即同步"时推送：电脑上刚保存的修改最多要等一分钟
+   * 才上云，其他设备这段时间里打开的都是旧内容，接着编辑就变成冲突。
+   * 只在引擎健康且空闲时提前；离线或出错时仍按退避节奏重试，连续输入不会放大成请求风暴。
+   * 一轮开始后才入队的条目才算新写入，暂时推不出去的旧条目不会让引擎空转。
+   */
+  private checkLocalChanges(): void {
+    const checkpoint = this.outboxCheckpoint;
+    if (this.stopped || this.running || this.lastError !== null || !checkpoint) return;
+    let fresh = false;
+    try {
+      fresh = this.pendingMutationsSince(checkpoint.since).some((id) => !checkpoint.known.has(id));
+    } catch {
+      return; // 读取失败（如备份恢复换库中）时等下一次检查或周期同步。
+    }
+    if (fresh) this.scheduleSoon(this.localChangeDelayMs);
+  }
+
+  private pendingMutationsSince(since: string): string[] {
+    return (this.db.prepare(`
+      SELECT mutationId FROM sync_outbox
+      WHERE profileId = ? AND status = 'pending' AND createdAt >= ?
+    `).all(this.profileId, since) as Array<{ mutationId: string }>).map((row) => row.mutationId);
+  }
+
+  /** 一轮开始时记下检查点：之后入队的条目才会触发提前推送。 */
+  private markOutboxCheckpoint(): void {
+    try {
+      const since = (this.db.prepare("SELECT datetime('now') AS now").get() as { now: string }).now;
+      this.outboxCheckpoint = { since, known: new Set(this.pendingMutationsSince(since)) };
+    } catch { /* 取不到时沿用上一轮的检查点；最坏情况多跑一轮 */ }
   }
 
   // -------------------------------------------------------------------------
@@ -327,6 +408,7 @@ export class SyncEngine {
     this.state = "syncing";
     this.ensureAbortSignal();
     const startedAt = Date.now();
+    this.markOutboxCheckpoint();
 
     try {
       const descriptors = await this.client.listScopes();
@@ -723,7 +805,7 @@ export class SyncEngine {
           throw new SyncError("SERVER_ERROR","附件目录 ACK 缺少有效版本");
         }
         // 出队：这是唯一允许删除 Outbox 条目的路径。
-        this.db.transaction(() => {
+        const rebase = this.db.transaction(() => {
           markLocalMutationApplied(this.db, result.mutationId, this.deviceId);
           markMutationSynced(this.db, result.mutationId);
           for (const id of superseded) markMutationSynced(this.db, id);
@@ -731,11 +813,13 @@ export class SyncEngine {
             const remaining = this.db.prepare(`UPDATE sync_outbox SET baseVersion=? WHERE profileId=? AND entityType='attachment_organization' AND entityId=?`).run(result.version,this.profileId,source.entityId);
             if (!remaining.changes) runChangeFeedSuppressed(this.db,()=>this.db.prepare("UPDATE asset_sync_metadata SET version=? WHERE id=? AND userId=?").run(result.version,source.entityId,this.userId));
           }
-          acknowledgeNotePush(
+          return acknowledgeNotePush(
             this.db, source, result.version, this.profileId, scope.scopeKey,
             this.userId, scope.workspaceId,
           );
         })();
+        // 事务已提交：让本机编辑器与 Yjs 房间改用服务端版本号，正在路上的旧版本号保存仍可放行。
+        if (rebase) recordNoteVersionRebase(this.db, rebase);
         if(source.entityType === "note" && source.operation === "delete") {
           try { await cleanupNoteDeletionFiles(this.db,(source.payload?._deletionRecovery as {attachments?:Array<{id:string;path:string}>}|undefined)?.attachments || []); }
           catch { /* ACK is durable; unreferenced bytes can be reclaimed by the normal orphan scan. */ }
@@ -868,9 +952,15 @@ export class SyncEngine {
     const treePayloads = payloads.filter(
       (item): item is TreeRemotePayload => item.entityType === "knowledge_tree_node",
     );
+    const noteIds = [...new Set(businessPayloads.filter((item) => item.entityType === "note").map((item) => item.entityId))];
+    // 本机 Yjs 房间里尚未落盘的输入先写回 notes：它们随之进入 Outbox，下面按"本机有未推送修改"
+    // 处理（保留两边/登记冲突），不会被这次拉取覆盖后又在落盘时因版本号对不上被静默丢弃。
+    for (const noteId of noteIds) flushLocalNote(noteId);
+    const notesBefore = this.readNoteFingerprints(noteIds, scope);
     const result = applyRemoteChanges(this.db,businessPayloads,{
       userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId,
     });
+    const notesAfter = this.readNoteFingerprints(noteIds, scope);
     this.restoreParentLinks(businessPayloads,scope);
     const treeResult = this.applyKnowledgeTreePayloads(treePayloads, scope);
     const remoteUserId = getProfile(this.db, this.profileId)?.remoteUserId ?? null;
@@ -890,6 +980,15 @@ export class SyncEngine {
         localPayload: this.readLocalSnapshot(conflict, scope),
       });
     }
+
+    // 其他设备的修改已落库：通知本机打开这些笔记的编辑器（含 Markdown 的 Yjs 房间）换成新内容。
+    // 否则编辑器继续显示旧正文，接着编辑就只能被判冲突，这些修改也再传不回去。
+    announceAppliedLocalNotes(this.userId, noteIds.flatMap((noteId) => {
+      const before = notesBefore.get(noteId);
+      const now = notesAfter.get(noteId);
+      if (before === now) return [];
+      return [{ noteId, operation: now === undefined ? "delete" as const : "upsert" as const }];
+    }));
 
     advanceSyncState(this.db, this.profileId, changes.nextSequence, scope.scopeKey);
     await this.client.ack(
@@ -944,39 +1043,34 @@ export class SyncEngine {
 
     if (wanted.size === 0) return deletions;
 
-    // 遍历 snapshot，挑出本轮需要的实体。
+    // 按实体精确定位 snapshot 条目，不再从库首逐页翻（见 snapshotSeek.ts）。
+    const entries = await fetchSnapshotEntities<SyncNegotiatedEntityType>({
+      wanted: [...wanted].map((key) => {
+        const [entityType, entityId] = key.split("\u0000") as [SyncNegotiatedEntityType, string];
+        return { entityType, entityId };
+      }),
+      includeAssetFolders: includeFolders,
+      fetchPage: (cursor, limit) => (subscription
+        ? this.client.snapshot<SyncNegotiatedEntityType>(cursor, 0, limit, scope.scopeKey, subscription)
+        : this.client.snapshot(cursor, 0, limit, scope.scopeKey)) as Promise<RemoteSnapshotPage<SyncNegotiatedEntityType>>,
+    });
     const upserts: EngineRemotePayload[] = [];
-    let cursor: string | null = null;
-    let guard = 0;
-    do {
-      const page: RemoteSnapshotPage<SyncNegotiatedEntityType> = subscription
-        ? await this.client.snapshot<SyncNegotiatedEntityType>(
-          cursor, 0, undefined, scope.scopeKey, subscription,
-        )
-        : await this.client.snapshot(cursor, 0, undefined, scope.scopeKey);
-      for (const entry of page.items) {
-        const key = `${entry.entityType}\u0000${entry.entityId}`;
-        if (!wanted.has(key) && !(includeFolders && entry.entityType==="attachment_organization" && entry.payload.kind==="folder")) continue;
-        upserts.push(entry.entityType === "knowledge_tree_node"
-          ? {
-              entityType: "knowledge_tree_node",
-              entityId: entry.entityId,
-              operation: "upsert",
-              payload: entry.payload,
-            }
-          : {
-              entityType: entry.entityType as RemoteEntityPayload["entityType"],
-              entityId: entry.entityId,
-              operation: "upsert",
-              payload: entry.payload,
-            });
-        wanted.delete(key);
-      }
-      cursor = page.nextCursor;
-      guard += 1;
-      // 需要的实体都拿到就提前结束，不必翻完整个知识库。
-      if (wanted.size === 0 && !includeFolders) break;
-    } while (cursor && guard < 1000);
+    for (const entry of entries) {
+      wanted.delete(`${entry.entityType}\u0000${entry.entityId}`);
+      upserts.push(entry.entityType === "knowledge_tree_node"
+        ? {
+            entityType: "knowledge_tree_node",
+            entityId: entry.entityId,
+            operation: "upsert",
+            payload: entry.payload,
+          }
+        : {
+            entityType: entry.entityType as RemoteEntityPayload["entityType"],
+            entityId: entry.entityId,
+            operation: "upsert",
+            payload: entry.payload,
+          });
+    }
 
     if (wanted.size > 0) {
       throw new SyncError(
@@ -1066,6 +1160,23 @@ export class SyncEngine {
       });
     }
     return { applied: applicable.length, conflicts };
+  }
+
+  /** 笔记可见状态的指纹（版本、回收站、标题、正文），用于判断拉取是否真的改了它。 */
+  private readNoteFingerprints(noteIds: string[], scope: SyncScopeDescriptor): Map<string, string> {
+    const fingerprints = new Map<string, string>();
+    for (let offset = 0; offset < noteIds.length; offset += 200) {
+      const ids = noteIds.slice(offset, offset + 200);
+      const rows = this.db.prepare(`
+        SELECT id, version, isTrashed, title, content FROM notes
+        WHERE id IN (${ids.map(() => "?").join(",")}) AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+      `).all(...ids, scope.workspaceId, scope.workspaceId, this.userId) as
+        Array<{ id: string; version: number; isTrashed: number; title: string; content: string }>;
+      for (const row of rows) {
+        fingerprints.set(row.id, `${row.version}\u0000${row.isTrashed}\u0000${row.title}\u0000${row.content}`);
+      }
+    }
+    return fingerprints;
   }
 
   /** 读取本地当前内容，作为冲突的 local 一方留存。 */

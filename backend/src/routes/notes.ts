@@ -58,6 +58,7 @@ import { buildFtsSearchTerm } from "../lib/searchQuery";
 import { resolveNotebookNoteScopeIds } from "../lib/notebookNoteScope";
 import { resolveKnowledgeTreeNoteScopeIds } from "../lib/knowledgeTreeNoteScope";
 import { TOKEN_NOTEBOOK_SCOPE_HEADER, tokenNotebookScopeFromHeader } from "../services/apiTokenNotebookAccess";
+import { isRebasedNoteVersion } from "../sync/localNoteBridge";
 import {
   reportTransientPersistedImageSource,
   stabilizePersistedNoteContent,
@@ -994,9 +995,11 @@ app.put("/:id", async (c) => {
   }
 
   // 乐观锁：检查版本号（body.version 存在时始终校验；内容类变更已在上面强制带上）
+  // 桌面端同步推送确认会把本机版本号改成服务端版本号（正文不变）；编辑器收到改号通知前
+  // 仍带着改号前的版本号保存，只要笔记此后没再被改过，两者是同一份正文，放行。
   if (body.version !== undefined) {
     const current = db.prepare("SELECT version FROM notes WHERE id = ?").get(id) as { version: number } | undefined;
-    if (current && current.version !== body.version) {
+    if (current && current.version !== body.version && !isRebasedNoteVersion(db, id, body.version, current.version)) {
       logNoteWrite({
         noteId: id,
         source: writeSource,

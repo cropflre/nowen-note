@@ -18,6 +18,7 @@ import {
   applyNativeTreeRepair, readNativeTreeRepairPlan, rejectNativeTreeRepair,
 } from "./nativeTreeConflictRepair";
 import { applyNativeTreeLifecycleProjection, nativeTreeLifecycleKey, nativeTreeLifecycleOverrides, readNativeTreeLifecycleIntents, writeNativePersonalTreeLifecycle } from "./nativePersonalTreeTrash";
+import { fetchSnapshotEntities } from "./mobileSnapshotSeek";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -1067,15 +1068,22 @@ export class MobileSyncEngine {
     const includeFolders=latest.some(item=>item.entityType==="attachment_organization");
     const entries: SnapshotEntry[] = [];
     if (wanted.size) {
-      let cursor: string|null=null;
-      do {
-        const params = this.subscriptionParams(scope,{limit:"200"});
-        if(cursor) params.set("cursor",cursor);
-        const page = await this.request<{nextCursor:string|null;items:SnapshotEntry[]}>(`/snapshot?${params}`);
-        assertMobileSyncItems(page.items,"snapshot",this.hasTreeSubscription(scope),this.assetSubscribed && !scope.workspaceId);
-        for(const item of page.items){const key=`${item.entityType}\0${item.entityId}`;if(wanted.delete(key) || includeFolders && item.entityType==="attachment_organization" && item.payload.kind==="folder")entries.push(item);}
-        cursor=page.nextCursor;
-      } while(cursor&&(wanted.size || includeFolders));
+      // 按实体精确定位 snapshot 条目，不再从库首逐页翻（见 mobileSnapshotSeek.ts）。
+      const found = await fetchSnapshotEntities<RemoteEntityType>({
+        wanted: latest.filter((item) => item.operation !== "delete"),
+        includeAssetFolders: includeFolders,
+        fetchPage: async (cursor, limit) => {
+          const params = this.subscriptionParams(scope,{limit:String(limit ?? 200)});
+          if (cursor) params.set("cursor",cursor);
+          const page = await this.request<{nextCursor:string|null;items:SnapshotEntry[]}>(`/snapshot?${params}`);
+          assertMobileSyncItems(page.items,"snapshot",this.hasTreeSubscription(scope),this.assetSubscribed && !scope.workspaceId);
+          return page;
+        },
+      });
+      for (const item of found) {
+        wanted.delete(`${item.entityType}\0${item.entityId}`);
+        entries.push(item);
+      }
     }
     if(wanted.size)throw syncFailure(
       "SERVER_ERROR",

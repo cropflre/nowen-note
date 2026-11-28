@@ -84,12 +84,12 @@ function fixture(count = 1) {
       serverSequence: server.sequence, resetRequired: false, accessFingerprint: "owner", entityTypes: NATIVE_TREE_ENTITY_SET.split(","),
     };
     else if (url.pathname.endsWith("/snapshot")) {
-      if (url.searchParams.has("cursor")) {
-        expect(url.searchParams.has("deviceId")).toBe(false);
-        expect(url.searchParams.get("cursor")).toBe("knowledge_tree_node:");
-      }
+      const cursor = url.searchParams.get("cursor");
+      // 修复预览只读知识树段且不带 deviceId；普通拉取带 deviceId，按实体类型段定位。
+      if (cursor !== null && !url.searchParams.has("deviceId")) expect(cursor).toBe("knowledge_tree_node:");
+      const treeSection = cursor === null || cursor.startsWith("knowledge_tree_node:");
       payload = { accessFingerprint: "owner", snapshotSequence: server.sequence, nextCursor: null,
-        items: remote.map((node) => ({ entityType: "knowledge_tree_node", entityId: node.id, payload: node })) };
+        items: treeSection ? remote.map((node) => ({ entityType: "knowledge_tree_node", entityId: node.id, payload: node })) : [] };
     } else if (url.pathname.endsWith("/changes")) payload = {
       resetRequired: false, nextSequence: server.sequence,
       items: server.changedEntityId && Number(url.searchParams.get("after")) < server.sequence
@@ -123,6 +123,9 @@ it("repairs 18 Android directory conflicts atomically, retaining business data, 
   expect(raw.prepare("SELECT lastSequence FROM sync_state").get()).toEqual({ lastSequence: 100 });
   expect(raw.prepare("SELECT key FROM native_runtime_meta WHERE key LIKE 'knowledgeTreeRepairBackup:%'").all()).toHaveLength(1);
   expect(request.mock.calls.every(([url]) => !/\/(ack|push)$/.test(url))).toBe(true);
+  // 修复读取树段不能打开或替换订阅会话：带游标的快照请求都不携带 deviceId。
+  expect(request.mock.calls.filter(([url]) => url.includes("/snapshot?") && new NodeURL(url).searchParams.has("cursor")
+    && new NodeURL(url).searchParams.has("deviceId"))).toHaveLength(0);
 
   raw.exec("INSERT INTO native_runtime_meta(key,value,updatedAt) VALUES ('offlineBaseline:p:personal','100','created')");
   // Replay a later accepted move from a device that has just returned online.

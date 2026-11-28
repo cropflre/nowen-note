@@ -48,6 +48,7 @@ import {
 } from "../lib/tiptapListItemStructure.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { noteVersionsRepository } from "../repositories/noteVersionsRepository.js";
+import { isRebasedNoteVersion } from "../sync/localNoteBridge.js";
 import { logAudit } from "../services/audit.js";
 import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime.js";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments.js";
@@ -262,7 +263,9 @@ async function patchBlocks(c: Context) {
         expectedBlockVersions: body.expectedBlockVersions,
         expectedStructureVersion: body.expectedStructureVersion,
       });
-      if (note.version !== body.expectedNoteVersion) {
+      // 同步推送确认改写本机版本号后，编辑器手里的改号前版本号仍指向同一份正文（见 sync/localNoteBridge.ts）。
+      if (note.version !== body.expectedNoteVersion
+        && !isRebasedNoteVersion(db, noteId, body.expectedNoteVersion, note.version)) {
         const contentOnly = operations.every((operation) => operation.type === "update" || operation.type === "replace");
         const affected = operations.map((operation: any) => String(operation.blockId || "")).filter(Boolean);
         const coveredByBlockVersions = authority

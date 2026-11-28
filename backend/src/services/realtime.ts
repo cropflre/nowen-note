@@ -599,6 +599,8 @@ export function broadcastNoteUpdated(
     contentText?: string;
     actorUserId?: string;
     actorUsername?: string;
+    /** 仅版本号被同步确认改写、正文未变时携带：持有该旧版本号的编辑器直接改用 version。 */
+    rebasedFromVersion?: number;
   },
   actorConnectionId?: string,
 ) {

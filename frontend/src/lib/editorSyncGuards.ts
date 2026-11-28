@@ -23,6 +23,24 @@ export function isRemoteVersionNewer(
   return remoteId === current.id && remote.version > current.version;
 }
 
+/**
+ * 桌面端同步推送确认只改写了本机版本号（正文不变）：内嵌后端广播的 note:updated 带
+ * rebasedFromVersion。编辑器手里正是改号前的版本号时直接改用新版本号——否则下一次保存
+ * 会被判 409 只存进草稿，之后真正的远端更新也会因版本号"不比我新"被忽略。
+ */
+export function isNoteVersionRebase(
+  current: { id: string; version: number } | null | undefined,
+  message: { noteId?: string; id?: string; version?: number; rebasedFromVersion?: number } | null | undefined,
+): boolean {
+  if (!current || !message) return false;
+  const id = message.noteId ?? message.id;
+  return id === current.id
+    && typeof message.version === "number" && Number.isSafeInteger(message.version) && message.version > 0
+    && typeof message.rebasedFromVersion === "number"
+    && message.rebasedFromVersion === current.version
+    && message.version !== current.version;
+}
+
 type EditorSnapshot = { content: string; contentText: string; title?: string };
 type PersistedNoteBody = { id: string; content: string; title: string };
 

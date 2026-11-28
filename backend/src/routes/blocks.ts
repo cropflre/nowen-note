@@ -23,6 +23,7 @@ import {
   type NoteBlockIndexRow,
   type NoteBlockType,
 } from "../lib/noteBlocks";
+import { isRebasedNoteVersion } from "../sync/localNoteBridge";
 
 const app = new Hono();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -269,7 +270,9 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
   if (cached) return c.json({ ...cached as any, idempotentReplay: true });
 
   if (note.isLocked) return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
-  if (note.version !== body.expectedNoteVersion) {
+  // 同步推送确认改写本机版本号后，改号前的版本号仍指向同一份正文（见 sync/localNoteBridge.ts）。
+  if (note.version !== body.expectedNoteVersion
+    && !isRebasedNoteVersion(getDb(), noteId, body.expectedNoteVersion, note.version)) {
     return c.json({ error: "Version conflict", code: "VERSION_CONFLICT", currentVersion: note.version }, 409);
   }
 
