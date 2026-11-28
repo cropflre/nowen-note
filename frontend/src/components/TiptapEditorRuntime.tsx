@@ -397,6 +397,9 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       processPayloadRef.current(payload);
     }, []);
 
+    const viewportCssOptimized = runtimeBelongsToNote
+      && (decision.mode === "viewport-optimized" || decision.mode === "lightweight-edit");
+
     return (
       <>
         {(blockPatchEnabled || windowingEnabled) && <BlockPatchAppActionsBridge target={appActionsRef} />}
@@ -413,19 +416,21 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
             onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
           />
         ) : (
-          <BaseTiptapEditor
-            {...props}
-            note={windowingFallback?.noteId === props.note.id && windowingFallback.snapshot
-              ? {
-                  ...props.note,
-                  content: windowingFallback.snapshot.content,
-                  contentText: windowingFallback.snapshot.contentText,
-                }
-              : props.note}
-            ref={baseRef}
-            onUpdate={handleUpdate}
-            onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
-          />
+          <div className={viewportCssOptimized ? "contents nowen-tiptap-viewport-opt" : "contents"}>
+            <BaseTiptapEditor
+              {...props}
+              note={windowingFallback?.noteId === props.note.id && windowingFallback.snapshot
+                ? {
+                    ...props.note,
+                    content: windowingFallback.snapshot.content,
+                    contentText: windowingFallback.snapshot.contentText,
+                  }
+                : props.note}
+              ref={baseRef}
+              onUpdate={handleUpdate}
+              onHeadingsChange={publishRealtimeOutline ? props.onHeadingsChange : undefined}
+            />
+          </div>
         )}
       </>
     );

@@ -186,10 +186,22 @@ body {
 .ProseMirror {
   outline: none;
   min-height: 300px;
-  /* 搴曢儴棰勭暀鍙粴鍔ㄧ殑绌虹櫧锛氬啓鍒版湯灏炬椂浠嶈兘鎶婂厜鏍囪寰€涓婃粴锛岄伩鍏嶈创灞忓箷搴曢儴 */
+  /* 底部预留可滚动的空白：写到末尾时仍能把光标行往上滚，避免贴屏幕底部 */
   padding-bottom: 40vh;
   font-family: var(--editor-font-family);
   font-size: var(--editor-font-size, inherit);
+}
+
+/* Tier 1 大文档轻量/视口优化：跳过屏外顶层块的布局与绘制 */
+.nowen-tiptap-viewport-opt .ProseMirror > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
+}
+
+/* Tier 2 虚拟富文本单章编辑器：移除全屏编辑器的 40vh 底部留白与 300px 最小高度 */
+.nowen-virtual-section-editor .ProseMirror {
+  min-height: 120px;
+  padding-bottom: 24px;
 }
 
 .nowen-md-preview {

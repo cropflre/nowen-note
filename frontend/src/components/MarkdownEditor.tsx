@@ -39,6 +39,8 @@ export type { HeadingItem } from "@/components/MarkdownEditorImpl";
 
 interface MarkdownEditorProps extends NoteEditorProps {
   onAIAssistant?: () => void;
+  canSplitDocument?: boolean;
+  onSplitDocument?: () => void;
 }
 
 /**
@@ -74,7 +76,7 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
       () => !richTextSafeMode && shouldUseLargeMarkdownOptimizedMode(normalizedMarkdown),
       [normalizedMarkdown, richTextSafeMode],
     );
-    const blockPatchEnabled = !isAndroidNativeRuntime() && note.contentFormat === "markdown"
+    const blockPatchEnabled = !richTextSafeMode && !isAndroidNativeRuntime() && note.contentFormat === "markdown"
       && props.editable !== false
       && props.isGuest !== true
       && !props.yDoc;

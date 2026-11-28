@@ -86,6 +86,7 @@ import {
   nextEditorMode,
   type EditorMode,
 } from "@/lib/editorMode";
+import { getLargeDocumentOriginalFormat, isLargeRichTextSafeNote } from "@/lib/largeRichTextSafeMode";
 import {
   putWithReconcile,
   makeFetchLatestNoteVersion,
@@ -1950,9 +1951,11 @@ function OrdinaryEditorPane({
     const currentNote = activeNoteRef.current;
     if (!currentNote || currentNote.isLocked || viewLockedIdsRef.current.has(currentNote.id)) return;
 
+    const persistContentFormat = getLargeDocumentOriginalFormat(currentNote) || currentNote.contentFormat;
+
     if (typeof data.content === "string") {
       try {
-        const content = stabilizeNoteContentForPersistence(data.content, currentNote.contentFormat);
+        const content = stabilizeNoteContentForPersistence(data.content, persistContentFormat);
         if (content !== data.content) data = { ...data, content };
       } catch (error) {
         reportTransientNoteImageSource(error, {
@@ -2053,7 +2056,7 @@ function OrdinaryEditorPane({
       // ���� REST PUT ������ yjs ��д notes.content ������̬����
       const payload: any = { title: effectiveData.title, version };
       payload.writeSource = "live-autosave";
-      payload.contentFormat = currentNote.contentFormat;
+      payload.contentFormat = persistContentFormat;
       if (effectiveData.content !== undefined) payload.content = effectiveData.content;
       if (effectiveData.contentText !== undefined) payload.contentText = effectiveData.contentText;
       return api.updateNote(currentNote.id, payload);
@@ -2205,7 +2208,7 @@ function OrdinaryEditorPane({
           id: updated.id,
           title: updated.title,
           updatedAt: updated.updatedAt,
-          contentFormat: currentNote.contentFormat,
+          contentFormat: persistContentFormat,
           isLocked: currentNote.isLocked,
           isTrashed: currentNote.isTrashed,
         });
@@ -3660,12 +3663,16 @@ const moveToTrash = useCallback(async () => {
             disabled={effectiveLocked || activeNote.isTrashed === 1 || !canWriteNote(activeNote)}
             onChange={setNoteColorMark}
           />
-          {activeNote.contentFormat === "plaintext" ? <span className="text-xs text-tx-secondary">TXT</span> : <button
+          {activeNote.contentFormat === "plaintext" ? <span className="text-xs text-tx-secondary">TXT</span> : (() => {
+            const isLargeRichTextSafe = isLargeRichTextSafeNote(activeNote);
+            const displayFormat = getLargeDocumentOriginalFormat(activeNote) || activeNote.contentFormat;
+            const isDisplayMarkdown = displayFormat === "markdown";
+            return <button
             type="button"
             data-note-format-switch=""
-            disabled={modeSwitching || effectiveLocked || noteIsHtml || !canWriteNote(activeNote)}
+            disabled={modeSwitching || effectiveLocked || noteIsHtml || isLargeRichTextSafe || !canWriteNote(activeNote)}
             onClick={async () => {
-              const targetFormat = activeNote.contentFormat === "markdown" ? "tiptap-json" : "markdown";
+              const targetFormat = isDisplayMarkdown ? "tiptap-json" : "markdown";
               const targetLabel = targetFormat === "markdown" ? t("note.format.markdown") : t("note.format.richText");
               const ok = await confirm({
                 title: t("note.format.convertTitle", { target: targetLabel }),
@@ -3678,16 +3685,17 @@ const moveToTrash = useCallback(async () => {
             }}
             className={cn(
               "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              activeNote.contentFormat === "markdown"
+              isDisplayMarkdown
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
                 : "border-app-border bg-app-hover text-tx-tertiary hover:bg-app-active hover:text-tx-secondary",
             )}
-            title={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
-            aria-label={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+            title={isDisplayMarkdown ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+            aria-label={isDisplayMarkdown ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
           >
-            {activeNote.contentFormat === "markdown" ? <FileCode size={11} /> : <FileText size={11} />}
-            {activeNote.contentFormat === "markdown" ? t("note.format.markdownShort") : t("note.format.richTextShort")}
-          </button>}
+            {isDisplayMarkdown ? <FileCode size={11} /> : <FileText size={11} />}
+            {isDisplayMarkdown ? t("note.format.markdownShort") : t("note.format.richTextShort")}
+          </button>;
+          })()}
         </div>
 
         {/* Sync Indicator + Grouped Actions */}
@@ -3896,7 +3904,7 @@ const moveToTrash = useCallback(async () => {
                 >
                   <div className="px-3 py-2 border-b border-app-border">
                     <div className="flex items-center justify-between gap-2 text-[11px] text-tx-tertiary">
-                      <span>{activeNote.contentFormat === "plaintext" ? t("note.format.plainText") : activeNote.contentFormat === "markdown" ? t('note.format.markdown') : t('note.format.richText')}</span>
+                      <span>{(getLargeDocumentOriginalFormat(activeNote) || activeNote.contentFormat) === "plaintext" ? t("note.format.plainText") : (getLargeDocumentOriginalFormat(activeNote) || activeNote.contentFormat) === "markdown" ? t('note.format.markdown') : t('note.format.richText')}</span>
                       {noteIsHtml && <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-500">HTML</span>}
                     </div>
                     <div className="mt-1">
@@ -4098,6 +4106,8 @@ const moveToTrash = useCallback(async () => {
               editable={canEditActiveNote && !effectiveLocked && !modeSwitching}
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
+              canSplitDocument={canSplitDocument}
+              onSplitDocument={onSplitDocument}
             />
           ) : shouldRenderHtmlPreview ? (
             <HtmlPreviewPane
@@ -4181,6 +4191,8 @@ const moveToTrash = useCallback(async () => {
               editable={canEditActiveNote && !effectiveLocked && !modeSwitching}
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
+              canSplitDocument={canSplitDocument}
+              onSplitDocument={onSplitDocument}
             />
           ) : (
             <PhaseAPerfProfiler>
