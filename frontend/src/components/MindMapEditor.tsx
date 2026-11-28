@@ -1124,6 +1124,7 @@ export interface MindMapCenterProps {
 }
 
 type MindMapSaveConflict = {
+  mapId: string;
   localData: MindMapData;
   title?: string;
 };
@@ -1190,7 +1191,11 @@ export default function MindMapCenter({
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapDataRef = useRef<MindMapData | null>(null);
+  const mapDataMapIdRef = useRef<string | null>(null);
   const activeMapRef = useRef<MindMap | null>(null);
+  const mapsRef = useRef<MindMapListItem[]>([]);
+  const isMountedRef = useRef(true);
+  const loadingMapIdRef = useRef<string | null>(null);
   const viewportSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAutoFitMapIdRef = useRef<string | null>(null);
   const viewportUserSetRef = useRef(false);
@@ -1218,10 +1223,12 @@ export default function MindMapCenter({
   const [searchIndex, setSearchIndex] = useState(0);
   const [createParentId, setCreateParentId] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const embeddedPendingSaveRef = useRef<{ data: MindMapData; title?: string } | null>(null);
-  const embeddedSaveRunningRef = useRef(false);
-  const embeddedSaveConflictRef = useRef(false);
-  const embeddedFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingSaveRef = useRef<{ mapId: string; data: MindMapData; title?: string } | null>(null);
+  const inFlightSaveByMapIdRef = useRef<Map<string, Promise<void>>>(new Map());
+  const savingCountByMapIdRef = useRef<Map<string, number>>(new Map());
+  const knownUpdatedAtByMapIdRef = useRef<Map<string, string>>(new Map());
+  const embeddedRetrySaveByMapIdRef = useRef<Map<string, { data: MindMapData; title?: string }>>(new Map());
+  const embeddedSaveConflictMapIdRef = useRef<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<MindMapSaveConflict | null>(null);
   // 每次选择导图或切换目录都递增，用于丢弃已经失效的异步加载结果。
   const mapLoadRequestRef = useRef(0);
@@ -1309,33 +1316,215 @@ export default function MindMapCenter({
     void loadTree();
   }, [embeddedMode, loadMaps, loadTree]);
 
-  // 切换目录后不保留上一个导图，避免用户误以为目录没有切换成功。
-  // 同时递增请求序号，让切换前发出的 getMindMap 请求即使晚返回也不能恢复旧内容。
-  const clearActiveMap = useCallback(() => {
-    mapLoadRequestRef.current += 1;
-    setActiveMap(null);
-    setMapData(null);
+  // Undo/Redo（按 mapId 绑定，防止跨导图撤销恢复上一个导图的内容）
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const historyRef = useRef<{ mapId: string | null; stack: HistoryEntry[]; idx: number }>({
+    mapId: null,
+    stack: [],
+    idx: -1,
+  });
+
+  // Relation drawing mode
+  const [drawingRelation, setDrawingRelation] = useState(false);
+  const [relationStart, setRelationStart] = useState<string | null>(null);
+
+  const syncIsSavingForActiveMap = useCallback(() => {
+    if (!isMountedRef.current) return;
+    const currentId = activeMapRef.current?.id;
+    if (!currentId) {
+      setIsSaving(false);
+      return;
+    }
+    setIsSaving((savingCountByMapIdRef.current.get(currentId) || 0) > 0);
+  }, []);
+
+  const resetTransientMapUiState = useCallback(() => {
+    if (viewportSaveTimerRef.current) {
+      clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = null;
+    }
+    removeNodeResizeListenersRef.current?.();
     setSelectedNodeId(null);
     setSelectedNodeIds([]);
     setEditingNodeId(null);
     setFocusedNodeId(null);
+    setDragNodeId(null);
+    setDropTarget(null);
+    touchDropTargetRef.current = null;
+    setDrawingRelation(false);
+    setRelationStart(null);
     setShowSearch(false);
     setSearchQuery("");
     setSearchResults([]);
     setSearchIndex(0);
+    setSaveConflict(null);
+    embeddedSaveConflictMapIdRef.current = null;
+    historyRef.current = { mapId: null, stack: [], idx: -1 };
+    setHistory([]);
+    setHistoryIndex(-1);
   }, []);
+
+  const applySavedMindMap = useCallback((updated: MindMap) => {
+    knownUpdatedAtByMapIdRef.current.set(updated.id, updated.updatedAt);
+    const isCurrent = activeMapRef.current?.id === updated.id;
+    const previousTitle = isCurrent
+      ? activeMapRef.current?.title
+      : mapsRef.current.find((m) => m.id === updated.id)?.title;
+    const titleChanged = previousTitle !== undefined && previousTitle !== updated.title;
+
+    // 仅当响应属于当前打开的导图时才更新 activeMapRef，严禁旧导图的延迟响应污染当前导图引用。
+    if (isCurrent) {
+      activeMapRef.current = updated;
+    }
+    if (isMountedRef.current) {
+      if (isCurrent) {
+        setActiveMap((current) => current?.id === updated.id ? updated : current);
+      }
+      setMaps((prev) =>
+        prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
+      );
+    }
+    dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
+    if (titleChanged) window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
+    if (isCurrent || (embeddedMode && updated.id === embeddedMindMapId)) {
+      onSaved?.(updated);
+    }
+  }, [embeddedMindMapId, embeddedMode, onSaved]);
+
+  const enqueueMapSave = useCallback((mapId: string, data: MindMapData, title?: string) => {
+    if (embeddedMode && embeddedSaveConflictMapIdRef.current === mapId) {
+      if (isMountedRef.current && activeMapRef.current?.id === mapId) {
+        setSaveConflict({ mapId, localData: data, title });
+      }
+      return;
+    }
+
+    const previousChain = inFlightSaveByMapIdRef.current.get(mapId) ?? Promise.resolve();
+    const nextCount = (savingCountByMapIdRef.current.get(mapId) || 0) + 1;
+    savingCountByMapIdRef.current.set(mapId, nextCount);
+    syncIsSavingForActiveMap();
+
+    const task = previousChain
+      .catch(() => {})
+      .then(async () => {
+        if (embeddedMode && embeddedSaveConflictMapIdRef.current === mapId) {
+          if (isMountedRef.current && activeMapRef.current?.id === mapId) {
+            setSaveConflict({ mapId, localData: data, title });
+          }
+          return;
+        }
+
+        const payload: { data: string; title?: string; expectedUpdatedAt?: string } = {
+          data: JSON.stringify(data),
+        };
+        if (title !== undefined) payload.title = title;
+        if (embeddedMode) {
+          const expectedUpdatedAt = knownUpdatedAtByMapIdRef.current.get(mapId)
+            ?? (activeMapRef.current?.id === mapId ? activeMapRef.current.updatedAt : undefined);
+          if (expectedUpdatedAt) payload.expectedUpdatedAt = expectedUpdatedAt;
+        }
+
+        try {
+          const updated = await api.updateMindMap(mapId, payload);
+          embeddedRetrySaveByMapIdRef.current.delete(mapId);
+          applySavedMindMap(updated);
+        } catch (err) {
+          const error = err as Error & { status?: number; code?: string };
+          if (embeddedMode && error.status === 409 && error.code === "MINDMAP_CONFLICT") {
+            embeddedSaveConflictMapIdRef.current = mapId;
+            if (isMountedRef.current && activeMapRef.current?.id === mapId) {
+              setSaveConflict({ mapId, localData: data, title });
+            }
+          } else {
+            console.error(embeddedMode ? "Failed to save embedded mindmap:" : "Failed to save mindmap:", err);
+            toast.error(error.message || "思维导图保存失败");
+            if (embeddedMode) {
+              // 网络/服务端错误保留最新一次本地数据，后续编辑或手动操作仍可重试。
+              embeddedRetrySaveByMapIdRef.current.set(mapId, { data, title });
+            }
+          }
+        }
+      })
+      .finally(() => {
+        const remaining = Math.max(0, (savingCountByMapIdRef.current.get(mapId) || 1) - 1);
+        if (remaining === 0) {
+          savingCountByMapIdRef.current.delete(mapId);
+        } else {
+          savingCountByMapIdRef.current.set(mapId, remaining);
+        }
+        if (inFlightSaveByMapIdRef.current.get(mapId) === task) {
+          inFlightSaveByMapIdRef.current.delete(mapId);
+        }
+        syncIsSavingForActiveMap();
+      });
+
+    inFlightSaveByMapIdRef.current.set(mapId, task);
+  }, [applySavedMindMap, embeddedMode, syncIsSavingForActiveMap]);
+
+  const flushPendingSave = useCallback((expectedMapId?: string) => {
+    const pending = pendingSaveRef.current;
+    if (!pending) return;
+    if (expectedMapId && pending.mapId !== expectedMapId) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingSaveRef.current = null;
+    enqueueMapSave(pending.mapId, pending.data, pending.title);
+  }, [enqueueMapSave]);
+
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  flushPendingSaveRef.current = flushPendingSave;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (viewportSaveTimerRef.current) {
+        clearTimeout(viewportSaveTimerRef.current);
+        viewportSaveTimerRef.current = null;
+      }
+      removeNodeResizeListenersRef.current?.();
+      flushPendingSaveRef.current();
+    };
+  }, []);
+
+  // 切换目录后不保留上一个导图，避免用户误以为目录没有切换成功。
+  // 同时先冲刷待保存修改并递增请求序号，让切换前发出的 getMindMap 请求即使晚返回也不能恢复旧内容。
+  const clearActiveMap = useCallback((options?: { flushPending?: boolean }) => {
+    mapLoadRequestRef.current += 1;
+    loadingMapIdRef.current = null;
+    if (options?.flushPending !== false) {
+      flushPendingSave();
+    } else if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      pendingSaveRef.current = null;
+    }
+    activeMapRef.current = null;
+    mapDataRef.current = null;
+    mapDataMapIdRef.current = null;
+    setActiveMap(null);
+    setMapData(null);
+    resetTransientMapUiState();
+    syncIsSavingForActiveMap();
+  }, [flushPendingSave, resetTransientMapUiState, syncIsSavingForActiveMap]);
 
   useEffect(() => {
     if (embeddedMode) return;
     const onTreeChanged = () => {
       void loadTree();
+      const observedId = activeMapRef.current?.id;
       void loadMaps().then((current) => {
-        if (activeMap && current && !current.some((map) => map.id === activeMap.id)) clearActiveMap();
+        if (observedId && activeMapRef.current?.id === observedId && current && !current.some((map) => map.id === observedId)) {
+          clearActiveMap({ flushPending: false });
+        }
       });
     };
     window.addEventListener("nowen:knowledge-tree-changed", onTreeChanged);
     return () => window.removeEventListener("nowen:knowledge-tree-changed", onTreeChanged);
-  }, [activeMap, clearActiveMap, embeddedMode, loadMaps, loadTree]);
+  }, [clearActiveMap, embeddedMode, loadMaps, loadTree]);
 
   // 工作区切换：清空当前打开的导图 + 重拉列表，避免显示其他 scope 的图
   useEffect(() => {
@@ -1362,15 +1551,50 @@ export default function MindMapCenter({
 
   const handleSelect = useCallback(async (id: string) => {
     const requestId = ++mapLoadRequestRef.current;
+    loadingMapIdRef.current = id;
+
+    // 切换导图前先冲刷上一个导图尚未落盘的防抖保存，并清理其视口定时器与交互状态，避免串写。
+    if (pendingSaveRef.current) {
+      flushPendingSave();
+    }
+    if (viewportSaveTimerRef.current) {
+      clearTimeout(viewportSaveTimerRef.current);
+      viewportSaveTimerRef.current = null;
+    }
+    removeNodeResizeListenersRef.current?.();
+
+    if (activeMapRef.current && activeMapRef.current.id !== id) {
+      activeMapRef.current = null;
+      mapDataRef.current = null;
+      mapDataMapIdRef.current = null;
+      setActiveMap(null);
+      setMapData(null);
+      resetTransientMapUiState();
+      syncIsSavingForActiveMap();
+    }
+
     try {
+      // 若目标导图仍有刚冲刷出去的在途保存，先等待其落库再拉取最新快照，防止快速切回读到旧内容。
+      const pendingWriteForTarget = inFlightSaveByMapIdRef.current.get(id);
+      if (pendingWriteForTarget) {
+        await pendingWriteForTarget;
+      }
+      if (requestId !== mapLoadRequestRef.current) return false;
+
       const map = await api.getMindMap(id);
       if (requestId !== mapLoadRequestRef.current) return false;
+      loadingMapIdRef.current = null;
+      knownUpdatedAtByMapIdRef.current.set(map.id, map.updatedAt);
       setActiveMap(map);
       activeMapRef.current = map;
+      syncIsSavingForActiveMap();
+      let initialData: MindMapData;
       try {
         const parsed = JSON.parse(map.data);
+        initialData = parsed;
         setMapData(parsed);
         mapDataRef.current = parsed;
+        mapDataMapIdRef.current = map.id;
         setLayoutMode(parsed.layout || "right");
         if (parsed.viewport?.userSet && isValidViewport(parsed.viewport)) {
           setPan({ x: parsed.viewport.x, y: parsed.viewport.y });
@@ -1383,23 +1607,28 @@ export default function MindMapCenter({
           viewportUserSetRef.current = false;
           pendingAutoFitMapIdRef.current = map.id;
         }
-        // Initialize history
-        const entry: HistoryEntry = { data: JSON.parse(JSON.stringify(parsed)) };
-        historyRef.current = { stack: [entry], idx: 0 };
-        setHistory([entry]);
-        setHistoryIndex(0);
       } catch {
-        const fallback = { root: { id: "root", text: map.title, children: [] } };
+        const fallback: MindMapData = { root: { id: "root", text: map.title, children: [] } };
+        initialData = fallback;
         setMapData(fallback);
         mapDataRef.current = fallback;
+        mapDataMapIdRef.current = map.id;
+        setLayoutMode("right");
         setPan({ x: 0, y: 0 });
         setZoom(1);
         viewportUserSetRef.current = false;
         pendingAutoFitMapIdRef.current = map.id;
       }
+      // 无论解析成功还是回退，都必须重置 Undo/Redo 历史并绑定当前 map.id。
+      const entry: HistoryEntry = { data: JSON.parse(JSON.stringify(initialData)) };
+      historyRef.current = { mapId: map.id, stack: [entry], idx: 0 };
+      setHistory([entry]);
+      setHistoryIndex(0);
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setEditingNodeId(null);
+      setSaveConflict(null);
+      embeddedSaveConflictMapIdRef.current = null;
       if (!embeddedMode) {
         saveMobileKnowledgeTreeRecentEntries(upsertMobileKnowledgeTreeRecentEntry(
           loadMobileKnowledgeTreeRecentEntries(), `mindmap:${map.id}`,
@@ -1408,6 +1637,9 @@ export default function MindMapCenter({
       }
       return true;
     } catch (err) {
+      if (requestId === mapLoadRequestRef.current) {
+        loadingMapIdRef.current = null;
+      }
       console.error("Failed to load mindmap:", err);
       if (!embeddedMode) {
         toast.error("思维导图不存在、已删除或当前账号无权访问");
@@ -1415,7 +1647,7 @@ export default function MindMapCenter({
       }
       return false;
     }
-  }, [embeddedMode]);
+  }, [embeddedMode, flushPendingSave, resetTransientMapUiState, syncIsSavingForActiveMap]);
 
   useEffect(() => {
     if (!embeddedMode || !embeddedMindMapId) return;
@@ -1426,10 +1658,10 @@ export default function MindMapCenter({
   useEffect(() => {
     if (embeddedMode || routeMindMapId === undefined) return;
     if (routeMindMapId === null) {
-      if (activeMapRef.current) clearActiveMap();
+      if (activeMapRef.current || loadingMapIdRef.current) clearActiveMap();
       return;
     }
-    if (activeMapRef.current?.id === routeMindMapId) return;
+    if (activeMapRef.current?.id === routeMindMapId || loadingMapIdRef.current === routeMindMapId) return;
     void handleSelect(routeMindMapId);
   }, [clearActiveMap, embeddedMode, handleSelect, routeMindMapId]);
 
@@ -1455,96 +1687,50 @@ export default function MindMapCenter({
     return () => window.removeEventListener("nowen:open-mindmap", handler);
   }, [embeddedMode, loadMaps, handleSelect]);
 
-  const applySavedMindMap = useCallback((updated: MindMap) => {
-    const titleChanged = activeMapRef.current?.title !== updated.title;
-    activeMapRef.current = updated;
-    setActiveMap((current) => current?.id === updated.id ? updated : current);
-    setMaps((prev) =>
-      prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
-    );
-    dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
-    if (titleChanged) window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
-    onSaved?.(updated);
-  }, [onSaved]);
+  // 自动保存（严格绑定到源导图 mapId，禁止跨导图串写）
+  const triggerSave = useCallback((data: MindMapData, title?: string, explicitMapId?: string) => {
+    const targetMapId = explicitMapId ?? activeMap?.id ?? activeMapRef.current?.id;
+    if (!targetMapId) return;
 
-  const flushEmbeddedSave = useCallback(async () => {
-    if (!embeddedMode || embeddedSaveRunningRef.current || embeddedSaveConflictRef.current) return;
-    const pending = embeddedPendingSaveRef.current;
-    const currentMap = activeMapRef.current;
-    if (!pending || !currentMap) return;
-
-    embeddedPendingSaveRef.current = null;
-    embeddedSaveRunningRef.current = true;
-    setIsSaving(true);
-    try {
-      const payload: { data: string; title?: string; expectedUpdatedAt: string } = {
-        data: JSON.stringify(pending.data),
-        expectedUpdatedAt: currentMap.updatedAt,
-      };
-      if (pending.title !== undefined) payload.title = pending.title;
-      const updated = await api.updateMindMap(currentMap.id, payload);
-      applySavedMindMap(updated);
-    } catch (err) {
-      const error = err as Error & { status?: number; code?: string };
-      if (error.status === 409 && error.code === "MINDMAP_CONFLICT") {
-        embeddedSaveConflictRef.current = true;
-        setSaveConflict({ localData: pending.data, title: pending.title });
-      } else {
-        console.error("Failed to save embedded mindmap:", err);
-        toast.error(error.message || "思维导图保存失败");
-        // 网络/服务端错误保留最新一次本地数据，后续编辑或手动操作仍可重试。
-        embeddedPendingSaveRef.current = pending;
+    if (embeddedMode && embeddedSaveConflictMapIdRef.current === targetMapId) {
+      if (activeMapRef.current?.id === targetMapId) {
+        setSaveConflict((current) => current && current.mapId === targetMapId
+          ? { ...current, localData: data, title }
+          : { mapId: targetMapId, localData: data, title });
       }
-    } finally {
-      embeddedSaveRunningRef.current = false;
-      setIsSaving(false);
-      if (embeddedPendingSaveRef.current && !embeddedSaveConflictRef.current) {
-        window.setTimeout(() => { void embeddedFlushRef.current?.(); }, 0);
-      }
-    }
-  }, [applySavedMindMap, embeddedMode]);
-
-  embeddedFlushRef.current = flushEmbeddedSave;
-
-  // 自动保存
-  const triggerSave = useCallback((data: MindMapData, title?: string) => {
-    const currentMap = activeMapRef.current || activeMap;
-    if (!currentMap) return;
-
-    if (embeddedMode && embeddedSaveConflictRef.current) {
-      setSaveConflict((current) => current ? { ...current, localData: data, title } : { localData: data, title });
       return;
     }
 
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      if (embeddedMode) {
-        embeddedPendingSaveRef.current = { data, title };
-        void embeddedFlushRef.current?.();
-        return;
-      }
+    // 若防抖队列里已有另一个导图待保存，先立即冲刷旧导图再排新导图，避免丢失或串写。
+    if (pendingSaveRef.current && pendingSaveRef.current.mapId !== targetMapId) {
+      flushPendingSave();
+    }
 
-      setIsSaving(true);
-      try {
-        const payload: { data: string; title?: string } = { data: JSON.stringify(data) };
-        if (title !== undefined) payload.title = title;
-        const updated = await api.updateMindMap(currentMap.id, payload);
-        applySavedMindMap(updated);
-      } catch (err) {
-        const error = err as Error;
-        console.error("Failed to save mindmap:", err);
-        toast.error(error.message || "思维导图保存失败");
-      } finally {
-        setIsSaving(false);
-      }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingSaveRef.current = { mapId: targetMapId, data, title };
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      flushPendingSave(targetMapId);
     }, 600);
-  }, [activeMap, applySavedMindMap, embeddedMode]);
+  }, [activeMap?.id, embeddedMode, flushPendingSave]);
 
   const reloadConflictVersion = useCallback(async () => {
     const id = activeMapRef.current?.id || embeddedMindMapId;
     if (!id) return;
-    embeddedPendingSaveRef.current = null;
-    embeddedSaveConflictRef.current = false;
+    if (pendingSaveRef.current?.mapId === id) {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingSaveRef.current = null;
+    }
+    embeddedRetrySaveByMapIdRef.current.delete(id);
+    if (embeddedSaveConflictMapIdRef.current === id) {
+      embeddedSaveConflictMapIdRef.current = null;
+    }
     setSaveConflict(null);
     await handleSelect(id);
   }, [embeddedMindMapId, handleSelect]);
@@ -1552,7 +1738,7 @@ export default function MindMapCenter({
   const overwriteConflictVersion = useCallback(async () => {
     const conflict = saveConflict;
     const currentMap = activeMapRef.current;
-    if (!conflict || !currentMap) return;
+    if (!conflict || !currentMap || conflict.mapId !== currentMap.id) return;
     setIsSaving(true);
     try {
       const payload: { data: string; title?: string } = {
@@ -1560,26 +1746,34 @@ export default function MindMapCenter({
       };
       if (conflict.title !== undefined) payload.title = conflict.title;
       const updated = await api.updateMindMap(currentMap.id, payload);
-      embeddedSaveConflictRef.current = false;
-      setSaveConflict(null);
+      if (embeddedSaveConflictMapIdRef.current === currentMap.id) {
+        embeddedSaveConflictMapIdRef.current = null;
+      }
+      embeddedRetrySaveByMapIdRef.current.delete(currentMap.id);
+      if (activeMapRef.current?.id === currentMap.id) {
+        setSaveConflict(null);
+        setMapData(conflict.localData);
+        mapDataRef.current = conflict.localData;
+        mapDataMapIdRef.current = currentMap.id;
+      }
       applySavedMindMap(updated);
-      setMapData(conflict.localData);
-      mapDataRef.current = conflict.localData;
     } catch (err) {
       const error = err as Error;
       toast.error(error.message || "覆盖保存失败");
     } finally {
-      setIsSaving(false);
+      syncIsSavingForActiveMap();
     }
-  }, [applySavedMindMap, saveConflict]);
-
-  // Undo/Redo
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const historyRef = useRef<{ stack: HistoryEntry[]; idx: number }>({ stack: [], idx: -1 });
+  }, [applySavedMindMap, saveConflict, syncIsSavingForActiveMap]);
 
   const pushHistory = useCallback((data: MindMapData, title?: string) => {
+    const currentMapId = activeMapRef.current?.id ?? null;
+    if (!currentMapId) return;
     const h = historyRef.current;
+    if (h.mapId !== currentMapId) {
+      h.mapId = currentMapId;
+      h.stack = [];
+      h.idx = -1;
+    }
     h.stack = h.stack.slice(0, h.idx + 1);
     h.stack.push({ data: JSON.parse(JSON.stringify(data)), title });
     if (h.stack.length > MAX_HISTORY) h.stack.shift();
@@ -1593,22 +1787,28 @@ export default function MindMapCenter({
 
   const handleUndo = useCallback(() => {
     const h = historyRef.current;
-    if (h.idx <= 0) return;
+    const currentMapId = activeMapRef.current?.id;
+    if (!currentMapId || h.mapId !== currentMapId || h.idx <= 0) return;
     h.idx--;
     const entry = h.stack[h.idx];
+    mapDataRef.current = entry.data;
+    mapDataMapIdRef.current = currentMapId;
     setMapData(entry.data);
     setHistoryIndex(h.idx);
-    triggerSave(entry.data, entry.title);
+    triggerSave(entry.data, entry.title, currentMapId);
   }, [triggerSave]);
 
   const handleRedo = useCallback(() => {
     const h = historyRef.current;
-    if (h.idx >= h.stack.length - 1) return;
+    const currentMapId = activeMapRef.current?.id;
+    if (!currentMapId || h.mapId !== currentMapId || h.idx >= h.stack.length - 1) return;
     h.idx++;
     const entry = h.stack[h.idx];
+    mapDataRef.current = entry.data;
+    mapDataMapIdRef.current = currentMapId;
     setMapData(entry.data);
     setHistoryIndex(h.idx);
-    triggerSave(entry.data, entry.title);
+    triggerSave(entry.data, entry.title, currentMapId);
   }, [triggerSave]);
 
   // Outline mode
@@ -1756,22 +1956,27 @@ export default function MindMapCenter({
 
   // 操作：编辑提交
   const handleEditSubmit = useCallback(() => {
-    if (!mapData || !editingNodeId) return;
+    const targetMapId = activeMap?.id;
+    if (!mapData || !editingNodeId || !targetMapId) return;
     const trimmed = editValue.trim() || t("mindMap.newNode");
     const newRoot = updateNode(mapData.root, editingNodeId, (n) => ({ ...n, text: trimmed }));
     const newData = { ...mapData, root: newRoot };
-    setMapData(newData);
-    pushHistory(newData);
-    setEditingNodeId(null);
-    // 如果编辑的是根节点，同步更新标题
     const isRoot = editingNodeId === "root";
-    triggerSave(newData, isRoot ? trimmed : undefined);
+    if (activeMapRef.current?.id === targetMapId) {
+      mapDataRef.current = newData;
+      mapDataMapIdRef.current = targetMapId;
+      setMapData(newData);
+      pushHistory(newData);
+      setEditingNodeId(null);
+    }
+    // 如果编辑的是根节点，同步更新标题
+    triggerSave(newData, isRoot ? trimmed : undefined, targetMapId);
     if (isRoot) {
       setMaps((prev) =>
-        prev.map((m) => (m.id === activeMap?.id ? { ...m, title: trimmed } : m))
+        prev.map((m) => (m.id === targetMapId ? { ...m, title: trimmed } : m))
       );
     }
-  }, [mapData, editingNodeId, editValue, updateNode, triggerSave, activeMap, t]);
+  }, [mapData, editingNodeId, editValue, updateNode, pushHistory, triggerSave, activeMap?.id, t]);
 
   // 操作：折叠/展开
   const handleToggleCollapse = useCallback((nodeId: string) => {
@@ -1832,6 +2037,8 @@ export default function MindMapCenter({
     e.stopPropagation();
     removeNodeResizeListenersRef.current?.();
     suppressCanvasClickRef.current = true;
+    const targetMapId = activeMapRef.current?.id;
+    if (!targetMapId) return;
 
     const state = {
       pointerId: e.pointerId,
@@ -1851,6 +2058,10 @@ export default function MindMapCenter({
 
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== state.pointerId) return;
+      if (activeMapRef.current?.id !== targetMapId || mapDataMapIdRef.current !== targetMapId) {
+        removeListeners();
+        return;
+      }
       event.preventDefault();
       const nextWidth = clampNodeWidth(state.startWidth + (event.clientX - state.startX) / state.zoom);
       if (nextWidth === state.lastWidth) return;
@@ -1863,9 +2074,14 @@ export default function MindMapCenter({
       if (event.pointerId !== state.pointerId) return;
       event.preventDefault();
       removeListeners();
-      if (state.didChange && mapDataRef.current) {
+      if (
+        state.didChange &&
+        mapDataRef.current &&
+        activeMapRef.current?.id === targetMapId &&
+        mapDataMapIdRef.current === targetMapId
+      ) {
         pushHistory(mapDataRef.current);
-        triggerSave(mapDataRef.current);
+        triggerSave(mapDataRef.current, undefined, targetMapId);
       }
     };
 
@@ -1902,10 +2118,6 @@ export default function MindMapCenter({
     pushHistory(newData);
     triggerSave(newData);
   }, [mapData, pushHistory, triggerSave]);
-
-  // Relation drawing mode
-  const [drawingRelation, setDrawingRelation] = useState(false);
-  const [relationStart, setRelationStart] = useState<string | null>(null);
 
   const handleRelationClick = useCallback((nodeId: string) => {
     if (!drawingRelation) return;
@@ -2047,23 +2259,27 @@ export default function MindMapCenter({
   // 删除导图
   const handleDeleteMap = useCallback(async (id: string) => {
     try {
+      if (pendingSaveRef.current?.mapId === id) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        pendingSaveRef.current = null;
+      }
       await api.deleteMindMap(id);
       window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       dispatchDocumentMindMapChanged({ id, kind: "deleted" });
       toast.success("已移入回收站");
       setMaps((prev) => prev.filter((m) => m.id !== id));
-      if (activeMap?.id === id) {
-        setActiveMap(null);
-        activeMapRef.current = null;
-        setMapData(null);
-        mapDataRef.current = null;
+      if (activeMapRef.current?.id === id) {
+        clearActiveMap({ flushPending: false });
         if (!embeddedMode) replaceMindMapAppPath(null);
       }
     } catch (err) {
       console.error("Failed to delete mindmap:", err);
       toast.error(err instanceof Error ? err.message : "删除思维导图失败");
     }
-  }, [activeMap, embeddedMode]);
+  }, [clearActiveMap, embeddedMode]);
 
   const applyViewport = useCallback((viewport: MindMapViewport, options: { userSet?: boolean; persist?: boolean } = {}) => {
     const next = { ...viewport, userSet: options.userSet ?? viewport.userSet };
@@ -2072,15 +2288,18 @@ export default function MindMapCenter({
     setZoom(next.zoom);
     if (!options.persist) return;
 
+    const targetMapId = activeMapRef.current?.id;
+    if (!targetMapId) return;
     if (viewportSaveTimerRef.current) clearTimeout(viewportSaveTimerRef.current);
     viewportSaveTimerRef.current = setTimeout(() => {
+      viewportSaveTimerRef.current = null;
       const current = mapDataRef.current;
       const currentMap = activeMapRef.current;
-      if (!current || !currentMap) return;
+      if (!current || !currentMap || currentMap.id !== targetMapId || mapDataMapIdRef.current !== targetMapId) return;
       const nextData = { ...current, viewport: next };
       mapDataRef.current = nextData;
       setMapData(nextData);
-      triggerSave(nextData);
+      triggerSave(nextData, undefined, targetMapId);
     }, 700);
   }, [triggerSave]);
 
@@ -2480,11 +2699,16 @@ export default function MindMapCenter({
 
   useEffect(() => {
     mapDataRef.current = mapData;
-  }, [mapData]);
+    mapDataMapIdRef.current = mapData ? (activeMap?.id ?? mapDataMapIdRef.current) : null;
+  }, [activeMap?.id, mapData]);
 
   useEffect(() => {
     activeMapRef.current = activeMap;
   }, [activeMap]);
+
+  useEffect(() => {
+    mapsRef.current = maps;
+  }, [maps]);
 
   useEffect(() => {
     if (!canvasEl) return;
@@ -2883,16 +3107,21 @@ export default function MindMapCenter({
 
   const requestEmbeddedClose = useCallback(() => {
     if (!onRequestClose) return;
-    const hasUnsaved =
-      isSaving ||
-      embeddedSaveRunningRef.current ||
-      embeddedPendingSaveRef.current !== null ||
-      embeddedSaveConflictRef.current;
+    const currentId = activeMapRef.current?.id || embeddedMindMapId;
+    const hasPendingOrInFlight = currentId
+      ? (
+        pendingSaveRef.current?.mapId === currentId ||
+        (savingCountByMapIdRef.current.get(currentId) || 0) > 0 ||
+        embeddedRetrySaveByMapIdRef.current.has(currentId) ||
+        embeddedSaveConflictMapIdRef.current === currentId
+      )
+      : false;
+    const hasUnsaved = isSaving || hasPendingOrInFlight;
     if (hasUnsaved && !window.confirm("思维导图还有未完成的保存或冲突处理，确定关闭编辑窗口吗？")) {
       return;
     }
     onRequestClose();
-  }, [isSaving, onRequestClose]);
+  }, [embeddedMindMapId, isSaving, onRequestClose]);
 
   return (
     <div className={cn(

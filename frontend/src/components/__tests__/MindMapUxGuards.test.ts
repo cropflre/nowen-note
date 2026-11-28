@@ -107,11 +107,12 @@ describe("MindMapEditor UX guardrails", () => {
     expect(source).toContain("const clearActiveMap = useCallback");
     expect(source).toContain("const requestId = ++mapLoadRequestRef.current");
     expect(source).toContain("if (requestId !== mapLoadRequestRef.current) return");
+    expect(source).toContain("const isCurrent = activeMapRef.current?.id === updated.id");
     expect(source).toContain("setActiveMap((current) => current?.id === updated.id ? updated : current)");
 
-    expect(source).toContain("if (activeMapRef.current) clearActiveMap();");
+    expect(source).toContain("if (activeMapRef.current || loadingMapIdRef.current) clearActiveMap();");
     expect(source).toContain('window.addEventListener("nowen:workspace-changed", onWs)');
-    expect(source).toContain("if (activeMap && current && !current.some((map) => map.id === activeMap.id)) clearActiveMap();");
+    expect(source).toContain("if (observedId && activeMapRef.current?.id === observedId && current && !current.some((map) => map.id === observedId))");
   });
 
 });
