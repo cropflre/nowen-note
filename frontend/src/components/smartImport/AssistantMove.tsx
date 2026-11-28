@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import McpConnectionPanel from "@/components/settings/McpConnectionPanel";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { formatAppDateTime } from "@/lib/dateTime";
 import { MIGRATION_CLIENTS, type MigrationClientId } from "@/lib/migrationClientSetup";
 import type { MigrationJob } from "@/lib/migrations";
@@ -33,7 +34,7 @@ export default function AssistantMove({ jobs, notebooks, disabled, onOpenJob, on
   const ready = assistantJobs.find((job) => job.status === "PREVIEW_READY");
   // A job still being prepared only counts while the assistant is recently active with it.
   const preparing = assistantJobs.some((job) => ["CREATED", "UPLOADING", "SCANNING", "NORMALIZING"].includes(job.status) && Date.now() - Date.parse(job.updatedAt) < 60 * 60 * 1000);
-  const copy = () => { void navigator.clipboard.writeText(t("migration.prompt")).then(() => setCopied("done"), () => setCopied("failed")); };
+  const copy = () => { void copyText(t("migration.prompt")).then((ok) => setCopied(ok ? "done" : "failed")); };
 
   return <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-5" aria-label={t("migration.smart.assistant.region")}>
     {ready ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-app-hover p-3" role="status">

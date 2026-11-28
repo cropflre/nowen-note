@@ -198,6 +198,26 @@ describe("simple AI connection flow", () => {
     expect(host.querySelectorAll("details, pre")).toHaveLength(0);
     expect(button("复制完整配置")).toBeUndefined();
   });
+  it("falls back to execCommand copy on HTTP Edge/Safari when navigator.clipboard is unavailable or rejects", async () => {
+    const { toast } = await import("@/lib/toast");
+    const originalExecCommand = document.execCommand;
+    let copiedText = "";
+    document.execCommand = vi.fn((cmd: string) => {
+      if (cmd !== "copy") return false;
+      copiedText = (document.activeElement as HTMLTextAreaElement | null)?.value || "";
+      return true;
+    });
+    try {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+      await render(); await selectClient("Codex"); await click("连接");
+      await click("复制给 Codex");
+      expect(copiedText).toContain("nkn_private-a");
+      expect(toast.success).toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    } finally {
+      document.execCommand = originalExecCommand;
+    }
+  });
   it.each([
     ["workbuddy", "WorkBuddy"],
     ["codebuddy", "CodeBuddy Code"],

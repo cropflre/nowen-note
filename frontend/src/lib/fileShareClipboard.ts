@@ -4,6 +4,13 @@ import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
 const ATTACHMENT_URL_RE = /(?:https?:\/\/[^\s"'<>()]+)?\/(?:api|publicapi|public\/api)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?(?:\?[^\s"'<>()]+)?(?=[\s"'<>()#]|$)/gi;
 const ATTACHMENT_PATH_RE = /\/(?:api|publicapi|public\/api)\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?$/i;
 
+/** 同步快速判断是否可能包含需要转换为稳定分享链接的附件 URL，避免普通文本多走微任务破坏 Safari/Edge 用户手势。 */
+export function hasPotentialSignedAttachmentUrl(text: string): boolean {
+  if (!text || !text.includes("/attachments/")) return false;
+  ATTACHMENT_URL_RE.lastIndex = 0;
+  return ATTACHMENT_URL_RE.test(text);
+}
+
 interface SignedAttachmentCandidate {
   attachmentId: string;
   htmlEscaped: boolean;

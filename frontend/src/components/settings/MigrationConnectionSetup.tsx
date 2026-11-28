@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ClipboardCopy, Loader2, PlugZap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getBaseUrl } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { migrationApi, type MigrationCapabilities } from "@/lib/migrations";
 import { buildMigrationClientConfig, MIGRATION_CLIENTS, validateMigrationClientSetup, type MigrationClientId } from "@/lib/migrationClientSetup";
@@ -59,8 +60,10 @@ export default function MigrationConnectionSetup({ client = "codex", notebooks =
   const copy = async () => {
     if (!config || !current()) return;
     setCopyFailed(false);
-    try { await navigator.clipboard.writeText(config.content); if (current()) setCopied(true); }
-    catch { if (current()) setCopyFailed(true); }
+    const ok = await copyText(config.content);
+    if (!current()) return;
+    if (ok) setCopied(true);
+    else setCopyFailed(true);
   };
 
   return <section className="min-w-0 space-y-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3" aria-label={t("migration.setup.title")}>

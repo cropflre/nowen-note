@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { formatAppDate } from "@/lib/dateTime";
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, Eye, Loader2, PlugZap, Sparkles } from "lucide-react";
 import type { EmbeddedMcpStatus } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
 import { toast } from "@/lib/toast";
 import {
@@ -132,14 +133,15 @@ export default function McpQuickConnect({ service, defaultUrl, onServiceChange, 
   });
   const copy = async () => {
     if (!connection || !verified || !active()) return;
-    try {
-      await navigator.clipboard.writeText(buildMcpAgentInstructions(connection));
-      if (active()) {
-        setCopiedFlash(true);
-        window.setTimeout(() => { if (mounted.current) setCopiedFlash(false); }, 1600);
-        toast.success(t("mcpConnect.copied", { client: clientName(connection.client) }));
-      }
-    } catch { if (active()) toast.error(t("mcpConnect.copyFailed")); }
+    const copied = await copyText(buildMcpAgentInstructions(connection));
+    if (!active()) return;
+    if (copied) {
+      setCopiedFlash(true);
+      window.setTimeout(() => { if (mounted.current) setCopiedFlash(false); }, 1600);
+      toast.success(t("mcpConnect.copied", { client: clientName(connection.client) }));
+    } else {
+      toast.error(t("mcpConnect.copyFailed"));
+    }
   };
   const disconnect = (id: string) => run(async signal => {
     setBusy(t("mcpConnect.disconnecting"));
