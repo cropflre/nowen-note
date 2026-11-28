@@ -20,10 +20,15 @@ import { v4 as uuidv4 } from "uuid";
 import {
   canManageResource,
   getUserWorkspaceRole,
+  hasPermission,
+  isFeatureEnabled,
   requireWorkspaceFeature,
+  resolveNotebookPermission,
+  resolveWorkspaceFeatures,
 } from "../middleware/acl";
 import { ensureMindmapSchema } from "../lib/mindmap-schema";
-import { deleteKnowledgeNode, KnowledgeTreeError } from "../services/knowledgeTree.js";
+import { createKnowledgeChild, deleteKnowledgeNode, KnowledgeTreeError } from "../services/knowledgeTree.js";
+import { synchronizeLegacyNotebookHierarchy } from "../services/legacyKnowledgeHierarchy.js";
 import { permanentlyDeleteMindmap } from "../services/trash/mindmapTrashAdapter.js";
 
 const app = new Hono();
@@ -77,6 +82,38 @@ function readActiveMindmap(db: ReturnType<typeof getDb>, id: string): MindmapRow
     .get(id) as MindmapRow | undefined;
 }
 
+function resolveMindmapNotebookId(db: ReturnType<typeof getDb>, mindmapId: string): string | null {
+  let current = db.prepare(
+    "SELECT id, parentId, resourceType, resourceId FROM knowledge_tree_nodes WHERE resourceType = 'mindmap' AND resourceId = ? LIMIT 1",
+  ).get(mindmapId) as { id: string; parentId: string | null; resourceType: string; resourceId: string } | undefined;
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (current.resourceType === "notebook") return current.resourceId;
+    if (!current.parentId) break;
+    current = db.prepare(
+      "SELECT id, parentId, resourceType, resourceId FROM knowledge_tree_nodes WHERE id = ? LIMIT 1",
+    ).get(current.parentId) as { id: string; parentId: string | null; resourceType: string; resourceId: string } | undefined;
+  }
+  return null;
+}
+
+function normalizeMindmapDataInput(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const root = (parsed as Record<string, unknown>).root;
+  if (!root || typeof root !== "object" || Array.isArray(root)) return null;
+  return JSON.stringify(parsed);
+}
+
 // ---------- 列表 ----------
 app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
   const db = getDb();
@@ -114,6 +151,7 @@ app.get("/:id", (c) => {
   }
   return c.json({
     ...row,
+    notebookId: resolveMindmapNotebookId(db, row.id),
     canEdit: canManageResource(row.userId, row.workspaceId, userId),
   });
 });
@@ -122,12 +160,70 @@ app.get("/:id", (c) => {
 app.post("/", requireWorkspaceFeature("mindmaps"), async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
-  const body = await c.req.json();
-  const scope = resolveMindmapScope(c.req.query("workspaceId") || "", userId);
+  const body = await c.req.json().catch(() => ({})) as {
+    title?: string;
+    data?: string | Record<string, unknown>;
+    notebookId?: string;
+  };
+  const requestedWorkspaceRaw = (c.req.query("workspaceId") || "").trim();
+  const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : "无标题导图";
+  const notebookId = typeof body.notebookId === "string" ? body.notebookId.trim() : "";
+
+  if (notebookId) {
+    const notebook = db.prepare("SELECT id, userId, workspaceId FROM notebooks WHERE id = ? AND isDeleted = 0")
+      .get(notebookId) as { id: string; userId: string; workspaceId: string | null } | undefined;
+    const { permission } = resolveNotebookPermission(notebookId, userId);
+    if (!notebook || !hasPermission(permission, "write")) {
+      return c.json({ error: "目标笔记本不存在或无写入权限", code: "FORBIDDEN" }, notebook ? 403 : 404);
+    }
+    if (requestedWorkspaceRaw) {
+      const requestedWorkspaceId = requestedWorkspaceRaw === "personal" ? null : requestedWorkspaceRaw;
+      if ((notebook.workspaceId || null) !== requestedWorkspaceId) {
+        return c.json({ error: "目标笔记本与请求的空间不一致", code: "FORBIDDEN" }, 403);
+      }
+    }
+    if (notebook.workspaceId && !isFeatureEnabled(resolveWorkspaceFeatures(notebook.workspaceId), "mindmaps")) {
+      return c.json({ error: "该功能在当前工作区已被管理员关闭", code: "FEATURE_DISABLED", feature: "mindmaps" }, 403);
+    }
+    let normalizedData: string | null = null;
+    if (body.data !== undefined) {
+      normalizedData = normalizeMindmapDataInput(body.data);
+      if (!normalizedData) {
+        return c.json({ error: "思维导图数据格式无效，必须包含 root 节点对象", code: "INVALID_PAYLOAD" }, 400);
+      }
+    }
+    try {
+      const parentTreeNodeId = `notebook:${notebook.id}`;
+      const parentExists = db.prepare("SELECT 1 FROM knowledge_tree_nodes WHERE id = ? AND isDeleted = 0").get(parentTreeNodeId);
+      if (!parentExists) {
+        synchronizeLegacyNotebookHierarchy({ db, notebookId: notebook.id, actorUserId: userId, reason: "create" });
+      }
+      const node = createKnowledgeChild({
+        actorUserId: userId,
+        workspaceId: notebook.workspaceId,
+        parentId: parentTreeNodeId,
+        nodeType: "mindmap",
+        title,
+        db,
+      });
+      if (normalizedData) {
+        db.prepare("UPDATE mindmaps SET data = ?, updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?")
+          .run(normalizedData, node.resourceId);
+      }
+      const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(node.resourceId) as MindmapRow;
+      return c.json({ ...row, notebookId: notebook.id, canEdit: true }, 201);
+    } catch (error) {
+      if (error instanceof KnowledgeTreeError) {
+        return c.json({ error: error.message, code: error.code }, error.status);
+      }
+      throw error;
+    }
+  }
+
+  const scope = resolveMindmapScope(requestedWorkspaceRaw, userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
   const id = uuidv4();
-  const title = body.title || "无标题导图";
 
   // 默认初始数据：一个根节点
   const defaultData = JSON.stringify({
@@ -149,8 +245,8 @@ app.post("/", requireWorkspaceFeature("mindmaps"), async (c) => {
     typeof data === "string" ? data : JSON.stringify(data),
   );
 
-  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id);
-  return c.json(row, 201);
+  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as MindmapRow;
+  return c.json({ ...row, notebookId: null, canEdit: true }, 201);
 });
 
 // ---------- 更新 ----------
@@ -225,6 +321,7 @@ app.put("/:id", async (c) => {
   const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as MindmapRow;
   return c.json({
     ...row,
+    notebookId: resolveMindmapNotebookId(db, row.id),
     canEdit: canManageResource(row.userId, row.workspaceId, userId),
   });
 });

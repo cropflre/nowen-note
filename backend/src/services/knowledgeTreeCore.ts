@@ -413,8 +413,26 @@ export function createKnowledgeChild(input: {
     ...row,
     title,
     childCount: 0,
-    contentFormat: input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
-    noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "excel" ? "excel" : input.nodeType === "word" ? "word" : undefined,
+    contentFormat: input.encryptedContent
+      ? "encrypted-note-v1"
+      : input.nodeType === "ppt"
+        ? "ppt-json"
+        : input.nodeType === "note" && input.contentFormat === "plaintext"
+          ? "plaintext"
+          : input.nodeType === "markdown"
+            ? "markdown"
+            : input.nodeType === "folder" || input.nodeType === "mindmap"
+              ? undefined
+              : "tiptap-json",
+    noteType: input.nodeType === "sheet"
+      ? "sheet"
+      : input.nodeType === "excel"
+        ? "excel"
+        : input.nodeType === "word"
+          ? "word"
+          : input.nodeType === "ppt"
+            ? "ppt"
+            : undefined,
     access: resolveKnowledgeNodeAccess(row.id, input.actorUserId, db),
   };
 }

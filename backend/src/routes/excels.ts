@@ -8,12 +8,16 @@
  */
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema.js";
+import { hasPermission, resolveNotebookPermission } from "../middleware/acl.js";
 import {
   hasKnowledgeCapability,
   resolveKnowledgeNodeAccess,
 } from "../services/knowledgeCapabilities.js";
+import { synchronizeLegacyNoteHierarchy } from "../services/legacyKnowledgeHierarchy.js";
 import {
+  createDefaultExcelWorkbook,
   EXCEL_MAX_DATA_BYTES,
   isExcelWorkbookCreationEnabled,
   serializeExcelText,
@@ -57,6 +61,75 @@ app.get("/capabilities", (c) => c.json({
   createEnabled: isExcelWorkbookCreationEnabled(),
   maxDataBytes: EXCEL_MAX_DATA_BYTES,
 }));
+
+app.post(
+  "/",
+  bodyLimit({
+    maxSize: EXCEL_MAX_DATA_BYTES + 64 * 1024,
+    onError: (c) => c.json({ error: "Excel 表格超过大小上限，未创建", code: "EXCEL_TOO_LARGE" }, 413),
+  }),
+  async (c) => {
+    if (!isExcelWorkbookCreationEnabled()) {
+      return c.json({ error: "Excel 表格尚未在此服务器开放", code: "EXCEL_WORKBOOK_DISABLED" }, 403);
+    }
+    const userId = c.req.header("X-User-Id") || "";
+    const body = await c.req.json().catch(() => null) as {
+      notebookId?: unknown;
+      title?: unknown;
+      data?: unknown;
+    } | null;
+    const notebookId = typeof body?.notebookId === "string" ? body.notebookId.trim() : "";
+    if (!notebookId) {
+      return c.json({ error: "必须指定目标 notebookId", code: "INVALID_PAYLOAD" }, 400);
+    }
+    const db = getDb();
+    const notebook = db.prepare("SELECT id, userId, workspaceId FROM notebooks WHERE id = ? AND isDeleted = 0")
+      .get(notebookId) as { id: string; userId: string; workspaceId: string | null } | undefined;
+    const { permission } = resolveNotebookPermission(notebookId, userId);
+    if (!notebook || !hasPermission(permission, "write")) {
+      return c.json({ error: "目标笔记本不存在或无写入权限", code: "FORBIDDEN" }, notebook ? 403 : 404);
+    }
+    const title = typeof body?.title === "string" && body.title.trim()
+      ? body.title.trim()
+      : "无标题 Excel 表格";
+    const initialInput = body?.data === undefined ? createDefaultExcelWorkbook(title) : body.data;
+    const validated = validateExcelData(initialInput);
+    if (!validated) {
+      return c.json({ error: "Excel 表格数据格式无效或超过大小上限", code: "INVALID_PAYLOAD" }, 400);
+    }
+    const noteId = uuid();
+    const contentText = serializeExcelText(validated.data);
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, note_type)
+        VALUES (?, ?, ?, ?, ?, '{}', ?, 'tiptap-json', 'excel')
+      `).run(noteId, userId, notebook.workspaceId, notebook.id, title, contentText);
+      db.prepare(`
+        INSERT INTO excel_documents (noteId, userId, workspaceId, data)
+        VALUES (?, ?, ?, ?)
+      `).run(noteId, userId, notebook.workspaceId, validated.json);
+      // 同步知识树节点，确保后续权限检查、目录展示和回收站恢复链路一致。
+      synchronizeLegacyNoteHierarchy({
+        db,
+        noteId,
+        actorUserId: userId,
+        reason: "create",
+        parentMode: "resource",
+      });
+    })();
+    const created = readExcelDocument(noteId)!;
+    return c.json({
+      noteId: created.noteId,
+      title: created.title,
+      notebookId: notebook.id,
+      workspaceId: created.workspaceId,
+      data: validated.data,
+      revision: created.revision,
+      updatedAt: created.updatedAt,
+      canEdit: true,
+    }, 201);
+  },
+);
 
 app.get("/:noteId", (c) => {
   const noteId = c.req.param("noteId");

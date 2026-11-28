@@ -20,12 +20,15 @@ import { registerP1Tools } from "./p1-tools.js";
 import { registerP2Tools } from "./p2-tools.js";
 import { registerMigrationTools } from "./migration-tools.js";
 import { registerAIArchiveTools } from "./ai-archive-tools.js";
+import { registerDocumentTypeTools } from "./document-types-tools.js";
 import { treeMutationRevision, treeMutationPreconditions, type TreeMutationNode } from "./tree-mutation.js";
 import {
   CONTENT_FORMAT_VALUES,
+  NOTE_TYPE_VALUES,
   buildCreateNotePayload,
   buildReadNoteResult,
   buildUpdateNotePayloadWithCurrentVersion,
+  isEncryptedContentFormat,
 } from "./note-format.js";
 
 // ===== 从环境变量读取配置 =====
@@ -137,10 +140,12 @@ server.tool(
 
 server.tool(
   "nowen_list_notes",
-  "获取 Nowen Note 中的笔记列表。可按笔记本、空间、标签、收藏状态、日期范围等筛选。不指定笔记本和空间时，只在当前连接已授权的笔记本内列出。返回笔记概要（不含完整内容）",
+  "获取 Nowen Note 中的文档列表（支持富文本、Word、Markdown、纯文本 TXT、PPT、Excel 等笔记类型）。可按笔记本、空间、文档类型、内容格式、标签、收藏状态、日期范围筛选。返回概要（不含完整内容）",
   {
     notebookId: z.string().optional().describe("按笔记本 ID 筛选"),
     workspaceId: z.string().optional().describe("可选：personal 或团队工作区 ID，只列出该空间内已授权的笔记"),
+    noteType: z.enum(["normal", "word", "ppt", "excel"]).optional().describe("可选：按文档类型筛选（normal 含富文本/Markdown/TXT，word、ppt、excel）"),
+    contentFormat: z.enum([...CONTENT_FORMAT_VALUES, "encrypted-note-v1"]).optional().describe("可选：按内容格式筛选（markdown/tiptap-json/html/plaintext/ppt-json）"),
     tagId: z.string().optional().describe("按标签 ID 筛选"),
     isFavorite: z.boolean().optional().describe("是否只返回收藏笔记"),
     isTrashed: z.boolean().optional().describe("是否只返回回收站笔记"),
@@ -148,7 +153,7 @@ server.tool(
     dateFrom: z.string().optional().describe("开始日期 YYYY-MM-DD"),
     dateTo: z.string().optional().describe("结束日期 YYYY-MM-DD"),
   },
-  async ({ notebookId, workspaceId, tagId, isFavorite, isTrashed, search, dateFrom, dateTo }) => {
+  async ({ notebookId, workspaceId, noteType, contentFormat, tagId, isFavorite, isTrashed, search, dateFrom, dateTo }) => {
     try {
       const query: Record<string, string> = {};
       if (notebookId) query.notebookId = notebookId;
@@ -160,16 +165,24 @@ server.tool(
       if (dateFrom) query.dateFrom = dateFrom;
       if (dateTo) query.dateTo = dateTo;
 
-      const notes = await api.listNotes(query);
+      let notes = await api.listNotes(query);
+      if (noteType) {
+        notes = notes.filter((n: any) => (n.noteType || "normal") === noteType);
+      }
+      if (contentFormat) {
+        notes = notes.filter((n: any) => n.contentFormat === contentFormat);
+      }
       const summary = notes.map((n: any) => ({
         id: n.id,
         title: n.title,
         notebookId: n.notebookId,
+        noteType: n.noteType || "normal",
+        contentFormat: n.contentFormat || "unknown",
         isPinned: n.isPinned,
         isFavorite: n.isFavorite,
         isLocked: n.isLocked,
         updatedAt: n.updatedAt,
-        contentPreview: n.contentText?.slice(0, 100),
+        contentPreview: isEncryptedContentFormat(n.contentFormat) ? "[已加密笔记]" : n.contentText?.slice(0, 100),
       }));
       return {
         content: [{ type: "text" as const, text: stringifyTimedResult(summary) }],
@@ -182,16 +195,32 @@ server.tool(
 
 server.tool(
   "nowen_read_note",
-  "读取指定笔记，可返回纯文本、Markdown/原始正文或结构化块树",
+  "读取指定文档（支持富文本、Word、Markdown、纯文本 TXT、PPT），可返回纯文本、原始格式正文（Markdown/JSON/HTML/TXT）或结构化块树；加密笔记受保护不可明文读取",
   {
     noteId: z.string().describe("笔记 ID"),
-    mode: z.enum(["text", "markdown", "blocks"]).optional().describe("返回模式，默认 text"),
+    mode: z.enum(["text", "markdown", "blocks"]).optional().describe("返回模式，默认 text；markdown 模式返回原始 content（含 Markdown/TipTap JSON/HTML/TXT/PPT JSON）"),
     includeBlockIds: z.boolean().optional().describe("text/markdown 模式是否同时附带块 ID 列表"),
     maxBlocks: z.number().int().positive().max(2000).optional().describe("blocks 模式最大块数量，默认 500"),
   },
   async ({ noteId, mode, includeBlockIds, maxBlocks }) => {
     try {
       const note = await api.getNote(noteId);
+      if (isEncryptedContentFormat(note.contentFormat)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: stringifyTimedResult({
+              id: note.id,
+              title: note.title,
+              notebookId: note.notebookId,
+              noteType: note.noteType || "normal",
+              contentFormat: note.contentFormat,
+              encrypted: true,
+              message: "该笔记为端到端加密笔记，MCP 禁止明文读取或修改，请在 Nowen Note 客户端解锁后查看",
+            }),
+          }],
+        };
+      }
       const selectedMode = mode || "text";
       if (selectedMode === "blocks") {
         const blocks = await api.listNoteBlocks(noteId, maxBlocks || 500);
@@ -200,6 +229,7 @@ server.tool(
             id: note.id,
             title: note.title,
             notebookId: note.notebookId,
+            noteType: note.noteType || "normal",
             version: note.version,
             contentFormat: note.contentFormat,
             blocks,
@@ -211,11 +241,15 @@ server.tool(
             id: note.id,
             title: note.title,
             notebookId: note.notebookId,
+            noteType: note.noteType || "normal",
             version: note.version,
             contentFormat: note.contentFormat,
             content: note.content,
           }
         : buildReadNoteResult(note);
+      if (note.noteType === "excel") {
+        result.hint = "该文档是 Excel 工作簿，请使用 nowen_read_excel / nowen_update_excel 读取或编辑单元格数据";
+      }
       if (includeBlockIds) result.blocks = await api.listNoteBlocks(noteId, maxBlocks || 500);
       return {
         content: [{ type: "text" as const, text: stringifyTimedResult(result) }],
@@ -228,19 +262,28 @@ server.tool(
 
 server.tool(
   "nowen_create_note",
-  "在 Nowen Note 中创建一篇新笔记。需要指定目标笔记本 ID",
+  "在 Nowen Note 中创建新文档，支持 Markdown、富文本（tiptap-json/html）、纯文本 TXT（plaintext）、Word 文档（noteType=word）和 PPT 演示文稿（noteType=ppt, contentFormat=ppt-json）。Excel 与思维导图请使用专用工具 nowen_create_excel / nowen_create_mindmap",
   {
     notebookId: z.string().describe("目标笔记本 ID"),
-    title: z.string().optional().describe("笔记标题(默认为'无标题笔记')"),
-    content: z.string().optional().describe("笔记内容（Markdown 纯文本）"),
-    contentFormat: z.enum(CONTENT_FORMAT_VALUES).optional().describe("内容格式，默认 markdown"),
+    title: z.string().optional().describe("文档标题"),
+    content: z.string().optional().describe("文档正文内容（Markdown、纯文本、HTML、TipTap JSON 或 PPT JSON）"),
+    contentFormat: z.enum(CONTENT_FORMAT_VALUES).optional().describe("内容格式：markdown（默认）/ tiptap-json / html / plaintext / ppt-json"),
+    noteType: z.enum(NOTE_TYPE_VALUES).optional().describe("文档类型：normal（默认，含 Markdown/富文本/TXT）、word（Word 文档）、ppt（PPT 演示文稿）"),
   },
-  async ({ notebookId, title, content, contentFormat }) => {
+  async ({ notebookId, title, content, contentFormat, noteType }) => {
     try {
-      const body = buildCreateNotePayload({ notebookId, title, content, contentFormat });
+      const body = buildCreateNotePayload({ notebookId, title, content, contentFormat, noteType });
       const note = await api.createNote(body);
       return {
-        content: [{ type: "text" as const, text: `笔记创建成功:\n${JSON.stringify({ id: note.id, title: note.title }, null, 2)}` }],
+        content: [{
+          type: "text" as const,
+          text: `笔记创建成功:\n${JSON.stringify({
+            id: note.id,
+            title: note.title,
+            noteType: note.noteType || body.noteType || "normal",
+            contentFormat: note.contentFormat || body.contentFormat,
+          }, null, 2)}`,
+        }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -250,19 +293,28 @@ server.tool(
 
 server.tool(
   "nowen_update_note",
-  "更新 Nowen Note 中已有笔记的标题或内容",
+  "更新已有文档的标题或正文（支持 Markdown、富文本、纯文本 TXT、Word、PPT）。未传 contentFormat 时自动保留原文档格式；禁止明文覆盖加密笔记或 Excel 工作簿正文",
   {
     noteId: z.string().describe("笔记 ID"),
     title: z.string().optional().describe("新标题"),
-    content: z.string().optional().describe("新内容（Markdown 纯文本）"),
-    contentFormat: z.enum(CONTENT_FORMAT_VALUES).optional().describe("内容格式，默认 markdown"),
+    content: z.string().optional().describe("新正文内容（Markdown、纯文本、HTML、TipTap JSON 或 PPT JSON）"),
+    contentFormat: z.enum(CONTENT_FORMAT_VALUES).optional().describe("可选：显式指定内容格式；省略时保留文档原格式"),
   },
   async ({ noteId, title, content, contentFormat }) => {
     try {
       const body = await buildUpdateNotePayloadWithCurrentVersion(api, { noteId, title, content, contentFormat });
       const note = await api.updateNote(noteId, body);
       return {
-        content: [{ type: "text" as const, text: `笔记更新成功:\n${JSON.stringify({ id: note.id, title: note.title, version: note.version }, null, 2)}` }],
+        content: [{
+          type: "text" as const,
+          text: `笔记更新成功:\n${JSON.stringify({
+            id: note.id,
+            title: note.title,
+            noteType: note.noteType || "normal",
+            contentFormat: note.contentFormat,
+            version: note.version,
+          }, null, 2)}`,
+        }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -1084,13 +1136,16 @@ server.tool(
 
 // ==================== P0: 知识树安全变更 ====================
 
+const TREE_CREATE_NODE_TYPES = ["folder", "note", "markdown", "word", "ppt", "excel", "mindmap"] as const;
+
 const treeOperationShape = {
   operation: z.enum(["create", "rename", "move", "trash", "restore"]),
   workspaceId: z.string().min(1).optional().describe("节点所在空间：personal（默认）或团队工作区 ID；团队目录必须指定，且不能跨空间移动"),
   nodeId: z.string().min(1).optional().describe("要修改的知识树节点 ID；create 时可省略"),
   parentId: z.string().min(1).optional().describe("create/move 需要目标文件夹节点 ID"),
   title: z.string().trim().min(1).max(120).optional().describe("create/rename 使用的新名称"),
-  nodeType: z.enum(["folder", "markdown"]).optional().describe("create 使用，默认 folder"),
+  nodeType: z.enum(TREE_CREATE_NODE_TYPES).optional().describe("create 使用：folder（默认）/ note（富文本或传 contentFormat=plaintext 建纯文本 TXT）/ markdown / word / ppt / excel / mindmap"),
+  contentFormat: z.enum(["plaintext"]).optional().describe("仅 create 且 nodeType=note 时生效：传 plaintext 创建纯文本文档 TXT"),
 };
 
 async function prepareTreeOperation(params: {
@@ -1099,7 +1154,8 @@ async function prepareTreeOperation(params: {
   nodeId?: string;
   parentId?: string;
   title?: string;
-  nodeType?: "folder" | "markdown";
+  nodeType?: typeof TREE_CREATE_NODE_TYPES[number];
+  contentFormat?: "plaintext";
 }) {
   const workspaceId = params.workspaceId || PERSONAL_SPACE;
   const expectedWorkspaceId = workspaceId === PERSONAL_SPACE ? null : workspaceId;
@@ -1121,10 +1177,10 @@ async function prepareTreeOperation(params: {
   }
   if (!inSpace(source)) throw new Error("节点不属于指定空间，MCP 不允许跨空间操作目录");
   if (operation === "create" && (source.isDeleted || source.resourceType !== "notebook")) {
-    throw new Error("只允许在有效文件夹下创建笔记或文件夹");
+    throw new Error("只允许在有效文件夹下创建文档、思维导图或文件夹");
   }
-  if (operation !== "create" && !["note", "notebook"].includes(source.resourceType)) {
-    throw new Error("只允许修改普通笔记或文件夹，其他资源类型暂不开放");
+  if (operation !== "create" && !["note", "notebook", "mindmap"].includes(source.resourceType)) {
+    throw new Error("只允许修改文档、思维导图或文件夹，其他资源类型暂不开放");
   }
   const target = parentId ? byId.get(parentId) : null;
   if (parentId && (!target || !inSpace(target) || target.isDeleted || target.resourceType !== "notebook")) {
@@ -1148,9 +1204,9 @@ async function prepareTreeOperation(params: {
   if (isSubtree && affectedNodeIds.some((id) => {
     const descendant = byId.get(id);
     return !descendant || !inSpace(descendant)
-      || !["note", "notebook"].includes(descendant.resourceType);
+      || !["note", "notebook", "mindmap"].includes(descendant.resourceType);
   })) {
-    throw new Error("目录包含文件、思维导图或其他尚未验收的资源类型；MCP P0 禁止修改这种混合子树");
+    throw new Error("目录包含文件或其他尚未验收的资源类型；MCP 禁止修改这种混合子树");
   }
   return {
     nodes, source, target, revision, subtreeRevision, workspaceId,
@@ -1202,7 +1258,7 @@ server.tool(
   },
   async (params) => {
     try {
-      const { operation, nodeId, parentId, title, nodeType, expectedRevision, expectedSubtreeRevision, confirmation } = params;
+      const { operation, nodeId, parentId, title, nodeType, contentFormat, expectedRevision, expectedSubtreeRevision, confirmation } = params;
       const requiredConfirmation = operation === "trash" ? "MOVE_TREE_TO_TRASH"
         : operation === "restore" ? "RESTORE_TREE" : "APPLY_TREE_CHANGE";
       if (confirmation !== requiredConfirmation) throw new Error("未提供本次操作要求的明确确认");
@@ -1215,7 +1271,10 @@ server.tool(
       let result: any;
       if (operation === "create") {
         result = await api.createKnowledgeNode({
-          parentId: parentId!, title: title!.trim(), nodeType: nodeType || "folder",
+          parentId: parentId!,
+          title: title!.trim(),
+          nodeType: nodeType || "folder",
+          ...(nodeType === "note" && contentFormat === "plaintext" ? { contentFormat: "plaintext" } : {}),
           ...preconditions,
         }, workspaceId);
       } else if (operation === "rename") {
@@ -1393,6 +1452,7 @@ registerP1Tools(server, api);
 registerP2Tools(server, api);
 registerMigrationTools(server, api, { allowLocalFiles });
 registerAIArchiveTools(server, api);
+registerDocumentTypeTools(server, api);
 return server;
 }
 

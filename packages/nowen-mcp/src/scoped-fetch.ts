@@ -534,7 +534,7 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
   const assertNode = (id: string): any => {
     const node = byId.get(id);
     if (!node || !visibleIds.has(id) || (node.workspaceId ?? null) !== expectedWorkspaceId
-      || !["note", "notebook"].includes(node.resourceType)) {
+      || !["note", "notebook", "mindmap"].includes(node.resourceType)) {
       throw new ScopeDeniedError("节点不存在、不属于请求的空间或未获授权");
     }
     return node;
@@ -555,8 +555,9 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
     for (const descendantId of descendants) assertNode(descendantId);
   };
   if (pathname === "/api/knowledge-tree/nodes" && method === "POST") {
-    if (body.nodeType !== "folder" && body.nodeType !== "markdown") {
-      throw new ScopeDeniedError("MCP 只允许创建普通文件夹和 Markdown 笔记");
+    const allowedNodeTypes = new Set(["folder", "note", "markdown", "word", "ppt", "excel", "mindmap"]);
+    if (typeof body.nodeType !== "string" || !allowedNodeTypes.has(body.nodeType)) {
+      throw new ScopeDeniedError("MCP 仅支持创建文件夹、富文本/纯文本、Markdown、Word、PPT、Excel 或思维导图");
     }
     if (body.parentId === undefined || body.parentId === null) {
       throw new ScopeDeniedError("scoped MCP 只能在授权文件夹内新建节点");
@@ -706,6 +707,67 @@ async function handleAIArchiveRequest(request: Request, url: URL): Promise<Respo
   throw new ScopeDeniedError("MCP 只能读取归档和保存对话；来源授权、删除、恢复和导入请在 Nowen Note 中操作");
 }
 
+async function handleExcelRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  if (pathname === "/api/excels/capabilities" && method === "GET") {
+    return originalFetch(request);
+  }
+  if (pathname === "/api/excels" && method === "POST") {
+    const body = await readJson(request);
+    policy.assertNotebookAllowed(typeof body.notebookId === "string" ? body.notebookId : null, "创建 Excel 表格");
+    return originalFetch(request);
+  }
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length !== 3 || (method !== "GET" && method !== "PUT")) {
+    throw new ScopeDeniedError("scoped MCP 仅允许读写或创建 Excel 工作簿");
+  }
+  const noteId = decodeURIComponent(segments[2] || "");
+  await assertNoteAllowed(noteId, request, method === "PUT");
+  return originalFetch(request);
+}
+
+async function handleMindmapRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  if (pathname === "/api/mindmaps") {
+    if (method === "GET") {
+      const response = await originalFetch(request);
+      if (!response.ok) return response;
+      const body = await readJsonResponse(response);
+      if (!Array.isArray(body)) return response;
+      return replaceJsonResponse(
+        response,
+        body.filter((item: any) => typeof item?.notebookId === "string" && policy.isNotebookAllowed(item.notebookId)),
+      );
+    }
+    if (method === "POST") {
+      const body = await readJson(request);
+      policy.assertNotebookAllowed(typeof body.notebookId === "string" ? body.notebookId : null, "创建思维导图");
+      return originalFetch(request);
+    }
+    throw new ScopeDeniedError("scoped MCP 不允许此思维导图集合操作");
+  }
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length !== 3 || !["GET", "PUT", "DELETE"].includes(method)) {
+    throw new ScopeDeniedError("scoped MCP 禁止永久删除或旧版导图管理接口");
+  }
+  const mindmapId = decodeURIComponent(segments[2] || "");
+  const probe = await originalFetch(`${baseUrl}/api/mindmaps/${encodeURIComponent(mindmapId)}`, {
+    headers: requestAuthHeaders(request),
+  });
+  if (!probe.ok) throw new ScopeDeniedError("思维导图不存在或未获授权");
+  const mindmap = await readJsonResponse(probe);
+  policy.assertNotebookAllowed(
+    typeof mindmap?.notebookId === "string" ? mindmap.notebookId : null,
+    method === "GET" ? "读取思维导图" : "修改思维导图",
+  );
+  if (method === "GET") return probe;
+  return originalFetch(request);
+}
+
 async function scopedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request = new Request(input, init);
   const url = new URL(request.url);
@@ -747,6 +809,12 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
     }
     if (url.pathname === "/api/notes" || url.pathname.startsWith("/api/notes/")) {
       return await handleNotesRequest(request, url);
+    }
+    if (url.pathname === "/api/excels" || url.pathname.startsWith("/api/excels/")) {
+      return await handleExcelRequest(request, url);
+    }
+    if (url.pathname === "/api/mindmaps" || url.pathname.startsWith("/api/mindmaps/")) {
+      return await handleMindmapRequest(request, url);
     }
     if (url.pathname === "/api/search") {
       return await handleSearchRequest(request);

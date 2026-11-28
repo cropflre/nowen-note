@@ -2,7 +2,7 @@ import type { Context, Next } from "hono";
 import { getDb } from "../db/schema";
 import { listKnowledgeTree } from "../services/knowledgeTree.js";
 import { createHash } from "node:crypto";
-import { hasPermission, resolveNotePermission, resolveNotebookPermission } from "./acl";
+import { canManageResource, hasPermission, resolveNotePermission, resolveNotebookPermission } from "./acl";
 import { logAudit } from "../services/audit";
 import {
   resolveTokenNotebookAccess,
@@ -345,6 +345,8 @@ function requiredScope(pathname: string, method: string, restricted: boolean): s
   if (pathname.startsWith("/api/notebooks")) return write ? "notebooks:write" : "notebooks:read";
   if (pathname.startsWith("/api/note-templates")) return write ? "notes:write" : "notes:read";
   if (pathname.startsWith("/api/notes")) return write ? "notes:write" : "notes:read";
+  if (pathname === "/api/excels" || pathname.startsWith("/api/excels/")) return write ? "notes:write" : "notes:read";
+  if (pathname === "/api/mindmaps" || pathname.startsWith("/api/mindmaps/")) return write ? "notes:write" : "notes:read";
   if (pathname.startsWith("/api/blocks")) return write ? "notes:write" : "notes:read";
   if (pathname.startsWith("/api/search")) return "notes:read";
   if (pathname.startsWith("/api/attachment-folders") || pathname.startsWith("/api/files/trash")) {
@@ -772,10 +774,12 @@ function assertTreeNodeForToken(
       "API_TOKEN_RESOURCE_DENIED",
     );
   }
-  if (node!.resourceType !== "note" && node!.resourceType !== "notebook") {
-    throw new ApiTokenAccessError("MCP 目前只允许修改笔记和文件夹", "API_TOKEN_ENDPOINT_DENIED");
+  if (node!.resourceType !== "note" && node!.resourceType !== "notebook" && node!.resourceType !== "mindmap") {
+    throw new ApiTokenAccessError("MCP 目前只允许修改笔记、思维导图和文件夹", "API_TOKEN_ENDPOINT_DENIED");
   }
-  if (node!.resourceType === "note" && write) requireScope(ctx, "notes:write");
+  if ((node!.resourceType === "note" || node!.resourceType === "mindmap") && write) {
+    requireScope(ctx, "notes:write");
+  }
 
   let current = node!;
   const seen = new Set<string>();
@@ -920,8 +924,12 @@ async function handleTokenKnowledgeTree(c: Context, next: Next, ctx: TokenAccess
 
   if (path === "/api/knowledge-tree/nodes" && method === "POST") {
     const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
-    if (body.nodeType !== "folder" && body.nodeType !== "markdown") {
-      throw new ApiTokenAccessError("MCP 只能创建普通文件夹或 Markdown 笔记", "API_TOKEN_ENDPOINT_DENIED");
+    const allowedNodeTypes = new Set(["folder", "note", "markdown", "word", "ppt", "excel", "mindmap"]);
+    if (typeof body.nodeType !== "string" || !allowedNodeTypes.has(body.nodeType)) {
+      throw new ApiTokenAccessError(
+        "MCP 仅支持创建文件夹、富文本/纯文本、Markdown、Word、PPT、Excel 或思维导图节点",
+        "API_TOKEN_ENDPOINT_DENIED",
+      );
     }
     if (!body.parentId) {
       if (ctx.resourceMode === "restricted") {
@@ -935,7 +943,7 @@ async function handleTokenKnowledgeTree(c: Context, next: Next, ctx: TokenAccess
       }
       assertTreeNodeForToken(ctx, body.parentId, workspaceId, true);
     }
-    if (body.nodeType === "markdown") requireScope(ctx, "notes:write");
+    if (body.nodeType !== "folder") requireScope(ctx, "notes:write");
     if (typeof body.parentId === "string") {
       assertTreeMutationPrecondition(ctx, body.parentId, body, workspaceId);
     } else if ("expectedUpdatedAt" in body) {
@@ -1277,6 +1285,157 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
   }
 }
 
+function resolveMindmapAncestorNotebook(mindmapId: string): string | null {
+  let current = getDb().prepare(
+    "SELECT id, parentId, resourceType, resourceId FROM knowledge_tree_nodes WHERE resourceType = 'mindmap' AND resourceId = ? AND isDeleted = 0 LIMIT 1",
+  ).get(mindmapId) as { id: string; parentId: string | null; resourceType: string; resourceId: string } | undefined;
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (current.resourceType === "notebook") return current.resourceId;
+    if (!current.parentId) break;
+    current = getDb().prepare(
+      "SELECT id, parentId, resourceType, resourceId FROM knowledge_tree_nodes WHERE id = ? AND isDeleted = 0 LIMIT 1",
+    ).get(current.parentId) as { id: string; parentId: string | null; resourceType: string; resourceId: string } | undefined;
+  }
+  return null;
+}
+
+function listGrantedMindmaps(ctx: TokenAccessContext, workspaceFilter?: string): Array<Record<string, unknown>> {
+  const levels = effectiveNotebookLevels(ctx);
+  if (levels.size === 0) return [];
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT m.id, m.userId, m.workspaceId, m.title, m.starred, m.folderId, m.createdAt, m.updatedAt,
+           u.username AS creatorName
+    FROM mindmaps m
+    LEFT JOIN users u ON u.id = m.userId
+    WHERE NOT EXISTS (
+      SELECT 1 FROM knowledge_tree_nodes tree
+      WHERE tree.resourceType = 'mindmap' AND tree.resourceId = m.id AND tree.isDeleted = 1
+    )
+    ORDER BY m.starred DESC, m.updatedAt DESC, m.id ASC
+  `).all() as Array<Record<string, any>>;
+
+  const result: Array<Record<string, unknown>> = [];
+  for (const row of rows) {
+    if (workspaceFilter) {
+      if (workspaceFilter === "personal" ? row.workspaceId != null : row.workspaceId !== workspaceFilter) {
+        continue;
+      }
+    }
+    const notebookId = resolveMindmapAncestorNotebook(String(row.id));
+    if (!notebookId) continue;
+    const level = levels.get(notebookId) || 0;
+    if (level < 1) continue;
+    ctx.spaces.add(row.workspaceId || "personal");
+    result.push({
+      ...row,
+      notebookId,
+      canEdit: level >= 2 && canManageResource(String(row.userId), row.workspaceId || null, ctx.userId),
+    });
+  }
+  return result;
+}
+
+async function handleTokenExcels(c: Context, next: Next, ctx: TokenAccessContext): Promise<void> {
+  const path = c.req.path.replace(/\/$/, "");
+  const method = c.req.method.toUpperCase();
+  if (path === "/api/excels/capabilities" && method === "GET") {
+    await next();
+    return;
+  }
+  if (path === "/api/excels" && method === "POST") {
+    const body = await c.req.raw.clone().json().catch(() => ({})) as { notebookId?: unknown };
+    const notebookId = typeof body.notebookId === "string" ? body.notebookId.trim() : "";
+    if (!notebookId) {
+      throw new ApiTokenAccessError("创建 Excel 表格必须指定目标 notebookId", "API_TOKEN_RESOURCE_DENIED");
+    }
+    if (ctx.resourceMode === "restricted") {
+      assertNotebook(ctx, notebookId, true);
+    }
+    await next();
+    return;
+  }
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length !== 3 || (method !== "GET" && method !== "PUT")) {
+    throw new ApiTokenAccessError("API Token 仅允许读写或创建 Excel 工作簿", "API_TOKEN_ENDPOINT_DENIED");
+  }
+  const noteId = decodeURIComponent(segments[2] || "");
+  if (!noteId) throw new ApiTokenAccessError("缺少 Excel noteId");
+  if (ctx.resourceMode === "restricted") {
+    assertNotebook(ctx, resolveNoteNotebookId(noteId), method === "PUT");
+  }
+  await next();
+}
+
+async function handleTokenMindmaps(c: Context, next: Next, ctx: TokenAccessContext): Promise<void> {
+  const path = c.req.path.replace(/\/$/, "");
+  const method = c.req.method.toUpperCase();
+  const requestedWorkspace = (c.req.query("workspaceId") || "").trim();
+  const workspaceId = !requestedWorkspace || requestedWorkspace === "personal" ? null : requestedWorkspace;
+
+  if (path === "/api/mindmaps") {
+    if (method === "GET") {
+      if (ctx.resourceMode === "restricted") {
+        c.res = jsonResponse(listGrantedMindmaps(ctx, requestedWorkspace || undefined), 200);
+        return;
+      }
+      await next();
+      return;
+    }
+    if (method === "POST") {
+      const body = await c.req.raw.clone().json().catch(() => ({})) as { notebookId?: unknown };
+      const notebookId = typeof body.notebookId === "string" ? body.notebookId.trim() : "";
+      if (ctx.resourceMode === "restricted") {
+        if (!notebookId) {
+          throw new ApiTokenAccessError("restricted Token 只能在已授权笔记本内创建思维导图", "API_TOKEN_RESOURCE_DENIED");
+        }
+        assertNotebook(ctx, notebookId, true);
+        if (requestedWorkspace) {
+          assertSameNotebookSpace(ctx, notebookId, workspaceId);
+        }
+      } else {
+        if (workspaceId) {
+          throw new ApiTokenAccessError("unrestricted Token 不允许在团队空间创建思维导图", "API_TOKEN_RESOURCE_DENIED");
+        }
+        if (notebookId) {
+          const nb = getDb().prepare("SELECT workspaceId FROM notebooks WHERE id = ? AND isDeleted = 0")
+            .get(notebookId) as { workspaceId: string | null } | undefined;
+          if (nb?.workspaceId) {
+            throw new ApiTokenAccessError("unrestricted Token 不允许在团队空间创建思维导图", "API_TOKEN_RESOURCE_DENIED");
+          }
+        }
+      }
+      await next();
+      return;
+    }
+    throw new ApiTokenAccessError("不允许此思维导图接口方法", "API_TOKEN_ENDPOINT_DENIED");
+  }
+
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length !== 3 || !["GET", "PUT", "DELETE"].includes(method)) {
+    throw new ApiTokenAccessError("API Token 不允许永久删除或旧版导图管理接口", "API_TOKEN_ENDPOINT_DENIED");
+  }
+  const mindmapId = decodeURIComponent(segments[2] || "");
+  if (!mindmapId) throw new ApiTokenAccessError("缺少思维导图 ID");
+  const write = method !== "GET";
+  if (ctx.resourceMode === "restricted") {
+    const ancestorNotebookId = resolveMindmapAncestorNotebook(mindmapId);
+    if (!ancestorNotebookId) {
+      throw new ApiTokenAccessError("思维导图不在当前 Token 授权的笔记本范围内", "API_TOKEN_RESOURCE_DENIED");
+    }
+    assertNotebook(ctx, ancestorNotebookId, write);
+  } else if (write) {
+    const row = getDb().prepare("SELECT userId, workspaceId FROM mindmaps WHERE id = ?")
+      .get(mindmapId) as { userId: string; workspaceId: string | null } | undefined;
+    if (row?.workspaceId) {
+      throw new ApiTokenAccessError("unrestricted Token 不允许修改或删除团队思维导图", "API_TOKEN_RESOURCE_DENIED");
+    }
+  }
+  await next();
+}
+
 async function dispatchTokenRequest(c: Context, next: Next, ctx: TokenAccessContext): Promise<void> {
   const required = requiredScope(c.req.path, c.req.method.toUpperCase(), ctx.resourceMode === "restricted");
   if (required === "__login_only__") {
@@ -1309,6 +1468,14 @@ async function dispatchTokenRequest(c: Context, next: Next, ctx: TokenAccessCont
   }
   if (c.req.path === "/api/knowledge-tree" || c.req.path.startsWith("/api/knowledge-tree/")) {
     await handleTokenKnowledgeTree(c, next, ctx);
+    return;
+  }
+  if (c.req.path === "/api/excels" || c.req.path.startsWith("/api/excels/")) {
+    await handleTokenExcels(c, next, ctx);
+    return;
+  }
+  if (c.req.path === "/api/mindmaps" || c.req.path.startsWith("/api/mindmaps/")) {
+    await handleTokenMindmaps(c, next, ctx);
     return;
   }
   if (c.req.path.startsWith("/api/attachment-folders")

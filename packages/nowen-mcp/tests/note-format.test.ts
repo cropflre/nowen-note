@@ -105,4 +105,72 @@ test("MCP read note result includes contentFormat", () => {
 
   assert.equal(result.contentFormat, "markdown");
   assert.equal(result.contentText, markdown);
+  assert.equal(result.noteType, "normal");
+});
+
+test("MCP create note supports word, plaintext and ppt types with proper default formats", () => {
+  const wordPayload = buildCreateNotePayload({
+    notebookId: "nb-1",
+    title: "需求 Word 文档",
+    noteType: "word",
+  });
+  assert.equal(wordPayload.noteType, "word");
+  assert.equal(wordPayload.contentFormat, "tiptap-json");
+
+  const txtPayload = buildCreateNotePayload({
+    notebookId: "nb-1",
+    title: "纯文本草稿",
+    content: "hello\nworld",
+    contentFormat: "plaintext",
+  });
+  assert.equal(txtPayload.contentFormat, "plaintext");
+  assert.equal(txtPayload.noteType, undefined);
+
+  const pptPayload = buildCreateNotePayload({
+    notebookId: "nb-1",
+    title: "季度汇报",
+    noteType: "ppt",
+  });
+  assert.equal(pptPayload.noteType, "ppt");
+  assert.equal(pptPayload.contentFormat, "ppt-json");
+  const deck = JSON.parse(String(pptPayload.content));
+  assert.equal(deck.title, "季度汇报");
+  assert.ok(Array.isArray(deck.slides) && deck.slides.length === 1);
+});
+
+test("MCP update note preserves existing non-markdown contentFormat when omitted", () => {
+  for (const format of ["tiptap-json", "html", "plaintext", "ppt-json"] as const) {
+    const payload = buildUpdateNotePayload({
+      currentNote: { version: 4, contentFormat: format, noteType: format === "ppt-json" ? "ppt" : "normal" },
+      content: "updated body",
+    });
+    assert.equal(payload.contentFormat, format);
+    assert.equal("syncToYjs" in payload, false);
+  }
+});
+
+test("MCP update note refuses plaintext mutation of encrypted notes and excel workbook bodies", () => {
+  assert.throws(
+    () => buildUpdateNotePayload({
+      currentNote: { version: 2, contentFormat: "encrypted-note-v1", noteType: "normal" },
+      content: "plaintext leak",
+    }),
+    /加密笔记/,
+  );
+
+  assert.throws(
+    () => buildUpdateNotePayload({
+      currentNote: { version: 3, contentFormat: "tiptap-json", noteType: "excel" },
+      content: "overwrite excel",
+    }),
+    /nowen_update_excel/,
+  );
+
+  // Excel 仅修改标题仍允许
+  const renameExcel = buildUpdateNotePayload({
+    currentNote: { version: 3, contentFormat: "tiptap-json", noteType: "excel" },
+    title: "财务汇总表",
+  });
+  assert.equal(renameExcel.title, "财务汇总表");
+  assert.equal("content" in renameExcel, false);
 });

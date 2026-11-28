@@ -383,13 +383,14 @@ export class NowenApiClient {
     return this.request(`/api/notes/${id}`);
   }
 
-  /** 创建笔记 */
+  /** 创建笔记（支持富文本、Markdown、纯文本 TXT、Word、PPT） */
   async createNote(params: {
     notebookId: string;
     title?: string;
     content?: string;
     contentText?: string;
-    contentFormat?: "markdown" | "tiptap-json" | "html";
+    contentFormat?: "markdown" | "tiptap-json" | "html" | "plaintext" | "ppt-json";
+    noteType?: "normal" | "word" | "ppt";
   }): Promise<any> {
     return this.request("/api/notes", { method: "POST", body: params });
   }
@@ -399,7 +400,7 @@ export class NowenApiClient {
     title?: string;
     content?: string;
     contentText?: string;
-    contentFormat?: "markdown" | "tiptap-json" | "html";
+    contentFormat?: "markdown" | "tiptap-json" | "html" | "plaintext" | "ppt-json";
     notebookId?: string;
     isPinned?: number;
     isFavorite?: number;
@@ -417,6 +418,66 @@ export class NowenApiClient {
     return this.request(`/api/notes/${id}/permanent`, { method: "DELETE" });
   }
 
+  // ==================== Excel 工作簿 ====================
+
+  async getExcelCapabilities(): Promise<{ createEnabled: boolean; maxDataBytes: number }> {
+    return this.request("/api/excels/capabilities");
+  }
+
+  async getExcel(noteId: string): Promise<any> {
+    return this.request(`/api/excels/${encodeURIComponent(noteId)}`);
+  }
+
+  async createExcel(params: {
+    notebookId: string;
+    title?: string;
+    data?: Record<string, unknown>;
+  }): Promise<any> {
+    return this.request("/api/excels", { method: "POST", body: params });
+  }
+
+  async updateExcel(noteId: string, params: {
+    data: Record<string, unknown>;
+    expectedRevision: number;
+  }): Promise<any> {
+    return this.request(`/api/excels/${encodeURIComponent(noteId)}`, { method: "PUT", body: params });
+  }
+
+  // ==================== 思维导图 ====================
+
+  async listMindmaps(workspaceId?: string): Promise<any[]> {
+    return this.request("/api/mindmaps", { query: workspaceId ? { workspaceId } : undefined });
+  }
+
+  async getMindmap(id: string): Promise<any> {
+    return this.request(`/api/mindmaps/${encodeURIComponent(id)}`);
+  }
+
+  async createMindmap(params: {
+    title?: string;
+    data?: Record<string, unknown> | string;
+    notebookId?: string;
+  }, workspaceId?: string): Promise<any> {
+    return this.request("/api/mindmaps", {
+      method: "POST",
+      query: workspaceId ? { workspaceId } : undefined,
+      body: params,
+    });
+  }
+
+  async updateMindmap(id: string, params: {
+    title?: string;
+    data?: Record<string, unknown> | string;
+    expectedUpdatedAt?: string;
+  }): Promise<any> {
+    return this.request(`/api/mindmaps/${encodeURIComponent(id)}`, { method: "PUT", body: params });
+  }
+
+  /** 软删除思维导图（移入知识树回收站，可恢复） */
+  async deleteMindmap(id: string): Promise<any> {
+    return this.request(`/api/mindmaps/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
   /** 从知识树服务读取统一目录；所有目录权限交由服务端与 scoped MCP 再校验。 */
   async getKnowledgeTree(workspaceId?: string, includeDeleted = false): Promise<any> {
     return this.request("/api/knowledge-tree/", {
@@ -426,8 +487,11 @@ export class NowenApiClient {
 
   /** 目录写入都带上节点所在空间；后端会复核节点、父节点与该空间及 Token 授权一致。 */
   async createKnowledgeNode(params: {
-    parentId: string | null; title: string; nodeType: "folder" | "markdown";
-  }, workspaceId = "personal"): Promise<any> {
+    parentId: string | null;
+    title: string;
+    nodeType: "folder" | "note" | "markdown" | "word" | "ppt" | "excel" | "mindmap";
+    contentFormat?: "plaintext";
+  } & Record<string, unknown>, workspaceId = "personal"): Promise<any> {
     return this.request("/api/knowledge-tree/nodes", {
       method: "POST", query: { workspaceId }, body: params,
     });

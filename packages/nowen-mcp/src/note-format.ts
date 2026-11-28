@@ -1,6 +1,8 @@
-export const CONTENT_FORMAT_VALUES = ["markdown", "tiptap-json", "html"] as const;
+export const CONTENT_FORMAT_VALUES = ["markdown", "tiptap-json", "html", "plaintext", "ppt-json"] as const;
+export const NOTE_TYPE_VALUES = ["normal", "word", "ppt"] as const;
 
 export type NoteContentFormat = typeof CONTENT_FORMAT_VALUES[number];
+export type CreatableNoteType = typeof NOTE_TYPE_VALUES[number];
 
 export interface NoteLike {
   id?: string;
@@ -9,6 +11,7 @@ export interface NoteLike {
   content?: string | null;
   contentText?: string | null;
   contentFormat?: string | null;
+  noteType?: string | null;
   isPinned?: number;
   isFavorite?: number;
   isLocked?: number;
@@ -18,11 +21,37 @@ export interface NoteLike {
   updatedAt?: string;
 }
 
+export function isValidContentFormat(value?: string | null): value is NoteContentFormat {
+  return typeof value === "string" && (CONTENT_FORMAT_VALUES as readonly string[]).includes(value);
+}
+
+export function isEncryptedContentFormat(value?: string | null): boolean {
+  return typeof value === "string" && value.startsWith("encrypted-note-");
+}
+
 export function normalizeContentFormat(contentFormat?: string | null): NoteContentFormat {
-  if (contentFormat === "tiptap-json" || contentFormat === "html") {
+  if (isValidContentFormat(contentFormat)) {
     return contentFormat;
   }
   return "markdown";
+}
+
+function buildDefaultPptJson(title: string): string {
+  return JSON.stringify({
+    version: 1,
+    title: title || "无标题 PPT 演示文稿",
+    theme: "classic",
+    slides: [
+      {
+        id: "slide-1",
+        layout: "title",
+        title: title || "无标题 PPT 演示文稿",
+        subtitle: "",
+        bullets: [],
+        notes: "",
+      },
+    ],
+  });
 }
 
 export function buildCreateNotePayload(params: {
@@ -30,35 +59,60 @@ export function buildCreateNotePayload(params: {
   title?: string;
   content?: string;
   contentFormat?: string | null;
+  noteType?: CreatableNoteType;
 }) {
+  const noteType: CreatableNoteType = params.noteType === "word" || params.noteType === "ppt"
+    ? params.noteType
+    : "normal";
+  const resolvedFormat: NoteContentFormat = noteType === "ppt"
+    ? "ppt-json"
+    : params.contentFormat !== undefined && params.contentFormat !== null
+      ? normalizeContentFormat(params.contentFormat)
+      : noteType === "word"
+        ? "tiptap-json"
+        : "markdown";
+
   const body: {
     notebookId: string;
     title?: string;
     content?: string;
     contentText?: string;
     contentFormat: NoteContentFormat;
+    noteType?: CreatableNoteType;
   } = {
     notebookId: params.notebookId,
-    contentFormat: normalizeContentFormat(params.contentFormat),
+    contentFormat: resolvedFormat,
   };
 
+  if (noteType !== "normal") {
+    body.noteType = noteType;
+  }
   if (params.title !== undefined) {
     body.title = params.title;
   }
   if (params.content !== undefined) {
     body.content = params.content;
     body.contentText = params.content;
+  } else if (noteType === "ppt") {
+    body.content = buildDefaultPptJson(params.title || "无标题 PPT 演示文稿");
   }
 
   return body;
 }
 
 export function buildUpdateNotePayload(params: {
-  currentNote: Pick<NoteLike, "version">;
+  currentNote: Pick<NoteLike, "version" | "contentFormat" | "noteType">;
   title?: string;
   content?: string;
   contentFormat?: string | null;
 }) {
+  if (isEncryptedContentFormat(params.currentNote.contentFormat)) {
+    throw new Error("加密笔记禁止通过 MCP 明文修改，请在 Nowen Note 客户端解锁后操作");
+  }
+  if (params.currentNote.noteType === "excel" && (params.content !== undefined || params.contentFormat !== undefined)) {
+    throw new Error("Excel 工作簿正文请使用 nowen_update_excel 更新，不能通过 nowen_update_note 覆盖正文");
+  }
+
   const body: {
     title?: string;
     content?: string;
@@ -76,7 +130,12 @@ export function buildUpdateNotePayload(params: {
     body.title = params.title;
   }
   if (params.content !== undefined) {
-    const contentFormat = normalizeContentFormat(params.contentFormat);
+    // 若调用方未显式指定 contentFormat，优先保留笔记现有格式，避免把 Word/富文本/TXT/PPT 误改写为 markdown。
+    const contentFormat = params.contentFormat !== undefined && params.contentFormat !== null
+      ? normalizeContentFormat(params.contentFormat)
+      : isValidContentFormat(params.currentNote.contentFormat)
+        ? params.currentNote.contentFormat
+        : "markdown";
     body.content = params.content;
     body.contentText = params.content;
     body.contentFormat = contentFormat;
@@ -115,6 +174,7 @@ export function buildReadNoteResult(note: NoteLike) {
     id: note.id,
     title: note.title,
     notebookId: note.notebookId,
+    noteType: note.noteType || "normal",
     contentText: note.contentText,
     contentFormat: note.contentFormat || "unknown",
     isPinned: note.isPinned,
