@@ -14,8 +14,8 @@ function Dialog({ scope, tab, importFile, close }: { scope: string; tab: "archiv
     const unregister = registerMobileBackHandler("modal", () => { close(); return true; });
     return () => { unregister(); if (previous?.isConnected) previous.focus(); };
   }, []);
-  return <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-0 sm:p-4" data-swipe-blocker="ai-memory">
-    <div ref={element} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("aiMemory.title")} className="flex h-[100dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden bg-[var(--color-bg)] text-[var(--color-text-primary)] shadow-xl outline-none sm:h-[min(90dvh,900px)] sm:rounded-2xl sm:border sm:border-[var(--color-border)]" onKeyDown={event => {
+  return <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-0 backdrop-blur-sm sm:p-4" data-swipe-blocker="ai-memory">
+    <div ref={element} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("aiMemory.title")} className="relative flex h-[100dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden bg-[var(--color-bg)]/95 text-[var(--color-text-primary)] shadow-2xl backdrop-blur-2xl outline-none sm:h-[min(90dvh,900px)] sm:rounded-[26px] sm:border sm:border-[var(--color-border)]/80" onKeyDown={event => {
       if (event.key === "Escape") { event.stopPropagation(); close(); }
       if (event.key !== "Tab") return;
       const focusable = [...(element.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled):not([type="hidden"]),select:not(:disabled),summary,a[href],[tabindex="0"]') || [])].filter(item => item.getClientRects().length > 0);
@@ -23,7 +23,7 @@ function Dialog({ scope, tab, importFile, close }: { scope: string; tab: "archiv
       if (!first) { event.preventDefault(); return; }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === element.current)) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === element.current)) { event.preventDefault(); first.focus(); }
-    }}><Suspense fallback={null}><Hub scope={scope} initialTab={tab} importFile={importFile} onClose={close}/></Suspense></div>
+    }}><div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" /><Suspense fallback={null}><Hub scope={scope} initialTab={tab} importFile={importFile} onClose={close}/></Suspense></div>
   </div>;
 }
 export default function AIMemoryCenter() {

@@ -65,14 +65,21 @@ function StatusPill({ status }: { status: ReliableStatus | null }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium shadow-sm backdrop-blur-sm",
         !status.enabled
-          ? "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+          ? "border-zinc-300/80 bg-zinc-100/85 text-zinc-500 dark:border-zinc-700/80 dark:bg-zinc-800/80 dark:text-zinc-400"
           : stale
-            ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300"
-            : "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-950/30 dark:text-emerald-300",
+            ? "border-amber-400/40 bg-amber-500/10 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-300"
+            : "border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/15 dark:text-emerald-300",
       )}
     >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          !status.enabled ? "bg-zinc-400" : stale ? "bg-amber-500 animate-pulse" : "bg-emerald-500",
+        )}
+      />
       <ShieldCheck size={11} />
       {!status.enabled ? "AI 已关闭" : stale ? "索引更新中" : "索引已同步"}
     </span>
@@ -225,8 +232,8 @@ export default function AIChatReliabilityShell(props: Props) {
   const settingsControls = (
           <div className={agentMode ? "hidden" : isMobile ? "flex flex-col gap-3" : "contents"}>
           <div className="mr-1 hidden min-w-0 items-center gap-2 xl:flex">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
-              <Activity size={14} />
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/18 to-sky-500/15 text-accent-primary ring-1 ring-inset ring-accent-primary/20">
+              <Activity size={13} />
             </div>
             <div className="hidden min-w-0 lg:block">
               <div className="truncate text-xs font-semibold text-tx-primary">上下文来源</div>
@@ -234,7 +241,7 @@ export default function AIChatReliabilityShell(props: Props) {
             </div>
           </div>
 
-          <div className="order-2 flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:order-none md:w-auto">
+          <div className="order-2 flex w-full min-w-0 items-center gap-1 rounded-xl border border-app-border/60 bg-app-hover/65 p-1 shadow-inner shadow-black/[0.02] md:order-none md:w-auto">
             {MODE_OPTIONS.map((item) => {
               const Icon = item.icon;
               const disabled = item.id === "current-note" && !activeNote?.id;
@@ -246,9 +253,9 @@ export default function AIChatReliabilityShell(props: Props) {
                   onClick={() => { setMode(item.id); if (item.id === "selection") setContextCollapsed(false); }}
                   title={item.description}
                   className={cn(
-                    "flex min-w-0 flex-1 md:flex-none items-center justify-center gap-1.5 rounded-lg px-2 md:px-2.5 py-1.5 text-[11px] font-medium transition",
+                    "flex min-w-0 flex-1 md:flex-none items-center justify-center gap-1.5 rounded-lg px-2 md:px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-150",
                     mode === item.id
-                      ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border"
+                      ? "bg-app-surface text-accent-primary shadow-[0_2px_0_rgba(15,23,42,0.06),0_4px_12px_-4px_rgba(99,102,241,0.22)] ring-1 ring-accent-primary/20 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
                       : "text-tx-tertiary hover:text-tx-primary",
                     disabled && "cursor-not-allowed opacity-40",
                   )}
@@ -267,12 +274,12 @@ export default function AIChatReliabilityShell(props: Props) {
             }} />
           </div>
 
-          <div className="order-1 ml-auto flex items-center gap-1 md:order-none">
+          <div className="order-1 ml-auto flex items-center gap-1.5 md:order-none">
             <StatusPill status={status} />
             <button
               type="button"
               onClick={() => setContextCollapsed((value) => !value)}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+              className="inline-flex items-center gap-1 rounded-xl border border-transparent px-2.5 py-1.5 text-[11px] font-medium text-tx-tertiary transition-all hover:border-app-border/70 hover:bg-app-hover hover:text-tx-primary active:scale-[0.98]"
               title={contextCollapsed ? "展开上下文详情" : "收起上下文详情"}
               aria-expanded={!contextCollapsed}
             >
@@ -282,7 +289,7 @@ export default function AIChatReliabilityShell(props: Props) {
             <button
               type="button"
               onClick={() => void refreshStatus()}
-              className="rounded-lg p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+              className="rounded-xl border border-transparent p-1.5 text-tx-tertiary transition-all hover:border-app-border/70 hover:bg-app-hover hover:text-tx-primary active:scale-[0.96]"
               title="刷新模型与索引状态"
             >
               <RefreshCw size={14} className={loadingStatus ? "animate-spin" : ""} />
@@ -299,21 +306,21 @@ export default function AIChatReliabilityShell(props: Props) {
                 onChange={(event) => setSelectedText(event.target.value)}
                 placeholder="粘贴选中文本，支持 Markdown、HTML 和富文本 JSON…"
                 rows={3}
-                className="mt-2 max-h-[35vh] min-h-20 w-full resize-y rounded-xl border border-app-border bg-app-bg px-3 py-2 text-xs leading-5 text-tx-primary outline-none placeholder:text-tx-tertiary focus:border-accent-primary"
+                className="mt-2.5 max-h-[35vh] min-h-20 w-full resize-y rounded-2xl border border-app-border/80 bg-app-bg/85 px-3.5 py-2.5 text-xs leading-5 text-tx-primary outline-none placeholder:text-tx-tertiary transition-all focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12"
               />
             )}
 
             {contextWarning && (
-              <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
+              <p className="mt-2.5 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-[11px] font-medium text-amber-700 dark:border-amber-400/25 dark:bg-amber-500/15 dark:text-amber-300">
                 {contextWarning}
               </p>
             )}
-            {statusError && <p className="mt-1 text-[11px] text-red-500">{statusError}</p>}
+            {statusError && <p className="mt-1.5 text-[11px] text-rose-500">{statusError}</p>}
 
-            <div className="mt-2 max-h-[45vh] overflow-auto rounded-xl border border-app-border bg-app-bg p-3 text-[11px] text-tx-secondary shadow-sm">
-                <div className="mb-3 flex items-center justify-between gap-3 border-b border-app-border pb-2">
+            <div className="mt-2.5 max-h-[45vh] overflow-auto rounded-2xl border border-app-border/75 bg-app-bg/85 p-3.5 text-[11px] text-tx-secondary shadow-sm backdrop-blur-md">
+                <div className="mb-3 flex items-center justify-between gap-3 border-b border-app-border/65 pb-2.5">
                   <div>
-                    <div className="font-medium text-tx-primary">上下文详情</div>
+                    <div className="font-semibold text-tx-primary">上下文详情</div>
                     <div className="mt-0.5 text-[10px] text-tx-tertiary">本次问答使用的模型、范围与索引状态</div>
                   </div>
                   {diagnostics ? (
@@ -321,9 +328,9 @@ export default function AIChatReliabilityShell(props: Props) {
                       type="button"
                       onClick={() => setExpanded((value) => !value)}
                       className={cn(
-                        "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-medium transition-colors",
+                        "inline-flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[10px] font-semibold transition-all",
                         expanded
-                          ? "bg-accent-primary/10 text-accent-primary"
+                          ? "bg-accent-primary/12 text-accent-primary ring-1 ring-accent-primary/20"
                           : "bg-app-hover text-tx-secondary hover:text-tx-primary",
                       )}
                     >
@@ -339,7 +346,7 @@ export default function AIChatReliabilityShell(props: Props) {
                   <span className="text-tx-tertiary">本次范围</span>
                   <span>{currentMode.label}{activeNote?.title && mode === "current-note" ? ` · ${activeNote.title}` : ""}</span>
                   <span className="text-tx-tertiary">对话模型</span>
-                  <span>{status?.provider || "—"} / {status?.model || "—"}</span>
+                  <span className="font-mono text-[10.5px]">{status?.provider || "—"} / {status?.model || "—"}</span>
                   <span className="text-tx-tertiary">Embedding</span>
                   <span>{status?.embeddingModel || "未配置（关键词降级可用）"}</span>
                   <span className="text-tx-tertiary">索引更新时间</span>
@@ -360,13 +367,13 @@ export default function AIChatReliabilityShell(props: Props) {
                 </div>
 
                 {expanded && diagnostics?.hits.length ? (
-                  <div className="mt-3 space-y-1.5 border-t border-app-border pt-2">
-                    <div className="font-medium text-tx-primary">命中的笔记或分块</div>
+                  <div className="mt-3 space-y-1.5 border-t border-app-border/65 pt-2.5">
+                    <div className="font-semibold text-tx-primary">命中的笔记或分块</div>
                     {diagnostics.hits.map((hit, index) => (
-                      <div key={`${hit.kind}-${hit.id}-${index}`} className="rounded-lg bg-app-hover px-2 py-1.5">
+                      <div key={`${hit.kind}-${hit.id}-${index}`} className="rounded-xl border border-app-border/50 bg-app-surface/75 px-2.5 py-2">
                         <div className="flex items-center gap-2">
                           <span className="min-w-0 flex-1 truncate font-medium text-tx-primary">{index + 1}. {hit.title}</span>
-                          <span className="shrink-0 text-tx-tertiary">
+                          <span className="shrink-0 font-mono text-[10px] text-tx-tertiary">
                             {hit.rankReason}{hit.score !== undefined ? ` · ${hit.score.toFixed(3)}` : ""}
                           </span>
                         </div>
@@ -380,7 +387,7 @@ export default function AIChatReliabilityShell(props: Props) {
                   <button
                     type="button"
                     onClick={() => exportDiagnosticsFile(diagnostics)}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 font-medium text-tx-secondary hover:bg-app-hover"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface px-3 py-1.5 font-medium text-tx-secondary transition-all hover:border-accent-primary/40 hover:text-accent-primary"
                   >
                     <Download size={12} />
                     导出脱敏诊断 JSON
@@ -393,12 +400,12 @@ export default function AIChatReliabilityShell(props: Props) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
-      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border/75 bg-app-surface/85 px-3 py-2 backdrop-blur-xl md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="inline-flex shrink-0 items-center rounded-lg bg-app-hover/70 p-0.5">
+          <div className="inline-flex shrink-0 items-center gap-0.5 rounded-xl border border-app-border/60 bg-app-hover/65 p-0.5 shadow-inner shadow-black/[0.02]">
             {([false, true] as const).map(isAgent => <button key={String(isAgent)} type="button" aria-pressed={agentMode === isAgent}
-              onClick={() => setAgentMode(isAgent)} className={cn("rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-                agentMode === isAgent ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border" : "text-tx-tertiary hover:text-tx-primary")}>
+              onClick={() => setAgentMode(isAgent)} className={cn("rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150",
+                agentMode === isAgent ? "bg-app-surface text-accent-primary shadow-[0_2px_0_rgba(15,23,42,0.06),0_4px_12px_-4px_rgba(99,102,241,0.22)] ring-1 ring-accent-primary/20 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]" : "text-tx-tertiary hover:text-tx-primary")}>
               {t(isAgent ? "agent.mode" : "agent.question")}
             </button>)}
           </div>

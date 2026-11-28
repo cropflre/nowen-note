@@ -117,22 +117,23 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
           transition={{ duration: 0.2, ease: "easeOut" }}
           onClick={(e) => e.stopPropagation()}
           className="relative w-full max-w-2xl max-h-[85vh] flex flex-col
-                     bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl
-                     border border-zinc-200 dark:border-zinc-800 overflow-hidden"
+                     bg-white/95 dark:bg-zinc-900/95 backdrop-blur-2xl rounded-[26px] shadow-2xl
+                     border border-zinc-200/85 dark:border-zinc-800/85 overflow-hidden"
         >
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/75 via-violet-500/75 to-sky-400/75" />
           {/* 头部 */}
           <div className="flex items-center justify-between px-6 py-4
-                          border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+                          border-b border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/60 backdrop-blur-md shrink-0">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-9 h-9 rounded-xl
-                               bg-accent-primary/10 text-accent-primary">
+                               bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-sky-500/15 text-indigo-500 ring-1 ring-indigo-500/20 shadow-inner">
                 <Sparkles size={18} />
               </span>
               <div>
-                <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                   {t("whatsNew.title", "更新日志")}
                 </h2>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                <p className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400 mt-0.5">
                   {t("whatsNew.currentVersion", "当前版本")}: v{__APP_VERSION__}
                 </p>
               </div>
@@ -140,7 +141,7 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900
+              className="p-1.5 rounded-xl text-zinc-500 hover:text-zinc-900
                          dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800
                          transition-colors"
               aria-label={t("common.close", "关闭")}
@@ -153,7 +154,7 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {loading && (
               <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent
+                <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent
                                 rounded-full animate-spin" />
                 <span className="ml-3 text-sm text-zinc-500">
                   {t("common.loading", "加载中...")}
@@ -162,7 +163,7 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
             )}
 
             {error && !loading && (
-              <div className="text-center py-8 space-y-3">
+              <div className="rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 text-center py-10 space-y-3">
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   {t("whatsNew.loadFailed", "更新日志加载失败")}
                 </p>
@@ -170,9 +171,9 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
                   href="https://github.com/cropflre/nowen-note/releases"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg
-                             bg-accent-primary text-white text-xs hover:opacity-90
-                             transition-opacity"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl
+                             bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-xs font-medium shadow-sm shadow-indigo-500/25 hover:brightness-105
+                             transition-all"
                 >
                   <ExternalLink size={12} />
                   {t("whatsNew.viewOnGithub", "在 GitHub 查看所有版本")}
@@ -187,7 +188,7 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
             )}
 
             {!loading && !error && entries.length > 0 && (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {entries.map((entry) => {
                   const isHighlight = highlightVersion && entry.version === highlightVersion;
                   return (
@@ -195,30 +196,30 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
                       key={entry.version}
                       className={
                         isHighlight
-                          ? "rounded-xl border border-accent-primary/40 bg-accent-primary/5 p-4"
-                          : "rounded-xl border border-zinc-200 dark:border-zinc-800 p-4"
+                          ? "rounded-2xl border border-indigo-500/35 bg-gradient-to-br from-indigo-500/[0.08] via-violet-500/[0.04] to-transparent p-4 ring-1 ring-indigo-500/15 shadow-sm"
+                          : "rounded-2xl border border-zinc-200/85 bg-zinc-50/55 dark:border-zinc-800/85 dark:bg-zinc-900/50 p-4 shadow-xs"
                       }
                     >
                       <header className="flex items-center gap-2 mb-3">
                         <span
                           className={
-                            "text-sm font-semibold " +
+                            "text-sm font-semibold tabular-nums " +
                             (isHighlight
-                              ? "text-accent-primary"
+                              ? "text-indigo-600 dark:text-indigo-300"
                               : "text-zinc-900 dark:text-zinc-100")
                           }
                         >
                           v{entry.version}
                         </span>
                         {entry.date && (
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
                             {entry.date}
                           </span>
                         )}
                         {isHighlight && (
                           <span className="ml-auto text-[10px] font-medium uppercase
-                                           px-2 py-0.5 rounded-full bg-accent-primary
-                                           text-white tracking-wider">
+                                           px-2.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500
+                                           text-white tracking-wider shadow-xs">
                             {t("whatsNew.newBadge", "本次更新")}
                           </span>
                         )}
@@ -237,9 +238,9 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
                                    prose-h3:uppercase prose-h3:tracking-wider
                                    prose-ul:my-1 prose-ul:pl-5
                                    prose-li:my-0.5 prose-li:text-zinc-700 dark:prose-li:text-zinc-300
-                                   prose-strong:text-accent-primary prose-strong:font-semibold
+                                   prose-strong:text-indigo-600 dark:prose-strong:text-indigo-300 prose-strong:font-semibold
                                    prose-code:text-xs prose-code:bg-zinc-100 dark:prose-code:bg-zinc-800
-                                   prose-code:px-1 prose-code:py-0.5 prose-code:rounded"
+                                   prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md"
                       >
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {entry.body}
@@ -253,14 +254,14 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
           </div>
 
           {/* 底部 */}
-          <div className="px-6 py-3 border-t border-zinc-200 dark:border-zinc-800
+          <div className="px-6 py-3.5 border-t border-zinc-200/80 dark:border-zinc-800/80
                           flex items-center justify-between shrink-0
-                          bg-zinc-50 dark:bg-zinc-900/60">
+                          bg-zinc-50/75 dark:bg-zinc-900/75 backdrop-blur-md">
             <a
               href="https://github.com/cropflre/nowen-note/releases"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-accent-primary
+              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-indigo-500
                          inline-flex items-center gap-1 transition-colors"
             >
               <ExternalLink size={11} />
@@ -269,8 +270,8 @@ export default function WhatsNewModal({ open, onClose, highlightVersion }: Whats
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 rounded-lg bg-accent-primary text-white
-                         text-xs font-medium hover:opacity-90 transition-opacity"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white
+                         text-xs font-medium shadow-sm shadow-indigo-500/25 hover:brightness-105 active:scale-[0.98] transition-all"
             >
               {t("whatsNew.gotIt", "我知道了")}
             </button>

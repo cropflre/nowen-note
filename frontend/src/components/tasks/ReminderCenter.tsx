@@ -160,17 +160,20 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.97, opacity: 0, y: 10 }}
         transition={{ duration: 0.2 }}
-        className="relative w-[min(560px,calc(100vw-24px))] max-h-[85vh] sm:max-h-[80vh] bg-bg-primary rounded-xl shadow-2xl border border-app-border flex flex-col overflow-hidden"
+        className="relative w-[min(560px,calc(100vw-24px))] max-h-[85vh] sm:max-h-[80vh] bg-app-surface/95 backdrop-blur-2xl rounded-[26px] shadow-2xl border border-app-border/80 flex flex-col overflow-hidden"
       >
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
         {/* Header */}
-        <div className="min-h-12 flex items-center justify-between px-4 border-b border-app-border bg-bg-primary">
-          <div className="flex items-center gap-2">
-            <Bell size={18} className="text-accent-primary" />
-            <h2 className="text-sm font-medium text-tx-primary">
+        <div className="min-h-14 flex items-center justify-between px-5 border-b border-app-border/75 bg-app-surface/80 backdrop-blur-xl">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/18 to-sky-500/15 text-accent-primary ring-1 ring-inset ring-accent-primary/20">
+              <Bell size={16} />
+            </span>
+            <h2 className="text-sm font-bold tracking-tight text-tx-primary">
               {t("tasks.reminderCenter.title")}
             </h2>
             {totalMissedToday > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500 font-medium">
+              <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 font-semibold">
                 {totalMissedToday}
               </span>
             )}
@@ -180,7 +183,7 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
               type="button"
               onClick={load}
               disabled={isLoading}
-              className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-bg-hover transition-colors disabled:opacity-60"
+              className="p-1.5 rounded-xl text-tx-tertiary hover:text-tx-primary hover:bg-app-hover transition-all active:scale-95 disabled:opacity-60"
               title={t("tasks.reminderCenter.refresh")}
               aria-label={t("tasks.reminderCenter.refresh")}
             >
@@ -189,7 +192,7 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-bg-hover transition-colors"
+              className="p-1.5 rounded-xl text-tx-tertiary hover:text-tx-primary hover:bg-app-hover transition-all active:scale-95"
               title={t("tasks.reminderCenter.close")}
               aria-label={t("tasks.reminderCenter.close")}
             >
@@ -199,9 +202,9 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
         </div>
 
         {/* Notification permission */}
-        <div className="px-4 py-2.5 border-b border-app-border bg-bg-primary text-xs">
+        <div className="px-5 py-2.5 border-b border-app-border/70 bg-app-surface/60 text-xs">
           {notifPermission === "granted" && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-green-500/10 px-2 py-1 font-medium text-green-700 dark:text-green-400">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/12 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-500/20 dark:text-emerald-300">
               {notificationSurface === "electron" ? <Monitor size={13} /> : <Bell size={13} />}
               {notificationSurface === "electron"
                 ? t("tasks.reminderCenter.desktopNotificationEnabled")
@@ -209,7 +212,7 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
             </div>
           )}
           {(notifPermission === "denied" || notifPermission === "unsupported") && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-red-500/10 px-2 py-1 font-medium text-red-600 dark:text-red-400">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/12 px-2.5 py-1 font-semibold text-rose-600 ring-1 ring-inset ring-rose-500/20 dark:text-rose-300">
               <BellOff size={13} />
               {t("tasks.reminderCenter.permissionDenied")}
             </div>
@@ -218,7 +221,7 @@ export function ReminderCenter({ open, onClose, onSelectTask }: ReminderCenterPr
             <button
               type="button"
               onClick={handleEnableNotification}
-              className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary/10 px-2 py-1 font-medium text-accent-primary hover:bg-accent-primary/15 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent-primary/12 px-3 py-1 font-semibold text-accent-primary ring-1 ring-inset ring-accent-primary/20 hover:bg-accent-primary/20 transition-all"
             >
               <Bell size={13} />
               {t("tasks.reminderCenter.enableNotification")}

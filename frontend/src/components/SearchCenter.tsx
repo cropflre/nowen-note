@@ -381,26 +381,30 @@ export default function SearchCenter() {
       aria-label={copy.title}
       data-swipe-blocker="search-center"
     >
-      <header className="flex shrink-0 items-center gap-3 border-b border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur-xl md:px-6">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.10),transparent_68%)] dark:bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.16),transparent_68%)]"
+      />
+      <header className="relative flex shrink-0 items-center gap-3 border-b border-app-border/75 bg-app-surface/85 px-4 py-3 backdrop-blur-2xl md:px-6">
         <button
           type="button"
           onClick={() => actions.setMobileSidebar(true)}
-          className="rounded-lg p-2 text-tx-secondary hover:bg-app-hover md:hidden"
+          className="rounded-xl p-2 text-tx-secondary transition-colors hover:bg-app-hover md:hidden"
           aria-label="Menu"
         >
           <Menu size={20} />
         </button>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-sky-500/15 text-indigo-500 ring-1 ring-indigo-500/20 shadow-inner">
           <Search size={18} />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold">{copy.title}</h1>
+          <h1 className="truncate text-base font-semibold tracking-tight">{copy.title}</h1>
           <p className="hidden truncate text-xs text-tx-tertiary sm:block">{copy.shortcut}</p>
         </div>
         <button
           type="button"
           onClick={exitSearch}
-          className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+          className="rounded-xl p-2 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
           title={copy.close}
           aria-label={copy.close}
         >
@@ -408,9 +412,9 @@ export default function SearchCenter() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      <div className="relative flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-[1040px] px-4 py-5 md:px-8 md:py-8">
-          <div className="rounded-2xl border border-app-border bg-app-surface shadow-sm">
+          <div className="rounded-[24px] border border-app-border/80 bg-app-surface/90 shadow-md shadow-indigo-500/[0.04] backdrop-blur-xl transition-all focus-within:border-indigo-400/70 focus-within:ring-4 focus-within:ring-indigo-500/10">
             <div className="flex items-center gap-2 px-3 py-3 md:gap-3 md:px-5 md:py-4">
               <KnowledgeSearchScopeSwitch
                 scope="content"
@@ -418,8 +422,8 @@ export default function SearchCenter() {
                 contentLabel={copy.contentScope}
                 onChange={(scope) => { if (scope === "tree") openTreeSearch(); }}
               />
-              <span className="h-6 w-px shrink-0 bg-app-border" aria-hidden="true" />
-              <Search size={20} className="shrink-0 text-tx-tertiary" />
+              <span className="h-6 w-px shrink-0 bg-app-border/80" aria-hidden="true" />
+              <Search size={20} className="shrink-0 text-indigo-500/80" />
               <input
                 ref={inputRef}
                 value={query}
@@ -430,12 +434,12 @@ export default function SearchCenter() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              {loading && <Loader2 size={18} className="shrink-0 animate-spin text-accent-primary" />}
+              {loading && <Loader2 size={18} className="shrink-0 animate-spin text-indigo-500" />}
               {query && !loading && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="rounded-lg p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                  className="rounded-xl p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
                   aria-label="Clear"
                 >
                   <X size={16} />
@@ -446,27 +450,27 @@ export default function SearchCenter() {
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-2 text-sm text-tx-secondary">
-              <span className="font-medium tabular-nums text-tx-primary">
+              <span className="font-semibold tabular-nums text-tx-primary">
                 {filter === "all" ? results.length : visibleResults.length}
               </span>
               <span>{filter === "all" ? copy.result : copy.filteredResult}</span>
               {filter !== "all" && results.length !== visibleResults.length && (
-                <span className="text-xs text-tx-tertiary">/ {results.length}</span>
+                <span className="text-xs tabular-nums text-tx-tertiary">/ {results.length}</span>
               )}
             </div>
 
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-              <div className="inline-flex shrink-0 items-center rounded-lg border border-app-border bg-app-surface p-1">
-                <span className="px-1.5 text-tx-tertiary"><Filter size={13} /></span>
+              <div className="inline-flex shrink-0 items-center rounded-2xl border border-app-border/80 bg-app-surface/85 p-1 shadow-xs backdrop-blur-md">
+                <span className="px-2 text-tx-tertiary"><Filter size={13} /></span>
                 {(["all", "title", "content"] as MatchFilter[]).map((value) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => { setFilter(value); setActiveIndex(0); }}
                     className={cn(
-                      "rounded-md px-2.5 py-1 text-xs transition-colors",
+                      "rounded-xl px-2.5 py-1 text-xs transition-all",
                       filter === value
-                        ? "bg-accent-primary/12 font-medium text-accent-primary"
+                        ? "bg-gradient-to-r from-indigo-500/15 to-violet-500/15 font-medium text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300"
                         : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
                     )}
                   >
@@ -475,17 +479,17 @@ export default function SearchCenter() {
                 ))}
               </div>
 
-              <div className="inline-flex shrink-0 items-center rounded-lg border border-app-border bg-app-surface p-1">
-                <span className="px-1.5 text-tx-tertiary"><SlidersHorizontal size={13} /></span>
+              <div className="inline-flex shrink-0 items-center rounded-2xl border border-app-border/80 bg-app-surface/85 p-1 shadow-xs backdrop-blur-md">
+                <span className="px-2 text-tx-tertiary"><SlidersHorizontal size={13} /></span>
                 {(["relevance", "recent"] as SortMode[]).map((value) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => { setSortMode(value); setActiveIndex(0); }}
                     className={cn(
-                      "rounded-md px-2.5 py-1 text-xs transition-colors",
+                      "rounded-xl px-2.5 py-1 text-xs transition-all",
                       sortMode === value
-                        ? "bg-accent-primary/12 font-medium text-accent-primary"
+                        ? "bg-gradient-to-r from-indigo-500/15 to-violet-500/15 font-medium text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300"
                         : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
                     )}
                   >
@@ -503,25 +507,25 @@ export default function SearchCenter() {
           />
 
           {error && (
-            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-500">
+            <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/8 px-4 py-3 text-sm text-red-500 backdrop-blur-sm">
               {error}
             </div>
           )}
 
           {!query.trim() ? (
-            <div className="animate-nowen-fade-in flex min-h-[360px] flex-col items-center justify-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-primary/10 text-accent-primary">
+            <div className="animate-nowen-fade-in mt-6 flex min-h-[340px] flex-col items-center justify-center rounded-[28px] border border-dashed border-app-border/80 bg-app-surface/55 px-6 text-center backdrop-blur-sm">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-sky-500/15 text-indigo-500 ring-1 ring-indigo-500/20 shadow-inner">
                 <Search size={26} />
               </div>
-              <h2 className="mt-4 text-base font-semibold">{copy.emptyTitle}</h2>
+              <h2 className="mt-4 text-base font-semibold tracking-tight">{copy.emptyTitle}</h2>
               <p className="mt-2 max-w-md text-sm leading-6 text-tx-tertiary">{copy.emptyDescription}</p>
             </div>
           ) : !loading && visibleResults.length === 0 ? (
-            <div className="animate-nowen-fade-in flex min-h-[360px] flex-col items-center justify-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface text-tx-tertiary ring-1 ring-app-border">
+            <div className="animate-nowen-fade-in mt-6 flex min-h-[340px] flex-col items-center justify-center rounded-[28px] border border-dashed border-app-border/80 bg-app-surface/55 px-6 text-center backdrop-blur-sm">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface/90 text-tx-tertiary ring-1 ring-app-border/80 shadow-xs">
                 <Search size={25} />
               </div>
-              <h2 className="mt-4 text-base font-semibold">{copy.noResultTitle}</h2>
+              <h2 className="mt-4 text-base font-semibold tracking-tight">{copy.noResultTitle}</h2>
               <p className="mt-2 max-w-md text-sm leading-6 text-tx-tertiary">{copy.noResultDescription}</p>
             </div>
           ) : (
@@ -553,20 +557,22 @@ export default function SearchCenter() {
                     // 新结果错峰浮现（封顶 8 级）；同一结果在排序 / 筛选切换后保留 key，不重播。
                     style={{ animationDelay: `${staggerDelay(index)}s` }}
                     className={cn(
-                      "animate-nowen-rise-in group w-full rounded-2xl border bg-app-surface px-4 py-4 text-left shadow-sm transition-[color,background-color,border-color,box-shadow] duration-fast ease-standard md:px-5",
+                      "animate-nowen-rise-in group w-full rounded-[22px] border bg-app-surface/90 px-4 py-4 text-left shadow-sm backdrop-blur-md transition-[color,background-color,border-color,box-shadow] duration-fast ease-standard md:px-5",
                       active
-                        ? "border-accent-primary/45 bg-accent-primary/[0.035] shadow-md shadow-black/[0.04]"
-                        : "border-app-border hover:border-accent-primary/25 hover:shadow-md hover:shadow-black/[0.035]",
+                        ? "border-indigo-500/45 bg-indigo-500/[0.045] ring-1 ring-indigo-500/15 shadow-md shadow-indigo-500/[0.06]"
+                        : "border-app-border/80 hover:border-indigo-500/30 hover:shadow-md hover:shadow-black/[0.04]",
                     )}
                   >
                     <div className="flex items-start gap-3">
                       <div className={cn(
-                        "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                        "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1",
                         mindmap
-                          ? "bg-violet-500/10 text-violet-500"
-                          : markdown
-                            ? "bg-emerald-500/10 text-emerald-500"
-                            : "bg-accent-primary/10 text-accent-primary",
+                          ? "bg-violet-500/12 text-violet-500 ring-violet-500/20"
+                          : sheet
+                            ? "bg-sky-500/12 text-sky-500 ring-sky-500/20"
+                            : markdown
+                              ? "bg-emerald-500/12 text-emerald-500 ring-emerald-500/20"
+                              : "bg-indigo-500/12 text-indigo-500 ring-indigo-500/20",
                       )}>
                         {mindmap
                           ? <BrainCircuit size={17} />
@@ -599,32 +605,32 @@ export default function SearchCenter() {
                                   <span className="truncate">{notebookPaths.get(result.notebookId) || result.notebookName || copy.unknownNotebook}</span>
                                 </span>
                               )}
-                              <span className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="flex items-center gap-1 whitespace-nowrap tabular-nums">
                                 <Clock3 size={11} />
                                 {formatResultDate(result.updatedAt, language)}
                               </span>
-                              <span className="rounded-full bg-app-hover px-2 py-0.5 text-[10px] text-tx-secondary">
+                              <span className="rounded-full bg-app-hover/90 px-2 py-0.5 text-[10px] text-tx-secondary">
                                 {matchedLabel}
                               </span>
                             </div>
                           </div>
 
-                          <span className="inline-flex shrink-0 items-center self-start rounded-full bg-accent-primary/10 px-2.5 py-1 text-[11px] font-medium tabular-nums text-accent-primary">
+                          <span className="inline-flex shrink-0 items-center self-start rounded-full bg-indigo-500/12 px-2.5 py-1 text-[11px] font-medium tabular-nums text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300">
                             {matchCount}{copy.matches}
                           </span>
                         </div>
 
                         {snippetHtml && (
                           <div
-                            className="search-result-html mt-3 line-clamp-4 break-words rounded-xl border border-app-border/70 bg-app-bg/70 px-3.5 py-3 text-xs leading-6 text-tx-secondary [overflow-wrap:anywhere] [&_mark]:rounded-sm [&_mark]:bg-amber-200/80 [&_mark]:px-0.5 [&_mark]:font-medium [&_mark]:text-amber-950 dark:[&_mark]:bg-amber-400/30 dark:[&_mark]:text-amber-100"
+                            className="search-result-html mt-3 line-clamp-4 break-words rounded-xl border border-app-border/70 bg-app-bg/75 px-3.5 py-3 text-xs leading-6 text-tx-secondary [overflow-wrap:anywhere] [&_mark]:rounded-sm [&_mark]:bg-amber-200/80 [&_mark]:px-0.5 [&_mark]:font-medium [&_mark]:text-amber-950 dark:[&_mark]:bg-amber-400/30 dark:[&_mark]:text-amber-100"
                             dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(snippetHtml) }}
                           />
                         )}
                       </div>
 
                       <div className="hidden shrink-0 items-center gap-1 text-tx-tertiary md:flex">
-                        {active ? <ArrowDown size={14} className="rotate-[-90deg] text-accent-primary" /> : null}
-                        {openingId === result.id && <Loader2 size={14} className="animate-spin text-accent-primary" />}
+                        {active ? <ArrowDown size={14} className="rotate-[-90deg] text-indigo-500" /> : null}
+                        {openingId === result.id && <Loader2 size={14} className="animate-spin text-indigo-500" />}
                       </div>
                     </div>
                   </button>
@@ -635,7 +641,7 @@ export default function SearchCenter() {
         </div>
       </div>
 
-      <footer className="hidden shrink-0 items-center justify-center gap-2 border-t border-app-border bg-app-surface/90 px-4 py-2 text-[11px] text-tx-tertiary backdrop-blur md:flex">
+      <footer className="relative hidden shrink-0 items-center justify-center gap-2 border-t border-app-border/75 bg-app-surface/85 px-4 py-2 text-[11px] text-tx-tertiary backdrop-blur-xl md:flex">
         <ArrowUp size={12} />
         <ArrowDown size={12} />
         <span>{copy.shortcut}</span>

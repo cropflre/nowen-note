@@ -12,9 +12,9 @@ import { confirm } from "./ui/confirm";
 import type { Notebook } from "@/types";
 
 type Tab = "archive" | "connections";
-const surface = "rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4";
-const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--color-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-primary)] disabled:cursor-not-allowed disabled:opacity-50";
-const input = "min-h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent-primary)]";
+const surface = "rounded-2xl border border-[var(--color-border)]/80 bg-[var(--color-surface)]/85 p-4 shadow-sm backdrop-blur-md";
+const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[var(--color-border)]/85 bg-[var(--color-surface)]/85 px-3.5 py-2 text-xs font-medium shadow-xs transition-all hover:border-indigo-400/40 hover:bg-[var(--color-hover)] active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent-primary)] disabled:cursor-not-allowed disabled:opacity-50";
+const input = "min-h-10 w-full rounded-xl border border-[var(--color-border)]/85 bg-[var(--color-bg)]/85 px-3 py-2 text-sm outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 focus-visible:outline-none";
 const importable = (source: AIMemorySource | undefined) => !!source && source.permissionState === "granted" && !source.accountScope.startsWith("mcp:");
 function downloadJson(filename: string, data: unknown): void {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -125,16 +125,21 @@ export default function AIMemoryHub({ scope, onClose, initialTab = "archive", im
     downloadJson(`nowen-ai-conversation-${conversation.id}.json`, exported);
   };
   return <section className="flex min-h-0 flex-1 flex-col text-[var(--color-text-primary)]" aria-label={t("aiMemory.title")}>
-    <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--color-border)] p-4 sm:p-5">
-      <div className="min-w-0"><h2 className="flex items-center gap-2 text-lg font-semibold"><Archive size={20}/>{t("aiMemory.title")}</h2><p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.description")}</p></div>
+    <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--color-border)]/75 bg-[var(--color-surface)]/80 p-4 backdrop-blur-md sm:p-5">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-sky-500/15 text-indigo-500 ring-1 ring-indigo-500/20">
+          <Archive size={18}/>
+        </span>
+        <div className="min-w-0"><h2 className="text-lg font-semibold tracking-tight">{t("aiMemory.title")}</h2><p className="mt-0.5 text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.description")}</p></div>
+      </div>
       {onClose && <button type="button" onClick={onClose} aria-label={t("aiMemory.close")} className={`${button} shrink-0`}><X size={17}/></button>}
     </header>
-    <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border)] p-2" aria-label={t("aiMemory.title")}>
-      {(["archive", "connections"] as const).map(value => <button type="button" key={value} aria-pressed={tab === value} onClick={() => setTab(value)} className={`${button} whitespace-nowrap ${tab === value ? "bg-[var(--color-hover)] text-[var(--color-accent-primary)]" : ""}`}>{t(`aiMemory.${value}`)}</button>)}
+    <nav className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[var(--color-border)]/75 bg-[var(--color-surface)]/55 p-2.5 backdrop-blur-sm" aria-label={t("aiMemory.title")}>
+      {(["archive", "connections"] as const).map(value => <button type="button" key={value} aria-pressed={tab === value} onClick={() => setTab(value)} className={`${button} whitespace-nowrap ${tab === value ? "border-indigo-500/45 bg-gradient-to-r from-indigo-500/15 to-violet-500/15 text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300" : ""}`}>{t(`aiMemory.${value}`)}</button>)}
     </nav>
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-5">
       <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("aiMemory.scope")}</p>
-      {error && <p role="alert" className="break-words rounded-lg border border-red-300 p-3 text-sm text-red-700 dark:border-red-900 dark:text-red-300">{error}</p>}
+      {error && <p role="alert" className="break-words rounded-2xl border border-red-400/40 bg-red-500/8 p-3.5 text-sm text-red-700 dark:border-red-500/30 dark:text-red-300">{error}</p>}
       {localOnly ? <p className={surface}>{t("aiMemory.deviceOnly")}</p> : tab === "archive" ? <>
         <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setOffset(0); setSubmittedQuery(query); }}>
           <input className={`${input} min-w-0 flex-1 basis-40`} aria-label={t("aiMemory.search")} placeholder={t("aiMemory.search")} value={query} maxLength={200} onChange={event => setQuery(event.target.value)}/>

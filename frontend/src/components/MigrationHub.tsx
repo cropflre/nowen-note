@@ -37,8 +37,8 @@ interface Props {
 type Problem = ImportErrorKind | "no-notes" | "unsupported-files" | "folder-too-large" | "invalid";
 type Preparing = { stage: "packaging" | "hashing" | "uploading" | "checking"; percent?: number; current: number; total: number };
 
-const card = "space-y-4 rounded-2xl border border-app-border bg-app-surface p-5";
-const field = "min-h-10 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm text-tx-primary";
+const card = "space-y-4 rounded-[24px] border border-app-border/80 bg-app-surface/85 p-5 shadow-sm backdrop-blur-md";
+const field = "min-h-10 w-full rounded-xl border border-app-border/80 bg-app-bg/85 px-3 py-2 text-sm text-tx-primary outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20";
 const preparatory = new Set(["CREATED", "PREVIEW_READY"]);
 const terminal = new Set(["COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "UNDONE"]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -312,7 +312,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
     }
   };
 
-  const problemCard = problem && <div role="alert" className="space-y-3 rounded-2xl border border-amber-300/70 bg-amber-50/60 p-4 text-sm text-tx-primary dark:border-amber-900 dark:bg-amber-950/30">
+  const problemCard = problem && <div role="alert" className="space-y-3 rounded-2xl border border-amber-300/70 bg-amber-50/75 p-4 text-sm text-tx-primary shadow-sm backdrop-blur-md dark:border-amber-500/30 dark:bg-amber-950/30">
     <p className="flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
       {problem === "account" ? t("migration.accountChanged") : problem === "invalid" ? t("migration.invalidResponse") : t(`migration.smart.errors.${problem}`, { limit: maxUploadLabel })}</p>
     <div className="flex flex-wrap gap-2">
@@ -362,7 +362,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
           </select>
           <span className="mt-1 block font-normal text-tx-secondary">{t("migration.smart.locationHint")}</span>
         </label>}
-        {canConfigureLimits && !localOnly && limitOpen && <div className="max-w-md space-y-2.5 rounded-xl border border-app-border bg-app-surface p-3 text-xs">
+        {canConfigureLimits && !localOnly && limitOpen && <div className="max-w-md space-y-2.5 rounded-2xl border border-app-border/80 bg-app-surface/90 p-3.5 text-xs shadow-sm backdrop-blur-md">
           <div className="flex flex-wrap gap-1.5">
             {[512, 1024, 2048, 3584].map((preset) => (
               <Button
@@ -418,7 +418,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       <h5 className="flex items-center gap-2 text-base font-semibold text-tx-primary"><Loader2 size={18} className="animate-spin" aria-hidden="true" />{t("migration.smart.preparing")}</h5>
       {preparing && <div className="space-y-2" role="status">
         <p className="text-sm text-tx-secondary">{t(`migration.smart.stage.${preparing.stage}`, { percent: preparing.percent ?? 0 })}{preparing.total > 1 ? ` · ${t("migration.smart.fileProgress", { current: preparing.current, total: preparing.total })}` : ""}</p>
-        {preparing.percent !== undefined && <div className="h-1.5 overflow-hidden rounded-full bg-app-hover"><div className="h-full bg-accent-primary transition-[width]" style={{ width: `${preparing.percent}%` }} /></div>}
+        {preparing.percent !== undefined && <div className="h-2 overflow-hidden rounded-full bg-app-hover/80"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-[width]" style={{ width: `${preparing.percent}%` }} /></div>}
       </div>}
       <Button type="button" variant="outline" size="sm" onClick={() => void stop()}>{t("migration.smart.stop")}</Button>
     </>}
@@ -457,7 +457,7 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       <h5 className="flex items-center gap-2 text-base font-semibold text-tx-primary">{job.status !== "PAUSED" && <Loader2 size={18} className="animate-spin" aria-hidden="true" />}{t(job.status === "PAUSED" ? "migration.smart.paused" : "migration.smart.importing")}</h5>
       <div className="space-y-2" role="status">
         <p className="text-sm text-tx-secondary">{t("migration.smart.importingProgress", { imported: job.counts.imported, total: Math.max(job.counts.create, job.counts.imported) })}</p>
-        <div className="h-1.5 overflow-hidden rounded-full bg-app-hover"><div className="h-full bg-accent-primary transition-[width]" style={{ width: `${Math.min(100, Math.floor(job.counts.imported / Math.max(1, job.counts.create) * 100))}%` }} /></div>
+        <div className="h-2 overflow-hidden rounded-full bg-app-hover/80"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-[width]" style={{ width: `${Math.min(100, Math.floor(job.counts.imported / Math.max(1, job.counts.create) * 100))}%` }} /></div>
       </div>
       <p className="text-xs text-tx-secondary">{t("migration.approvalHint")}</p>
       <div className="flex flex-wrap gap-2">
@@ -510,14 +510,14 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
       {disabled && <p className="text-sm text-amber-700 dark:text-amber-300">{t("migration.disabled")}</p>}
       {problemCard}
       {phase === "start" ? startView : jobView}
-      {phase === "start" && jobs.length > 0 && <details className="rounded-2xl border border-app-border p-4">
-        <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium"><History size={15} aria-hidden="true" />{t("migration.smart.historyCount", { count: jobs.length })}</summary>
+      {phase === "start" && jobs.length > 0 && <details className="rounded-[24px] border border-app-border/80 bg-app-surface/75 p-4 shadow-sm backdrop-blur-md">
+        <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold"><History size={15} className="text-indigo-500" aria-hidden="true" />{t("migration.smart.historyCount", { count: jobs.length })}</summary>
         <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto">{jobs.map((item) => <li key={item.id}>
           <button type="button" aria-label={t("migration.selectJob", { name: item.name })} disabled={busy} onClick={() => void run(() => migrationApi.get(item.id))}
-            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border p-3 text-left text-xs hover:bg-app-hover disabled:opacity-50">
-            <span className="min-w-0"><span className="block break-words font-medium text-tx-primary">{item.name}</span>
-              <span className="mt-0.5 block text-tx-secondary">{formatAppDateTime(item.createdAt)}{item.preparedBy === "assistant" ? ` · ${t("migration.smart.assistantBadge")}` : ""}</span></span>
-            <span className="shrink-0 text-tx-secondary">{statusLabel(item.status)}</span>
+            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border/80 bg-app-bg/65 p-3 text-left text-xs transition-all hover:border-indigo-400/40 hover:bg-app-hover/80 active:scale-[0.99] disabled:opacity-50">
+            <span className="min-w-0"><span className="block break-words font-semibold text-tx-primary">{item.name}</span>
+              <span className="mt-0.5 block tabular-nums text-tx-secondary">{formatAppDateTime(item.createdAt)}{item.preparedBy === "assistant" ? ` · ${t("migration.smart.assistantBadge")}` : ""}</span></span>
+            <span className="shrink-0 rounded-full bg-app-hover/90 px-2.5 py-0.5 font-medium text-tx-secondary">{statusLabel(item.status)}</span>
           </button>
         </li>)}</ul>
       </details>}

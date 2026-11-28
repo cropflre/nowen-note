@@ -11,7 +11,7 @@ import { COMMENTS_CHANGED_EVENT, OPEN_COMMENT_CENTER_EVENT } from "@/lib/noteCom
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/workspaceIssueNavigation";
 import type { ManagedNoteComment, NoteCommentListResponse } from "@/types";
 
-const buttonClass = "rounded-lg border border-app-border px-3 py-2 text-sm hover:bg-app-hover disabled:opacity-50";
+const buttonClass = "rounded-xl border border-app-border/85 bg-app-surface/85 px-3 py-2 text-xs font-medium text-tx-primary shadow-xs transition-all hover:border-indigo-400/40 hover:bg-app-hover active:scale-[0.98] disabled:opacity-50";
 const PAGE_SIZE = 30;
 
 export default function CommentManagementCenter({ onOpenComment }: { onOpenComment: (noteId: string, commentId: string) => Promise<void> }) {
@@ -108,38 +108,41 @@ export default function CommentManagementCenter({ onOpenComment }: { onOpenComme
   });
 
   if (!open) return null;
-  return createPortal(<div className="fixed inset-0 z-[100] bg-black/30" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={t("commentCenter.title")} className="absolute right-0 flex w-full max-w-2xl flex-col overflow-hidden border-l border-app-border bg-app-bg text-tx-primary shadow-xl" style={{ top: viewport.top, height: viewport.height }}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-app-border p-4 pt-[max(16px,env(safe-area-inset-top))]">
-        <div className="mr-auto"><h2 className="font-semibold">{t("commentCenter.title")}</h2><p className="mt-1 text-xs text-tx-secondary">{t("commentCenter.description")}</p></div>
+  return createPortal(<div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-xs" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={t("commentCenter.title")} className="absolute right-0 flex w-full max-w-2xl flex-col overflow-hidden border-l border-app-border/80 bg-app-bg/95 text-tx-primary shadow-2xl backdrop-blur-2xl" style={{ top: viewport.top, height: viewport.height }}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" />
+      <header className="flex shrink-0 items-center gap-2 border-b border-app-border/75 bg-app-surface/80 p-4 pt-[max(16px,env(safe-area-inset-top))] backdrop-blur-md">
+        <div className="mr-auto"><h2 className="text-base font-semibold tracking-tight">{t("commentCenter.title")}</h2><p className="mt-0.5 text-xs text-tx-secondary">{t("commentCenter.description")}</p></div>
         <button ref={close} className={buttonClass} aria-label={t("commentCenter.close")} onClick={() => setOpen(false)}><X size={16} /></button>
       </header>
-      <form className="flex shrink-0 flex-wrap gap-2 border-b border-app-border p-3" onSubmit={(event) => { event.preventDefault(); setPage(0); setQuery(search.trim()); }}>
+      <form className="flex shrink-0 flex-wrap gap-2 border-b border-app-border/75 bg-app-surface/55 p-3 backdrop-blur-sm" onSubmit={(event) => { event.preventDefault(); setPage(0); setQuery(search.trim()); }}>
         <select aria-label={t("commentCenter.status")} value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }} className={buttonClass}>
           {["all", "unresolved", "resolved"].map((value) => <option key={value} value={value}>{t(`commentCenter.${value}`)}</option>)}
         </select>
-        <input className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm" maxLength={200} aria-label={t("commentCenter.search")} placeholder={t("commentCenter.search")} value={search} onChange={(event) => setSearch(event.target.value)} />
+        <input className="min-w-0 flex-1 rounded-xl border border-app-border/85 bg-app-bg/90 px-3 py-2 text-sm outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" maxLength={200} aria-label={t("commentCenter.search")} placeholder={t("commentCenter.search")} value={search} onChange={(event) => setSearch(event.target.value)} />
         <button type="submit" className={buttonClass} disabled={loading}>{t("commentCenter.searchButton")}</button>
         <button type="button" className={buttonClass} disabled={loading} onClick={() => setRevision((value) => value + 1)}>{t("issues.refresh")}</button>
       </form>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
-        {error && <p role="alert" className="text-sm text-accent-danger">{error}</p>}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3.5">
+        {error && <p role="alert" className="rounded-2xl border border-red-500/25 bg-red-500/8 p-3 text-sm text-accent-danger">{error}</p>}
         {loading && <p role="status" className="text-sm text-tx-secondary">{t("issues.loading")}</p>}
-        {!loading && !error && !data.items.length && <p className="py-8 text-center text-sm text-tx-tertiary">{t("commentCenter.empty")}</p>}
-        {data.items.map((item) => <article key={item.id} className="space-y-2 rounded-xl border border-app-border p-3">
-          <h3 className="break-words text-sm font-medium">{item.noteTitle}</h3>
-          <p className="text-xs text-tx-tertiary">{item.displayName || item.username || t("issues.unknown")} · {formatAppDateTime(item.createdAt)}{item.isGuest ? ` · ${t("commentCenter.guest")}` : ""}{item.parentId ? ` · ${t("issues.reply")}` : ""}</p>
-          <p className="whitespace-pre-wrap break-words text-sm">{item.content}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-auto text-xs text-tx-secondary">{t(item.isResolved ? "commentCenter.resolved" : "commentCenter.unresolved")}</span>
+        {!loading && !error && !data.items.length && <p className="rounded-2xl border border-dashed border-app-border/80 bg-app-surface/55 py-10 text-center text-sm text-tx-tertiary">{t("commentCenter.empty")}</p>}
+        {data.items.map((item) => <article key={item.id} className="space-y-2.5 rounded-2xl border border-app-border/80 bg-app-surface/85 p-4 shadow-sm backdrop-blur-md transition-all hover:border-indigo-500/30 hover:shadow-md">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="break-words text-sm font-semibold">{item.noteTitle}</h3>
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${item.isResolved ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/12 text-amber-700 dark:text-amber-300"}`}>{t(item.isResolved ? "commentCenter.resolved" : "commentCenter.unresolved")}</span>
+          </div>
+          <p className="text-xs tabular-nums text-tx-tertiary">{item.displayName || item.username || t("issues.unknown")} · {formatAppDateTime(item.createdAt)}{item.isGuest ? ` · ${t("commentCenter.guest")}` : ""}{item.parentId ? ` · ${t("issues.reply")}` : ""}</p>
+          <p className="whitespace-pre-wrap break-words rounded-xl border border-app-border/60 bg-app-bg/60 px-3 py-2.5 text-sm leading-relaxed">{item.content}</p>
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-0.5">
             <button className={buttonClass} disabled={loading} onClick={() => void run(() => onOpenComment(item.noteId, item.id), false)}>{t("commentCenter.open")}</button>
             <button className={buttonClass} disabled={loading} onClick={() => void run(async () => { await api.toggleCommentResolved(item.noteId, item.id); })}>{t(item.isResolved ? "commentCenter.reopen" : "commentCenter.resolve")}</button>
-            <button className={`${buttonClass} text-accent-danger`} disabled={loading} onClick={() => remove(item)}>{t("issues.delete")}</button>
+            <button className={`${buttonClass} border-red-300/60 bg-red-500/[0.05] text-accent-danger hover:bg-red-500/10`} disabled={loading} onClick={() => remove(item)}>{t("issues.delete")}</button>
           </div>
         </article>)}
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-app-border p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-        <span className="text-xs text-tx-secondary">{t("commentCenter.total", { count: data.total })}</span>
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-app-border/75 bg-app-surface/80 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-md">
+        <span className="text-xs tabular-nums text-tx-secondary">{t("commentCenter.total", { count: data.total })}</span>
         <div className="flex gap-2"><button className={buttonClass} disabled={loading || page === 0} onClick={() => setPage((value) => value - 1)}>{t("commentCenter.previous")}</button><button className={buttonClass} disabled={loading || (page + 1) * PAGE_SIZE >= data.total} onClick={() => setPage((value) => value + 1)}>{t("commentCenter.next")}</button></div>
       </footer>
     </div>

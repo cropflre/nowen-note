@@ -247,79 +247,79 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
   ).format(new Date(`${today}T12:00:00`)), [chinese, today]);
 
   return (
-    <section className="shrink-0 border-b border-border bg-background/95 backdrop-blur">
-      <div className="flex min-h-14 items-center gap-3 px-3 py-2 sm:px-5">
+    <section className="shrink-0 border-b border-app-border/75 bg-gradient-to-r from-amber-500/[0.05] via-app-surface/90 to-orange-500/[0.04] backdrop-blur-xl">
+      <div className="flex min-h-14 items-center gap-3 px-4 py-2.5 sm:px-5">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
           onClick={() => { if (!standalone) setExpanded((value) => !value); }}
           aria-expanded={expanded}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/18 text-amber-600 ring-1 ring-inset ring-amber-500/25 shadow-sm dark:text-amber-300">
             <Sun size={19} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
-              <strong className="truncate text-sm text-foreground">{labels.title}</strong>
-              <span className="shrink-0 text-xs text-muted-foreground">{dateLabel}</span>
+              <strong className="truncate text-sm font-bold tracking-tight text-foreground">{labels.title}</strong>
+              <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">{dateLabel}</span>
             </span>
-            <span className="mt-1 flex items-center gap-2">
-              <span className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted">
+            <span className="mt-1.5 flex items-center gap-2">
+              <span className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-app-hover">
                 <span
-                  className="block h-full rounded-full bg-amber-500 transition-[width]"
+                  className="block h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-[width] duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-[11px] font-medium text-muted-foreground">
                 {completedCount}/{plannedTasks.length} {labels.completed}
               </span>
             </span>
           </span>
-          {!standalone && (expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />)}
+          {!standalone && (expanded ? <ChevronUp size={17} className="text-muted-foreground" /> : <ChevronDown size={17} className="text-muted-foreground" />)}
         </button>
 
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-app-border/70 bg-app-surface/85 text-muted-foreground shadow-sm transition-all hover:border-accent-primary/40 hover:text-foreground active:scale-95 disabled:opacity-50"
           onClick={() => void load()}
           disabled={loading}
           title={labels.refresh}
         >
-          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
 
       {expanded && (
-        <div className="max-h-[42vh] overflow-y-auto border-t border-border/60 px-3 py-3 sm:px-5">
+        <div className="max-h-[42vh] overflow-y-auto border-t border-app-border/60 px-4 py-3.5 sm:px-5">
           <p className="mb-3 text-xs text-muted-foreground">{labels.subtitle}</p>
 
           {loading ? (
             <div className="flex h-24 items-center justify-center text-muted-foreground">
-              <Loader2 size={20} className="animate-spin" />
+              <Loader2 size={20} className="animate-spin text-amber-500" />
             </div>
           ) : (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
               <div className="min-w-0">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     {labels.planned}
                   </h3>
                   {plan.focusTaskIds.length > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300">
-                      <Star size={12} fill="currentColor" />
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-300">
+                      <Star size={11} fill="currentColor" />
                       {labels.focus} {plan.focusTaskIds.length}/3
                     </span>
                   )}
                 </div>
 
                 {plannedTasks.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center">
-                    <CalendarDays size={22} className="mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm font-medium text-foreground">{labels.empty}</p>
+                  <div className="rounded-2xl border border-dashed border-app-border/80 bg-app-bg/50 px-4 py-7 text-center">
+                    <CalendarDays size={22} className="mx-auto mb-2 text-amber-500/70" />
+                    <p className="text-sm font-semibold text-foreground">{labels.empty}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{labels.emptyHint}</p>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {plannedTasks.map((task) => {
                       const focused = plan.focusTaskIds.includes(task.id);
                       const overdue = isTaskOverdue(task, today);
@@ -327,13 +327,13 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
                       return (
                         <div
                           key={task.id}
-                          className="group flex items-center gap-2 rounded-xl border border-border/70 bg-card px-2.5 py-2 shadow-sm"
+                          className="group flex items-center gap-2.5 rounded-2xl border border-app-border/75 bg-app-surface/90 px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:border-amber-500/35 hover:shadow-md"
                         >
                           <button
                             type="button"
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-all active:scale-90 ${
                               task.isCompleted
-                                ? "border-emerald-500 bg-emerald-500 text-white"
+                                ? "border-emerald-500 bg-emerald-500 text-white shadow-sm"
                                 : "border-muted-foreground/50 hover:border-emerald-500"
                             }`}
                             onClick={() => void toggleComplete(task)}
@@ -347,13 +347,13 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
 
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 items-center gap-1.5">
-                              <span className={`truncate text-sm ${task.isCompleted ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                              <span className={`truncate text-sm font-medium ${task.isCompleted ? "text-muted-foreground line-through" : "text-foreground"}`}>
                                 {task.title}
                               </span>
                               {focused && <Star size={12} className="shrink-0 text-amber-500" fill="currentColor" />}
                             </div>
                             {(overdue || dueToday) && (
-                              <span className={`mt-0.5 inline-flex items-center gap-1 text-[10px] ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+                              <span className={`mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
                                 {overdue ? <AlertTriangle size={10} /> : <CalendarDays size={10} />}
                                 {overdue ? labels.overdue : labels.dueToday}
                               </span>
@@ -362,9 +362,9 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
 
                           <button
                             type="button"
-                            className={`inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded-xl transition-colors ${
                               focused
-                                ? "text-amber-500 hover:bg-amber-500/10"
+                                ? "bg-amber-500/12 text-amber-500 hover:bg-amber-500/20"
                                 : "text-muted-foreground opacity-60 hover:bg-muted hover:text-amber-500 group-hover:opacity-100"
                             }`}
                             onClick={() => toggleFocus(task.id)}
@@ -375,7 +375,7 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
                           </button>
                           <button
                             type="button"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground opacity-60 hover:bg-muted hover:text-destructive group-hover:opacity-100"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-muted-foreground opacity-60 hover:bg-rose-500/10 hover:text-destructive group-hover:opacity-100"
                             onClick={() => removeTask(task.id)}
                             disabled={saving}
                             title={labels.remove}
@@ -389,22 +389,22 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
                 )}
               </div>
 
-              <div className="min-w-0">
+              <div className="min-w-0 rounded-2xl border border-app-border/70 bg-app-surface/70 p-3 backdrop-blur-sm">
                 <label className="relative block">
                   <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={labels.search}
-                    className="h-9 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20"
+                    className="h-9 w-full rounded-xl border border-app-border/80 bg-app-bg/90 pl-9 pr-3 text-sm text-foreground outline-none transition-all focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12"
                   />
                 </label>
-                <h3 className="mb-2 mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   {query.trim() ? labels.searchResults : labels.suggestions}
                 </h3>
 
                 {availableTasks.length === 0 ? (
-                  <p className="rounded-xl bg-muted/50 px-3 py-4 text-center text-xs text-muted-foreground">
+                  <p className="rounded-xl bg-muted/40 px-3 py-4 text-center text-xs text-muted-foreground">
                     {labels.noSuggestions}
                   </p>
                 ) : (
@@ -413,12 +413,12 @@ export function MyDayPanel({ onTaskMutated, initiallyExpanded = false, standalon
                       <button
                         key={task.id}
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-muted disabled:opacity-50"
+                        className="group flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-app-hover disabled:opacity-50"
                         onClick={() => addTask(task.id)}
                         disabled={saving}
                         title={labels.add}
                       >
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-600 transition-transform group-hover:scale-105 dark:text-amber-300">
                           <Plus size={13} />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm text-foreground">{task.title}</span>

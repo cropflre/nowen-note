@@ -19,8 +19,8 @@ export type DrawerAction =
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="space-y-2">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-tx-tertiary">{title}</h3>
+  return <section className="space-y-2.5 rounded-2xl border border-app-border/75 bg-app-bg/60 p-4 backdrop-blur-sm">
+    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-tx-tertiary">{title}</h3>
     {children}
   </section>;
 }
@@ -47,7 +47,7 @@ function PluginSettingsForm({ plugin }: { plugin: InstalledPlugin }) {
     catch (error) { toast.error(describeExtensionError(error, t)); }
     finally { setSaving(false); }
   };
-  const field = "mt-1 block w-full rounded-md border border-app-border bg-app-bg px-2.5 py-2 text-sm text-tx-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary";
+  const field = "mt-1 block w-full rounded-xl border border-app-border/80 bg-app-surface/90 px-3 py-2 text-sm text-tx-primary transition-all focus-visible:border-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20";
   return <div className="space-y-3">
     {settings.map((setting) => {
       const id = `${plugin.id}-${setting.key}`;
@@ -79,8 +79,8 @@ function RecentRuns({ pluginId }: { pluginId: string }) {
   }, [pluginId]);
   if (!runs) return <p className="text-sm text-tx-tertiary">{t("extensionCenter.detail.loading")}</p>;
   if (!runs.length) return <p className="text-sm text-tx-tertiary">{t("extensionCenter.detail.noRuns")}</p>;
-  return <ul className="space-y-1.5">{runs.map((run) => <li key={run.id} className="rounded-lg bg-app-hover px-2.5 py-1.5 text-xs text-tx-secondary">
-    <span className="font-mono text-tx-primary">{run.actionId}</span> · {run.status}{typeof run.durationMs === "number" ? ` · ${run.durationMs}ms` : ""}
+  return <ul className="space-y-2">{runs.map((run) => <li key={run.id} className="rounded-xl border border-app-border/70 bg-app-surface/80 px-3 py-2 text-xs text-tx-secondary">
+    <span className="font-mono font-medium text-tx-primary">{run.actionId}</span> · {run.status}{typeof run.durationMs === "number" ? ` · ${run.durationMs}ms` : ""}
     {run.errorMessage && <p className="mt-0.5 break-words text-red-600 dark:text-red-300">{run.errorMessage}</p>}
   </li>)}</ul>;
 }
@@ -130,7 +130,7 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
 
   // Portal to <body>: an animated (transformed) ancestor would otherwise trap position:fixed.
   return createPortal(<>
-    <motion.div {...overlayMotion} className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+    <motion.div {...overlayMotion} className="fixed inset-0 z-40 bg-black/45 backdrop-blur-xs" onClick={onClose} aria-hidden />
     <motion.div
       ref={panel}
       role="dialog"
@@ -138,28 +138,29 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
       aria-labelledby={titleId}
       initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={MOTION_SPRING.panel}
       onKeyDown={keyDown}
-      className="fixed bottom-0 right-0 top-0 z-50 flex w-full flex-col border-l border-app-border bg-app-surface shadow-2xl sm:w-[480px]"
+      className="fixed bottom-0 right-0 top-0 z-50 flex w-full flex-col border-l border-app-border/80 bg-app-surface/95 shadow-2xl backdrop-blur-2xl sm:w-[480px]"
     >
-      <div className="flex items-start gap-3 border-b border-app-border px-4 py-3" style={{ paddingTop: "calc(var(--safe-area-top, 0px) + 12px)" }}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" />
+      <div className="flex items-start gap-3 border-b border-app-border/75 bg-app-surface/80 px-4 py-3.5 backdrop-blur-md" style={{ paddingTop: "calc(var(--safe-area-top, 0px) + 14px)" }}>
         <ExtensionIcon listing={listing} size="lg" />
         <div className="min-w-0 flex-1">
-          <h2 id={titleId} className="truncate text-base font-semibold text-tx-primary">{listing.name}</h2>
+          <h2 id={titleId} className="truncate text-base font-semibold tracking-tight text-tx-primary">{listing.name}</h2>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Chip tone={listing.kind === "builtin" || listing.official ? "info" : "muted"}>{trustBadge(listing, t)}</Chip>
           </div>
         </div>
-        <button ref={closeButton} type="button" onClick={onClose} aria-label={t("extensionCenter.action.close")} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary md:h-8 md:w-8">
+        <button ref={closeButton} type="button" onClick={onClose} aria-label={t("extensionCenter.action.close")} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary md:h-8 md:w-8">
           <X size={16} />
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4" style={{ paddingBottom: "calc(var(--safe-area-bottom, 0px) + 24px)" }}>
-        {listing.description && <p className="text-sm leading-relaxed text-tx-secondary">{listing.description}</p>}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" style={{ paddingBottom: "calc(var(--safe-area-bottom, 0px) + 24px)" }}>
+        {listing.description && <p className="rounded-2xl border border-app-border/60 bg-app-bg/45 px-4 py-3 text-sm leading-relaxed text-tx-secondary">{listing.description}</p>}
 
         <Section title={t("extensionCenter.detail.status")}>
           <div className="flex flex-wrap gap-1.5">{statusChips(listing, t).map((chip) => <Chip key={chip.key} tone={chip.tone}>{chip.label}</Chip>)}</div>
           {reason && <p className="text-sm text-amber-700 dark:text-amber-300">{reason}</p>}
-          {!isAdmin && listing.kind === "plugin" && listing.primaryAction === "needs-admin" && <p role="note" className="rounded-lg bg-app-hover p-3 text-sm text-tx-secondary">{t("extensionCenter.needsAdmin")}</p>}
+          {!isAdmin && listing.kind === "plugin" && listing.primaryAction === "needs-admin" && <p role="note" className="rounded-xl border border-app-border/70 bg-app-surface/80 p-3 text-sm text-tx-secondary">{t("extensionCenter.needsAdmin")}</p>}
           {!!actions.length && <div className="flex flex-wrap items-center gap-2">{actions}{busy && <Loader2 size={14} className="animate-spin text-tx-tertiary" aria-hidden />}</div>}
         </Section>
 
@@ -182,7 +183,7 @@ export function ExtensionDetailDrawer({ listing, isAdmin, busy, appPagesAvailabl
               <a href={listing.repository} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-primary hover:underline">{listing.repository.replace(/^https:\/\//, "")}<ExternalLink size={12} /></a>
             </InfoRow>}
           </dl>
-          <details className="rounded-lg border border-app-border px-3 py-2 text-sm">
+          <details className="rounded-xl border border-app-border/75 bg-app-surface/75 px-3 py-2 text-sm">
             <summary className="cursor-pointer text-tx-secondary">{t("extensionCenter.detail.technical")}</summary>
             <dl className="mt-2 space-y-1.5">
               <InfoRow label={t("extensionCenter.detail.pluginId")}><span className="font-mono text-xs">{listing.id}</span></InfoRow>

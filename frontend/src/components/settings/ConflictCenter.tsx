@@ -579,10 +579,10 @@ export function ConflictCenter({
 
   if (loading) {
     return (
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">冲突</h3>
+      <section className="space-y-2.5 rounded-2xl border border-app-border/80 bg-app-surface/80 p-4 backdrop-blur-md">
+        <h3 className="text-sm font-semibold">冲突</h3>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
           正在检查…
         </div>
       </section>
@@ -590,16 +590,18 @@ export function ConflictCenter({
   }
 
   return (
-    <section className="space-y-3">
-      <h3 className="flex items-center gap-2 text-sm font-medium">
-        <GitCompare className="h-4 w-4" />
+    <section className="space-y-3.5">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-500 ring-1 ring-indigo-500/20">
+          <GitCompare className="h-3.5 w-3.5" />
+        </span>
         冲突（{items.length}）
       </h3>
       {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground">没有需要处理的冲突。</p>
+        <p className="rounded-2xl border border-app-border/70 bg-app-surface/70 px-4 py-3 text-xs text-muted-foreground backdrop-blur-sm">没有需要处理的冲突。</p>
       ) : (
         <>
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-app-border/80 bg-app-surface/80 p-3 text-xs shadow-sm backdrop-blur-md">
         <label className="flex cursor-pointer items-center gap-2">
           <input
             type="checkbox"
@@ -609,14 +611,14 @@ export function ConflictCenter({
             className="h-3.5 w-3.5 accent-primary"
             aria-label="全选冲突"
           />
-          <span>{allSelected ? "取消全选" : "全选"} · 已选 {selectedIds.size} 项</span>
+          <span className="font-medium">{allSelected ? "取消全选" : "全选"} · 已选 {selectedIds.size} 项</span>
         </label>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleAutomaticMerge(); }}
-            className="inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 font-medium text-white shadow-sm shadow-indigo-500/20 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
             title="只自动合并双方修改字段不重叠的冲突"
           >
             <Merge className="h-3.5 w-3.5" />
@@ -626,7 +628,7 @@ export function ConflictCenter({
             type="button"
             disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleBulkResolve("keep-local"); }}
-            className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50"
+            className="rounded-xl border border-app-border/90 bg-app-bg/70 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
           >
             {busy ? "处理中…" : "一键采用本机"}
           </button>
@@ -634,7 +636,7 @@ export function ConflictCenter({
             type="button"
             disabled={busy || bulkTargets.length === 0}
             onClick={() => { void handleBulkResolve("keep-remote"); }}
-            className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50"
+            className="rounded-xl border border-app-border/90 bg-app-bg/70 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
           >
             {busy ? "处理中…" : "一键采用云端"}
           </button>
@@ -648,8 +650,8 @@ export function ConflictCenter({
       ) : null}
 
       {[otherItems, treeItems].map((group) => group.length > 0 ? (
-        <section key={group === treeItems ? "tree" : "other"} className="space-y-2">
-          <h4 className="text-xs font-medium">
+        <section key={group === treeItems ? "tree" : "other"} className="space-y-2.5">
+          <h4 className="text-xs font-semibold tracking-tight">
             {group === treeItems
               ? t("treeConflict.heading", { count: group.length })
               : t("treeConflict.otherHeading", { count: group.length })}
@@ -660,17 +662,17 @@ export function ConflictCenter({
               <div className="flex flex-wrap gap-2 text-xs">
                 <button type="button" disabled={busy || selectedTreeIds.length === 0}
                   onClick={() => { void handleTreePreview("keep-remote", selectedTreeIds); }}
-                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  className="rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
                   {t("treeConflict.previewRemote")}
                 </button>
                 <button type="button" disabled={busy || selectedTreeIds.length === 0}
                   onClick={() => { void handleTreePreview("keep-local", selectedTreeIds); }}
-                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  className="rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
                   {t("treeConflict.previewLocal")}
                 </button>
                 <button type="button" disabled={busy}
                   onClick={() => { void handleTreeSync(); }}
-                  className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+                  className="rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
                   {t("treeConflict.syncAndCheck")}
                 </button>
               </div>
@@ -687,11 +689,11 @@ export function ConflictCenter({
               ) : null}
             </>
           ) : null}
-      <ul className="space-y-2">
+      <ul className="space-y-2.5">
         {group.map((item) => (
-          <li key={item.id} className="rounded-md border p-3 text-xs">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-start gap-2">
+          <li key={item.id} className="rounded-2xl border border-app-border/80 bg-app-surface/85 p-3.5 text-xs shadow-sm backdrop-blur-md transition-all hover:border-indigo-500/30 hover:shadow-md">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex min-w-0 items-start gap-2.5">
                 <input
                   type="checkbox"
                   checked={selectedIds.has(item.id)}
@@ -701,7 +703,7 @@ export function ConflictCenter({
                   aria-label={`选择冲突 ${conflictTitle(item)}`}
                 />
                 <div className="min-w-0">
-                  <p className="truncate font-medium">
+                  <p className="truncate font-semibold">
                     {conflictTitle(item)}
                   </p>
                   <p className="mt-0.5 text-muted-foreground">
@@ -716,19 +718,19 @@ export function ConflictCenter({
                 onClick={() => { void openDetail(item.id); }}
                 disabled={busy || detailLoadingId === item.id}
                 aria-expanded={selected?.id === item.id}
-                className="shrink-0 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
+                className="shrink-0 rounded-xl border border-app-border/90 bg-app-bg/70 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
               >
                 {detailLoadingId === item.id ? "加载中…" : selected?.id === item.id ? "已展开" : "查看"}
               </button>
             </div>
 
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2.5 flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={busy || (isTreeConflict(item.entityType) && disableTreeSide(item.id, "keep-local"))}
                 title={isTreeConflict(item.entityType) ? t("treeConflict.openDetails") : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-local"); }}
-                className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
+                className="rounded-xl border border-app-border/90 bg-app-bg/70 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
               >
                 保留本机版本
               </button>
@@ -737,14 +739,14 @@ export function ConflictCenter({
                 disabled={busy || (isTreeConflict(item.entityType) && disableTreeSide(item.id, "keep-remote"))}
                 title={isTreeConflict(item.entityType) ? t("treeConflict.openDetails") : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-remote"); }}
-                className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
+                className="rounded-xl border border-app-border/90 bg-app-bg/70 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
               >
                 保留云端版本
               </button>
               {!isTreeConflict(item.entityType) && item.entityType!=="attachment_organization" ? (
                 <button type="button" disabled={busy}
                   onClick={() => { void openDetail(item.id); }}
-                  className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
+                  className="inline-flex items-center gap-1 rounded-xl border border-app-border/90 bg-app-bg/70 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
                   <Merge className="h-3.5 w-3.5" />手动合并
                 </button>
               ) : null}
@@ -753,7 +755,7 @@ export function ConflictCenter({
                   type="button"
                   disabled={busy}
                   onClick={() => { void handleFork(item.id, "remote"); }}
-                  className="rounded border px-2 py-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
+                  className="rounded-xl border border-app-border/80 bg-app-bg/50 px-2.5 py-1 text-muted-foreground transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
                   title="把云端版本另存为一条新笔记，两个版本都保留"
                 >
                   另存云端版本
@@ -764,7 +766,7 @@ export function ConflictCenter({
               <p role="status" className="mt-3 text-muted-foreground">正在读取本机与云端详情…</p>
             ) : null}
             {detailError?.id === item.id ? (
-              <p role="alert" className="mt-3 rounded border border-amber-400/50 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">{detailError.message}</p>
+              <p role="alert" className="mt-3 rounded-xl border border-amber-400/50 bg-amber-500/8 p-2.5 text-amber-700 dark:text-amber-300">{detailError.message}</p>
             ) : null}
             {selected?.id === item.id && selected.status !== "resolved" ? (
               <div className="mt-3" data-conflict-detail-id={item.id}>
@@ -781,21 +783,21 @@ export function ConflictCenter({
       )}
 
       {warning ? (
-        <p role="status" className="flex items-start gap-2 text-xs text-amber-600">
+        <p role="status" className="flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/8 px-3.5 py-2.5 text-xs text-amber-700 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {warning}
         </p>
       ) : null}
 
       {error ? (
-        <p role="alert" className="flex items-start gap-2 text-xs text-destructive">
+        <p role="alert" className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/8 px-3.5 py-2.5 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
       ) : null}
 
       {notice ? (
-        <p role="status" className="flex items-start gap-2 text-xs text-emerald-600">
+        <p role="status" className="flex items-start gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/8 px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {notice}
         </p>
@@ -803,7 +805,7 @@ export function ConflictCenter({
 
       {repairBackup?.scope === getOfflineQueueStorageKey() ? (
         <button type="button" disabled={busy} onClick={() => { void exportRepairBackup(); }}
-          className="rounded border px-2 py-1 text-xs hover:bg-accent disabled:opacity-50">
+          className="rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 text-xs font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
           {t("treeConflict.exportSavedStructure")}
         </button>
       ) : null}
@@ -904,29 +906,29 @@ function TreeRepairReview({
 
   return (
     <section ref={region} tabIndex={-1} aria-label={t("treeConflict.review")}
-      className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
-      <h5 className="font-medium">{t(strategy === "keep-local" ? "treeConflict.reviewLocal" : "treeConflict.reviewRemote", {
+      className="space-y-2.5 rounded-2xl border border-indigo-500/25 bg-app-surface/85 p-4 text-xs shadow-sm backdrop-blur-md">
+      <h5 className="font-semibold">{t(strategy === "keep-local" ? "treeConflict.reviewLocal" : "treeConflict.reviewRemote", {
         count: requestedCount,
       })}</h5>
       {preview.blocked ? (
-        <p role="alert" className="text-amber-700 dark:text-amber-300">
+        <p role="alert" className="rounded-xl border border-amber-400/40 bg-amber-500/8 px-3 py-2 text-amber-700 dark:text-amber-300">
           {t("treeConflict.blocked", { reason: preview.blocked })}
         </p>
       ) : <p className="text-muted-foreground">{t("treeConflict.confirmHint")}</p>}
       {preview.changes.length > 0 ? (
-        <div className="max-h-64 overflow-y-auto">
+        <div className="max-h-64 overflow-y-auto rounded-xl border border-app-border/70 bg-app-bg/60 p-2">
           <table className="w-full table-fixed border-collapse text-left">
             <thead><tr className="text-muted-foreground">
-              <th scope="col">{t("treeConflict.node")}</th>
-              <th scope="col">{t("treeConflict.local")}</th>
-              <th scope="col">{t("treeConflict.remote")}</th>
+              <th scope="col" className="pb-1.5">{t("treeConflict.node")}</th>
+              <th scope="col" className="pb-1.5">{t("treeConflict.local")}</th>
+              <th scope="col" className="pb-1.5">{t("treeConflict.remote")}</th>
             </tr></thead>
             <tbody>
               {preview.changes.map((change) => (
-                <tr key={change.id} className="border-t align-top">
-                  <th scope="row" className="break-words py-1 pr-2 font-medium">{change.title || names.get(change.local?.id ?? change.remote?.id ?? "") || t("treeConflict.untitled")}</th>
-                  <td className="break-words py-1 pr-2">{describe(change.local)}</td>
-                  <td className="break-words py-1">{describe(change.remote)}</td>
+                <tr key={change.id} className="border-t border-app-border/60 align-top">
+                  <th scope="row" className="break-words py-1.5 pr-2 font-medium">{change.title || names.get(change.local?.id ?? change.remote?.id ?? "") || t("treeConflict.untitled")}</th>
+                  <td className="break-words py-1.5 pr-2">{describe(change.local)}</td>
+                  <td className="break-words py-1.5">{describe(change.remote)}</td>
                 </tr>
               ))}
             </tbody>
@@ -936,17 +938,17 @@ function TreeRepairReview({
       {exportError ? <p role="alert" className="text-destructive">{exportError}</p> : null}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy || exporting || !preview.token || Boolean(preview.blocked)} onClick={onApply}
-          className="rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50">
+          className="rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 font-medium text-white shadow-sm shadow-indigo-500/20 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50">
           {t("treeConflict.confirm")}
         </button>
         {preview.changes.some(({ local }) => local) ? (
           <button type="button" disabled={busy || exporting} onClick={() => { void exportStructure(); }}
-            className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+            className="rounded-xl border border-app-border/90 bg-app-bg/70 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
             {t("treeConflict.exportStructure")}
           </button>
         ) : null}
         <button type="button" disabled={busy || exporting} onClick={onClose}
-          className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50">
+          className="rounded-xl border border-app-border/90 bg-app-bg/70 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50">
           {t("treeConflict.closeReview")}
         </button>
       </div>
@@ -988,15 +990,15 @@ function ResolvedConflictHistory({
   };
 
   return (
-    <section className="space-y-2 border-t pt-3">
+    <section className="space-y-2.5 rounded-2xl border border-app-border/70 bg-app-surface/65 p-3.5 backdrop-blur-sm">
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
-        <History className="h-3.5 w-3.5" />
+        <History className="h-3.5 w-3.5 text-indigo-500" />
         已解决冲突（{total}）
-        <span>{open ? "收起" : "展开"}</span>
+        <span className="rounded-full bg-app-hover/80 px-2 py-0.5 text-[11px]">{open ? "收起" : "展开"}</span>
       </button>
       {open ? (
         <>
@@ -1010,7 +1012,7 @@ function ResolvedConflictHistory({
               value={entityType}
               disabled={busy || loadingMore}
               onChange={(event) => onEntityTypeChange(event.target.value)}
-              className="rounded border bg-background px-2 py-1 text-foreground outline-none focus:ring-2 focus:ring-ring"
+              className="rounded-xl border border-app-border/80 bg-background px-2.5 py-1.5 text-foreground outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20"
             >
               <option value="">全部类型</option>
               {SYNC_CONFLICT_ENTITY_TYPES.map((value) => (
@@ -1019,19 +1021,19 @@ function ResolvedConflictHistory({
             </select>
           </label>
           {items.length === 0 ? (
-            <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+            <p className="rounded-xl border border-dashed border-app-border/80 p-3 text-xs text-muted-foreground">
               没有符合当前筛选条件的已解决冲突。
             </p>
           ) : null}
           <ul className="space-y-2">
             {items.map((item) => (
-              <li key={item.id} className="rounded-md border border-dashed p-3 text-xs">
+              <li key={item.id} className="rounded-xl border border-dashed border-app-border/80 bg-app-bg/50 p-3 text-xs">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate font-medium">
                       {titleForItem(item)}
                     </p>
-                    <p className="mt-0.5 text-muted-foreground">
+                    <p className="mt-0.5 tabular-nums text-muted-foreground">
                       {ENTITY_TYPE_LABELS[item.entityType] || item.entityType} · 已处理于 {formatResolvedAt(item.resolvedAt)}
                     </p>
                   </div>
@@ -1040,7 +1042,7 @@ function ResolvedConflictHistory({
                       type="button"
                       disabled={busy}
                       onClick={() => onView(item.id)}
-                      className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
+                      className="rounded-xl border border-app-border/90 bg-app-surface/80 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
                     >
                       查看记录
                     </button>
@@ -1048,7 +1050,7 @@ function ResolvedConflictHistory({
                       type="button"
                       disabled={busy}
                       onClick={() => onReopen(item)}
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded-xl border border-app-border/90 bg-app-surface/80 px-2.5 py-1 font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />撤销处理
                     </button>
@@ -1062,7 +1064,7 @@ function ResolvedConflictHistory({
               type="button"
               disabled={busy || loadingMore}
               onClick={onLoadMore}
-              className="inline-flex items-center gap-1 rounded border px-2.5 py-1.5 text-xs hover:bg-accent disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 text-xs font-medium transition-all hover:bg-accent active:scale-[0.98] disabled:opacity-50"
             >
               {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               {loadingMore ? "正在加载…" : `加载更多（已显示 ${items.length}/${total}）`}
@@ -1152,10 +1154,10 @@ function ConflictDiff({
   };
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3 text-xs">
+    <div className="rounded-2xl border border-app-border/80 bg-app-bg/75 p-3.5 text-xs shadow-inner backdrop-blur-sm">
       <div className="flex items-center justify-between">
-        <p className="font-medium">差异对照</p>
-        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+        <p className="font-semibold">差异对照</p>
+        <button type="button" onClick={onClose} className="rounded-lg px-2 py-0.5 text-muted-foreground transition-colors hover:bg-app-hover hover:text-foreground">
           收起
         </button>
       </div>
@@ -1234,23 +1236,23 @@ function ConflictDiff({
           请选择保留本机版本或云端版本。另一个版本会保留在历史记录中。
         </p>
       ) : editing ? (
-        <div className="mt-3 space-y-2 border-t pt-3">
-          <p className="font-medium">编辑最终合并结果</p>
+        <div className="mt-3 space-y-2.5 border-t border-app-border/70 pt-3">
+          <p className="font-semibold">编辑最终合并结果</p>
           <p className="text-muted-foreground">已用本机字段覆盖服务器字段作为初稿。可直接修改任意字段，保存后会作为一个新版本同步。</p>
           <textarea value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false}
-            className="min-h-56 w-full resize-y rounded border bg-background p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring" />
+            className="min-h-56 w-full resize-y rounded-xl border border-app-border/80 bg-background p-2.5 font-mono text-xs outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20" />
           {draftError ? <p className="text-destructive">{draftError}</p> : null}
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={() => { void submitManual(); }}
-              className="rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50">
+              className="rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3 py-1.5 font-medium text-white shadow-sm shadow-indigo-500/20 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50">
               {busy ? "正在保存…" : "保存合并结果"}
             </button>
-            <button type="button" disabled={busy} onClick={() => setEditing(false)} className="rounded border px-2.5 py-1.5">取消</button>
+            <button type="button" disabled={busy} onClick={() => setEditing(false)} className="rounded-xl border border-app-border/90 px-3 py-1.5 font-medium transition-colors hover:bg-accent">取消</button>
           </div>
         </div>
       ) : (
         <button type="button" onClick={beginManual}
-          className="mt-3 inline-flex items-center gap-1 rounded border px-2.5 py-1.5 hover:bg-accent">
+          className="mt-3 inline-flex items-center gap-1 rounded-xl border border-app-border/90 bg-app-surface/80 px-3 py-1.5 font-medium transition-all hover:bg-accent active:scale-[0.98]">
           <Merge className="h-3.5 w-3.5" />手动编辑并合并
         </button>
       )}

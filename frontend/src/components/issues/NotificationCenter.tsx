@@ -11,7 +11,7 @@ import { realtime } from "@/lib/realtime";
 import { NOTIFICATIONS_CHANGED_EVENT, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
 import type { NotificationListResponse, WorkspaceNotification } from "@/types/workspaceIssues";
 
-const buttonClass = "rounded-lg border border-app-border px-3 py-1.5 text-sm hover:bg-app-hover disabled:opacity-50";
+const buttonClass = "rounded-xl border border-app-border/85 bg-app-surface/80 px-3 py-1.5 text-xs font-medium text-tx-primary shadow-xs transition-all hover:border-indigo-400/40 hover:bg-app-hover active:scale-[0.98] disabled:opacity-50 aria-pressed:border-indigo-500/45 aria-pressed:bg-indigo-500/12 aria-pressed:text-indigo-600 dark:aria-pressed:text-indigo-300";
 
 export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpenComment }: {
   onUnreadChange: (count: number) => void;
@@ -137,13 +137,14 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
     : data.items;
 
   if (!open) return null;
-  return createPortal(<div className="fixed inset-0 z-[100] bg-black/30" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={t("notificationCenter.title")} className="absolute right-0 flex w-full max-w-md flex-col overflow-hidden border-l border-app-border bg-app-bg text-tx-primary shadow-xl" style={{ top: viewport.top, height: viewport.height }}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-app-border p-4 pt-[max(16px,env(safe-area-inset-top))]">
-        <h2 className="mr-auto font-semibold">{t("notificationCenter.title")} {data.unreadCount > 0 && <span className="text-sm text-accent-primary">{data.unreadCount}</span>}</h2>
+  return createPortal(<div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-xs" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={t("notificationCenter.title")} className="absolute right-0 flex w-full max-w-md flex-col overflow-hidden border-l border-app-border/80 bg-app-bg/95 text-tx-primary shadow-2xl backdrop-blur-2xl" style={{ top: viewport.top, height: viewport.height }}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" />
+      <header className="flex shrink-0 items-center gap-2 border-b border-app-border/75 bg-app-surface/80 p-4 pt-[max(16px,env(safe-area-inset-top))] backdrop-blur-md">
+        <h2 className="mr-auto flex items-center gap-2 text-base font-semibold tracking-tight">{t("notificationCenter.title")} {data.unreadCount > 0 && <span className="rounded-full bg-indigo-500/12 px-2 py-0.5 text-xs font-semibold tabular-nums text-indigo-600 ring-1 ring-indigo-500/20 dark:text-indigo-300">{data.unreadCount}</span>}</h2>
         <button ref={close} className={buttonClass} aria-label={t("notificationCenter.close")} onClick={() => setOpen(false)}><X size={16} /></button>
       </header>
-      <div className="flex shrink-0 flex-wrap gap-2 border-b border-app-border p-3">
+      <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-app-border/75 bg-app-surface/55 p-3 backdrop-blur-sm">
         <button className={buttonClass} disabled={loading} aria-pressed={!unreadOnly && !directOnly} onClick={() => { setUnreadOnly(false); setDirectOnly(false); }}>{t("notificationCenter.all")}</button>
         <button className={buttonClass} disabled={loading} aria-pressed={unreadOnly} onClick={() => setUnreadOnly((v) => !v)}>{t("notificationCenter.unread")}</button>
         <button className={buttonClass} disabled={loading} aria-pressed={directOnly} onClick={() => setDirectOnly((v) => !v)}>@提及与指派</button>
@@ -151,25 +152,25 @@ export default function NotificationCenter({ onUnreadChange, onOpenIssue, onOpen
         <button className={buttonClass} onClick={() => { setOpen(false); openCommentCenter(); }}>{t("commentCenter.title")}</button>
         <button className={buttonClass} disabled={loading || data.unreadCount === 0} onClick={() => void run(() => api.notifications.readAll())}>{t("notificationCenter.readAll")}</button>
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
-        {error && <div role="alert" className="text-sm text-accent-danger">{error} <button className={buttonClass} onClick={() => setRevision((value) => value + 1)}>{t("issues.retry")}</button></div>}
-        {visibleItems.length === 0 && !error && <p className="py-8 text-center text-sm text-tx-tertiary">{t("notificationCenter.empty")}</p>}
-        {visibleItems.map((notification) => <button key={notification.id} className={`w-full rounded-lg border border-app-border p-3 text-left hover:bg-app-hover ${notification.readAt ? "text-tx-secondary" : "bg-accent-primary/5"}`} disabled={loading} onClick={() => openNotification(notification)}>
-          <p className="flex items-center gap-1.5 text-xs text-tx-tertiary">
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain p-3.5 pb-[calc(16px+env(safe-area-inset-bottom))]">
+        {error && <div role="alert" className="flex items-center justify-between gap-2 rounded-2xl border border-red-500/25 bg-red-500/8 p-3 text-sm text-accent-danger">{error} <button className={buttonClass} onClick={() => setRevision((value) => value + 1)}>{t("issues.retry")}</button></div>}
+        {visibleItems.length === 0 && !error && <p className="rounded-2xl border border-dashed border-app-border/80 bg-app-surface/55 py-10 text-center text-sm text-tx-tertiary">{t("notificationCenter.empty")}</p>}
+        {visibleItems.map((notification) => <button key={notification.id} className={`w-full rounded-2xl border p-3.5 text-left shadow-xs backdrop-blur-sm transition-all hover:border-indigo-400/40 hover:shadow-sm ${notification.readAt ? "border-app-border/75 bg-app-surface/75 text-tx-secondary" : "border-indigo-500/35 bg-indigo-500/[0.06] ring-1 ring-indigo-500/10"}`} disabled={loading} onClick={() => openNotification(notification)}>
+          <p className="flex items-center gap-1.5 text-xs tabular-nums text-tx-tertiary">
             <span>{notification.workspaceName || t("commentCenter.personal")} · {formatAppDateTime(notification.createdAt)}</span>
             {(notification.type === "issue_mentioned" || notification.type === "note_comment_mentioned") && (
-              <span className="rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">@提及你</span>
+              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">@提及你</span>
             )}
             {notification.type === "task_assigned" && (
-              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">任务指派</span>
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">任务指派</span>
             )}
-            {!notification.readAt && <span className="ml-auto text-accent-primary">●</span>}
+            {!notification.readAt && <span className="ml-auto text-indigo-500">●</span>}
           </p>
-          <p className="mt-1 text-sm">{notification.actorName || t("issues.unknown")} {t(`notificationCenter.${notification.type}`, { defaultValue: notification.type })}</p>
-          <p className="break-words text-sm font-medium">{notification.title}</p>
-          {notification.body && <p className="mt-1 line-clamp-2 break-words text-xs text-tx-tertiary">{notification.body}</p>}
+          <p className="mt-1.5 text-xs text-tx-secondary">{notification.actorName || t("issues.unknown")} {t(`notificationCenter.${notification.type}`, { defaultValue: notification.type })}</p>
+          <p className="mt-0.5 break-words text-sm font-medium text-tx-primary">{notification.title}</p>
+          {notification.body && <p className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-tx-tertiary">{notification.body}</p>}
         </button>)}
-        {data.items.length < data.total && <button className={buttonClass} disabled={loading} onClick={async () => {
+        {data.items.length < data.total && <button className={`${buttonClass} w-full py-2`} disabled={loading} onClick={async () => {
           const current = epoch.current;
           setLoading(true);
           paging.current = true;

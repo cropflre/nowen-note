@@ -190,37 +190,44 @@ export default function TokenManagement(): React.JSX.Element {
   };
 
   return (
-    <div className="space-y-6 pb-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">个人访问令牌</h2>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            为 MCP、CLI 和自动化 Agent 创建独立令牌，并限制其可访问的笔记本。
-          </p>
+    <div className="space-y-5 pb-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-app-border/80 bg-app-surface/85 p-5 shadow-sm backdrop-blur-md">
+        <div className="flex items-start gap-3.5">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/15 via-violet-500/15 to-sky-500/15 text-indigo-500 ring-1 ring-indigo-500/20 shadow-inner">
+            <Key className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">个人访问令牌</h2>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              为 MCP、CLI 和自动化 Agent 创建独立令牌，并限制其可访问的笔记本。
+            </p>
+          </div>
         </div>
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-500/25 transition-all hover:brightness-105 active:scale-[0.98]"
         >
           <Plus className="h-4 w-4" />创建令牌
         </button>
       </div>
 
-      <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/5 dark:text-amber-200">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="flex items-start gap-2.5 rounded-2xl border border-amber-300/60 bg-amber-50/75 p-3.5 text-xs leading-relaxed text-amber-800 backdrop-blur-sm dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
         <span>restricted 模式采用服务端强制校验。即使绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。</span>
       </div>
 
       {tokens.length > 0 && <TokenUsageStats refreshKey={tokens.map((item) => item.id).join(",")} />}
 
       {loading ? (
-        <div className="flex justify-center py-12 text-sm text-zinc-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />加载中...</div>
+        <div className="flex justify-center rounded-2xl border border-app-border/70 bg-app-surface/70 py-12 text-sm text-zinc-500 backdrop-blur-sm"><Loader2 className="mr-2 h-4 w-4 animate-spin text-indigo-500" />加载中...</div>
       ) : tokens.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
-          <Key className="mx-auto h-8 w-8 text-zinc-400" />
-          <p className="mt-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">尚未创建访问令牌</p>
-          <p className="mt-1 text-xs text-zinc-500">建议为每个 Agent 单独创建 restricted Token。</p>
+        <div className="rounded-[24px] border border-dashed border-zinc-300/90 bg-app-surface/65 p-10 text-center backdrop-blur-sm dark:border-zinc-700/80">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-500 ring-1 ring-indigo-500/20">
+            <Key className="h-6 w-6" />
+          </div>
+          <p className="mt-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200">尚未创建访问令牌</p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">建议为每个 Agent 单独创建 restricted Token。</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -309,28 +316,30 @@ function TokenRow({
   const expired = Boolean(item.expiresAt && Date.parse(item.expiresAt) < Date.now());
   const active = !revoked && !expired;
   return (
-    <div className={`rounded-xl border p-4 ${active ? "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/40" : "border-zinc-200 bg-zinc-50 opacity-70 dark:border-zinc-800 dark:bg-zinc-900/20"}`}>
+    <div className={`rounded-2xl border p-4 backdrop-blur-md transition-all ${active ? "border-zinc-200/90 bg-white/85 shadow-sm hover:border-indigo-400/40 hover:shadow-md dark:border-zinc-700/80 dark:bg-zinc-900/55" : "border-zinc-200/70 bg-zinc-50/75 opacity-75 dark:border-zinc-800/80 dark:bg-zinc-900/30"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Key className="h-4 w-4 text-indigo-500" />
-            <span className="font-medium text-zinc-900 dark:text-zinc-100">{item.name}</span>
-            <span className={`rounded-full px-2 py-0.5 text-[11px] ${active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"}`}>
+            <span className={`flex h-7 w-7 items-center justify-center rounded-xl ${active ? "bg-indigo-500/12 text-indigo-500 ring-1 ring-indigo-500/20" : "bg-zinc-200/70 text-zinc-400 dark:bg-zinc-800"}`}>
+              <Key className="h-3.5 w-3.5" />
+            </span>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{item.name}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${active ? "bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300" : "bg-zinc-200/80 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
               {revoked ? "已吊销" : expired ? "已过期" : "有效"}
             </span>
-            <span className={`rounded-full px-2 py-0.5 text-[11px] ${item.resourceMode === "restricted" ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${item.resourceMode === "restricted" ? "bg-indigo-500/12 text-indigo-700 ring-1 ring-indigo-500/20 dark:text-indigo-300" : "bg-amber-500/12 text-amber-700 ring-1 ring-amber-500/20 dark:text-amber-300"}`}>
               {item.resourceMode === "restricted" ? "限定笔记本" : "全部可访问资源"}
             </span>
           </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {item.scopes.map((scope) => <span key={scope} className="rounded bg-zinc-100 px-2 py-1 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(scope)}</span>)}
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {item.scopes.map((scope) => <span key={scope} className="rounded-lg border border-zinc-200/80 bg-zinc-100/80 px-2 py-0.5 text-[11px] text-zinc-600 dark:border-zinc-700/70 dark:bg-zinc-800/80 dark:text-zinc-300">{scopeLabel(scope)}</span>)}
           </div>
           {item.resourceMode === "restricted" && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {(item.notebookResources || []).length === 0 ? (
                 <span className="text-xs text-red-500">空白名单：所有笔记本请求都会被拒绝</span>
               ) : item.notebookResources.map((resource) => (
-                <span key={resource.notebookId} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200">
+                <span key={resource.notebookId} className="inline-flex items-center gap-1 rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-2.5 py-1 text-[11px] text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/12 dark:text-indigo-200">
                   <FolderTree className="h-3 w-3" />
                   {resource.notebookName || resource.notebookId}
                   {resource.workspaceId ? ` · ${resource.workspaceName || t("mcpConnect.spaces.teams")}` : ""}
@@ -340,22 +349,22 @@ function TokenRow({
               ))}
             </div>
           )}
-          <div className="mt-3 text-[11px] text-zinc-400">
+          <div className="mt-3 text-[11px] tabular-nums text-zinc-400">
             创建：{formatDate(item.createdAt)} · 过期：{formatDate(item.expiresAt)} · 最近使用：{item.lastUsedAt ? formatDate(item.lastUsedAt) : "—"}
             {item.lastUsedIp ? ` · ${item.lastUsedIp}` : ""}
           </div>
         </div>
         {revoked ? (
-          <button type="button" onClick={onDelete} disabled={deleteDisabled} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/10">
+          <button type="button" onClick={onDelete} disabled={deleteDisabled} className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-red-200/90 bg-red-50/60 px-3 py-1.5 text-xs font-medium text-red-600 transition-all hover:bg-red-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/15">
             {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             {t(deleting ? "tokens.deleting" : "tokens.delete")}
           </button>
         ) : (
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+            <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 rounded-xl border border-zinc-200/90 bg-white/80 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-xs transition-all hover:border-indigo-300 hover:bg-indigo-50/50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:bg-zinc-800">
               <Edit3 className="h-3.5 w-3.5" />授权
             </button>
-            <button type="button" onClick={onRevoke} className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/10">
+            <button type="button" onClick={onRevoke} className="inline-flex items-center gap-1 rounded-xl border border-red-200/90 bg-red-50/60 px-3 py-1.5 text-xs font-medium text-red-600 transition-all hover:bg-red-50 active:scale-[0.98] dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/15">
               <Trash2 className="h-3.5 w-3.5" />吊销
             </button>
           </div>
@@ -431,15 +440,15 @@ function TokenDialog({
           <>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-zinc-700 dark:text-zinc-300">名称</span>
-              <input value={value.name} onChange={(event) => setValue({ ...value, name: event.target.value })} maxLength={64} autoFocus className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-zinc-700 dark:bg-zinc-900" placeholder="例如：投资助理 MCP" />
+              <input value={value.name} onChange={(event) => setValue({ ...value, name: event.target.value })} maxLength={64} autoFocus className="w-full rounded-xl border border-zinc-200/90 bg-white/90 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-900/80" placeholder="例如：投资助理 MCP" />
             </label>
             <div>
               <span className="mb-2 block text-xs font-medium text-zinc-700 dark:text-zinc-300">能力 scopes</span>
               <div className="grid grid-cols-2 gap-2">
                 {availableScopes.map((scope) => {
                   const checked = value.scopes.includes(scope);
-                  return <button key={scope} type="button" onClick={() => setValue({ ...value, scopes: checked ? value.scopes.filter((item) => item !== scope) : [...value.scopes, scope] })} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs ${checked ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200" : "border-zinc-200 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"}`}>
-                    <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300"}`}>{checked && <Check className="h-3 w-3" />}</span>
+                  return <button key={scope} type="button" onClick={() => setValue({ ...value, scopes: checked ? value.scopes.filter((item) => item !== scope) : [...value.scopes, scope] })} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-all active:scale-[0.99] ${checked ? "border-indigo-400/80 bg-indigo-50/85 text-indigo-700 shadow-xs dark:bg-indigo-500/15 dark:text-indigo-200" : "border-zinc-200/90 bg-white/60 text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300"}`}>
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"}`}>{checked && <Check className="h-3 w-3" />}</span>
                     {scopeLabel(scope)}
                   </button>;
                 })}
@@ -450,29 +459,29 @@ function TokenDialog({
 
         <div>
           <span className="mb-2 block text-xs font-medium text-zinc-700 dark:text-zinc-300">资源范围</span>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setValue({ ...value, resourceMode: "restricted" })} className={`rounded-lg border p-3 text-left ${value.resourceMode === "restricted" ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10" : "border-zinc-200 dark:border-zinc-700"}`}>
-              <ShieldCheck className="mb-1 h-4 w-4 text-indigo-500" /><div className="text-sm font-medium">限定笔记本</div><div className="mt-1 text-[11px] text-zinc-500">推荐用于 MCP 与 Agent</div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button type="button" onClick={() => setValue({ ...value, resourceMode: "restricted" })} className={`rounded-2xl border p-3.5 text-left transition-all ${value.resourceMode === "restricted" ? "border-indigo-400/80 bg-indigo-50/80 ring-1 ring-indigo-500/20 dark:bg-indigo-500/12" : "border-zinc-200/90 hover:border-zinc-300 dark:border-zinc-700"}`}>
+              <ShieldCheck className="mb-1.5 h-4 w-4 text-indigo-500" /><div className="text-sm font-semibold">限定笔记本</div><div className="mt-1 text-[11px] text-zinc-500">推荐用于 MCP 与 Agent</div>
             </button>
-            <button type="button" onClick={() => setValue({ ...value, resourceMode: "unrestricted" })} className={`rounded-lg border p-3 text-left ${value.resourceMode === "unrestricted" ? "border-amber-400 bg-amber-50 dark:bg-amber-500/10" : "border-zinc-200 dark:border-zinc-700"}`}>
-              <Key className="mb-1 h-4 w-4 text-amber-500" /><div className="text-sm font-medium">全部可访问资源</div><div className="mt-1 text-[11px] text-zinc-500">兼容旧 Token 行为</div>
+            <button type="button" onClick={() => setValue({ ...value, resourceMode: "unrestricted" })} className={`rounded-2xl border p-3.5 text-left transition-all ${value.resourceMode === "unrestricted" ? "border-amber-400/80 bg-amber-50/80 ring-1 ring-amber-500/20 dark:bg-amber-500/12" : "border-zinc-200/90 hover:border-zinc-300 dark:border-zinc-700"}`}>
+              <Key className="mb-1.5 h-4 w-4 text-amber-500" /><div className="text-sm font-semibold">全部可访问资源</div><div className="mt-1 text-[11px] text-zinc-500">兼容旧 Token 行为</div>
             </button>
           </div>
         </div>
 
         {value.resourceMode === "restricted" && (
           <div>
-            <div className="mb-2 flex items-center justify-between"><span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">笔记本白名单</span><span className="text-[11px] text-zinc-400">已选 {value.notebookResources.length}</span></div>
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 p-2 dark:border-zinc-700">
+            <div className="mb-2 flex items-center justify-between"><span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">笔记本白名单</span><span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">已选 {value.notebookResources.length}</span></div>
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-2xl border border-zinc-200/90 bg-zinc-50/60 p-2.5 dark:border-zinc-700/80 dark:bg-zinc-900/40">
               {notebooks.length === 0 ? <div className="py-6 text-center text-xs text-zinc-500">暂无可授权笔记本</div> : notebooks.map((option) => {
                 const resource = selected.get(option.id);
                 return (
-                  <div key={option.id} className={`rounded-lg border p-2.5 ${resource ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/5" : "border-zinc-200 dark:border-zinc-800"}`}>
+                  <div key={option.id} className={`rounded-xl border p-2.5 transition-colors ${resource ? "border-indigo-300/90 bg-indigo-50/75 dark:border-indigo-500/40 dark:bg-indigo-500/10" : "border-zinc-200/80 bg-white/80 dark:border-zinc-800 dark:bg-zinc-900/60"}`}>
                     <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => toggleNotebook(option)} className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${resource ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"}`}>{resource && <Check className="h-3 w-3" />}</button>
+                      <button type="button" onClick={() => toggleNotebook(option)} className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border ${resource ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"}`}>{resource && <Check className="h-3 w-3" />}</button>
                       <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">{option.name}</span>
                       <span className="max-w-[40%] shrink-0 truncate text-[11px] text-zinc-400" title={notebookSpaceLabel(t, option)}>{notebookSpaceLabel(t, option)}</span>
-                      {resource && <select value={resource.permission} onChange={(event) => patchResource(option.id, { permission: event.target.value as ResourcePermission })} className="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] dark:border-zinc-700 dark:bg-zinc-900">
+                      {resource && <select value={resource.permission} onChange={(event) => patchResource(option.id, { permission: event.target.value as ResourcePermission })} className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] dark:border-zinc-700 dark:bg-zinc-900">
                         <option value="read">只读</option>
                         {option.canWrite && <option value="write">读写</option>}
                       </select>}
@@ -489,15 +498,15 @@ function TokenDialog({
         {!resourceOnly && (
           <div>
             <span className="mb-2 block text-xs font-medium text-zinc-700 dark:text-zinc-300">有效期</span>
-            <div className="flex flex-wrap gap-2">{[30, 90, 180, 365].map((days) => <button key={days} type="button" onClick={() => setValue({ ...value, expiresInDays: days })} className={`rounded-lg border px-3 py-1.5 text-xs ${value.expiresInDays === days ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200" : "border-zinc-200 dark:border-zinc-700"}`}>{days} 天</button>)}<button type="button" onClick={() => setValue({ ...value, expiresInDays: null })} className={`rounded-lg border px-3 py-1.5 text-xs ${value.expiresInDays === null ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-500/10" : "border-zinc-200 dark:border-zinc-700"}`}>永不过期</button></div>
+            <div className="flex flex-wrap gap-2">{[30, 90, 180, 365].map((days) => <button key={days} type="button" onClick={() => setValue({ ...value, expiresInDays: days })} className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-all ${value.expiresInDays === days ? "border-indigo-400/80 bg-indigo-50/90 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200" : "border-zinc-200/90 hover:border-zinc-300 dark:border-zinc-700"}`}>{days} 天</button>)}<button type="button" onClick={() => setValue({ ...value, expiresInDays: null })} className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-all ${value.expiresInDays === null ? "border-amber-400/80 bg-amber-50/90 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200" : "border-zinc-200/90 hover:border-zinc-300 dark:border-zinc-700"}`}>永不过期</button></div>
           </div>
         )}
 
-        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
+        {error && <div className="rounded-xl border border-red-200/90 bg-red-50/85 p-3 text-xs text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</div>}
       </div>
-      <div className="mt-6 flex justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-        <button type="button" onClick={onClose} disabled={submitting} className="rounded-lg px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">取消</button>
-        <button type="button" onClick={() => void submit()} disabled={submitting} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}保存</button>
+      <div className="mt-6 flex justify-end gap-2 border-t border-zinc-200/80 pt-4 dark:border-zinc-800/80">
+        <button type="button" onClick={onClose} disabled={submitting} className="rounded-xl px-4 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">取消</button>
+        <button type="button" onClick={() => void submit()} disabled={submitting} className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-500/25 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}保存</button>
       </div>
     </DialogShell>
   );
@@ -511,16 +520,17 @@ function CreatedTokenDialog({ value, onClose }: { value: { name: string; token: 
     toast.success("令牌已复制");
   };
   return <DialogShell title={`保存令牌 · ${value.name}`} onClose={onClose}>
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/5 dark:text-amber-200">明文只显示这一次。请立即复制到 MCP 配置或密码管理器。</div>
-    <div className="mt-4 flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900"><code className="min-w-0 flex-1 break-all text-xs">{value.token}</code><button type="button" onClick={() => void copy()} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs text-white">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}复制</button></div>
-    <div className="mt-5 flex justify-end"><button type="button" onClick={onClose} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">我已保存</button></div>
+    <div className="rounded-2xl border border-amber-300/70 bg-amber-50/80 p-3.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">明文只显示这一次。请立即复制到 MCP 配置或密码管理器。</div>
+    <div className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-200/90 bg-zinc-50/85 p-3.5 dark:border-zinc-700/80 dark:bg-zinc-900/75"><code className="min-w-0 flex-1 break-all font-mono text-xs">{value.token}</code><button type="button" onClick={() => void copy()} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3.5 py-2 text-xs font-medium text-white shadow-sm shadow-indigo-500/20 transition-all hover:brightness-105 active:scale-[0.98]">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}复制</button></div>
+    <div className="mt-5 flex justify-end"><button type="button" onClick={onClose} className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-all hover:opacity-90 active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-900">我已保存</button></div>
   </DialogShell>;
 }
 
 function DialogShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
-      <div className="mb-5 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-indigo-500" /><h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3></div><button type="button" onClick={onClose} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"><X className="h-4 w-4" /></button></div>
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[26px] border border-zinc-200/90 bg-white/95 p-5 shadow-2xl backdrop-blur-2xl dark:border-zinc-700/80 dark:bg-zinc-950/95">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" />
+      <div className="mb-5 flex items-center justify-between gap-3"><div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-500 ring-1 ring-indigo-500/20"><ShieldCheck className="h-4 w-4" /></span><h3 className="font-semibold text-zinc-900 dark:text-zinc-100">{title}</h3></div><button type="button" onClick={onClose} className="rounded-xl p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"><X className="h-4 w-4" /></button></div>
       {children}
     </div>
   </div>;

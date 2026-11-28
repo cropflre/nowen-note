@@ -297,13 +297,13 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         {/* 面板由懒加载壳在关闭时直接卸载（见 LazyCommandPaletteRuntime），因此只有进入动画：
             关闭保持即时，不拖慢“呼出 → 执行 → 消失”的节奏。 */}
         <motion.div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 bg-black/45 backdrop-blur-sm"
           aria-hidden
           initial={overlayMotion.initial}
           animate={overlayMotion.animate}
         />
         <motion.div
-          className="relative w-full max-w-[640px] overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-dialog"
+          className="relative w-full max-w-[660px] overflow-hidden rounded-[26px] border border-app-border/80 bg-app-elevated/95 shadow-2xl backdrop-blur-2xl"
           initial={dialogMotion.initial}
           animate={dialogMotion.animate}
           role="dialog"
@@ -311,8 +311,11 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           aria-label="全局搜索与工作台命令"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-2 border-b border-app-border px-4 py-3">
-            <SearchIcon size={18} className="shrink-0 text-tx-tertiary" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-indigo-500/70 via-violet-500/70 to-sky-400/70" />
+          <div className="flex items-center gap-3 border-b border-app-border/75 bg-app-surface/70 px-4 py-3.5 backdrop-blur-md">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-500 ring-1 ring-indigo-500/20">
+              <SearchIcon size={16} />
+            </span>
             <input
               ref={inputRef}
               type="text"
@@ -324,100 +327,121 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               autoComplete="off"
               spellCheck={false}
             />
-            {loading && <Loader2 size={16} className="animate-spin text-tx-tertiary" />}
-            <kbd className="hidden h-5 items-center rounded border border-app-border px-1.5 text-[10px] text-tx-tertiary sm:inline-flex">
+            {loading && <Loader2 size={16} className="animate-spin text-indigo-500" />}
+            <kbd className="hidden h-6 items-center rounded-lg border border-app-border/80 bg-app-bg/70 px-2 font-mono text-[10px] text-tx-tertiary sm:inline-flex">
               Esc
             </kbd>
           </div>
 
-          <div ref={listRef} className="max-h-[56vh] overflow-y-auto py-1">
+          <div ref={listRef} className="max-h-[56vh] overflow-y-auto py-2">
             {visibleCommands.length > 0 && (
-              <section aria-label="工作台命令">
-                <div className="px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-tx-tertiary">
+              <section aria-label="工作台命令" className="px-2">
+                <div className="px-2.5 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
                   工作台命令
                 </div>
-                {visibleCommands.map((command) => (
-                  <button
-                    key={command.id}
-                    type="button"
-                    onClick={() => runCommand(command)}
-                    className="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-app-hover"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-app-hover text-tx-secondary">
-                      {command.icon}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-tx-primary">{command.label}</span>
-                      <span className="block truncate text-xs text-tx-tertiary">{command.description}</span>
-                    </span>
-                    {command.shortcut && (
-                      <kbd className="hidden shrink-0 rounded border border-app-border px-1.5 py-0.5 text-[10px] text-tx-tertiary sm:inline-flex">
-                        {command.shortcut}
-                      </kbd>
-                    )}
-                  </button>
-                ))}
+                <div className="space-y-0.5">
+                  {visibleCommands.map((command) => (
+                    <button
+                      key={command.id}
+                      type="button"
+                      onClick={() => runCommand(command)}
+                      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all hover:bg-app-hover/85 active:scale-[0.995]"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-app-hover/90 text-tx-secondary ring-1 ring-app-border/60">
+                        {command.icon}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-tx-primary">{command.label}</span>
+                        <span className="block truncate text-xs text-tx-tertiary">{command.description}</span>
+                      </span>
+                      {command.shortcut && (
+                        <kbd className="hidden shrink-0 rounded-lg border border-app-border/80 bg-app-bg/70 px-2 py-0.5 font-mono text-[10px] text-tx-tertiary sm:inline-flex">
+                          {command.shortcut}
+                        </kbd>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </section>
             )}
 
             {!commandOnly && results.length > 0 && (
-              <div className="mt-1 border-t border-app-border px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-tx-tertiary">
+              <div className="mx-2 mt-2 border-t border-app-border/70 px-2.5 pb-1.5 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
                 知识搜索结果
               </div>
             )}
 
             {showEmptySearch && visibleCommands.length === 0 && (
-              <div className="animate-nowen-fade-in px-4 py-6 text-center text-sm text-tx-tertiary">
+              <div className="animate-nowen-fade-in px-4 py-8 text-center text-sm text-tx-tertiary">
                 未找到与 &ldquo;{query}&rdquo; 匹配的知识内容或命令
               </div>
             )}
 
             {!normalizedQuery && (
-              <div className="border-t border-app-border px-4 py-3 text-center text-xs text-tx-tertiary">
+              <div className="mx-2 mt-2 rounded-xl border border-app-border/60 bg-app-bg/50 px-4 py-2.5 text-center text-xs text-tx-tertiary">
                 输入关键词搜索笔记、脑图和表格；输入 &gt; 只筛选命令
               </div>
             )}
 
-            {results.map((result, index) => {
-              const active = index === activeIdx;
-              const snippetHtml = result.snippetHtml || result.snippet;
-              return (
-                <button
-                  key={result.id}
-                  data-idx={index}
-                  type="button"
-                  onMouseEnter={() => setActiveIdx(index)}
-                  onClick={() => void jumpTo(result)}
-                  // 新结果错峰浮现（最多 8 级，约 160ms 内全部开始）；同一条结果跨查询保留时不重播。
-                  style={{ animationDelay: `${staggerDelay(index)}s` }}
-                  className={[
-                    "animate-nowen-rise-in flex w-full items-start gap-3 px-4 py-2 text-left transition-colors",
-                    active ? "bg-app-hover" : "hover:bg-app-hover/60",
-                  ].join(" ")}
-                >
-                  {result.resourceType === "mindmap"
-                    ? <BrainCircuit size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
-                    : result.resourceType === "sheet" || result.resourceType === "excel"
-                      ? <Table2 size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
-                      : <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />}
-                  <div className="min-w-0 flex-1">
-                    <div className="search-result-html truncate text-sm text-tx-primary">
-                      {result.titleHtml ? (
-                        <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(result.titleHtml) }} />
-                      ) : (
-                        highlightTextNode(result.title || "(无标题)", query)
-                      )}
-                    </div>
-                    {snippetHtml && (
-                      <div
-                        className="search-result-html mt-0.5 truncate text-xs text-tx-tertiary"
-                        dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(snippetHtml) }}
-                      />
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+            {results.length > 0 && (
+              <div className="space-y-0.5 px-2">
+                {results.map((result, index) => {
+                  const active = index === activeIdx;
+                  const snippetHtml = result.snippetHtml || result.snippet;
+                  const isMindmap = result.resourceType === "mindmap";
+                  const isSheet = result.resourceType === "sheet" || result.resourceType === "excel";
+                  return (
+                    <button
+                      key={result.id}
+                      data-idx={index}
+                      type="button"
+                      onMouseEnter={() => setActiveIdx(index)}
+                      onClick={() => void jumpTo(result)}
+                      // 新结果错峰浮现（最多 8 级，约 160ms 内全部开始）；同一条结果跨查询保留时不重播。
+                      style={{ animationDelay: `${staggerDelay(index)}s` }}
+                      className={[
+                        "animate-nowen-rise-in flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all",
+                        active
+                          ? "bg-indigo-500/10 ring-1 ring-indigo-500/25"
+                          : "hover:bg-app-hover/70",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={[
+                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                          isMindmap
+                            ? "bg-violet-500/12 text-violet-500"
+                            : isSheet
+                              ? "bg-sky-500/12 text-sky-500"
+                              : "bg-indigo-500/12 text-indigo-500",
+                        ].join(" ")}
+                      >
+                        {isMindmap
+                          ? <BrainCircuit size={14} />
+                          : isSheet
+                            ? <Table2 size={14} />
+                            : <FileText size={14} />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="search-result-html truncate text-sm font-medium text-tx-primary">
+                          {result.titleHtml ? (
+                            <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(result.titleHtml) }} />
+                          ) : (
+                            highlightTextNode(result.title || "(无标题)", query)
+                          )}
+                        </div>
+                        {snippetHtml && (
+                          <div
+                            className="search-result-html mt-0.5 truncate text-xs text-tx-tertiary"
+                            dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(snippetHtml) }}
+                          />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </motion.div>
       </div>

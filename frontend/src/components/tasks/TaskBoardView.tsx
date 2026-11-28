@@ -106,57 +106,69 @@ export function TaskBoardView({
   };
 
   return (
-    <div className="flex gap-3 overflow-x-auto overflow-y-hidden px-4 md:px-6 py-4 h-full">
+    <div className="flex gap-3.5 overflow-x-auto overflow-y-hidden px-4 md:px-6 py-4 h-full bg-gradient-to-br from-transparent via-transparent to-indigo-500/[0.025] dark:to-indigo-500/[0.05]">
       {COLUMNS.map((col) => {
         const columnTasks = grouped[col.key];
+        const toneRing = col.key === "doing"
+          ? "bg-amber-500/12 text-amber-600 ring-amber-500/20 dark:text-amber-300"
+          : col.key === "blocked"
+            ? "bg-rose-500/12 text-rose-600 ring-rose-500/20 dark:text-rose-300"
+            : col.key === "done"
+              ? "bg-indigo-500/12 text-indigo-600 ring-indigo-500/20 dark:text-indigo-300"
+              : "bg-app-hover/90 text-tx-secondary ring-app-border/70";
         return (
           <div
             key={col.key}
             className={cn(
-              "flex flex-col min-w-[240px] w-[240px] shrink-0 bg-app-elevated/50 rounded-xl border transition-colors",
-              dragOverCol === col.key ? "border-accent-primary/50 bg-accent-primary/5" : "border-app-border"
+              "flex flex-col min-w-[262px] w-[262px] shrink-0 rounded-2xl border backdrop-blur-md transition-all duration-200 shadow-[0_8px_24px_-18px_rgba(15,23,42,0.14)] dark:shadow-[0_12px_28px_-18px_rgba(0,0,0,0.55)]",
+              dragOverCol === col.key
+                ? "border-accent-primary/50 bg-accent-primary/[0.06] ring-2 ring-accent-primary/15"
+                : "border-app-border/75 bg-app-surface/65"
             )}
             onDragOver={(e) => handleDragOver(col.key, e)}
             onDrop={() => handleDrop(col.key)}
           >
             {/* Column header */}
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-app-border">
-              <span className={col.color}>{col.icon}</span>
-              <span className="text-sm font-medium text-tx-primary">
+            <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-app-border/65">
+              <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-xl ring-1 ring-inset", toneRing)}>
+                {React.cloneElement(col.icon, { size: 14 })}
+              </span>
+              <span className="text-sm font-bold tracking-tight text-tx-primary">
                 {STATUS_LABELS[col.key]}
               </span>
-              <span className="text-xs text-tx-tertiary ml-auto">
+              <span className="ml-auto rounded-full bg-app-hover/85 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-tx-secondary">
                 {columnTasks.length}
               </span>
             </div>
 
             {/* Cards */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
               {columnTasks.map((task) => {
                 const pri = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG[2];
                 const childInfo = childCountMap.get(task.id);
                 const descriptionPreview = (task.description ?? "").trim();
+                const overdue = task.isCompleted === 0 && (task.dueDate || task.dueAt) && isTaskDateOverdue(task.dueDate || (task.dueAt ? task.dueAt.split("T")[0] : ""), task.dueAt);
                 return (
                   <motion.div
                     key={task.id}
                     data-task-context-id={task.id}
                     tabIndex={0}
                     layout
-                    initial={{ opacity: 0, scale: 0.95 }}
+                    initial={{ opacity: 0, scale: 0.96 }}
                     animate={{ opacity: 1, scale: 1 }}
                     draggable={!isMobile}
                     onDragStart={(e) => handleDragStart(task.id, e as unknown as React.DragEvent)}
                     onDragEnd={handleDragEnd}
                     className={cn(
-                      "p-3 rounded-lg bg-app-surface border hover:shadow-md hover:border-accent-primary/30 cursor-pointer transition-all",
+                      "group p-3.5 rounded-2xl bg-app-surface/92 border cursor-pointer transition-all duration-150 shadow-sm hover:-translate-y-0.5 hover:shadow-md hover:border-accent-primary/40 active:translate-y-0",
                       dragOverCol && dragId === task.id ? "opacity-50" : "",
-                      (task.isCompleted === 0 && (task.dueDate || task.dueAt) && isTaskDateOverdue(task.dueDate || (task.dueAt ? task.dueAt.split("T")[0] : ""), task.dueAt)) ? "border-red-300 dark:border-red-800" : "border-app-border"
+                      overdue ? "border-rose-400/50 bg-rose-500/[0.03] dark:border-rose-500/35" : "border-app-border/75"
                     )}
                     onClick={() => onSelect(task)}
                   >
                     {/* Priority flag */}
                     <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <span className="text-[13px] text-tx-primary leading-snug line-clamp-2 break-words [overflow-wrap:anywhere]">
+                      <span className="text-[13px] font-medium text-tx-primary leading-snug line-clamp-2 break-words [overflow-wrap:anywhere]">
                         <TitleView title={task.title} compact isCompleted={task.isCompleted === 1} />
                       </span>
                       <Flag size={12} className={cn("shrink-0 mt-0.5", pri.flagClass)} />
@@ -168,30 +180,30 @@ export function TaskBoardView({
                     )}
 
                     {/* Meta row */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {(task.dueDate || task.dueAt) && (
                         <DateBadge dateStr={task.dueDate || (task.dueAt ? task.dueAt.split("T")[0] : null)} dueAt={task.dueAt} isCompleted={task.isCompleted === 1} />
                       )}
                       {task.parentId && (
-                        <span className="text-[10px] text-tx-tertiary px-1 py-0.5 rounded bg-app-hover">{t("tasks.subtaskShort")}</span>
+                        <span className="text-[10px] font-medium text-tx-tertiary px-1.5 py-0.5 rounded-full bg-app-hover">{t("tasks.subtaskShort")}</span>
                       )}
                       {childInfo && childInfo.total > 0 && (
-                        <span className="text-[10px] text-tx-tertiary">
+                        <span className="rounded-full bg-app-hover/80 px-1.5 py-0.5 font-mono text-[10px] text-tx-secondary">
                           {childInfo.completed}/{childInfo.total}
                         </span>
                       )}
                     </div>
 
                     {/* Quick status switch */}
-                    <div className="flex items-center gap-1 mt-2 pt-2 border-t border-app-border/50">
+                    <div className="flex items-center gap-1 mt-2.5 pt-2 border-t border-app-border/55">
                       {COLUMNS.filter((c) => c.key !== col.key).map((c) => (
                         <button
                           key={c.key}
                           onClick={(e) => { e.stopPropagation(); onStatusChange(task.id, c.key); }}
-                          className="p-1 rounded hover:bg-app-hover opacity-40 hover:opacity-100 transition-all"
+                          className="p-1.5 rounded-lg hover:bg-app-hover opacity-45 hover:opacity-100 transition-all active:scale-95"
                           title={STATUS_LABELS[c.key]}
                         >
-                          <span className={c.color}>{React.cloneElement(c.icon, { size: 11 })}</span>
+                          <span className={c.color}>{React.cloneElement(c.icon, { size: 12 })}</span>
                         </button>
                       ))}
                     </div>
@@ -200,7 +212,7 @@ export function TaskBoardView({
               })}
 
               {columnTasks.length === 0 && (
-                <div className="text-center text-xs text-tx-tertiary py-8 opacity-50">
+                <div className="rounded-2xl border border-dashed border-app-border/70 text-center text-xs text-tx-tertiary py-8 opacity-65">
                   {dragOverCol === col.key ? t("tasks.dropHere") : <TaskEmptyState type="no-tasks" compact />}
                 </div>
               )}

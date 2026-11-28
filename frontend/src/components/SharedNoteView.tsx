@@ -962,10 +962,10 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   // 加载中
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="flex flex-col items-center gap-3">
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-sky-50/50 dark:from-[#070a12] dark:via-[#0b1020] dark:to-[#0a1322]">
+        <div className="relative flex flex-col items-center gap-3 rounded-3xl border border-white/75 bg-white/82 px-8 py-6 shadow-xl backdrop-blur-2xl dark:border-white/[0.09] dark:bg-zinc-900/75">
           <Loader2 size={24} className="animate-spin text-indigo-500" />
-          <p className="text-sm text-zinc-400">加载分享内容...</p>
+          <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">加载分享内容...</p>
         </div>
       </div>
     );
@@ -974,18 +974,19 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   // 错误
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="flex flex-col items-center gap-4 max-w-sm mx-auto text-center px-4">
-          <div className="w-14 h-14 rounded-2xl bg-red-500/10 flex items-center justify-center">
-            <AlertCircle size={28} className="text-red-500" />
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-sky-50/50 px-4 dark:from-[#070a12] dark:via-[#0b1020] dark:to-[#0a1322]">
+        <div className="relative flex w-full max-w-sm flex-col items-center gap-4 overflow-hidden rounded-[28px] border border-white/75 bg-white/85 p-7 text-center shadow-[0_24px_64px_-20px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-white/[0.09] dark:bg-zinc-900/78">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-rose-500/55 to-transparent" />
+          <div className="w-14 h-14 rounded-2xl bg-rose-500/12 ring-1 ring-inset ring-rose-500/20 flex items-center justify-center">
+            <AlertCircle size={28} className="text-rose-500" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200 mb-1">无法访问</h2>
+            <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mb-1">无法访问</h2>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{error}</p>
           </div>
           <a
             href="/"
-            className="text-sm text-indigo-500 hover:text-indigo-600 transition-colors"
+            className="inline-flex items-center justify-center rounded-xl border border-zinc-200/80 bg-white/90 px-4 py-2 text-sm font-medium text-indigo-600 shadow-sm transition-all hover:-translate-y-[1px] hover:border-indigo-300 hover:text-indigo-700 dark:border-white/10 dark:bg-zinc-800/80 dark:text-indigo-300"
           >
             返回首页
           </a>
@@ -997,17 +998,22 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   // 密码验证页
   if (needPassword) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="w-full max-w-sm mx-auto px-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg border border-zinc-200 dark:border-zinc-800 p-6">
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-sky-50/50 px-4 dark:from-[#070a12] dark:via-[#0b1020] dark:to-[#0a1322]">
+        <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+          <div className="absolute -top-36 -left-24 h-96 w-96 rounded-full bg-indigo-400/16 blur-3xl dark:bg-indigo-500/22" />
+          <div className="absolute -bottom-36 -right-24 h-96 w-96 rounded-full bg-amber-400/12 blur-3xl dark:bg-violet-500/16" />
+        </div>
+        <div className="relative w-full max-w-sm mx-auto">
+          <div className="relative overflow-hidden rounded-[28px] border border-white/75 bg-white/85 p-7 shadow-[0_24px_64px_-20px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-white/[0.09] dark:bg-zinc-900/78 dark:shadow-[0_28px_72px_-16px_rgba(0,0,0,0.68)]">
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
             <div className="flex flex-col items-center mb-6">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-3">
-                <Lock size={28} className="text-amber-500" />
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/18 to-orange-500/15 ring-1 ring-inset ring-amber-500/25 shadow-sm flex items-center justify-center mb-3.5">
+                <Lock size={26} className="text-amber-500 dark:text-amber-400" />
               </div>
-              <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">需要密码访问</h2>
+              <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">需要密码访问</h2>
               {shareInfo && (
-                <p className="text-xs text-zinc-500 mt-1">
-                  <span className="font-medium">{shareInfo.ownerName}</span> 分享的笔记
+                <p className="text-xs text-zinc-500 mt-1.5">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">{shareInfo.ownerName}</span> 分享的笔记
                 </p>
               )}
               {shareInfo?.noteTitle && (
@@ -1023,15 +1029,15 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 onKeyDown={handleKeyDown}
                 placeholder="输入访问密码"
                 autoFocus
-                className="w-full h-10 px-4 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
+                className="w-full h-10 px-4 text-sm rounded-xl border border-zinc-200/85 bg-white/80 text-zinc-800 placeholder:text-zinc-400 shadow-inner shadow-black/[0.02] transition-all focus:outline-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-500 dark:border-white/10 dark:bg-zinc-950/55 dark:text-zinc-200"
               />
               {passwordError && (
-                <p className="text-xs text-red-500 text-center">{passwordError}</p>
+                <p className="text-xs text-rose-500 text-center">{passwordError}</p>
               )}
               <Button
                 onClick={handleVerify}
                 disabled={!password.trim() || verifying}
-                className="w-full h-10 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-xl"
+                className="w-full h-10 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold shadow-md shadow-indigo-500/25"
               >
                 {verifying ? <Loader2 size={16} className="animate-spin mr-1.5" /> : null}
                 {verifying ? "验证中..." : "确认访问"}
@@ -1081,23 +1087,23 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   return (
     <div
       ref={pageScrollRef}
-      className="min-h-screen bg-zinc-50 dark:bg-zinc-950 overflow-y-auto"
+      className="min-h-screen bg-gradient-to-b from-slate-50 via-zinc-50/95 to-indigo-50/35 dark:from-[#070a12] dark:via-[#0b0f1a] dark:to-[#0d1324] overflow-y-auto"
       style={{ height: "100vh", "--share-header-offset": `${SHARE_HEADER_OFFSET_PX}px` } as React.CSSProperties}
     >
       {/* 顶部信息栏 */}
-      <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800">
-        <div className={cn(sharePageWidthClass(siteConfig.sharePageWidth), "mx-auto px-4 py-3 flex items-center justify-between")}>
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
-              <FileText size={16} className="text-indigo-500" />
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-zinc-900/78 backdrop-blur-2xl border-b border-zinc-200/75 dark:border-white/[0.08]">
+        <div className={cn(sharePageWidthClass(siteConfig.sharePageWidth), "mx-auto px-4 py-3 flex items-center justify-between gap-3")}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500/18 via-sky-500/12 to-violet-500/18 ring-1 ring-inset ring-indigo-500/20 shadow-sm flex items-center justify-center shrink-0">
+              <FileText size={16} className="text-indigo-600 dark:text-indigo-300" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+              <h1 className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-100 truncate">
                 {content.title || "无标题笔记"}
               </h1>
               {shareInfo && (
                 <p className="text-[11px] text-zinc-400">
-                  由 <span className="text-zinc-500 dark:text-zinc-400">{shareInfo.ownerName}</span> 分享
+                  由 <span className="font-medium text-zinc-600 dark:text-zinc-300">{shareInfo.ownerName}</span> 分享
                   {content.updatedAt && (
                     <> · 更新于 {formatAppDate(content.updatedAt, undefined, undefined, "zh-CN")}</>
                   )}
@@ -1110,7 +1116,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               <button
                 type="button"
                 onClick={() => setIsMobileOutlineOpen(true)}
-                className="lg:hidden flex items-center gap-1.5 px-2 py-1 text-[10px] rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+                className="lg:hidden flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium rounded-xl border border-zinc-200/80 bg-white/85 text-zinc-600 shadow-sm hover:text-zinc-900 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:text-zinc-100 transition-all"
                 aria-haspopup="dialog"
                 aria-expanded={isMobileOutlineOpen}
               >
@@ -1122,7 +1128,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
             {hasUpdate && (
               <button
                 onClick={handleRefresh}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] rounded-full bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-colors font-medium"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] rounded-full bg-sky-500/12 text-sky-600 ring-1 ring-inset ring-sky-500/20 hover:bg-sky-500/20 dark:text-sky-300 transition-colors font-semibold"
               >
                 <RefreshCw size={11} />
                 有新版本，点击刷新
@@ -1133,8 +1139,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               <button
                 onClick={() => setShowComments(!showComments)}
                 className={cn(
-                  "flex items-center gap-1 px-2 py-1 text-[10px] rounded-md transition-colors",
-                  showComments ? "bg-blue-500/10 text-blue-500" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                  "flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-xl transition-all",
+                  showComments ? "bg-indigo-500/12 text-indigo-600 ring-1 ring-inset ring-indigo-500/20 dark:text-indigo-300" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 )}
               >
                 <MessageCircle size={12} />
@@ -1154,13 +1160,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                         - 作者本人：显示"作者"徽章，不可改（点也没意义）
                         - 访客：可点击修改 */}
                     {isOwnerViewing ? (
-                      <span className="hidden sm:flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-indigo-500/10 text-indigo-500" title="你是这条笔记的作者">
+                      <span className="hidden sm:flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-xl bg-indigo-500/12 text-indigo-600 ring-1 ring-inset ring-indigo-500/20 dark:text-indigo-300" title="你是这条笔记的作者">
                         <UserCircle2 size={11} />
                         <span>{viewerDisplayName || "作者"}（作者）</span>
                       </span>
                     ) : (
                       guestName && (
-                        <span className="hidden sm:flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500" title="点击可修改昵称">
+                        <span className="hidden sm:flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500" title="点击可修改昵称">
                           <UserCircle2 size={11} />
                           <button
                             onClick={() => { setNicknameDraft(guestName); setNicknameError(""); setShowNicknameModal(true); }}
@@ -1173,10 +1179,10 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                     )}
                     {/* 保存状态 */}
                     <span className={cn(
-                      "flex items-center gap-1 px-2 py-1 text-[10px] rounded-md font-medium",
-                      saveStatus === "saving" && "bg-amber-500/10 text-amber-500",
-                      saveStatus === "saved" && "bg-green-500/10 text-green-500",
-                      saveStatus === "error" && "bg-red-500/10 text-red-500",
+                      "flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-xl font-semibold",
+                      saveStatus === "saving" && "bg-amber-500/12 text-amber-600 dark:text-amber-300",
+                      saveStatus === "saved" && "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300",
+                      saveStatus === "error" && "bg-rose-500/12 text-rose-600 dark:text-rose-300",
                       saveStatus === "idle" && "bg-zinc-100 dark:bg-zinc-800 text-zinc-400",
                     )}>
                       {saveStatus === "saving" && <><Loader2 size={11} className="animate-spin" />保存中</>}
@@ -1188,7 +1194,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 ) : (
                   <button
                     onClick={handleStartEditing}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] rounded-md bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold shadow-sm shadow-indigo-500/25 transition-all hover:-translate-y-[1px] active:translate-y-[0.5px]"
                   >
                     <Edit3 size={11} />
                     开始编辑
@@ -1197,7 +1203,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               </>
             )}
 
-            <span className="px-2 py-1 text-[10px] rounded-md bg-indigo-500/10 text-indigo-500 font-medium">
+            <span className="px-2.5 py-1 text-[10px] rounded-full bg-indigo-500/12 text-indigo-600 ring-1 ring-inset ring-indigo-500/20 dark:text-indigo-300 font-semibold">
               {content.permission === "view"
                 ? "仅查看"
                 : content.permission === "edit"
@@ -1211,7 +1217,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         {/* 保存失败时的错误提示条 */}
         {saveStatus === "error" && saveError && (
           <div className={cn(sharePageWidthClass(siteConfig.sharePageWidth), "mx-auto px-4 pb-2 -mt-1")}>
-            <p className="text-[11px] text-red-500 flex items-center gap-1">
+            <p className="text-[11px] text-rose-500 flex items-center gap-1">
               <AlertCircle size={11} />
               {saveError}
             </p>
@@ -1221,7 +1227,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
 
       {siteConfig.shareBannerEnabled && siteConfig.shareBannerImage && (
         <div className={cn(sharePageWidthClass(siteConfig.sharePageWidth), "mx-auto px-4 pt-6")} data-shared-note-banner="">
-          <div className="aspect-[3/1] sm:aspect-[4/1] overflow-hidden rounded-xl">
+          <div className="aspect-[3/1] sm:aspect-[4/1] overflow-hidden rounded-2xl ring-1 ring-black/[0.06] shadow-lg dark:ring-white/10">
             <img src={siteConfig.shareBannerImage} alt="" className="h-full w-full object-cover" />
           </div>
         </div>
@@ -1230,11 +1236,11 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       {/* 笔记内容：edit / edit_auth + isEditing 时走 TiptapEditor；否则继续走只读 HTML 渲染 */}
       <main
         className={cn(
-          "mx-auto px-4 py-8",
+          "mx-auto px-4 py-6 sm:py-8",
           sharePageWidthClass(siteConfig.sharePageWidth, showDesktopOutline)
         )}
       >
-        <section className="min-w-0">
+        <section className="min-w-0 rounded-[24px] border border-zinc-200/75 bg-white/88 px-5 py-6 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.16)] backdrop-blur-md sm:px-9 sm:py-9 dark:border-white/[0.08] dark:bg-zinc-900/72 dark:shadow-[0_20px_56px_-24px_rgba(0,0,0,0.68)]">
           {content.noteType === "excel" && content.excelData ? (
             <ExcelWorkbookPreview data={content.excelData} title={content.title} />
           ) : isEditing && (content.permission === "edit" || content.permission === "edit_auth") && fakeNoteForEditing ? (
@@ -1476,9 +1482,9 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       {/* 评论区域 */}
       {showComments && (
         <div className={cn(sharePageWidthClass(siteConfig.sharePageWidth), "mx-auto px-4 pb-8")}>
-          <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6">
-            <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4 flex items-center gap-2">
-              <MessageCircle size={16} className="text-blue-500" />
+          <div className="rounded-[24px] border border-zinc-200/75 bg-white/85 p-5 shadow-sm backdrop-blur-md sm:p-6 dark:border-white/[0.08] dark:bg-zinc-900/72">
+            <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-100 mb-4 flex items-center gap-2">
+              <MessageCircle size={16} className="text-indigo-500" />
               评论 ({comments.length})
             </h3>
 
@@ -1488,13 +1494,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
             ) : (
               <div className="space-y-3 mb-4">
                 {comments.map((comment) => (
-                  <div key={comment.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-white dark:bg-zinc-900">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center text-[10px] font-medium text-indigo-500">
+                  <div key={comment.id} className="rounded-2xl border border-zinc-200/75 bg-zinc-50/75 p-3.5 dark:border-white/[0.07] dark:bg-zinc-950/45">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500/20 to-violet-500/20 ring-1 ring-indigo-500/20 flex items-center justify-center text-[10px] font-semibold text-indigo-600 dark:text-indigo-300">
                         {(comment.username || "?")[0]?.toUpperCase()}
                       </div>
-                      <span className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300">{comment.username || "匿名"}</span>
-                      <span className="text-[10px] text-zinc-400">
+                      <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{comment.username || "匿名"}</span>
+                      <span className="font-mono text-[10px] text-zinc-400">
                         {formatAppDate(comment.createdAt, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }, undefined, "zh-CN")}
                       </span>
                     </div>
@@ -1512,13 +1518,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 onChange={(e) => setNewComment(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmitComment(); } }}
                 placeholder="输入评论..."
-                className="flex-1 h-9 px-3 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
+                className="flex-1 h-10 px-3.5 text-xs rounded-xl border border-zinc-200/85 dark:border-white/10 bg-white/80 dark:bg-zinc-950/55 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-500"
               />
               <Button
                 onClick={handleSubmitComment}
                 disabled={!newComment.trim() || submittingComment}
                 size="icon"
-                className="h-9 w-9 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg shrink-0"
+                className="h-10 w-10 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl shadow-sm shrink-0"
               >
                 {submittingComment ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
               </Button>
@@ -1528,7 +1534,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       )}
 
       {/* 底部 */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6 text-center">
+      <footer className="border-t border-zinc-200/75 dark:border-white/[0.08] py-6 text-center">
         <p className="text-xs text-zinc-400 px-4 break-words">
           <Globe size={12} className="inline mr-1" />
           {siteConfig.shareFooterText?.trim() || "通过 Nowen Note 分享"}
@@ -1538,15 +1544,16 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
       {/* 访客昵称输入弹窗：首次点击"开始编辑"或服务端要求昵称时出现 */}
       {showNicknameModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-md px-4"
           onClick={(e) => { if (e.target === e.currentTarget) setShowNicknameModal(false); }}
         >
-          <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+          <div className="relative w-full max-w-sm overflow-hidden bg-white/90 dark:bg-zinc-900/90 rounded-[28px] shadow-2xl border border-white/75 dark:border-white/10 backdrop-blur-2xl p-7">
+            <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
             <div className="flex flex-col items-center mb-5">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center mb-3">
-                <UserCircle2 size={24} className="text-indigo-500" />
+              <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-indigo-500/18 to-sky-500/14 ring-1 ring-inset ring-indigo-500/20 flex items-center justify-center mb-3 p-3">
+                <UserCircle2 size={24} className="text-indigo-500 dark:text-indigo-300" />
               </div>
-              <h2 className="text-base font-semibold text-zinc-800 dark:text-zinc-200">请填写昵称</h2>
+              <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">请填写昵称</h2>
               <p className="text-xs text-zinc-500 mt-1 text-center">
                 在开始编辑之前，请留下一个昵称方便笔记作者知道是谁做的改动。
               </p>
@@ -1560,23 +1567,23 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                 placeholder="例如：张三"
                 maxLength={32}
                 autoFocus
-                className="w-full h-10 px-4 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
+                className="w-full h-10 px-4 text-sm rounded-xl border border-zinc-200/85 dark:border-white/10 bg-white/80 dark:bg-zinc-950/55 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-500"
               />
               {nicknameError && (
-                <p className="text-xs text-red-500">{nicknameError}</p>
+                <p className="text-xs text-rose-500">{nicknameError}</p>
               )}
               <div className="flex gap-2">
                 <Button
                   onClick={() => setShowNicknameModal(false)}
                   variant="ghost"
-                  className="flex-1 h-10 text-sm"
+                  className="flex-1 h-10 rounded-xl text-sm"
                 >
                   取消
                 </Button>
                 <Button
                   onClick={handleConfirmNickname}
                   disabled={!nicknameDraft.trim()}
-                  className="flex-1 h-10 bg-indigo-500 hover:bg-indigo-600 text-white font-medium rounded-xl"
+                  className="flex-1 h-10 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl shadow-md shadow-indigo-500/25"
                 >
                   开始编辑
                 </Button>

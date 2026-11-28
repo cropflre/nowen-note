@@ -141,20 +141,20 @@ export default function JournalArchive({
     <div className="space-y-3" data-journal-archive="">
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tx-tertiary" />
           <input
             value={q}
             onChange={(event) => setQ(event.target.value)}
             placeholder="搜索日记"
-            className="h-8 w-full rounded-lg border border-app-border bg-app-bg pl-8 pr-2 text-xs text-tx-primary outline-none focus:border-accent-primary/60"
+            className="h-9 w-full rounded-xl border border-app-border/80 bg-app-bg/85 pl-8.5 pr-3 text-xs text-tx-primary outline-none transition-all focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12"
           />
         </div>
         <button
           type="button"
           onClick={() => setFiltersOpen((value) => !value)}
           className={cn(
-            "rounded-lg border border-app-border p-2 text-tx-tertiary hover:bg-app-hover",
-            filtersOpen && "border-accent-primary/40 bg-accent-primary/10 text-accent-primary",
+            "rounded-xl border border-app-border/80 bg-app-bg/85 p-2.5 text-tx-tertiary shadow-sm transition-all hover:bg-app-hover hover:text-tx-primary active:scale-95",
+            filtersOpen && "border-accent-primary/40 bg-accent-primary/12 text-accent-primary",
           )}
           title="筛选与排序"
         >
@@ -163,30 +163,30 @@ export default function JournalArchive({
       </div>
 
       {filtersOpen && (
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-app-hover/40 p-2">
-          <select value={year} onChange={(e) => { setYear(e.target.value); if (!e.target.value) setMonth(""); }} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-app-border/65 bg-app-hover/40 p-2.5 backdrop-blur-sm">
+          <select value={year} onChange={(e) => { setYear(e.target.value); if (!e.target.value) setMonth(""); }} className="h-8 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs text-tx-secondary">
             <option value="">全部年份</option>
             {availableYears.map((value) => <option key={value} value={value}>{value}年</option>)}
           </select>
-          <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+          <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-8 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs text-tx-secondary">
             <option value="">全部月份</option>
             {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((value) => <option key={value} value={value}>{value}月</option>)}
           </select>
-          <select value={mood} onChange={(e) => setMood(e.target.value)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+          <select value={mood} onChange={(e) => setMood(e.target.value)} className="h-8 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs text-tx-secondary">
             <option value="">全部心情</option>
             {MOODS.map(([value, emoji]) => <option key={value} value={value}>{emoji} {value}</option>)}
           </select>
-          <select value={sort} onChange={(e) => setSort(e.target.value as JournalSort)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+          <select value={sort} onChange={(e) => setSort(e.target.value as JournalSort)} className="h-8 rounded-xl border border-app-border/80 bg-app-surface px-2.5 text-xs text-tx-secondary">
             <option value="date_desc">日期 ↓</option>
             <option value="date_asc">日期 ↑</option>
             <option value="updated_desc">最近编辑</option>
             <option value="updated_asc">最早编辑</option>
           </select>
-          <label className="col-span-1 text-[10px] text-tx-tertiary">从
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-8 w-full rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary" />
+          <label className="col-span-1 text-[10px] font-medium text-tx-tertiary">从
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-8 w-full rounded-xl border border-app-border/80 bg-app-surface px-2 text-xs text-tx-secondary" />
           </label>
-          <label className="col-span-1 text-[10px] text-tx-tertiary">到
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 h-8 w-full rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary" />
+          <label className="col-span-1 text-[10px] font-medium text-tx-tertiary">到
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 h-8 w-full rounded-xl border border-app-border/80 bg-app-surface px-2 text-xs text-tx-secondary" />
           </label>
         </div>
       )}
@@ -194,34 +194,34 @@ export default function JournalArchive({
       {loading ? (
         <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-accent-primary" /></div>
       ) : groups.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-app-border px-3 py-6 text-center text-xs text-tx-tertiary">没有匹配的日记</div>
+        <div className="rounded-2xl border border-dashed border-app-border/80 bg-app-bg/50 px-3 py-6 text-center text-xs text-tx-tertiary">没有匹配的日记</div>
       ) : (
         <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
           {groups.map((group) => (
             <div key={group.year}>
-              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-tx-tertiary">
+              <div className="mb-1.5 flex items-center gap-1 text-[11px] font-bold text-tx-tertiary">
                 <ChevronDown size={11} /> {group.year}年
               </div>
               <div className="space-y-2">
                 {group.months.map((monthGroup) => (
                   <div key={monthGroup.month}>
-                    <div className="mb-1 px-1 text-[10px] text-tx-tertiary">{monthGroup.month}月</div>
-                    <div className="space-y-1">
+                    <div className="mb-1 px-1 text-[10px] font-semibold text-tx-tertiary">{monthGroup.month}月</div>
+                    <div className="space-y-1.5">
                       {monthGroup.items.map((item) => (
                         <button
                           key={item.id}
                           type="button"
                           onClick={() => onSelectDate(item.journalDate)}
                           className={cn(
-                            "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                            "w-full rounded-2xl border px-3 py-2.5 text-left transition-all duration-150",
                             selectedDate === item.journalDate
-                              ? "border-accent-primary/40 bg-accent-primary/10"
-                              : "border-transparent bg-app-hover/40 hover:border-app-border hover:bg-app-hover",
+                              ? "border-accent-primary/35 bg-gradient-to-r from-indigo-500/12 to-violet-500/8 shadow-sm"
+                              : "border-transparent bg-app-hover/45 hover:-translate-y-[1px] hover:border-app-border/80 hover:bg-app-hover/80",
                           )}
                         >
                           <div className="flex items-center gap-2">
                             <CalendarDays size={12} className="shrink-0 text-accent-primary" />
-                            <span className="text-xs font-medium tabular-nums text-tx-primary">{item.journalDate}</span>
+                            <span className="font-mono text-xs font-semibold tabular-nums text-tx-primary">{item.journalDate}</span>
                             {item.moods.length > 0 && (
                               <span className="ml-auto text-xs" title={item.moods.join(", ")}>
                                 {item.moods.slice(0, 3).map((value) => MOODS.find(([key]) => key === value)?.[1] || "💬").join("")}
@@ -244,7 +244,7 @@ export default function JournalArchive({
               type="button"
               onClick={() => void load(nextOffset, true)}
               disabled={loadingMore}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-app-border px-3 py-2.5 text-xs font-medium text-tx-secondary hover:bg-app-hover disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface/85 px-3 py-2.5 text-xs font-semibold text-tx-secondary shadow-sm transition-all hover:border-accent-primary/40 hover:text-accent-primary disabled:opacity-60"
             >
               {loadingMore && <Loader2 size={12} className="animate-spin" />}
               {loadingMore ? "加载中…" : "加载更多"}

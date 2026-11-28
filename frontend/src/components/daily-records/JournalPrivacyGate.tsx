@@ -83,16 +83,23 @@ export default function JournalPrivacyGate({
   if (scope.kind === "workspace") return <>{children}</>;
 
   if (loading) {
-    return <div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg"><Loader2 size={24} className="animate-spin text-accent-primary" /></div>;
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-gradient-to-br from-app-bg via-app-bg to-indigo-500/[0.04]">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-app-border/75 bg-app-surface/85 shadow-sm backdrop-blur-md">
+          <Loader2 size={22} className="animate-spin text-accent-primary" />
+        </div>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg p-6">
-        <div className="max-w-sm rounded-2xl border border-app-border bg-app-surface p-6 text-center">
-          <p className="text-sm font-medium text-tx-primary">无法读取日记隐私状态</p>
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-gradient-to-br from-app-bg via-app-bg to-rose-500/[0.04] p-6">
+        <div className="relative max-w-sm overflow-hidden rounded-[26px] border border-app-border/75 bg-app-surface/90 p-7 text-center shadow-xl backdrop-blur-xl">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-rose-500/55 to-transparent" />
+          <p className="text-sm font-bold text-tx-primary">无法读取日记隐私状态</p>
           <p className="mt-2 text-xs text-tx-tertiary">{error}</p>
-          <button type="button" onClick={() => void load()} className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-app-border px-3 py-2 text-xs text-tx-secondary hover:bg-app-hover">
+          <button type="button" onClick={() => void load()} className="mt-5 inline-flex items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-bg/85 px-4 py-2 text-xs font-semibold text-tx-secondary shadow-sm transition-all hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-accent-primary active:translate-y-[0.5px]">
             <RefreshCw size={13} /> 重试
           </button>
         </div>
@@ -108,16 +115,20 @@ export default function JournalPrivacyGate({
     : null;
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg p-6" data-journal-privacy-gate="">
-      <div className="w-full max-w-md rounded-3xl border border-app-border bg-app-surface p-7 text-center shadow-sm">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-primary/10 text-accent-primary"><KeyRound size={22} /></div>
-        <h2 className="mt-4 text-lg font-semibold text-tx-primary">个人日记已锁定</h2>
+    <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-gradient-to-br from-app-bg via-app-bg to-indigo-500/[0.05] p-6" data-journal-privacy-gate="">
+      <div className="pointer-events-none absolute -top-24 left-1/3 h-64 w-64 rounded-full bg-indigo-500/12 blur-3xl dark:bg-indigo-500/18" aria-hidden="true" />
+      <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-app-border/75 bg-app-surface/88 p-8 text-center shadow-[0_24px_60px_-24px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:shadow-[0_24px_64px_-20px_rgba(0,0,0,0.65)]">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/18 via-sky-500/14 to-violet-500/18 text-accent-primary ring-1 ring-inset ring-accent-primary/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_3px_0_rgba(15,23,42,0.08)]">
+          <KeyRound size={24} />
+        </div>
+        <h2 className="mt-4 text-lg font-bold tracking-tight text-tx-primary">个人日记已锁定</h2>
         <p className="mt-2 text-sm leading-6 text-tx-tertiary">日记正文、档案与日期列表受“个人日记”目录密码保护。解锁只在当前会话有效。</p>
-        <button type="button" onClick={() => setUnlocking(true)} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-accent-primary px-5 py-2.5 text-sm font-medium text-white">
+        <button type="button" onClick={() => setUnlocking(true)} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/25 transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 active:translate-y-[0.5px]">
           <BookOpen size={15} /> 解锁日记
         </button>
         {activeWorkspaceId && (
-          <button type="button" onClick={onUseWorkspace} className="mt-3 block w-full text-xs text-tx-tertiary hover:text-accent-primary">切换到工作区日志</button>
+          <button type="button" onClick={onUseWorkspace} className="mt-3.5 block w-full text-xs font-medium text-tx-tertiary transition-colors hover:text-accent-primary">切换到工作区日志</button>
         )}
       </div>
 

@@ -177,8 +177,14 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
   if (phase === "probing") {
     // 还在探测，避免视觉闪烁，渲染一个最小 loading
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-[#090d16]">
+        <div className="pointer-events-none fixed inset-0">
+          <div className="absolute -top-32 -left-24 h-80 w-80 rounded-full bg-indigo-500/12 blur-3xl dark:bg-indigo-500/20" />
+          <div className="absolute -bottom-32 -right-24 h-80 w-80 rounded-full bg-sky-400/12 blur-3xl dark:bg-cyan-500/16" />
+        </div>
+        <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-white/70 bg-white/80 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/75">
+          <div className="h-6 w-6 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        </div>
       </div>
     );
   }
@@ -187,26 +193,33 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
   // 渲染一个统一的占位卡片。fallback 时给用户一个手动按钮可以直接关闭并回密码页。
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-5"
+      className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-sky-50/50 dark:from-[#070a12] dark:via-[#0b1020] dark:to-[#0a121f] px-5"
       style={{
         paddingTop: "var(--safe-area-top)",
         paddingBottom: "var(--safe-area-bottom)",
       }}
     >
-      <div className="w-full max-w-[360px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl p-6 text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 mb-3">
-          <Fingerprint
-            size={26}
-            className="text-indigo-600 dark:text-indigo-400"
-          />
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-36 -left-24 h-96 w-96 rounded-full bg-indigo-400/16 blur-3xl dark:bg-indigo-500/22" />
+        <div className="absolute -bottom-36 -right-24 h-96 w-96 rounded-full bg-sky-400/16 blur-3xl dark:bg-cyan-500/18" />
+      </div>
+
+      <div className="relative w-full max-w-[368px] overflow-hidden rounded-[28px] border border-white/75 bg-white/82 p-7 text-center shadow-[0_24px_64px_-20px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-white/[0.09] dark:bg-zinc-900/76 dark:shadow-[0_28px_72px_-16px_rgba(0,0,0,0.65)]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/60 to-transparent" />
+
+        <div className="relative mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/18 via-sky-500/14 to-violet-500/18 text-indigo-600 ring-1 ring-indigo-500/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_4px_0_rgba(15,23,42,0.08),0_10px_20px_-8px_rgba(99,102,241,0.35)] dark:text-indigo-300 dark:ring-indigo-400/30">
+          {phase === "authenticating" && (
+            <span className="pointer-events-none absolute inset-0 rounded-2xl ring-2 ring-indigo-400/35 animate-ping" />
+          )}
+          <Fingerprint size={28} />
         </div>
 
         {phase === "authenticating" && (
           <>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
               正在解锁
             </h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
               请验证你的指纹 / 人脸 / 锁屏密码
               {username ? `，登录账号 ${username}` : ""}
             </p>
@@ -214,26 +227,24 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
         )}
 
         {phase === "verifying" && (
-          <>
-            <div className="flex items-center justify-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              正在登录…
-            </div>
-          </>
+          <div className="mt-1 inline-flex items-center justify-center gap-2 rounded-full border border-indigo-500/20 bg-indigo-500/8 px-3.5 py-1.5 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在登录…
+          </div>
         )}
 
         {phase === "fallback" && (
           <>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <h2 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
               快速登录失败
             </h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
               {errorMsg || "请使用密码登录"}
             </p>
             <button
               type="button"
               onClick={() => onSettled(false)}
-              className="mt-4 w-full py-2.5 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+              className="mt-5 w-full rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 py-2.5 text-sm font-medium text-white shadow-md shadow-indigo-500/25 transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 hover:shadow-lg hover:shadow-indigo-500/30 active:translate-y-[0.5px] active:scale-[0.98]"
             >
               使用密码登录
             </button>

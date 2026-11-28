@@ -186,16 +186,19 @@ function PasswordDialog({
   }, [open]);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <section className="relative w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
-        <button type="button" onClick={onClose} disabled={busy} className="absolute right-3 top-3 rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="关闭">
+    <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <section className="relative w-full max-w-sm overflow-hidden rounded-[26px] border border-zinc-200/90 bg-white/95 p-5 shadow-2xl backdrop-blur-2xl dark:border-zinc-800/90 dark:bg-zinc-900/95">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-amber-500/80 via-orange-400/80 to-indigo-500/70" />
+        <button type="button" onClick={onClose} disabled={busy} className="absolute right-3 top-3 rounded-xl p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200" aria-label="关闭">
           <X size={16} />
         </button>
-        <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          <ShieldCheck size={17} className="text-amber-500" />
+        <div className="flex items-center gap-2.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/12 text-amber-500 ring-1 ring-amber-500/20">
+            <ShieldCheck size={16} />
+          </span>
           管理员二次验证
         </div>
-        <p className="mt-2 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
           在线升级会短暂中断服务。请输入当前管理员密码获取 5 分钟有效的 sudo 授权。
         </p>
         <form
@@ -212,10 +215,10 @@ function PasswordDialog({
             onChange={(event: React.ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
             placeholder="当前管理员密码"
             autoComplete="current-password"
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            className="w-full rounded-xl border border-zinc-200/90 bg-white/90 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-950/90 dark:text-zinc-100"
           />
           {error && <p className="text-xs text-red-500">{error}</p>}
-          <button type="submit" disabled={!password || busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+          <button type="submit" disabled={!password || busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3.5 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-500/25 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50">
             {busy && <Loader2 size={14} className="animate-spin" />}
             验证并继续
           </button>
@@ -441,11 +444,13 @@ export default function DockerUpdateCenter() {
   return (
     <>
       {createPortal(
-        <div data-nowen-docker-update="true" className="mt-3 border-t border-zinc-200/60 pt-3 dark:border-zinc-800/60">
-          <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-controls={detailsId} className="flex w-full items-center gap-2 rounded-lg py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800/50">
-            <Container size={14} className="shrink-0 text-zinc-500" />
+        <div data-nowen-docker-update="true" className="mt-3 border-t border-zinc-200/70 pt-3 dark:border-zinc-800/70">
+          <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-controls={detailsId} className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-zinc-100/80 dark:hover:bg-zinc-800/60">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-sky-500/12 text-sky-500 ring-1 ring-sky-500/20">
+              <Container size={13} />
+            </span>
             <span className="min-w-0 flex-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">Docker 服务端在线升级</span>
-            <span className="max-w-[45%] text-right text-[11px] text-zinc-400 dark:text-zinc-500">
+            <span className="max-w-[45%] rounded-full bg-zinc-100/90 px-2 py-0.5 text-right text-[11px] font-medium text-zinc-500 dark:bg-zinc-800/80 dark:text-zinc-400">
               {job ? phaseText(job.phase) : !status ? "读取状态…" : !status.deployment.onlineUpdateEligible ? "当前部署不支持" : status.canPreflight ? `可升级至 v${latestVersion}` : "查看升级状态"}
             </span>
             <ChevronDown size={14} className={`shrink-0 text-zinc-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -453,40 +458,40 @@ export default function DockerUpdateCenter() {
 
           <div id={detailsId} hidden={!expanded} className="mt-3 space-y-3">
             <div className="flex justify-end">
-              <button type="button" onClick={() => void loadStatus()} disabled={loading || !!active} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-200/60 disabled:opacity-40 dark:hover:bg-zinc-700/50" title="刷新升级状态">
+              <button type="button" onClick={() => void loadStatus()} disabled={loading || !!active} className="rounded-xl p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200/60 hover:text-zinc-600 disabled:opacity-40 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200" title="刷新升级状态">
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
               </button>
             </div>
 
             {!status ? (
-              <div className="flex items-center gap-2 text-xs text-zinc-400"><Loader2 size={13} className="animate-spin" />读取部署状态…</div>
+              <div className="flex items-center gap-2 text-xs text-zinc-400"><Loader2 size={13} className="animate-spin text-indigo-500" />读取部署状态…</div>
             ) : (
               <>
-                <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-2xl border border-zinc-200/80 bg-zinc-50/75 p-3 text-[11px] dark:border-zinc-800/80 dark:bg-zinc-900/50">
                   {summaryRows.map(([label, value]) => (
                     <React.Fragment key={label}>
                       <span className="text-zinc-400 dark:text-zinc-500">{label}</span>
-                      <span className="truncate text-right font-mono text-zinc-600 dark:text-zinc-300" title={value}>{value}</span>
+                      <span className="truncate text-right font-mono text-zinc-700 dark:text-zinc-300" title={value}>{value}</span>
                     </React.Fragment>
                   ))}
                 </div>
 
                 {status.canPreflight && !preflight && !active && (
-                  <button type="button" onClick={beginPreflight} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-primary px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
+                  <button type="button" onClick={beginPreflight} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3.5 py-2.5 text-xs font-medium text-white shadow-sm shadow-indigo-500/25 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50">
                     {loading ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
                     预检并备份，准备升级到 v{latestVersion}
                   </button>
                 )}
 
                 {!status.canPreflight && !active && (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-                    <div className="flex items-start gap-2">
+                  <div className="rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-3.5 backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/50">
+                    <div className="flex items-start gap-2.5">
                       {status.updateAvailable ? <CircleOff size={14} className="mt-0.5 shrink-0 text-amber-500" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />}
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{status.manualGuidance.title}</p>
-                        <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{status.manualGuidance.title}</p>
+                        <div className="mt-1.5 space-y-1.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
                           {status.blockers.map((item) => <p key={item.code}>{item.message}</p>)}
-                          {status.manualGuidance.steps.map((step, index) => <code key={`${index}-${step}`} className="block break-all rounded bg-zinc-200/60 px-1.5 py-1 font-mono text-[10px] dark:bg-zinc-800">{step}</code>)}
+                          {status.manualGuidance.steps.map((step, index) => <code key={`${index}-${step}`} className="block break-all rounded-lg bg-zinc-200/70 px-2 py-1 font-mono text-[10px] dark:bg-zinc-800/90">{step}</code>)}
                         </div>
                       </div>
                     </div>
@@ -494,7 +499,7 @@ export default function DockerUpdateCenter() {
                 )}
 
                 {preflight && !preflight.noOp && !active && (
-                  <div className="space-y-3 rounded-xl border border-amber-300/70 bg-amber-50/60 p-3 dark:border-amber-800/70 dark:bg-amber-950/20">
+                  <div className="space-y-3 rounded-2xl border border-amber-300/70 bg-amber-50/75 p-3.5 shadow-sm backdrop-blur-sm dark:border-amber-500/30 dark:bg-amber-950/25">
                     <div className="flex items-start gap-2">
                       <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                       <div>
@@ -504,12 +509,12 @@ export default function DockerUpdateCenter() {
                         </p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-zinc-600 dark:text-zinc-300">
+                    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl border border-amber-200/70 bg-white/65 p-2.5 text-[11px] text-zinc-600 dark:border-amber-500/20 dark:bg-zinc-950/40 dark:text-zinc-300">
                       <span className="text-zinc-400">目标 Digest</span><span className="truncate text-right font-mono">{shortDigest(preflight.updater.targetDigest)}</span>
                       <span className="text-zinc-400">架构</span><span className="text-right font-mono">{preflight.updater.architecture}</span>
-                      <span className="text-zinc-400">目标镜像大小</span><span className="text-right">{formatBytes(preflight.updater.imageSize)}</span>
+                      <span className="text-zinc-400">目标镜像大小</span><span className="text-right tabular-nums">{formatBytes(preflight.updater.imageSize)}</span>
                       <span className="text-zinc-400">升级前备份</span><span className="truncate text-right" title={preflight.backup?.filename}>{preflight.backup?.filename || "—"}</span>
-                      <span className="text-zinc-400">备份大小</span><span className="text-right">{formatBytes(preflight.backup?.size)}</span>
+                      <span className="text-zinc-400">备份大小</span><span className="text-right tabular-nums">{formatBytes(preflight.backup?.size)}</span>
                     </div>
                     {(preflight.warnings || []).map((warning) => (
                       <p key={warning.code} className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">• {warning.message}</p>
@@ -522,11 +527,11 @@ export default function DockerUpdateCenter() {
                       value={confirmVersion}
                       onChange={(event: React.ChangeEvent<HTMLInputElement>) => setConfirmVersion(event.target.value.trim())}
                       placeholder={`输入 ${preflight.targetVersion} 确认升级`}
-                      className="w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-mono text-xs outline-none focus:border-amber-500 dark:border-amber-800 dark:bg-zinc-950"
+                      className="w-full rounded-xl border border-amber-300/90 bg-white/90 px-3 py-2 font-mono text-xs outline-none transition-all focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 dark:border-amber-700 dark:bg-zinc-950/90"
                     />
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => setPreflight(null)} disabled={loading} className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">取消</button>
-                      <button type="button" onClick={applyUpdate} disabled={!confirmReady} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+                      <button type="button" onClick={() => setPreflight(null)} disabled={loading} className="flex-1 rounded-xl border border-zinc-300/90 bg-white/80 px-3 py-2 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-300">取消</button>
+                      <button type="button" onClick={applyUpdate} disabled={!confirmReady} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-xs font-medium text-white shadow-sm shadow-amber-500/20 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-40">
                         {loading && <Loader2 size={12} className="animate-spin" />}
                         立即升级
                       </button>
@@ -535,14 +540,14 @@ export default function DockerUpdateCenter() {
                 )}
 
                 {job && (
-                  <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <div className="space-y-2.5 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-3.5 shadow-sm backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/55">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        {active ? <Loader2 size={14} className="shrink-0 animate-spin text-accent-primary" /> : job.status === "completed" ? <CheckCircle2 size={14} className="shrink-0 text-emerald-500" /> : <RotateCcw size={14} className="shrink-0 text-amber-500" />}
-                        <span className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-200">{phaseText(job.phase)}</span>
+                        {active ? <Loader2 size={14} className="shrink-0 animate-spin text-indigo-500" /> : job.status === "completed" ? <CheckCircle2 size={14} className="shrink-0 text-emerald-500" /> : <RotateCcw size={14} className="shrink-0 text-amber-500" />}
+                        <span className="truncate text-xs font-semibold text-zinc-700 dark:text-zinc-200">{phaseText(job.phase)}</span>
                       </div>
                       {job.cancellable && active && (
-                        <button type="button" onClick={cancelJob} disabled={loading} className="text-[11px] text-zinc-500 hover:text-red-500">安全取消</button>
+                        <button type="button" onClick={cancelJob} disabled={loading} className="rounded-lg px-2 py-0.5 text-[11px] text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-500">安全取消</button>
                       )}
                     </div>
                     {connectionLost && active && (
@@ -552,10 +557,10 @@ export default function DockerUpdateCenter() {
                     {job.phase === "rolled_back" && (
                       <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">旧镜像已恢复。升级前完整备份仍保留；数据未被自动恢复。</p>
                     )}
-                    <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg bg-zinc-950 p-2 font-mono text-[10px] leading-relaxed text-zinc-300">
+                    <div className="max-h-36 space-y-1 overflow-y-auto rounded-xl border border-zinc-800/80 bg-zinc-950 p-2.5 font-mono text-[10px] leading-relaxed text-zinc-300 shadow-inner">
                       {job.logs.slice(-18).map((entry, index) => (
                         <div key={`${entry.at}-${index}`} className={entry.level === "error" ? "text-red-300" : entry.level === "warn" ? "text-amber-300" : ""}>
-                          <span className="text-zinc-600">{formatAppTime(entry.at)}</span> {entry.message}
+                          <span className="text-zinc-500">{formatAppTime(entry.at)}</span> {entry.message}
                         </div>
                       ))}
                     </div>
@@ -563,7 +568,7 @@ export default function DockerUpdateCenter() {
                 )}
 
                 {status.updater.available && status.current.health && (
-                  <div className="flex items-center justify-between text-[10px] text-zinc-400 dark:text-zinc-500">
+                  <div className="flex items-center justify-between text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
                     <span className="flex items-center gap-1"><HardDrive size={11} />Schema {status.current.schemaVersion}/{status.current.codeSchemaVersion}</span>
                     <span>容器健康：{status.current.health}</span>
                   </div>

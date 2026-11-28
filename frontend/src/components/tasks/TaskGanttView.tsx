@@ -98,17 +98,17 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
   }, [projects]);
 
   return (
-    <div className="flex flex-col h-full bg-app-surface">
+    <div className="flex flex-col h-full bg-gradient-to-br from-app-surface/90 via-app-surface to-indigo-500/[0.03]">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-app-border">
-        <div className="flex items-center gap-2">
-          <button onClick={handlePrev} className="px-2 py-1 text-xs rounded bg-app-bg hover:bg-app-bg/80">{t("tasks.gantt.prev")}</button>
-          <button onClick={handleToday} className="px-2 py-1 text-xs rounded bg-app-bg hover:bg-app-bg/80">{t("tasks.gantt.today")}</button>
-          <button onClick={handleNext} className="px-2 py-1 text-xs rounded bg-app-bg hover:bg-app-bg/80">{t("tasks.gantt.next")}</button>
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-app-border/75 bg-app-surface/80 backdrop-blur-xl">
+        <div className="inline-flex items-center gap-1 rounded-xl border border-app-border/75 bg-app-bg/80 p-1 shadow-sm">
+          <button onClick={handlePrev} className="px-2.5 py-1 text-xs font-medium rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-all">{t("tasks.gantt.prev")}</button>
+          <button onClick={handleToday} className="px-2.5 py-1 text-xs font-semibold rounded-lg text-accent-primary hover:bg-accent-primary/10 transition-all">{t("tasks.gantt.today")}</button>
+          <button onClick={handleNext} className="px-2.5 py-1 text-xs font-medium rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-all">{t("tasks.gantt.next")}</button>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setZoom("week")} className={`px-2 py-1 text-xs rounded ${zoom === "week" ? "bg-accent-primary text-white" : "bg-app-bg hover:bg-app-bg/80"}`}>{t("tasks.gantt.week")}</button>
-          <button onClick={() => setZoom("month")} className={`px-2 py-1 text-xs rounded ${zoom === "month" ? "bg-accent-primary text-white" : "bg-app-bg hover:bg-app-bg/80"}`}>{t("tasks.gantt.month")}</button>
+        <div className="inline-flex items-center gap-1 rounded-xl border border-app-border/75 bg-app-bg/80 p-1 shadow-sm">
+          <button onClick={() => setZoom("week")} className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${zoom === "week" ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-accent-primary/20" : "text-tx-tertiary hover:text-tx-primary"}`}>{t("tasks.gantt.week")}</button>
+          <button onClick={() => setZoom("month")} className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${zoom === "month" ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-accent-primary/20" : "text-tx-tertiary hover:text-tx-primary"}`}>{t("tasks.gantt.month")}</button>
         </div>
       </div>
 
@@ -119,19 +119,19 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
       <>
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: task list */}
-        <div className="w-64 border-r border-app-border overflow-y-auto">
+        <div className="w-64 border-r border-app-border/75 bg-app-surface/70 backdrop-blur-sm overflow-y-auto">
           {scheduledTasks.map((task) => (
             <div
               key={task.id}
               data-task-context-id={task.id}
               tabIndex={0}
-              className="flex items-center gap-2 px-3 py-2 border-b border-app-border hover:bg-app-bg cursor-pointer"
+              className="flex items-center gap-2.5 px-3.5 py-2 border-b border-app-border/55 hover:bg-app-hover/70 cursor-pointer transition-colors"
               style={{ opacity: task.isCompleted ? 0.5 : 1 }}
               onClick={() => onSelect(task)}
             >
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getProjectColor(task.projectId) }} />
-              <span className="text-sm truncate text-tx-primary">{task.title}</span>
-              {task.priority === 3 && <span className="text-xs text-red-500">&#x25cf;</span>}
+              <div className="w-2.5 h-2.5 shrink-0 rounded-full ring-2 ring-white/40 dark:ring-black/20" style={{ backgroundColor: getProjectColor(task.projectId) }} />
+              <span className="text-sm font-medium truncate text-tx-primary">{task.title}</span>
+              {task.priority === 3 && <span className="ml-auto text-xs text-rose-500">&#x25cf;</span>}
             </div>
           ))}
         </div>
@@ -139,17 +139,17 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
         {/* Right panel: timeline */}
         <div
           ref={gridRef}
-          className="flex-1 overflow-x-auto"
+          className="relative flex-1 overflow-x-auto"
           onMouseMove={handleDragMove}
           onMouseUp={handleDragEnd}
           onMouseLeave={handleDragEnd}
         >
           {/* Day headers */}
-          <div className="flex border-b border-app-border">
+          <div className="flex border-b border-app-border/75 bg-app-surface/65 backdrop-blur-sm">
             {days.map((day, i) => (
               <div
                 key={i}
-                className="flex-shrink-0 text-center py-2 text-xs border-r border-app-border"
+                className={`flex-shrink-0 text-center py-2 text-xs border-r border-app-border/50 ${isToday(day) ? "bg-indigo-500/[0.08]" : ""}`}
                 style={{ width: `${100 / days.length}%` }}
               >
                 <div className={`text-tx-secondary ${isToday(day) ? "font-bold text-accent-primary" : ""}`}>
@@ -170,34 +170,34 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
               const isBlocked = isTaskBlockedByDependency(task.id, dependencies, tasks);
               const scheduleWarning = getDependencyScheduleWarnings(task.id, dependencies, tasks);
               const dragOffset = isDragging && dragState ? (dragState.diffDays / days.length) * 100 : 0;
-              const roundedClass = `${bar.clippedStart ? "rounded-l-none" : "rounded-l"} ${bar.clippedEnd ? "rounded-r-none" : "rounded-r"}`;
+              const roundedClass = `${bar.clippedStart ? "rounded-l-none" : "rounded-l-lg"} ${bar.clippedEnd ? "rounded-r-none" : "rounded-r-lg"}`;
               return (
-                <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="relative h-8 border-b border-app-border">
+                <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="relative h-8 border-b border-app-border/55">
                   <div
-                    className={`absolute top-1 h-6 cursor-grab active:cursor-grabbing ${roundedClass}`}
+                    className={`absolute top-1 h-6 cursor-grab active:cursor-grabbing shadow-sm transition-shadow hover:shadow-md ${roundedClass}`}
                     style={{
                       left: `${(bar.left / days.length) * 100 + dragOffset}%`,
                       width: `${(bar.width / days.length) * 100}%`,
                       backgroundColor: isOverdue ? "#ef4444" : getProjectColor(task.projectId),
-                      opacity: task.isCompleted ? 0.4 : 0.8,
+                      opacity: task.isCompleted ? 0.4 : 0.88,
                     }}
                     onMouseDown={(e) => handleDragStart(task.id, e, "move")}
                     onClick={() => onSelect(task)}
                     title={task.title + (isBlocked ? " (" + t("tasks.dependencies.blocked") + ")" : "") + (scheduleWarning ? " (" + t("tasks.dependencies.suggestReschedule") + ")" : "")}
                   >
                     {isBlocked && !task.isCompleted && (
-                      <div className="absolute -top-1 -left-1 w-3.5 h-3.5 rounded-full bg-amber-500 flex items-center justify-center" title={t("tasks.dependencies.blockedByIncomplete")}>
+                      <div className="absolute -top-1 -left-1 w-3.5 h-3.5 rounded-full bg-amber-500 flex items-center justify-center shadow-sm" title={t("tasks.dependencies.blockedByIncomplete")}>
                         <svg viewBox="0 0 12 12" className="w-2 h-2 fill-white"><path d="M8.5 5V3.5a2.5 2.5 0 0 0-5 0V5H2.5A1.5 1.5 0 0 0 1 6.5v4A1.5 1.5 0 0 0 2.5 12h7a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 9.5 5H8.5zM4 3.5a1.5 1.5 0 1 1 3 0V5H4V3.5z"/></svg>
                       </div>
                     )}
                     {/* Left resize handle */}
                     <div
-                      className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 hover:opacity-100 bg-white/30 rounded-l"
+                      className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 hover:opacity-100 bg-white/35 rounded-l-lg"
                       onMouseDown={(e) => { e.stopPropagation(); handleDragStart(task.id, e, "resize-start"); }}
                     />
                     {/* Right resize handle */}
                     <div
-                      className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 hover:opacity-100 bg-white/30 rounded-r"
+                      className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 hover:opacity-100 bg-white/35 rounded-r-lg"
                       onMouseDown={(e) => { e.stopPropagation(); handleDragStart(task.id, e, "resize-end"); }}
                     />
                   </div>
@@ -210,7 +210,7 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
           {(() => {
             const todayIdx = days.findIndex((d) => isToday(d));
             if (todayIdx === -1) return null;
-            return <div className="absolute top-0 bottom-0 w-px bg-accent-primary/30 pointer-events-none" style={{ left: `${(todayIdx / days.length) * 100}%` }} />;
+            return <div className="absolute top-0 bottom-0 w-[2px] bg-indigo-500/40 pointer-events-none" style={{ left: `${(todayIdx / days.length) * 100}%` }} />;
           })()}
 
           {/* Dependency lines */}
@@ -263,12 +263,12 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
 
       {/* Unscheduled tasks */}
       {unscheduledTasks.length > 0 && (
-        <div className="border-t border-app-border p-4">
-          <h3 className="text-sm font-medium text-tx-secondary mb-2">{t("tasks.gantt.unscheduled")}</h3>
+        <div className="border-t border-app-border/75 bg-app-surface/75 backdrop-blur-md p-4">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-tx-secondary mb-2.5">{t("tasks.gantt.unscheduled")}</h3>
           <div className="flex flex-wrap gap-2">
             {unscheduledTasks.map((task) => (
-              <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="flex items-center gap-1">
-                <button onClick={() => onSelect(task)} className="px-2 py-1 text-xs rounded bg-app-bg hover:bg-app-bg/80 text-tx-primary">
+              <div key={task.id} data-task-context-id={task.id} tabIndex={0} className="inline-flex items-center gap-1 rounded-xl border border-app-border/75 bg-app-bg/85 p-1 shadow-sm">
+                <button onClick={() => onSelect(task)} className="px-2 py-1 text-xs font-medium rounded-lg hover:bg-app-hover text-tx-primary transition-colors">
                   {task.title}
                 </button>
                 <button
@@ -276,7 +276,7 @@ export default function TaskGanttView({ tasks, projects, onSelect, onUpdateTaskD
                     const today = format(new Date(), "yyyy-MM-dd");
                     onUpdateTaskDateRange(task.id, { startDate: today, dueDate: today });
                   }}
-                  className="px-1.5 py-1 text-[10px] rounded bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20"
+                  className="px-2 py-1 text-[10px] font-semibold rounded-lg bg-indigo-500/12 text-accent-primary hover:bg-indigo-500/20 transition-colors"
                   title={t("tasks.gantt.scheduleToday")}
                 >
                   {t("tasks.gantt.scheduleToday")}

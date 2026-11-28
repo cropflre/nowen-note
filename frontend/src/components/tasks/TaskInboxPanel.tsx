@@ -178,26 +178,26 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
   };
 
   return (
-    <section className="shrink-0 border-b border-app-border bg-app-surface">
-      <div className="flex items-center gap-3 px-4 py-2.5 md:px-5">
+    <section className="shrink-0 border-b border-app-border/75 bg-gradient-to-r from-amber-500/[0.04] via-app-surface/90 to-indigo-500/[0.03] backdrop-blur-xl">
+      <div className="flex items-center gap-3 px-4 py-3 md:px-5">
         <button
           type="button"
           onClick={() => { if (!standalone) setExpanded((value) => !value); }}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
-          <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/16 text-amber-600 ring-1 ring-inset ring-amber-500/25 shadow-sm dark:text-amber-300">
             <Inbox size={17} />
             {items.length > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[9px] font-semibold leading-4 text-white">
+              <span className="absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-1 text-center font-mono text-[9px] font-bold leading-4 text-white shadow-sm">
                 {items.length > 99 ? "99+" : items.length}
               </span>
             )}
           </span>
           <span className="min-w-0">
             <span className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-tx-primary">{labels.title}</span>
+              <span className="text-sm font-bold tracking-tight text-tx-primary">{labels.title}</span>
               {items.length > 0 && (
-                <span className="text-[10px] text-tx-tertiary">{items.length} {labels.remaining}</span>
+                <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">{items.length} {labels.remaining}</span>
               )}
             </span>
             <span className="hidden truncate text-[11px] text-tx-tertiary sm:block">{labels.subtitle}</span>
@@ -207,7 +207,7 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
         <button
           type="button"
           onClick={() => openTaskQuickCapture({ sourceType: "manual" })}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-500/15 dark:text-amber-300"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/25 bg-amber-500/12 px-3 py-1.5 text-xs font-semibold text-amber-700 shadow-sm transition-all hover:-translate-y-[1px] hover:bg-amber-500/18 active:translate-y-[0.5px] dark:text-amber-300"
         >
           <ClipboardPlus size={13} />
           <span className="hidden sm:inline">{labels.capture}</span>
@@ -216,7 +216,7 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
           type="button"
           onClick={() => void load()}
           title={labels.refresh}
-          className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+          className="rounded-xl border border-app-border/70 bg-app-surface/85 p-1.5 text-tx-tertiary shadow-sm transition-all hover:border-accent-primary/40 hover:text-tx-primary active:scale-95"
         >
           <RefreshCw size={14} />
         </button>
@@ -224,7 +224,7 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+            className="rounded-xl p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
@@ -232,19 +232,21 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
       </div>
 
       {expanded && (
-        <div className="border-t border-app-border/70 px-4 pb-3 pt-3 md:px-5">
+        <div className="border-t border-app-border/65 px-4 pb-3.5 pt-3 md:px-5">
           {loading ? (
             <div className="flex h-20 items-center justify-center text-tx-tertiary">
-              <Loader2 size={18} className="animate-spin" />
+              <Loader2 size={18} className="animate-spin text-amber-500" />
             </div>
           ) : items.length === 0 ? (
             <button
               type="button"
               onClick={() => openTaskQuickCapture({ sourceType: "manual" })}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-app-border bg-app-bg px-4 py-6 text-center hover:border-amber-500/40 hover:bg-amber-500/[0.03]"
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-app-border/80 bg-app-bg/60 px-4 py-7 text-center transition-all hover:border-amber-500/45 hover:bg-amber-500/[0.04]"
             >
-              <CheckCircle2 size={22} className="text-emerald-500" />
-              <span className="text-sm font-medium text-tx-primary">{labels.empty}</span>
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-500 ring-1 ring-emerald-500/20">
+                <CheckCircle2 size={20} />
+              </span>
+              <span className="text-sm font-semibold text-tx-primary">{labels.empty}</span>
               <span className="max-w-xl text-xs leading-5 text-tx-tertiary">{labels.emptyHint}</span>
             </button>
           ) : (
@@ -257,24 +259,24 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
                       : item.captureSourceType === "selection" ? (chinese ? "选中文本" : "Selection")
                         : (chinese ? "快速捕获" : "Quick capture"));
                 return (
-                  <article key={item.id} className="group rounded-xl border border-app-border bg-app-bg p-3">
+                  <article key={item.id} className="group rounded-2xl border border-app-border/75 bg-app-surface/90 p-3.5 shadow-sm transition-all hover:-translate-y-[1px] hover:border-amber-500/35 hover:shadow-md">
                     <div className="flex items-start gap-3">
                       <button
                         type="button"
                         disabled={busyId === item.id}
                         onClick={() => void complete(item.id)}
                         title={labels.complete}
-                        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-app-border text-transparent transition-colors hover:border-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-500 disabled:opacity-40"
+                        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-app-border text-transparent transition-all hover:border-emerald-500 hover:bg-emerald-500/12 hover:text-emerald-500 active:scale-90 disabled:opacity-40"
                       >
                         {busyId === item.id ? <Loader2 size={11} className="animate-spin text-tx-tertiary" /> : <Check size={11} />}
                       </button>
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-tx-primary">{item.title}</h3>
-                          {item.priority === 3 && <span className="text-[10px] font-medium text-red-500">{chinese ? "高优先级" : "High"}</span>}
+                          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{item.title}</h3>
+                          {item.priority === 3 && <span className="rounded-full bg-rose-500/12 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">{chinese ? "高优先级" : "High"}</span>}
                           {due && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-app-elevated px-2 py-0.5 text-[10px] text-tx-secondary">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-app-hover/85 px-2 py-0.5 text-[10px] font-medium text-tx-secondary">
                               <CalendarDays size={10} /> {due}
                             </span>
                           )}
@@ -301,8 +303,8 @@ export function TaskInboxPanel({ onTaskMutated, initiallyExpanded = false, stand
                         onClick={() => void organize(item.id)}
                         title={labels.organizeHint}
                         className={cn(
-                          "shrink-0 rounded-lg border border-app-border px-2.5 py-1.5 text-[11px] text-tx-secondary transition-colors",
-                          "hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-600 disabled:opacity-40",
+                          "shrink-0 rounded-xl border border-app-border/80 bg-app-bg/80 px-2.5 py-1.5 text-[11px] font-semibold text-tx-secondary transition-all",
+                          "hover:border-emerald-500/45 hover:bg-emerald-500/12 hover:text-emerald-600 active:scale-95 disabled:opacity-40 dark:hover:text-emerald-300",
                         )}
                       >
                         {labels.organize}

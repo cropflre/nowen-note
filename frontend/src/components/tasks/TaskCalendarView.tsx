@@ -137,21 +137,21 @@ export function TaskCalendarView({
   }, [onMoveTaskDate]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-gradient-to-br from-transparent via-transparent to-indigo-500/[0.025] dark:to-indigo-500/[0.05]">
       {/* Header: month nav */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-app-border shrink-0">
-        <div className="flex items-center gap-2">
-          <button onClick={() => setCurrentMonth((m) => subMonths(m, 1))} className="p-1 rounded hover:bg-app-hover text-tx-secondary transition-colors">
-            <ChevronLeft size={18} />
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-app-border/75 bg-app-surface/75 backdrop-blur-xl shrink-0">
+        <div className="flex items-center gap-1.5 rounded-xl border border-app-border/75 bg-app-bg/80 p-1 shadow-sm">
+          <button onClick={() => setCurrentMonth((m) => subMonths(m, 1))} className="p-1.5 rounded-lg hover:bg-app-hover text-tx-secondary transition-all active:scale-95">
+            <ChevronLeft size={16} />
           </button>
-          <h2 className="text-sm font-semibold text-tx-primary min-w-[120px] text-center">
+          <h2 className="text-sm font-bold tracking-tight text-tx-primary min-w-[120px] text-center">
             {(isZh ? format(currentMonth, "yyyy\u5E74M\u6708") : format(currentMonth, "MMMM yyyy", { locale: dateLocale }))}
           </h2>
-          <button onClick={() => setCurrentMonth((m) => addMonths(m, 1))} className="p-1 rounded hover:bg-app-hover text-tx-secondary transition-colors">
-            <ChevronRight size={18} />
+          <button onClick={() => setCurrentMonth((m) => addMonths(m, 1))} className="p-1.5 rounded-lg hover:bg-app-hover text-tx-secondary transition-all active:scale-95">
+            <ChevronRight size={16} />
           </button>
         </div>
-        <button onClick={goToToday} className="text-xs px-2.5 py-1 rounded-md border border-app-border text-tx-secondary hover:bg-app-hover transition-colors">
+        <button onClick={goToToday} className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-app-border/80 bg-app-surface/85 text-tx-secondary shadow-sm hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-accent-primary active:translate-y-[0.5px] transition-all">
           {t("tasks.today")}
         </button>
       </div>
@@ -163,9 +163,9 @@ export function TaskCalendarView({
         {/* Grid */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Weekday labels */}
-          <div className="grid grid-cols-7 border-b border-app-border shrink-0">
+          <div className="grid grid-cols-7 border-b border-app-border/70 bg-app-surface/50 shrink-0">
             {weekDayLabels.map((label, i) => (
-              <div key={i} className="text-center text-xs md:text-sm text-tx-tertiary font-medium py-2.5">
+              <div key={i} className="text-center text-xs md:text-sm text-tx-tertiary font-semibold py-2.5">
                 {label}
               </div>
             ))}
@@ -196,23 +196,23 @@ export function TaskCalendarView({
                   onDragLeave={isMobile ? undefined : handleDragLeave}
                   onDrop={isMobile ? undefined : (e) => handleDrop(e, dateKey)}
                   className={cn(
-                    "min-w-0 flex flex-col border-b border-r border-app-border/50 p-1 md:p-2 min-h-[54px] md:min-h-[64px] cursor-pointer transition-colors [container-type:inline-size]",
+                    "min-w-0 flex flex-col border-b border-r border-app-border/50 p-1.5 md:p-2 min-h-[58px] md:min-h-[72px] cursor-pointer transition-colors [container-type:inline-size]",
                     !inMonth && "opacity-30",
-                    today && "bg-accent-primary/5",
-                    selected && "bg-accent-primary/10 ring-1 ring-inset ring-accent-primary/30",
-                    !selected && !isDragTarget && "hover:bg-app-hover/50",
-                    isDragTarget && "bg-accent-primary/15 ring-2 ring-inset ring-accent-primary/40"
+                    today && "bg-indigo-500/[0.05]",
+                    selected && "bg-accent-primary/10 ring-1 ring-inset ring-accent-primary/35",
+                    !selected && !isDragTarget && "hover:bg-app-hover/55",
+                    isDragTarget && "bg-accent-primary/15 ring-2 ring-inset ring-accent-primary/45"
                   )}
                 >
                   <div className="flex min-w-0 items-center justify-between gap-1 mb-1">
                     <span className={cn(
-                      "text-xs md:text-sm font-medium leading-5",
-                      today ? "text-accent-primary font-bold" : "text-tx-secondary"
+                      "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs md:text-sm font-medium leading-5",
+                      today ? "bg-gradient-to-br from-indigo-600 to-violet-600 text-white font-bold shadow-sm" : "text-tx-secondary"
                     )}>
                       {format(day, "d")}
                     </span>
                     {dayTasks.length > 0 && (
-                      <span className="md:hidden rounded-full bg-app-hover px-1 text-[10px] tabular-nums text-tx-secondary" aria-label={t("tasks.taskCount", { count: dayTasks.length })}>
+                      <span className="md:hidden rounded-full bg-accent-primary/12 px-1.5 text-[10px] font-semibold tabular-nums text-accent-primary" aria-label={t("tasks.taskCount", { count: dayTasks.length })}>
                         {dayTasks.length}
                       </span>
                     )}
@@ -234,13 +234,13 @@ export function TaskCalendarView({
                           onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
                           onDragEnd={isMobile ? undefined : handleDragEnd}
                           className={cn(
-                            "min-w-0 rounded px-1.5 py-1 text-xs md:text-[clamp(11px,11cqw,14px)] leading-4 xl:leading-[18px] cursor-pointer transition-colors break-words line-clamp-2",
+                            "min-w-0 rounded-lg border px-1.5 py-1 text-xs md:text-[clamp(11px,11cqw,13px)] leading-4 xl:leading-[18px] cursor-pointer transition-all break-words line-clamp-2",
                             draggingTaskId === task.id && "opacity-40",
                             task.isCompleted
-                              ? "line-through text-tx-tertiary bg-app-elevated/50"
+                              ? "border-transparent line-through text-tx-tertiary bg-app-elevated/50"
                               : overdue
-                                ? "text-red-600 bg-red-500/10 dark:text-red-400 dark:bg-red-500/10"
-                                : "text-tx-primary bg-app-elevated hover:bg-accent-primary/10"
+                                ? "border-rose-500/25 text-rose-600 bg-rose-500/10 dark:text-rose-300 dark:bg-rose-500/12"
+                                : "border-app-border/60 text-tx-primary bg-app-surface/90 shadow-sm hover:border-accent-primary/40 hover:bg-accent-primary/8"
                           )}
                           title={task.title}
                         >
@@ -249,7 +249,7 @@ export function TaskCalendarView({
                       );
                     })}
                     {overflow > 0 && (
-                      <span className="text-xs leading-4 text-tx-tertiary px-1">+{overflow}</span>
+                      <span className="text-[11px] font-medium leading-4 text-tx-tertiary px-1">+{overflow}</span>
                     )}
                   </div>
                 </div>
@@ -263,15 +263,17 @@ export function TaskCalendarView({
 
         {/* Selected date panel (desktop right side) */}
         {selectedDate && (
-          <div className="hidden md:flex w-[260px] shrink-0 flex-col border-l border-app-border bg-app-surface overflow-y-auto">
-            <div className="px-4 py-3 border-b border-app-border">
-              <span className="text-sm font-semibold text-tx-primary">
-                {(isZh ? format(selectedDate, "M\u6708d\u65E5 EEEE") : format(selectedDate, "EEEE, MMM d", { locale: dateLocale }))}
-              </span>
-              <span className="ml-2 text-xs text-tx-tertiary">{t("tasks.taskCount", { count: selectedDateTasks.length })}</span>
+          <div className="hidden md:flex w-[276px] shrink-0 flex-col border-l border-app-border/75 bg-app-surface/80 backdrop-blur-xl overflow-y-auto">
+            <div className="px-4 py-3.5 border-b border-app-border/70">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold tracking-tight text-tx-primary">
+                  {(isZh ? format(selectedDate, "M\u6708d\u65E5 EEEE") : format(selectedDate, "EEEE, MMM d", { locale: dateLocale }))}
+                </span>
+                <span className="rounded-full bg-app-hover/85 px-2 py-0.5 text-[11px] font-semibold text-tx-secondary">{t("tasks.taskCount", { count: selectedDateTasks.length })}</span>
+              </div>
               <HolidayDayLabel day={holidays.getDay(format(selectedDate, "yyyy-MM-dd"))} />
             </div>
-            <div className="flex-1 p-3 space-y-1.5">
+            <div className="flex-1 p-3 space-y-2">
               {selectedDateTasks.length === 0 ? (
                 <TaskEmptyState type="no-scheduled" compact />
               ) : selectedDateTasks.map((task) => {
@@ -286,13 +288,13 @@ export function TaskCalendarView({
                     onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
                     onDragEnd={isMobile ? undefined : handleDragEnd}
                     className={cn(
-                      "px-3 py-2 rounded-lg border cursor-pointer transition-all hover:shadow-sm",
+                      "px-3.5 py-2.5 rounded-2xl border cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md",
                       draggingTaskId === task.id && "opacity-40",
                       task.isCompleted
                         ? "border-app-border/50 bg-app-elevated/30 opacity-60"
                         : overdue
-                          ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/30"
-                          : "border-app-border bg-app-elevated hover:border-accent-primary/30"
+                          ? "border-rose-400/40 bg-rose-500/[0.06] dark:border-rose-500/35"
+                          : "border-app-border/75 bg-app-bg/85 shadow-sm hover:border-accent-primary/40"
                     )}
                   >
                     <span className={cn(
@@ -302,7 +304,7 @@ export function TaskCalendarView({
                       <TitleView title={task.title} compact isCompleted={task.isCompleted === 1} />
                     </span>
                     {task.dueAt && (
-                      <span className="block text-[10px] text-tx-tertiary mt-0.5">
+                      <span className="block font-mono text-[10px] text-tx-tertiary mt-1">
                         {task.dueAt.split("T")[1]?.slice(0, 5) || ""}
                       </span>
                     )}
@@ -316,15 +318,15 @@ export function TaskCalendarView({
 
       {/* Mobile: selected date task list at bottom */}
       {selectedDate && (
-        <div className="md:hidden border-t border-app-border bg-app-surface overflow-y-auto max-h-[45vh]">
-          <div className="px-4 py-2 border-b border-app-border/50">
-            <span className="text-xs font-semibold text-tx-primary">
+        <div className="md:hidden border-t border-app-border/75 bg-app-surface/90 backdrop-blur-xl overflow-y-auto max-h-[45vh]">
+          <div className="px-4 py-2.5 border-b border-app-border/60">
+            <span className="text-xs font-bold text-tx-primary">
               {(isZh ? format(selectedDate, "M/d EEE") : format(selectedDate, "EEE, MMM d", { locale: dateLocale }))}
             </span>
-            <span className="ml-1 text-[10px] text-tx-tertiary">{selectedDateTasks.length}</span>
+            <span className="ml-1.5 rounded-full bg-app-hover px-1.5 py-0.5 text-[10px] font-semibold text-tx-secondary">{selectedDateTasks.length}</span>
             <HolidayDayLabel day={holidays.getDay(format(selectedDate, "yyyy-MM-dd"))} />
           </div>
-          <div className="p-2 space-y-1">
+          <div className="p-2.5 space-y-1.5">
             {selectedDateTasks.length === 0 ? (
               <TaskEmptyState type="no-scheduled" compact />
             ) : selectedDateTasks.map((task) => {
@@ -336,9 +338,9 @@ export function TaskCalendarView({
                   tabIndex={0}
                   onClick={() => onSelect(task)}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer",
+                    "flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer",
                     task.isCompleted ? "opacity-50" : "",
-                    overdue ? "bg-red-50/50 dark:bg-red-950/20" : "bg-app-elevated"
+                    overdue ? "border-rose-400/35 bg-rose-500/[0.06]" : "border-app-border/70 bg-app-bg/85"
                   )}
                 >
                   <span className={cn(
@@ -348,7 +350,7 @@ export function TaskCalendarView({
                     {task.title}
                   </span>
                   {task.dueAt && (
-                    <span className="text-[10px] text-tx-tertiary">{task.dueAt.split("T")[1]?.slice(0, 5)}</span>
+                    <span className="font-mono text-[10px] text-tx-tertiary">{task.dueAt.split("T")[1]?.slice(0, 5)}</span>
                   )}
                 </div>
               );

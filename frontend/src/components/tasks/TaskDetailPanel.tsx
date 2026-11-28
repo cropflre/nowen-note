@@ -519,16 +519,16 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       data-task-archived={task.archivedAt ? "true" : "false"}
       ref={(element) => { panelRef.current = element; if (typeof ref === "function") ref(element); else if (ref) ref.current = element; }}
       className={cn(
-        "h-full border-l border-app-border bg-app-surface flex flex-col shrink-0",
+        "h-full border-l border-app-border/75 bg-app-surface/92 backdrop-blur-2xl flex flex-col shrink-0 shadow-[-12px_0_32px_-20px_rgba(15,23,42,0.18)] dark:shadow-[-16px_0_36px_-20px_rgba(0,0,0,0.65)]",
         "fixed inset-0 z-30 w-full border-l-0",
-        "md:static md:z-auto md:w-[380px] md:min-w-[380px] md:border-l"
+        "md:static md:z-auto md:w-[392px] md:min-w-[392px] md:border-l"
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-app-border" style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}>
-        <span className="text-sm font-semibold text-tx-primary">{t("tasks.taskDetail")}</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border/75 bg-app-surface/80 backdrop-blur-xl" style={{ paddingTop: "calc(var(--safe-area-top) + 6px)" }}>
+        <span className="text-sm font-bold tracking-tight text-tx-primary">{t("tasks.taskDetail")}</span>
         <PluginInspector resource={{ type: "task", id: task.id }} workspaceId={task.workspaceId} />
-        <button onClick={onClose} className="p-1 rounded-md hover:bg-app-hover transition-colors">
+        <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-app-hover transition-all active:scale-95">
           <X size={16} className="text-tx-secondary" />
         </button>
       </div>
@@ -537,7 +537,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       <fieldset disabled={!!task.archivedAt} className="flex-1 min-w-0 min-h-0 overflow-auto p-4 space-y-4">
         {/* Title */}
         <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.taskTitle")}</label>
+          <label className="text-[11px] font-semibold text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.taskTitle")}</label>
           <div className="relative">
             <textarea
               ref={titleRef}
@@ -546,14 +546,14 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               onBlur={handleSave}
               onPaste={handleTitlePaste}
               rows={Math.min(4, Math.max(2, title.split("\n").length))}
-              className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors resize-y font-mono"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-app-bg/85 border border-app-border/80 text-sm text-tx-primary focus:outline-none focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12 transition-all resize-y font-mono"
             />
             {uploadingTitleAttachment && (
-              <Loader2 size={14} className="absolute right-2 top-2 animate-spin text-accent-primary" />
+              <Loader2 size={14} className="absolute right-2.5 top-2.5 animate-spin text-accent-primary" />
             )}
           </div>
           {hasRichTokens && (
-            <div className="mt-2 px-3 py-2 rounded-md bg-app-elevated border border-app-border text-sm text-tx-primary leading-relaxed break-all">
+            <div className="mt-2 px-3.5 py-2 rounded-xl bg-app-elevated/80 border border-app-border/70 text-sm text-tx-primary leading-relaxed break-all">
               <TitleView title={title} compact={false} isCompleted={task.isCompleted === 1} />
             </div>
           )}
@@ -563,20 +563,20 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         <div>
           <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
             <div className="min-w-0">
-              <label className="block text-xs text-tx-tertiary uppercase tracking-wider">{t("tasks.fields.description")}</label>
+              <label className="block text-[11px] font-semibold text-tx-tertiary uppercase tracking-wider">{t("tasks.fields.description")}</label>
               <span className="text-[10px] text-tx-tertiary">{t("tasks.descriptionMarkdownHint")}</span>
             </div>
-            <div className="flex shrink-0 overflow-hidden rounded-md border border-app-border bg-app-bg">
+            <div className="flex shrink-0 overflow-hidden rounded-xl border border-app-border/75 bg-app-bg/80 p-0.5">
               {(["edit", "preview"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => handleDescriptionModeChange(mode)}
                   className={cn(
-                    "px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all",
                     descriptionMode === mode
-                      ? "bg-accent-primary text-white"
-                      : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
+                      ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-accent-primary/20"
+                      : "text-tx-tertiary hover:text-tx-secondary"
                   )}
                 >
                   {t(`tasks.descriptionMode.${mode}`)}
@@ -591,10 +591,10 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               onBlur={handleDescriptionSave}
               placeholder={t("tasks.fields.descriptionPlaceholder")}
               rows={4}
-              className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none focus:border-accent-primary transition-colors resize-y"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-app-bg/85 border border-app-border/80 text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12 transition-all resize-y"
             />
           ) : (
-            <div className="min-h-[104px] w-full overflow-hidden rounded-md border border-app-border bg-app-bg px-3 py-2">
+            <div className="min-h-[104px] w-full overflow-hidden rounded-xl border border-app-border/80 bg-app-bg/85 px-3.5 py-2.5">
               <TaskDescriptionMarkdownPreview
                 description={description}
                 placeholder={t("tasks.fields.descriptionPlaceholder")}
@@ -807,10 +807,10 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
         </div>
 
         {/* Progress Section */}
-        <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-2">
+        <div className="rounded-2xl border border-app-border/75 bg-app-elevated/60 p-4 space-y-2.5 shadow-sm backdrop-blur-sm">
           <div className="flex items-center gap-2 mb-1">
-            <Clock size={14} className="text-tx-tertiary" />
-            <span className="text-xs text-tx-tertiary uppercase tracking-wider font-medium">
+            <Clock size={14} className="text-accent-primary" />
+            <span className="text-[11px] text-tx-tertiary uppercase tracking-wider font-semibold">
               {t("tasks.progress.title")}
             </span>
           </div>
@@ -818,12 +818,12 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           {progressInfo ? (
             <>
               <div className="flex items-center gap-3">
-                <span className="text-2xl font-bold text-accent-primary">
+                <span className="font-mono text-2xl font-bold tabular-nums text-accent-primary">
                   {progressInfo.progress}%
                 </span>
-                <div className="flex-1 h-2 rounded-full bg-app-border overflow-hidden">
+                <div className="flex-1 h-2 rounded-full bg-app-border/80 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-accent-primary transition-all duration-500"
+                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500"
                     style={{ width: `${progressInfo.progress}%` }}
                   />
                 </div>
@@ -852,12 +852,12 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
         {/* Subtask list */}
         {children.length > 0 && (
-          <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-2">
+          <div className="rounded-2xl border border-app-border/75 bg-app-elevated/60 p-4 space-y-2 shadow-sm backdrop-blur-sm">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-tx-tertiary uppercase tracking-wider font-medium">
+              <span className="text-[11px] text-tx-tertiary uppercase tracking-wider font-semibold">
                 {t("tasks.subtasks")}
               </span>
-              <span className="text-[10px] text-tx-tertiary">
+              <span className="rounded-full bg-app-hover px-2 py-0.5 font-mono text-[10px] font-semibold text-tx-secondary">
                 {children.filter((c) => c.isCompleted === 1).length}/{children.length}
               </span>
             </div>
@@ -1371,14 +1371,14 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
       {snapshotDraft && <TaskSaveNoteDialog task={task} draft={snapshotDraft} onClose={() => setSnapshotDraft(null)} />}
       {/* Footer */}
-      <div className="p-3 border-t border-app-border" style={{ paddingBottom: "calc(var(--safe-area-bottom) + 16px)" }}>
+      <div className="p-3.5 border-t border-app-border/75 bg-app-surface/85 backdrop-blur-xl" style={{ paddingBottom: "calc(var(--safe-area-bottom) + 16px)" }}>
         <div className="mb-2 flex gap-2">
-          <button onClick={showSnapshot} className="flex-1 rounded-md border border-app-border px-3 py-2 text-sm text-tx-primary">{t("tasks.lifecycle.saveNote")}</button>
-          {!task.parentId && onArchive && <button disabled={archiving} onClick={async () => { setArchiving(true); try { await onArchive(task.id,!task.archivedAt); } finally { setArchiving(false); } }} className="flex-1 rounded-md border border-app-border px-3 py-2 text-sm text-tx-primary">{t(task.archivedAt ? "tasks.lifecycle.restore" : "tasks.lifecycle.archive")}</button>}
+          <button onClick={showSnapshot} className="flex-1 rounded-xl border border-app-border/80 bg-app-bg/85 px-3 py-2 text-xs font-semibold text-tx-primary shadow-sm transition-all hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-accent-primary active:translate-y-[0.5px]">{t("tasks.lifecycle.saveNote")}</button>
+          {!task.parentId && onArchive && <button disabled={archiving} onClick={async () => { setArchiving(true); try { await onArchive(task.id,!task.archivedAt); } finally { setArchiving(false); } }} className="flex-1 rounded-xl border border-app-border/80 bg-app-bg/85 px-3 py-2 text-xs font-semibold text-tx-primary shadow-sm transition-all hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-accent-primary active:translate-y-[0.5px] disabled:opacity-50">{t(task.archivedAt ? "tasks.lifecycle.restore" : "tasks.lifecycle.archive")}</button>}
         </div>
         <button
           onClick={() => { onDelete(task.id); onClose(); }}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm text-accent-danger border border-accent-danger/30 hover:bg-accent-danger/10 transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 border border-rose-500/30 bg-rose-500/[0.05] hover:bg-rose-500/12 dark:text-rose-300 transition-all active:scale-[0.98]"
         >
           <Trash2 size={14} />
           {t("tasks.deleteTask")}

@@ -648,14 +648,14 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const failureMessage = error || (!isClientMode && serviceUnavailable ? t("auth.serverUnreachable") : "");
   const failureAction = error ? failure?.action : serviceUnavailable ? "retry" : undefined;
   const failureNotice = failureMessage ? (
-    <div role="alert" data-login-failure className="flex items-start gap-2 text-sm leading-5 text-zinc-600 dark:text-zinc-300">
-      <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-zinc-400 dark:text-zinc-500" aria-hidden="true" />
+    <div role="alert" data-login-failure className="flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-sm leading-5 text-zinc-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-zinc-200">
+      <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-500 dark:text-rose-400" aria-hidden="true" />
       <p className="min-w-0 flex-1 break-words">{failureMessage}</p>
       {failureAction && (
         <button
           type="button"
           onClick={failureAction === "retry" ? retryAfterFailure : () => void openServerInBrowser()}
-          className="flex-shrink-0 font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+          className="flex-shrink-0 rounded-lg bg-white/80 px-2 py-0.5 text-xs font-medium text-indigo-600 ring-1 ring-indigo-500/20 transition-colors hover:bg-white hover:text-indigo-700 dark:bg-zinc-900/70 dark:text-indigo-300 dark:hover:text-indigo-200"
         >
           {failureAction === "retry" ? t("auth.retryConnection") : t("auth.openInBrowser")}
         </button>
@@ -663,42 +663,53 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     </div>
   ) : null;
 
+  const inputClass = "block w-full rounded-xl border border-zinc-200/85 bg-white/75 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-[inset_0_1px_2px_rgba(15,23,42,0.03)] backdrop-blur-sm transition-all focus:border-indigo-500/80 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/15 dark:border-white/[0.1] dark:bg-zinc-950/55 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-indigo-400/70 dark:focus:bg-zinc-950/80 dark:focus:ring-indigo-400/20";
+
   return (
     <div
       ref={scrollContainerRef}
       // 高度必须用类：旧版 WebView 不认识 dvh，会直接丢掉内联值，index.css 的 vh 回退只能作用于类。
       // 一旦没有高度上限，页面无法滚动，表单较长时「登录工作台」按钮会被挤出屏幕。
-      className="flex flex-col items-center bg-zinc-50 dark:bg-zinc-950 selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden min-h-[100dvh] max-h-[100dvh]"
+      className="relative flex flex-col items-center bg-gradient-to-br from-slate-50 via-indigo-50/40 to-sky-50/55 dark:from-[#070a12] dark:via-[#0b1020] dark:to-[#0a1322] selection:bg-indigo-500/30 transition-colors overflow-y-auto overflow-x-hidden min-h-[100dvh] max-h-[100dvh]"
       style={{
         paddingTop: "var(--safe-area-top)",
         paddingBottom: `calc(var(--safe-area-bottom) + ${keyboardHeight}px)`,
       }}
     >
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-purple-500/5 via-transparent to-transparent rounded-full blur-3xl" />
+      {/* NOWEN Deep Space / Solar Clarity 极光氛围层（移动端静态轻量） */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div className="absolute -top-40 -left-32 h-[28rem] w-[28rem] rounded-full bg-indigo-400/18 blur-3xl dark:bg-indigo-500/22 md:h-[36rem] md:w-[36rem]" />
+        <div className="absolute -bottom-44 -right-28 h-[26rem] w-[26rem] rounded-full bg-sky-400/16 blur-3xl dark:bg-cyan-500/18 md:h-[34rem] md:w-[34rem]" />
+        <div className="hidden md:block absolute top-1/3 right-1/4 h-72 w-72 rounded-full bg-fuchsia-400/10 blur-3xl dark:bg-violet-500/14" />
       </div>
 
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-        className={`relative w-full max-w-[420px] mx-4 py-6 flex-shrink-0 ${keyboardHeight > 0 ? "mt-auto" : "my-auto"}`}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        className={`relative w-full max-w-[436px] px-4 py-6 flex-shrink-0 ${keyboardHeight > 0 ? "mt-auto" : "my-auto"}`}
       >
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl dark:shadow-2xl dark:shadow-black/20 p-8">
+        <div className="relative overflow-hidden rounded-[28px] border border-white/75 bg-white/82 p-7 sm:p-8 shadow-[0_24px_64px_-20px_rgba(15,23,42,0.16),0_2px_6px_rgba(15,23,42,0.04)] backdrop-blur-2xl dark:border-white/[0.09] dark:bg-zinc-900/76 dark:shadow-[0_28px_72px_-16px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.06)]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/60 via-50% to-transparent opacity-90"
+          />
+
           <div className="text-center mb-6">
             <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
+              initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.4 }}
-              className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 mb-4"
+              whileHover={{ y: -2, rotate: -4, scale: 1.04 }}
+              whileTap={{ scale: 0.94, rotate: 3 }}
+              transition={{ type: "spring", stiffness: 360, damping: 22 }}
+              className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/18 via-sky-500/12 to-violet-500/20 text-indigo-600 ring-1 ring-inset ring-indigo-500/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_3px_0_rgba(15,23,42,0.09),0_10px_22px_-8px_rgba(99,102,241,0.32)] dark:from-indigo-400/22 dark:via-sky-400/14 dark:to-violet-400/22 dark:text-indigo-300 dark:ring-indigo-400/30 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_3px_0_rgba(0,0,0,0.5),0_10px_24px_-8px_rgba(99,102,241,0.42)]"
             >
-              <BookOpen size={24} className="text-indigo-600 dark:text-indigo-400" />
+              <BookOpen size={26} />
             </motion.div>
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+            <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
               {isTwoFactorStep ? t("auth.twoFactor.title") : siteConfig.title || t("auth.appTitle")}
             </h1>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1.5">
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
               {isTwoFactorStep
                 ? t("auth.twoFactor.prompt", { username: twoFactorUsername || username.trim() })
                 : isRegister ? t("auth.registerSubtitle") : isClientMode ? t("auth.subtitleClient") : t("auth.subtitle")}
@@ -715,12 +726,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           )}
 
           {!isTwoFactorStep && (
-          <div className="flex items-center gap-1 p-1 mb-5 rounded-lg bg-zinc-100 dark:bg-zinc-800">
+          <div className="relative mb-5 grid grid-cols-2 gap-1 rounded-2xl border border-zinc-200/70 bg-zinc-100/80 p-1 shadow-inner shadow-black/[0.03] dark:border-white/[0.07] dark:bg-black/30">
             <button
               type="button"
               onClick={() => switchMode("login")}
-              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "login" ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"}`}
+              className={`relative z-10 rounded-xl py-2 text-xs font-semibold transition-colors ${mode === "login" ? "text-indigo-600 dark:text-indigo-300" : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
             >
+              {mode === "login" && (
+                <motion.span
+                  layoutId="login-mode-pill"
+                  transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                  className="pointer-events-none absolute inset-0 -z-10 rounded-xl bg-white shadow-[0_2px_0_rgba(15,23,42,0.06),0_6px_14px_-4px_rgba(99,102,241,0.22)] ring-1 ring-black/[0.04] dark:bg-zinc-800/95 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_0_rgba(0,0,0,0.45)] dark:ring-white/[0.06]"
+                />
+              )}
               {t("auth.loginTab")}
             </button>
             <button
@@ -728,8 +746,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               onClick={() => switchMode("register")}
               disabled={!allowRegistration}
               title={!allowRegistration ? t("auth.registerDisabled") : undefined}
-              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "register" ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed"}`}
+              className={`relative z-10 rounded-xl py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${mode === "register" ? "text-indigo-600 dark:text-indigo-300" : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"}`}
             >
+              {mode === "register" && (
+                <motion.span
+                  layoutId="login-mode-pill"
+                  transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                  className="pointer-events-none absolute inset-0 -z-10 rounded-xl bg-white shadow-[0_2px_0_rgba(15,23,42,0.06),0_6px_14px_-4px_rgba(99,102,241,0.22)] ring-1 ring-black/[0.04] dark:bg-zinc-800/95 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_0_rgba(0,0,0,0.45)] dark:ring-white/[0.06]"
+                />
+              )}
               {t("auth.registerTab")}
             </button>
           </div>
@@ -742,13 +767,13 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mb-5 overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50/70 p-3.5 dark:border-indigo-500/25 dark:bg-indigo-500/10"
+                className="mb-5 overflow-hidden rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/85 via-white/70 to-sky-50/70 p-4 shadow-sm dark:border-indigo-400/25 dark:from-indigo-500/14 dark:via-zinc-900/50 dark:to-sky-500/10"
               >
                 <div className="mb-2.5">
-                  <p className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{t("auth.localDesktopLogin.title")}</p>
-                  <p className="mt-0.5 text-[11px] leading-4 text-indigo-600/80 dark:text-indigo-300/70">{t("auth.localDesktopLogin.description")}</p>
+                  <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">{t("auth.localDesktopLogin.title")}</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-indigo-700/80 dark:text-indigo-300/75">{t("auth.localDesktopLogin.description")}</p>
                 </div>
-                <dl className="space-y-1.5 text-xs">
+                <dl className="space-y-1.5 rounded-xl bg-white/75 p-2.5 text-xs ring-1 ring-indigo-500/10 dark:bg-black/25 dark:ring-white/[0.06]">
                   <div className="flex gap-2">
                     <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.address")}</dt>
                     <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.serverUrl}</dd>
@@ -769,7 +794,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                 <button
                   type="button"
                   onClick={fillLocalLoginHint}
-                  className="mt-3 w-full rounded-lg border border-indigo-200 bg-white/80 px-3 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-white dark:border-indigo-500/30 dark:bg-indigo-950/30 dark:text-indigo-200 dark:hover:bg-indigo-950/50"
+                  className="mt-3 w-full rounded-xl border border-indigo-200/90 bg-white/90 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm transition-all hover:-translate-y-[1px] hover:bg-white hover:shadow active:translate-y-[0.5px] dark:border-indigo-400/30 dark:bg-indigo-950/45 dark:text-indigo-200 dark:hover:bg-indigo-950/65"
                 >
                   {t("auth.localDesktopLogin.fillButton")}
                 </button>
@@ -781,14 +806,14 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             {isTwoFactorStep ? (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.twoFactor.codeLabel")}</label>
+                  <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.twoFactor.codeLabel")}</label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                     <input
                       type="text"
                       value={twoFactorCode}
                       onChange={(e) => setTwoFactorCode(e.target.value)}
-                      className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                      className={`${inputClass} pl-10 pr-3 font-mono tracking-wider`}
                       placeholder="123456 / xxxxx-xxxxx"
                       autoComplete="one-time-code"
                       inputMode="numeric"
@@ -803,7 +828,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                 <button
                   type="submit"
                   disabled={submitDisabled}
-                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
+                  className="w-full flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_20px_-6px_rgba(99,102,241,0.5)] transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_12px_24px_-6px_rgba(99,102,241,0.58)] active:translate-y-[0.5px] active:scale-[0.985] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-50"
                 >
                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t("auth.twoFactor.verifyButton")}
                 </button>
@@ -811,7 +836,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                 <button
                   type="button"
                   onClick={backToPasswordLogin}
-                  className="w-full text-xs text-zinc-500 hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400 transition-colors"
+                  className="w-full rounded-xl py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-300"
                 >
                   {t("auth.twoFactor.backToLogin")}
                 </button>
@@ -821,7 +846,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <AnimatePresence>
               {isClientMode && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.serverAddress")}</label>
+                  <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.serverAddress")}</label>
                   <ServerAddressInput
                     value={serverParts}
                     onChange={(next) => {
@@ -840,14 +865,14 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </AnimatePresence>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.username")}</label>
+              <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.username")}</label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                  className={`${inputClass} pl-10 pr-3`}
                   placeholder="admin"
                   autoComplete="username"
                   required
@@ -859,26 +884,26 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               {isRegister && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-4 overflow-hidden">
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.emailOptional")}</label>
+                    <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.emailOptional")}</label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                       <input
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="block w-full pl-10 pr-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                        className={`${inputClass} pl-10 pr-3`}
                         placeholder="you@example.com"
                         autoComplete="email"
                       />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.displayNameOptional")}</label>
+                    <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.displayNameOptional")}</label>
                     <input
                       type="text"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      className="block w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                      className={`${inputClass} px-3.5`}
                       placeholder={t("auth.displayNamePlaceholder")}
                     />
                   </div>
@@ -887,19 +912,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </AnimatePresence>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.password")}</label>
+              <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.password")}</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-10 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                  className={`${inputClass} pl-10 pr-10`}
                   placeholder="••••••••"
                   autoComplete={isRegister ? "new-password" : "current-password"}
                   required
                 />
-                <button type="button" onClick={() => setShowPassword((v) => !v)} tabIndex={-1} className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors">
+                <button type="button" onClick={() => setShowPassword((v) => !v)} tabIndex={-1} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors">
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
@@ -908,19 +933,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <AnimatePresence>
               {isRegister && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5 overflow-hidden">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.confirmPassword")}</label>
+                  <label className="text-xs font-semibold tracking-wide text-zinc-600 dark:text-zinc-300">{t("auth.confirmPassword")}</label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
                     <input
                       type={showConfirmPassword ? "text" : "password"}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="block w-full pl-10 pr-10 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50/50 dark:bg-zinc-800/50 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 text-sm"
+                      className={`${inputClass} pl-10 pr-10`}
                       placeholder="••••••••"
                       autoComplete="new-password"
                       required
                     />
-                    <button type="button" onClick={() => setShowConfirmPassword((v) => !v)} tabIndex={-1} className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors">
+                    <button type="button" onClick={() => setShowConfirmPassword((v) => !v)} tabIndex={-1} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors">
                       {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -943,7 +968,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             {failureNotice}
 
             {isAuthorizingUgreen && (
-              <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <div className="flex items-center gap-2 rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3.5 py-2.5 text-xs font-medium text-indigo-700 dark:border-indigo-400/25 dark:bg-indigo-500/12 dark:text-indigo-300">
                 <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                 <span>{t("auth.ugreenAccess.waiting")}</span>
               </div>
@@ -951,7 +976,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <button
               type="submit"
               disabled={submitDisabled}
-              className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow-md"
+              className="w-full flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_8px_20px_-6px_rgba(99,102,241,0.5)] transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_12px_24px_-6px_rgba(99,102,241,0.58)] active:translate-y-[0.5px] active:scale-[0.985] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-50"
             >
               {isLoading && !isRegister && !isAuthorizingUgreen
                 ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t("auth.signingIn")}</>
@@ -969,11 +994,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           </form>
 
           {!isTwoFactorStep && onContinueLocal && (
-            <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+            <div className="mt-5 border-t border-zinc-200/70 pt-4 dark:border-white/[0.08]">
               <button
                 type="button"
                 onClick={onContinueLocal}
-                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+                className="w-full rounded-xl border border-zinc-200/85 bg-white/80 px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition-all hover:-translate-y-[1px] hover:border-indigo-300 hover:text-indigo-600 hover:shadow active:translate-y-[0.5px] dark:border-white/[0.1] dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:border-indigo-400/50 dark:hover:text-indigo-300"
               >
                 {t("auth.continueLocal")}
               </button>
@@ -983,17 +1008,17 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </div>
           )}
 
-          {!isTwoFactorStep && !serviceUnavailable && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
+          {!isTwoFactorStep && !serviceUnavailable && <p className="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-500">
             {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}
           </p>}
 
           {!isTwoFactorStep && !allowRegistration && !isRegister && (
-            <p className="text-center text-[11px] text-zinc-400 dark:text-zinc-600 mt-1.5">{t("auth.registerClosed")}</p>
+            <p className="mt-1.5 text-center text-[11px] text-zinc-400 dark:text-zinc-500">{t("auth.registerClosed")}</p>
           )}
 
           {!isTwoFactorStep && isClientMode && getServerUrl() && (
             <div className="mt-3 flex justify-center">
-              <button type="button" onClick={handleDisconnect} className="text-xs text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 transition-colors">
+              <button type="button" onClick={handleDisconnect} className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-rose-500/8 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400">
                 {t("auth.resetServer")}
               </button>
             </div>
@@ -1001,7 +1026,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         </div>
 
         {isClientMode && (
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="text-center text-[11px] text-zinc-400 dark:text-zinc-600 mt-4 px-4">
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }} className="mt-4 px-4 text-center text-[11px] text-zinc-500/80 dark:text-zinc-500">
             {t("auth.clientNote")}
           </motion.p>
         )}
@@ -1011,7 +1036,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             href="https://beian.miit.gov.cn/"
             target="_blank"
             rel="noopener noreferrer"
-            className="block mt-4 text-center text-[11px] text-zinc-400 dark:text-zinc-600 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
+            className="mt-4 block text-center text-[11px] text-zinc-400 transition-colors hover:text-indigo-500 dark:text-zinc-500 dark:hover:text-indigo-400"
           >
             {icpBeianText}
           </a>

@@ -451,34 +451,36 @@ export default function DailyJournalView({
 
   if (loading) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-app-bg">
-        <Loader2 size={24} className="animate-spin text-accent-primary" />
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-gradient-to-br from-app-bg via-app-bg to-indigo-500/[0.04]">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-app-border/75 bg-app-surface/85 shadow-sm backdrop-blur-md">
+          <Loader2 size={22} className="animate-spin text-accent-primary" />
+        </div>
       </div>
     );
   }
 
   return (
     <>
-    <div className="min-h-0 min-w-0 flex-1 overflow-auto bg-app-bg">
-      <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-4 px-3 py-3 sm:gap-5 sm:px-4 sm:py-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-6">
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto bg-gradient-to-br from-app-bg via-app-bg to-indigo-500/[0.03] dark:to-indigo-500/[0.06]">
+      <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-4 px-3 py-4 sm:gap-5 sm:px-5 sm:py-6 xl:grid-cols-[minmax(0,1fr)_328px] xl:px-6">
         <main className="min-w-0 space-y-5">
           {activeWorkspaceId && (
             <div
               data-journal-scope-switch=""
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-app-border/75 bg-app-surface/85 px-4 py-3 shadow-sm backdrop-blur-md"
             >
               <div>
-                <div className="text-xs font-semibold text-tx-primary">日记作用域</div>
+                <div className="text-xs font-bold text-tx-primary">日记作用域</div>
                 <div className="mt-0.5 text-[11px] text-tx-tertiary">个人沉淀与工作区协作互不覆盖</div>
               </div>
-              <div className="flex rounded-lg bg-app-hover/70 p-1">
+              <div className="flex rounded-xl border border-app-border/65 bg-app-hover/70 p-1">
                 <button
                   type="button"
                   onClick={() => onJournalScopeChange(resolveJournalScope("personal"))}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium",
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
                     journalScope.kind === "personal"
-                      ? "bg-app-surface text-accent-primary shadow-sm"
+                      ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-accent-primary/20"
                       : "text-tx-tertiary hover:text-tx-primary",
                   )}
                 >
@@ -488,9 +490,9 @@ export default function DailyJournalView({
                   type="button"
                   onClick={() => onJournalScopeChange(resolveJournalScope(activeWorkspaceId))}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-xs font-medium",
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
                     journalScope.kind === "workspace"
-                      ? "bg-app-surface text-accent-primary shadow-sm"
+                      ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-accent-primary/20"
                       : "text-tx-tertiary hover:text-tx-primary",
                   )}
                 >
@@ -499,25 +501,25 @@ export default function DailyJournalView({
               </div>
             </div>
           )}
-          <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface p-1.5">
+          <div className="flex items-center gap-2 rounded-2xl border border-app-border/75 bg-app-surface/85 p-1.5 shadow-sm backdrop-blur-md">
             <button
               type="button"
               onClick={() => onDateChange(shiftLocalDateKey(selectedDate, -1))}
-              className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs text-tx-secondary hover:bg-app-hover"
+              className="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-medium text-tx-secondary transition-all hover:bg-app-hover hover:text-tx-primary active:scale-95"
             >
               <ArrowLeft size={13} /> 前一天
             </button>
             <button
               type="button"
               onClick={() => onDateChange(today)}
-              className="mx-auto rounded-lg px-4 py-2 text-xs font-medium text-tx-primary hover:bg-app-hover"
+              className="mx-auto rounded-xl bg-accent-primary/10 px-4 py-1.5 text-xs font-semibold text-accent-primary ring-1 ring-inset ring-accent-primary/20 transition-all hover:bg-accent-primary/18 active:scale-95"
             >
               今天
             </button>
             <button
               type="button"
               onClick={() => onDateChange(shiftLocalDateKey(selectedDate, 1))}
-              className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs text-tx-secondary hover:bg-app-hover"
+              className="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-medium text-tx-secondary transition-all hover:bg-app-hover hover:text-tx-primary active:scale-95"
             >
               后一天 <ArrowRight size={13} />
             </button>
@@ -527,16 +529,16 @@ export default function DailyJournalView({
             <div className="mb-3 flex items-center gap-2">
               <h2 className="min-w-0 flex-1 text-lg font-bold tracking-tight text-tx-primary sm:text-2xl">
                 {heading.split(" ").map((part, index) => <React.Fragment key={index}>{index > 0 && " "}<span className="inline-block whitespace-nowrap">{part}</span></React.Fragment>)}
-                {isToday && <span className="ml-2 inline-block rounded-full bg-accent-primary/10 px-2 py-0.5 align-middle text-xs font-medium text-accent-primary">今天</span>}
+                {isToday && <span className="ml-2 inline-block rounded-full bg-gradient-to-r from-indigo-500/15 to-violet-500/15 px-2.5 py-0.5 align-middle text-xs font-semibold text-accent-primary ring-1 ring-inset ring-accent-primary/20">今天</span>}
               </h2>
-              <div data-daily-journal-actions="" className="flex shrink-0 items-center gap-2">
+              <div data-daily-journal-actions="" className="flex shrink-0 items-center gap-1.5">
                 {journalScope.kind === "personal" && (
                   <>
                 <button
                   type="button"
                   onClick={() => void organizeArchive()}
                   disabled={organizingArchive}
-                  className="ml-auto flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
+                  className="ml-auto flex items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface/85 px-2.5 py-1.5 text-xs font-medium text-tx-secondary shadow-sm transition-all hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-tx-primary disabled:opacity-60"
                   title="将已有日记整理到个人日记 / 年 / 月目录"
                 >
                   {organizingArchive ? <Loader2 size={14} className="animate-spin" /> : <FolderTree size={14} />}
@@ -549,7 +551,7 @@ export default function DailyJournalView({
                   type="button"
                   onClick={() => void cleanupLegacyArchive()}
                   disabled={cleaningArchive || organizingArchive}
-                  className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-60"
+                  className="flex items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-surface/85 px-2.5 py-1.5 text-xs font-medium text-tx-secondary shadow-sm transition-all hover:-translate-y-[1px] hover:border-accent-primary/40 hover:text-tx-primary disabled:opacity-60"
                   title="预览并安全清理迁移后遗留的空旧目录"
                 >
                   {cleaningArchive ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
@@ -561,7 +563,7 @@ export default function DailyJournalView({
                     type="button"
                     onClick={() => void restoreLegacyArchiveCleanup()}
                     disabled={restoringCleanup}
-                    className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/10 disabled:opacity-60"
+                    className="flex items-center gap-1.5 rounded-xl border border-accent-primary/30 bg-accent-primary/10 px-2.5 py-1.5 text-xs font-semibold text-accent-primary shadow-sm transition-all hover:bg-accent-primary/18 disabled:opacity-60"
                     title="撤销上一次旧目录清理"
                   >
                     {restoringCleanup ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
@@ -571,7 +573,7 @@ export default function DailyJournalView({
                 <button
                   type="button"
                   onClick={() => setReloadToken((value) => value + 1)}
-                  className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                  className="rounded-xl border border-app-border/75 bg-app-surface/85 p-2 text-tx-tertiary shadow-sm transition-all hover:border-accent-primary/40 hover:text-tx-primary active:scale-95"
                   title="刷新"
                 >
                   <RefreshCw size={15} />
@@ -579,11 +581,13 @@ export default function DailyJournalView({
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
-              <div className="flex items-center justify-between border-b border-app-border px-3 py-3 sm:px-5">
+            <div className="overflow-hidden rounded-[24px] border border-app-border/75 bg-app-surface/88 shadow-[0_12px_36px_-22px_rgba(15,23,42,0.16)] backdrop-blur-md dark:shadow-[0_16px_42px_-22px_rgba(0,0,0,0.6)]">
+              <div className="flex items-center justify-between border-b border-app-border/70 px-4 py-3.5 sm:px-5">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
-                    <BookOpen size={16} className="text-accent-primary" />
+                  <div className="flex items-center gap-2 text-sm font-bold text-tx-primary">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-500/12 text-accent-primary ring-1 ring-inset ring-accent-primary/20">
+                      <BookOpen size={14} />
+                    </span>
                     {isToday ? "今日日记" : "日期日记"}
                   </div>
                   <div className="mt-1 truncate text-[10px] text-tx-tertiary">
@@ -595,7 +599,7 @@ export default function DailyJournalView({
                     <button
                       type="button"
                       onClick={() => setShareOpen(true)}
-                      className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                      className="flex items-center gap-1.5 rounded-xl border border-app-border/80 bg-app-bg/80 px-2.5 py-1.5 text-xs font-medium text-tx-secondary shadow-sm transition-all hover:border-accent-primary/40 hover:text-tx-primary"
                       title="分享这篇日记"
                     >
                       <Share2 size={13} />
@@ -605,7 +609,7 @@ export default function DailyJournalView({
                       type="button"
                       onClick={() => void createOrOpenJournal()}
                       disabled={creating}
-                      className="rounded-lg bg-accent-primary/10 px-3 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/15 disabled:opacity-60"
+                      className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-500/25 transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 active:translate-y-[0.5px] disabled:opacity-60"
                     >
                       打开编辑
                     </button>
@@ -614,9 +618,9 @@ export default function DailyJournalView({
               </div>
               {journal ? (
                 <div className="min-h-[190px]">
-                  <div className="border-b border-app-border/70 px-5 py-3">
+                  <div className="border-b border-app-border/65 px-5 py-3.5">
                     <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <label htmlFor="journal-subtitle" className="text-[11px] font-medium text-tx-secondary">
+                      <label htmlFor="journal-subtitle" className="text-[11px] font-semibold text-tx-secondary">
                         副标题
                       </label>
                       {subtitleSaving && (
@@ -639,7 +643,7 @@ export default function DailyJournalView({
                         }}
                         maxLength={200}
                         placeholder="给这一天写个副标题…"
-                        className="h-9 w-full rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary outline-none placeholder:text-tx-tertiary/70 focus:border-accent-primary/60"
+                        className="h-9 w-full rounded-xl border border-app-border/80 bg-app-bg/85 px-3.5 text-sm text-tx-primary outline-none placeholder:text-tx-tertiary/70 transition-all focus:border-accent-primary/60 focus:ring-4 focus:ring-accent-primary/12"
                       />
                     ) : (
                       <p className="text-sm text-tx-secondary">
@@ -658,28 +662,32 @@ export default function DailyJournalView({
                       type="button"
                       onClick={() => void createOrOpenJournal()}
                       disabled={creating}
-                      className="flex min-h-[150px] w-full flex-col items-center justify-center px-5 py-5 text-center hover:bg-app-hover/20 disabled:opacity-70"
+                      className="flex min-h-[150px] w-full flex-col items-center justify-center px-5 py-6 text-center transition-colors hover:bg-app-hover/25 disabled:opacity-70"
                     >
-                      <Sparkles size={24} className="mb-2 text-accent-primary/60" />
-                      <p className="text-sm text-tx-secondary">这一天还没有正文</p>
+                      <span className="mb-2.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/12 text-accent-primary ring-1 ring-indigo-500/20">
+                        <Sparkles size={20} />
+                      </span>
+                      <p className="text-sm font-semibold text-tx-secondary">这一天还没有正文</p>
                       <p className="mt-1 text-xs text-tx-tertiary">点击开始记录或整理当天的瞬间</p>
                     </button>
                   )}
-                  <div className="flex items-center gap-2 border-t border-app-border/70 px-5 py-3 text-[11px] text-tx-tertiary">
+                  <div className="flex items-center gap-2 border-t border-app-border/65 px-5 py-3 text-[11px] text-tx-tertiary">
                     <Clock3 size={12} />
                     <span>{journal.updatedAt ? `更新于 ${formatAppDateTime(journal.updatedAt)}` : ""}</span>
                   </div>
                 </div>
               ) : (
-                <div className="flex min-h-[190px] flex-col items-center justify-center px-5 py-8 text-center">
-                  <BookOpen size={30} className="mb-3 text-tx-tertiary/50" />
-                  <p className="text-sm font-medium text-tx-primary">这一天还没有日记页面</p>
+                <div className="flex min-h-[210px] flex-col items-center justify-center px-5 py-8 text-center">
+                  <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/12 text-accent-primary ring-1 ring-indigo-500/20">
+                    <BookOpen size={24} />
+                  </span>
+                  <p className="text-sm font-bold text-tx-primary">这一天还没有日记页面</p>
                   <p className="mt-1 text-xs text-tx-tertiary">创建后可写长文、建立双链并添加子页面</p>
                   <button
                     type="button"
                     onClick={() => void createOrOpenJournal()}
                     disabled={creating || !journalCanWrite}
-                    className="mt-4 flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white disabled:opacity-60"
+                    className="mt-4 flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition-all hover:-translate-y-[1px] hover:from-indigo-500 hover:to-violet-500 active:translate-y-[0.5px] disabled:opacity-60"
                   >
                     {creating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
                     {journalCanWrite ? "创建该日日记" : "当前角色只能查看"}
@@ -690,26 +698,28 @@ export default function DailyJournalView({
           </section>
 
           <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
+            <div className="mb-2.5 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-tx-primary">
                 <MessageCircle size={16} className="text-violet-500" /> 当天瞬间
               </h3>
-              <button type="button" onClick={onWriteMoment} className="text-xs font-medium text-accent-primary hover:underline">记录瞬间</button>
+              <button type="button" onClick={onWriteMoment} className="rounded-lg px-2 py-1 text-xs font-semibold text-accent-primary transition-colors hover:bg-accent-primary/10">记录瞬间</button>
             </div>
-            <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
+            <div className="overflow-hidden rounded-[22px] border border-app-border/75 bg-app-surface/85 shadow-sm backdrop-blur-md">
               {moments.length === 0 ? (
-                <button type="button" onClick={onWriteMoment} className="flex w-full flex-col items-center justify-center px-5 py-10 text-center hover:bg-app-hover/20">
-                  <MessageCircle size={24} className="mb-2 text-tx-tertiary/50" />
-                  <span className="text-sm text-tx-secondary">当天还没有瞬间记录</span>
+                <button type="button" onClick={onWriteMoment} className="flex w-full flex-col items-center justify-center px-5 py-10 text-center transition-colors hover:bg-app-hover/25">
+                  <span className="mb-2.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-500/12 text-violet-500 ring-1 ring-violet-500/20">
+                    <MessageCircle size={20} />
+                  </span>
+                  <span className="text-sm font-medium text-tx-secondary">当天还没有瞬间记录</span>
                   <span className="mt-1 text-xs text-tx-tertiary">快速记下一句话、心情或图片</span>
                 </button>
               ) : moments.map((item, index) => (
-                <div key={item.id} className={cn("flex items-start gap-3 px-5 py-3.5", index > 0 && "border-t border-app-border")}>
-                  <span className="w-12 shrink-0 pt-0.5 text-xs tabular-nums text-tx-tertiary">{formatMomentTime(item.createdAt)}</span>
+                <div key={item.id} className={cn("flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-app-hover/35", index > 0 && "border-t border-app-border/65")}>
+                  <span className="w-12 shrink-0 pt-0.5 font-mono text-xs tabular-nums text-tx-tertiary">{formatMomentTime(item.createdAt)}</span>
                   <span className="text-base">{moodEmoji(item.mood)}</span>
                   <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-6 text-tx-secondary">{item.contentText || "媒体记录"}</p>
                   {(item.media?.length || item.images?.length) ? (
-                    <span className="rounded-full bg-app-hover px-2 py-0.5 text-[10px] text-tx-tertiary">含媒体</span>
+                    <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-medium text-indigo-600 dark:text-indigo-300">含媒体</span>
                   ) : null}
                 </div>
               ))}
@@ -717,10 +727,10 @@ export default function DailyJournalView({
           </section>
 
           <section>
-            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-tx-primary">
+            <h3 className="mb-2.5 flex items-center gap-2 text-sm font-bold text-tx-primary">
               <Link2 size={16} className="text-accent-primary" /> 关联页面 / 反向链接
             </h3>
-            <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
+            <div className="overflow-hidden rounded-[22px] border border-app-border/75 bg-app-surface/85 shadow-sm backdrop-blur-md">
               {!journal || backlinks.length === 0 ? (
                 <div className="px-5 py-9 text-center text-xs text-tx-tertiary">
                   其他笔记链接到这一天后，会自动聚合在这里
@@ -730,11 +740,13 @@ export default function DailyJournalView({
                   key={`${item.sourceNoteId}-${item.sourceBlockId || index}`}
                   type="button"
                   onClick={() => void openLinkedNote(item.sourceNoteId)}
-                  className={cn("flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-app-hover", index > 0 && "border-t border-app-border")}
+                  className={cn("flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-app-hover/60", index > 0 && "border-t border-app-border/65")}
                 >
-                  <FileText size={15} className="shrink-0 text-accent-primary" />
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 text-accent-primary ring-1 ring-inset ring-accent-primary/20">
+                    <FileText size={14} />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-tx-primary">{item.title || "无标题笔记"}</div>
+                    <div className="truncate text-sm font-semibold text-tx-primary">{item.title || "无标题笔记"}</div>
                     <div className="mt-0.5 truncate text-[11px] text-tx-tertiary">{item.excerpt || item.linkText || "引用了该日日记"}</div>
                   </div>
                 </button>
@@ -745,9 +757,9 @@ export default function DailyJournalView({
 
         <aside className="space-y-4">
           {journalScope.kind === "personal" && (
-            <section className="rounded-2xl border border-app-border bg-app-surface p-4">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-tx-primary">
-                <BookOpen size={16} className="text-accent-primary" /> 日记档案
+            <section className="rounded-[22px] border border-app-border/75 bg-app-surface/85 p-4 shadow-sm backdrop-blur-md">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-tx-primary">
+                <BookOpen size={15} className="text-accent-primary" /> 日记档案
               </h3>
               <JournalArchive
                 selectedDate={selectedDate}
@@ -757,17 +769,17 @@ export default function DailyJournalView({
             </section>
           )}
 
-          <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+          <section className="rounded-[22px] border border-app-border/75 bg-app-surface/85 p-4 shadow-sm backdrop-blur-md">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-tx-primary"><CalendarDays size={16} className="text-accent-primary" /> 日历</h3>
+              <h3 className="flex items-center gap-2 text-sm font-bold text-tx-primary"><CalendarDays size={15} className="text-accent-primary" /> 日历</h3>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => onDateChange(shiftLocalMonthKey(selectedDate, -1))} className="rounded p-1 text-tx-tertiary hover:bg-app-hover"><ChevronLeft size={14} /></button>
-                <button type="button" onClick={() => onDateChange(shiftLocalMonthKey(selectedDate, 1))} className="rounded p-1 text-tx-tertiary hover:bg-app-hover"><ChevronRight size={14} /></button>
+                <button type="button" onClick={() => onDateChange(shiftLocalMonthKey(selectedDate, -1))} className="rounded-lg p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"><ChevronLeft size={14} /></button>
+                <button type="button" onClick={() => onDateChange(shiftLocalMonthKey(selectedDate, 1))} className="rounded-lg p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"><ChevronRight size={14} /></button>
               </div>
             </div>
-            <div className="mb-3 text-sm font-medium text-tx-primary">{monthLabel}</div>
+            <div className="mb-3 text-sm font-semibold text-tx-primary">{monthLabel}</div>
             <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-tx-tertiary">
-              {['一','二','三','四','五','六','日'].map((day) => <span key={day} className="py-1">{day}</span>)}
+              {['一','二','三','四','五','六','日'].map((day) => <span key={day} className="py-1 font-semibold">{day}</span>)}
               {calendarDays.map((day) => {
                 const date = parseLocalDateKey(day.key);
                 const active = day.key === selectedDate;
@@ -777,8 +789,8 @@ export default function DailyJournalView({
                     type="button"
                     onClick={() => onDateChange(day.key)}
                     className={cn(
-                      "aspect-square rounded-lg text-[11px] transition-colors",
-                      active ? "bg-accent-primary text-white" : day.currentMonth ? "text-tx-secondary hover:bg-app-hover" : "text-tx-tertiary/40 hover:bg-app-hover",
+                      "aspect-square rounded-xl text-[11px] font-medium transition-all",
+                      active ? "bg-gradient-to-br from-indigo-600 to-violet-600 text-white font-bold shadow-sm shadow-indigo-500/30" : day.currentMonth ? "text-tx-secondary hover:bg-app-hover" : "text-tx-tertiary/40 hover:bg-app-hover",
                     )}
                   >
                     {date.getDate()}
@@ -788,28 +800,28 @@ export default function DailyJournalView({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-app-border bg-app-surface p-4">
-            <h3 className="mb-3 text-sm font-semibold text-tx-primary">当天概览</h3>
-            <div className="grid grid-cols-2 gap-2">
+          <section className="rounded-[22px] border border-app-border/75 bg-app-surface/85 p-4 shadow-sm backdrop-blur-md">
+            <h3 className="mb-3 text-sm font-bold text-tx-primary">当天概览</h3>
+            <div className="grid grid-cols-2 gap-2.5">
               {[
-                { icon: <MessageCircle size={15} />, value: moments.length, label: "瞬间记录" },
-                { icon: <BookOpen size={15} />, value: preview.length, label: "日记字数" },
-                { icon: <Link2 size={15} />, value: backlinks.length, label: "关联页面" },
-                { icon: <FileText size={15} />, value: children.length, label: "子页面" },
+                { icon: <MessageCircle size={15} />, value: moments.length, label: "瞬间记录", tone: "bg-violet-500/12 text-violet-600 dark:text-violet-300" },
+                { icon: <BookOpen size={15} />, value: preview.length, label: "日记字数", tone: "bg-indigo-500/12 text-indigo-600 dark:text-indigo-300" },
+                { icon: <Link2 size={15} />, value: backlinks.length, label: "关联页面", tone: "bg-sky-500/12 text-sky-600 dark:text-sky-300" },
+                { icon: <FileText size={15} />, value: children.length, label: "子页面", tone: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300" },
               ].map((item) => (
-                <div key={item.label} className="rounded-xl bg-app-hover/50 p-3">
-                  <div className="text-accent-primary">{item.icon}</div>
-                  <div className="mt-2 text-lg font-semibold tabular-nums text-tx-primary">{item.value}</div>
-                  <div className="text-[10px] text-tx-tertiary">{item.label}</div>
+                <div key={item.label} className="rounded-2xl border border-app-border/65 bg-app-bg/70 p-3 shadow-sm">
+                  <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-xl", item.tone)}>{item.icon}</span>
+                  <div className="mt-2 font-mono text-lg font-bold tabular-nums text-tx-primary">{item.value}</div>
+                  <div className="text-[10px] font-medium text-tx-tertiary">{item.label}</div>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+          <section className="rounded-[22px] border border-app-border/75 bg-app-surface/85 p-4 shadow-sm backdrop-blur-md">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-tx-primary">子页面</h3>
-              <button type="button" onClick={() => void createChildPage()} disabled={creatingChild} className="rounded-lg p-1.5 text-accent-primary hover:bg-accent-primary/10 disabled:opacity-50">
+              <h3 className="text-sm font-bold text-tx-primary">子页面</h3>
+              <button type="button" onClick={() => void createChildPage()} disabled={creatingChild} className="rounded-xl bg-accent-primary/10 p-1.5 text-accent-primary transition-colors hover:bg-accent-primary/20 disabled:opacity-50">
                 {creatingChild ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               </button>
             </div>
@@ -818,14 +830,14 @@ export default function DailyJournalView({
                 type="button"
                 onClick={() => void createChildPage()}
                 disabled={!journalCanWrite}
-                className="w-full rounded-xl border border-dashed border-app-border px-3 py-5 text-xs text-tx-tertiary hover:bg-app-hover disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-2xl border border-dashed border-app-border/80 bg-app-bg/50 px-3 py-5 text-xs text-tx-tertiary transition-colors hover:border-accent-primary/40 hover:bg-app-hover/60 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {journalCanWrite ? "在该日日记下新建工作记录或专题页面" : "当前角色只能查看子页面"}
               </button>
             ) : (
               <div className="space-y-1">
                 {children.slice(0, 8).map((child) => (
-                  <button key={child.id} type="button" onClick={() => void openLinkedNote(child.resourceId)} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary">
+                  <button key={child.id} type="button" onClick={() => void openLinkedNote(child.resourceId)} className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary">
                     <FileText size={13} className="text-accent-primary" />
                     <span className="min-w-0 flex-1 truncate">{child.title}</span>
                   </button>
